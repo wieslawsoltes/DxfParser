@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Optimized DXF Parser – Lazy Load, Virtual Scroll & Enhanced Search (Fixed Search)</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2em;
+    }
+    /* Container for the tree view */
+    #treeView {
+      border: 1px solid #ccc;
+      padding: 4px;
+      max-height: 600px;
+      overflow-y: auto;
+      position: relative;
+    }
+    /* Header row with two columns */
+    .tree-header {
+      display: flex;
+      font-weight: bold;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 4px;
+      margin-bottom: 4px;
+    }
+    .tree-header .tree-code {
+      width: 100px;
+    }
+    .tree-header .tree-data {
+      flex: 1;
+    }
+    /* A row in the tree */
+    .tree-row {
+      display: flex;
+      align-items: center;
+      padding: 2px 0;
+      position: absolute;
+      left: 0;
+      right: 0;
+    }
+    .tree-code {
+      width: 100px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tree-data {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .toggle {
+      display: inline-block;
+      width: 16px;
+      text-align: center;
+      margin-right: 5px;
+      user-select: none;
+      cursor: pointer;
+    }
+    .copy-button {
+      margin-left: 8px;
+      font-size: 0.8em;
+      display: none;
+    }
+    .tree-node:hover .copy-button {
+      display: inline;
+    }
+    /* Controls */
+    .controls {
+      margin: 1em 0;
+    }
+    .controls input[type="text"] {
+      padding: 4px;
+      margin-right: 4px;
+      width: 200px;
+    }
+    .controls label {
+      margin-right: 8px;
+    }
+    .controls button {
+      padding: 4px 8px;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Optimized DXF Parser – Lazy Load, Virtual Scroll & Enhanced Search (Fixed Search)</h1>
+  <p>
+    Select an ASCII DXF file and click <strong>Parse File</strong> to see its structure.
+  </p>
+  <input type="file" id="fileInput" accept=".dxf">
+  <button id="parseBtn">Parse File</button>
+
+  <div class="controls">
+    <input type="text" id="codeSearchInput" placeholder="Search by Code">
+    <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+    <label>
+      <input type="checkbox" id="dataExactCheckbox">
+      Exact Data Match
+    </label>
+    <label>
+      <input type="checkbox" id="dataCaseCheckbox">
+      Case Sensitive
+    </label>
+    <button id="searchBtn">Search</button>
+    <button id="clearSearchBtn">Clear Search</button>
+    <button id="expandAllBtn">Expand All</button>
+    <button id="collapseAllBtn">Collapse All</button>
+  </div>
+
+  <!-- Virtual Scroll Container -->
+  <div id="treeViewContainer" style="position: relative; height: 600px; overflow-y: auto; border: 1px solid #ccc;">
+    <div id="treeViewContent" style="position: relative;"></div>
+  </div>
+
+  <script>
+    /***** GLOBALS *****/
+    const containerMapping = {
+      "SECTION": "ENDSEC",
+      "BLOCK":   "ENDBLK",
+      "TABLE":   "ENDTAB",
+      "OBJECT":  "ENDOBJ",
+      "POLYLINE": "SEQEND"
+    };
+    let nextId = 1;
+    let originalTreeData = []; // The full (unfiltered) DXF tree
+    let currentTreeData = [];  // The tree currently displayed (may be filtered)
+    let flatTreeNodes = [];    // Flat list of visible nodes for virtual scrolling
+    const ITEM_HEIGHT = 24;    // Height per row in pixels
+
+    /***** STEP 1: PARSING (Incremental – use streams in production) *****/
+    function parseDxf(text) {
+      const lines = text.split(/\r?\n/);
+      const tags = [];
+      for (let i = 0; i < lines.length; i++) {
+        const codeLine = lines[i].trim();
+        if (!codeLine) continue;
+        const code = parseInt(codeLine, 10);
+        if (isNaN(code)) continue;
+        let value = "";
+        if (i + 1 < lines.length) {
+          value = lines[i + 1].trim();
+        }
+        i++;
+        tags.push({ code, value });
+      }
+      return tags;
+    }
+
+    /***** STEP 2: GROUP OBJECTS *****/
+    function groupObjects(tags, startIndex, endMarker = null) {
+      const objects = [];
+      let i = startIndex;
+      while (i < tags.length) {
+        if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
+          i++;
+          return { objects, nextIndex: i };
+        }
+        if (tags[i].code !== 0) {
+          i++;
+          continue;
+        }
+        const obj = {
+          id: nextId++,
+          type: tags[i].value,
+          properties: [],
+          children: [],
+          isContainer: containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
+          expanded: false // for lazy rendering
+        };
+        i++;
+        while (i < tags.length && tags[i].code !== 0) {
+          obj.properties.push(tags[i]);
+          i++;
+        }
+        if (obj.isContainer) {
+          const containerEnd = containerMapping[obj.type.toUpperCase()];
+          const result = groupObjects(tags, i, containerEnd);
+          obj.children = result.objects;
+          i = result.nextIndex;
+        }
+        objects.push(obj);
+      }
+      return { objects, nextIndex: i };
+    }
+
+    /***** STEP 3: FLATTEN TREE FOR VIRTUAL SCROLL *****/
+    function flattenTree(nodes, level = 0) {
+      let flatNodes = [];
+      nodes.forEach(node => {
+        flatNodes.push({ node, level });
+        if (node.expanded && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
+          // Add properties as synthetic nodes
+          node.properties.forEach(prop => {
+            flatNodes.push({
+              node: {
+                id: nextId++,
+                type: `${prop.code} - ${prop.value}`,
+                properties: [],
+                children: [],
+                isContainer: false
+              },
+              level: level + 1
+            });
+          });
+          // Then add child objects recursively
+          flatNodes = flatNodes.concat(flattenTree(node.children, level + 1));
+        }
+      });
+      return flatNodes;
+    }
+
+    /***** STEP 4: RENDER VIA VIRTUAL SCROLL *****/
+    const treeViewContainer = document.getElementById("treeViewContainer");
+    const treeViewContent = document.getElementById("treeViewContent");
+
+    function renderVirtualTree(treeData = currentTreeData) {
+      flatTreeNodes = flattenTree(treeData);
+      treeViewContent.style.height = flatTreeNodes.length * ITEM_HEIGHT + "px";
+      updateVisibleNodes();
+    }
+
+    function updateVisibleNodes() {
+      const scrollTop = treeViewContainer.scrollTop;
+      const containerHeight = treeViewContainer.clientHeight;
+      const startIndex = Math.floor(scrollTop / ITEM_HEIGHT);
+      const visibleCount = Math.ceil(containerHeight / ITEM_HEIGHT) + 1;
+      const endIndex = Math.min(startIndex + visibleCount, flatTreeNodes.length);
+      treeViewContent.innerHTML = "";
+      const fragment = document.createDocumentFragment();
+      for (let i = startIndex; i < endIndex; i++) {
+        const { node, level } = flatTreeNodes[i];
+        const row = document.createElement("div");
+        row.className = "tree-row tree-node";
+        row.style.top = (i * ITEM_HEIGHT) + "px";
+        row.style.height = ITEM_HEIGHT + "px";
+        row.style.paddingLeft = (level * 20) + "px";
+        row.dataset.id = node.id;
+
+        const toggleSpan = document.createElement("span");
+        toggleSpan.className = "toggle";
+        if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
+          toggleSpan.textContent = node.expanded ? "▼" : "►";
+        }
+        row.appendChild(toggleSpan);
+
+        const codeDiv = document.createElement("div");
+        codeDiv.className = "tree-code";
+        codeDiv.textContent = (node.properties && node.properties.length) || (node.children && node.children.length) ? "0" : "";
+        row.appendChild(codeDiv);
+
+        const dataDiv = document.createElement("div");
+        dataDiv.className = "tree-data";
+        dataDiv.textContent = node.type;
+        row.appendChild(dataDiv);
+
+        const copyButton = document.createElement("button");
+        copyButton.textContent = "Copy";
+        copyButton.className = "copy-button";
+        copyButton.addEventListener("click", function(e) {
+          e.stopPropagation();
+          copyNode(node.id);
+        });
+        row.appendChild(copyButton);
+        fragment.appendChild(row);
+      }
+      treeViewContent.appendChild(fragment);
+    }
+
+    treeViewContainer.addEventListener("scroll", updateVisibleNodes);
+
+    /***** STEP 5: SEARCH & FILTER *****/
+    function filterObject(obj, codeQuery, dataQuery, dataExact, dataCase) {
+      const searchActive = (codeQuery !== "" || dataQuery !== "");
+      let typeMatchesData = false;
+      if (dataQuery !== "") {
+        if (dataExact) {
+          typeMatchesData = dataCase ? (obj.type === dataQuery)
+                                     : (obj.type.toLowerCase() === dataQuery.toLowerCase());
+        } else {
+          typeMatchesData = dataCase ? obj.type.includes(dataQuery)
+                                     : obj.type.toLowerCase().includes(dataQuery.toLowerCase());
+        }
+      } else {
+        typeMatchesData = true;
+      }
+      const filteredProperties = obj.properties.filter(prop => {
+        let codeMatch = !codeQuery || (String(prop.code) === codeQuery);
+        let dataMatch = true;
+        if (dataQuery) {
+          if (dataExact) {
+            dataMatch = dataCase ? (prop.value === dataQuery)
+                                   : (prop.value.toLowerCase() === dataQuery.toLowerCase());
+          } else {
+            dataMatch = dataCase ? prop.value.includes(dataQuery)
+                                   : prop.value.toLowerCase().includes(dataQuery.toLowerCase());
+          }
+        }
+        return codeMatch && dataMatch;
+      });
+      const filteredChildren = [];
+      obj.children.forEach(child => {
+        const filteredChild = filterObject(child, codeQuery, dataQuery, dataExact, dataCase);
+        if (filteredChild !== null) {
+          filteredChildren.push(filteredChild);
+        }
+      });
+      if (searchActive && obj.isContainer) {
+        if (filteredProperties.length === 0 && filteredChildren.length === 0) {
+          return null;
+        }
+        return {
+          ...obj,
+          properties: filteredProperties,
+          children: filteredChildren
+        };
+      } else {
+        if (typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0) {
+          return {
+            ...obj,
+            properties: filteredProperties,
+            children: filteredChildren
+          };
+        }
+        return null;
+      }
+    }
+
+    function filterTree(objects, codeQuery, dataQuery, dataExact, dataCase) {
+      const filtered = [];
+      objects.forEach(obj => {
+        const filteredObj = filterObject(obj, codeQuery, dataQuery, dataExact, dataCase);
+        if (filteredObj !== null) {
+          filtered.push(filteredObj);
+        }
+      });
+      return filtered;
+    }
+
+    /***** STEP 6: COPY FUNCTIONALITY *****/
+    function findNodeById(tree, id) {
+      for (let obj of tree) {
+        if (obj.id == id) return obj;
+        if (obj.children && obj.children.length) {
+          const result = findNodeById(obj.children, id);
+          if (result) return result;
+        }
+      }
+      return null;
+    }
+
+    function serializeNode(node) {
+      let lines = [];
+      lines.push("0");
+      lines.push(node.type);
+      node.properties.forEach(prop => {
+        lines.push(prop.code.toString());
+        lines.push(prop.value);
+      });
+      if (node.isContainer && node.children && node.children.length) {
+        node.children.forEach(child => {
+          lines.push(serializeNode(child));
+        });
+        const endMarker = containerMapping[node.type.toUpperCase()];
+        if (endMarker) {
+          lines.push("0");
+          lines.push(endMarker);
+        }
+      }
+      return lines.join("\n");
+    }
+
+    function copyNode(id) {
+      const fullNode = findNodeById(originalTreeData, id);
+      if (!fullNode) {
+        alert("Node not found in original data.");
+        return;
+      }
+      const serialized = serializeNode(fullNode);
+      navigator.clipboard.writeText(serialized).then(() => {
+        alert("Copied node tree to clipboard as valid DXF tags.");
+      }, () => {
+        alert("Failed to copy to clipboard.");
+      });
+    }
+
+    /***** STEP 7: EXPAND/COLLAPSE ALL & EVENT DELEGATION *****/
+    // Use event delegation on treeViewContent.
+    treeViewContent.addEventListener("click", function(e) {
+      let target = e.target;
+      if (target.classList.contains("toggle") || target.closest(".tree-row")) {
+        const row = target.closest(".tree-row");
+        if (!row) return;
+        const id = row.dataset.id;
+        const node = findNodeById(originalTreeData, id);
+        if (node) {
+          node.expanded = !node.expanded;
+          // If a search is active, re-run filter; otherwise use the full tree.
+          const codeQuery = document.getElementById("codeSearchInput").value.trim();
+          const dataQuery = document.getElementById("dataSearchInput").value.trim();
+          const dataExact = document.getElementById("dataExactCheckbox").checked;
+          const dataCase = document.getElementById("dataCaseCheckbox").checked;
+          if (codeQuery || dataQuery) {
+            currentTreeData = filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase);
+          } else {
+            currentTreeData = originalTreeData;
+          }
+          renderVirtualTree(currentTreeData);
+        }
+      }
+    });
+
+    function expandAllNodes(nodes) {
+      nodes.forEach(node => {
+        if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
+          node.expanded = true;
+          expandAllNodes(node.children);
+        }
+      });
+    }
+    function collapseAllNodes(nodes) {
+      nodes.forEach(node => {
+        node.expanded = false;
+        collapseAllNodes(node.children);
+      });
+    }
+    document.getElementById("expandAllBtn").addEventListener("click", () => {
+      expandAllNodes(originalTreeData);
+      // Re-run filter if search is active.
+      const codeQuery = document.getElementById("codeSearchInput").value.trim();
+      const dataQuery = document.getElementById("dataSearchInput").value.trim();
+      const dataExact = document.getElementById("dataExactCheckbox").checked;
+      const dataCase = document.getElementById("dataCaseCheckbox").checked;
+      currentTreeData = (codeQuery || dataQuery)
+                        ? filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase)
+                        : originalTreeData;
+      renderVirtualTree(currentTreeData);
+    });
+    document.getElementById("collapseAllBtn").addEventListener("click", () => {
+      collapseAllNodes(originalTreeData);
+      const codeQuery = document.getElementById("codeSearchInput").value.trim();
+      const dataQuery = document.getElementById("dataSearchInput").value.trim();
+      const dataExact = document.getElementById("dataExactCheckbox").checked;
+      const dataCase = document.getElementById("dataCaseCheckbox").checked;
+      currentTreeData = (codeQuery || dataQuery)
+                        ? filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase)
+                        : originalTreeData;
+      renderVirtualTree(currentTreeData);
+    });
+
+    /***** STEP 8: FILE INPUT, SEARCH & CONTROLS (with Debounce) *****/
+    let searchTimeout;
+    document.getElementById("searchBtn").addEventListener("click", function() {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        const codeQuery = document.getElementById("codeSearchInput").value.trim();
+        const dataQuery = document.getElementById("dataSearchInput").value.trim();
+        const dataExact = document.getElementById("dataExactCheckbox").checked;
+        const dataCase = document.getElementById("dataCaseCheckbox").checked;
+        if (!codeQuery && !dataQuery) {
+          currentTreeData = originalTreeData;
+        } else {
+          currentTreeData = filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase);
+        }
+        renderVirtualTree(currentTreeData);
+      }, 300);
+    });
+
+    document.getElementById("clearSearchBtn").addEventListener("click", function() {
+      document.getElementById("codeSearchInput").value = "";
+      document.getElementById("dataSearchInput").value = "";
+      document.getElementById("dataExactCheckbox").checked = false;
+      document.getElementById("dataCaseCheckbox").checked = false;
+      currentTreeData = originalTreeData;
+      renderVirtualTree(currentTreeData);
+    });
+
+    document.getElementById("parseBtn").addEventListener("click", function() {
+      const fileInput = document.getElementById("fileInput");
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert("Please select a DXF file.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const text = event.target.result;
+        const tags = parseDxf(text);
+        const grouped = groupObjects(tags, 0);
+        originalTreeData = grouped.objects;
+        // Initialize currentTreeData with the full tree.
+        currentTreeData = originalTreeData;
+        collapseAllNodes(originalTreeData);
+        renderVirtualTree(currentTreeData);
+      };
+      reader.readAsText(file, "ascii");
+    });
+  </script>
+</body>
+</html>
