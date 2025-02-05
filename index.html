@@ -688,7 +688,6 @@
     // Update the tag container's content (except the input)
     function updateTagContainer(containerId, termsArray) {
       const container = document.getElementById(containerId);
-      // Remove all child tags (but keep the input)
       Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
       termsArray.forEach(term => {
         const tagElem = createTagElement(term, containerId === "codeSearchTags" ? "code" : "data");
@@ -741,7 +740,6 @@
 
     /***** STEP 10: SEARCH & CLEAR BUTTONS *****/
     document.getElementById("searchBtn").addEventListener("click", function() {
-      // If any text remains in the inputs, add them as tags
       const codeInput = document.getElementById("codeSearchInput");
       const dataInput = document.getElementById("dataSearchInput");
       if (codeInput.value.trim() !== "") {
@@ -781,7 +779,7 @@
       renderVirtualTree(currentTreeData);
     });
 
-    /***** STEP 11: FILE INPUT & PARSING *****/
+    /***** STEP 11: FILE INPUT, PARSING & DEFAULT SORT (by Line) *****/
     document.getElementById("parseBtn").addEventListener("click", function() {
       const fileInput = document.getElementById("fileInput");
       if (!fileInput.files || fileInput.files.length === 0) {
@@ -797,6 +795,12 @@
         originalTreeData = grouped.objects;
         currentTreeData = originalTreeData;
         collapseAllNodes(originalTreeData);
+        // *** Default sort by Line (ascending) ***
+        sortTreeNodes(originalTreeData, "line", true);
+        // Update the header for "Line" to indicate sorted ascending by default.
+        const lineHeader = document.querySelector('.tree-line.header-cell');
+        lineHeader.setAttribute('data-sort', 'asc');
+        lineHeader.querySelector('.sort-indicator').textContent = ' ▲';
         renderVirtualTree(currentTreeData);
       };
       reader.readAsText(file, "ascii");
