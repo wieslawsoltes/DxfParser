@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing, Tag Search & Virtual Scroll</title>
+  <title>Optimized DXF Parser – Tree Data Grid with Tabs</title>
   <style>
     /* Ensure the html and body fill the viewport */
     html, body {
@@ -21,6 +21,37 @@
     body {
       font-family: sans-serif;
     }
+    /* ------------------------------
+       Tab container styles
+       ------------------------------ */
+    #tabContainer {
+      display: flex;
+      border-bottom: 1px solid #ccc;
+      margin: 1em 0;
+    }
+    .tab {
+      padding: 0.5em 1em;
+      border: 1px solid #ccc;
+      border-bottom: none;
+      cursor: pointer;
+      margin-right: 2px;
+      position: relative;
+      background: #eee;
+    }
+    .tab.active {
+      background: #fff;
+      font-weight: bold;
+    }
+    .tab .close-tab {
+      position: absolute;
+      top: 0;
+      right: 2px;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+    /* ------------------------------
+       Tree grid and header styles
+       ------------------------------ */
     /* Container for the tree view; will fill remaining space */
     #treeViewContainer {
       position: relative;
@@ -146,11 +177,14 @@
 <body>
   <div class="main-container">
     <h1>Optimized DXF Parser – Tree Data Grid</h1>
-    <p>Select an ASCII DXF file and click <strong>Parse File</strong> to see its structure.</p>
+    <p>Select one or more ASCII DXF files and click <strong>Parse File(s)</strong> to see their structure.</p>
     
-    <!-- File Input -->
-    <input type="file" id="fileInput" accept=".dxf">
-    <button id="parseBtn">Parse File</button>
+    <!-- File Input (allowing multiple files) -->
+    <input type="file" id="fileInput" accept=".dxf" multiple>
+    <button id="parseBtn">Parse File(s)</button>
+
+    <!-- Tab Container (each parsed file appears as a tab) -->
+    <div id="tabContainer"></div>
 
     <!-- Search Controls: tag-style inputs for Code and Data -->
     <div class="controls">
@@ -197,7 +231,59 @@
   </div>
 
   <script>
-    /***** GLOBAL VARIABLES *****/
+    /***** GLOBAL VARIABLES & TAB MANAGEMENT *****/
+    // Instead of one global DXF tree we now have an array of “tabs”
+    let tabs = [];
+    let activeTabId = null; // the id of the active tab
+    const ITEM_HEIGHT = 24;    // Height per row in pixels
+
+    // Column widths remain global.
+    let columnWidths = {
+      line: 100,
+      code: 100,
+      type: null  // Data column is auto until resized
+    };
+
+    // Utility: return the active tab object
+    function getActiveTab() {
+      return tabs.find(tab => tab.id === activeTabId);
+    }
+
+    // Update the Tab UI (create tab elements with close buttons)
+    function updateTabUI() {
+      const tabContainer = document.getElementById("tabContainer");
+      tabContainer.innerHTML = "";
+      tabs.forEach(tab => {
+        const tabElem = document.createElement("div");
+        tabElem.className = "tab" + (tab.id === activeTabId ? " active" : "");
+        tabElem.textContent = tab.name;
+        tabElem.dataset.tabId = tab.id;
+        // Click to activate this tab
+        tabElem.addEventListener("click", function() {
+          activeTabId = tab.id;
+          updateTabUI();
+          renderVirtualTree();
+        });
+        // Add close button
+        const closeBtn = document.createElement("span");
+        closeBtn.className = "close-tab";
+        closeBtn.textContent = "×";
+        closeBtn.addEventListener("click", function(e) {
+          e.stopPropagation();
+          // Remove the tab from the array
+          tabs = tabs.filter(t => t.id !== tab.id);
+          if (activeTabId === tab.id) {
+            activeTabId = tabs.length ? tabs[0].id : null;
+          }
+          updateTabUI();
+          renderVirtualTree();
+        });
+        tabElem.appendChild(closeBtn);
+        tabContainer.appendChild(tabElem);
+      });
+    }
+
+    /***** ORIGINAL FUNCTIONS (unchanged) *****/
     const containerMapping = {
       "SECTION": "ENDSEC",
       "BLOCK":   "ENDBLK",
@@ -206,28 +292,7 @@
       "POLYLINE": "SEQEND"
     };
     let nextId = 1;
-    let originalTreeData = []; // The full (unfiltered) DXF tree
-    let currentTreeData = [];  // The tree currently displayed (may be filtered)
-    let flatTreeNodes = [];    // Flat list of visible nodes for virtual scrolling
-    const ITEM_HEIGHT = 24;    // Height per row in pixels
-
-    // Global column widths (three columns)
-    let columnWidths = {
-      line: 100,
-      code: 100,
-      type: null  // Data column is auto until resized
-    };
-
-    // Global arrays for search tags (for Code and Data)
-    let codeSearchTerms = [];
-    let dataSearchTerms = [];
-
-    // Global variables to track current sort order.
-    // Default sort by "line" ascending.
-    let currentSortField = "line";
-    let currentSortAscending = true;
-
-    /***** STEP 1: PARSING – Store tag’s originating line *****/
+    // Parsing – Store tag’s originating line
     function parseDxf(text) {
       const lines = text.split(/\r?\n/);
       const tags = [];
@@ -247,7 +312,7 @@
       return tags;
     }
 
-    /***** STEP 2: GROUP OBJECTS *****/
+    // Group objects into a tree structure.
     function groupObjects(tags, startIndex, endMarker = null) {
       const objects = [];
       let i = startIndex;
@@ -285,7 +350,7 @@
       return { objects, nextIndex: i };
     }
 
-    /***** STEP 3: FLATTEN TREE FOR VIRTUAL SCROLL *****/
+    // Flatten tree for virtual scrolling.
     function flattenTree(nodes, level = 0) {
       let flatNodes = [];
       nodes.forEach(node => {
@@ -313,12 +378,17 @@
       return flatNodes;
     }
 
-    /***** STEP 4: RENDER VIA VIRTUAL SCROLL *****/
+    // Render via virtual scroll.
     const treeViewContainer = document.getElementById("treeViewContainer");
     const treeViewContent = document.getElementById("treeViewContent");
 
-    function renderVirtualTree(treeData = currentTreeData) {
-      flatTreeNodes = flattenTree(treeData);
+    function renderVirtualTree() {
+      const activeTab = getActiveTab();
+      if (!activeTab) {
+        treeViewContent.innerHTML = "";
+        return;
+      }
+      flatTreeNodes = flattenTree(activeTab.currentTreeData);
       treeViewContent.style.height = flatTreeNodes.length * ITEM_HEIGHT + "px";
       updateVisibleNodes();
     }
@@ -411,7 +481,7 @@
 
     treeViewContainer.addEventListener("scroll", updateVisibleNodes);
 
-    /***** STEP 5: SEARCH & FILTER (updated for multiple tags) *****/
+    /***** SEARCH & FILTER (updated for multiple tags) *****/
     function filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
       const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
       let typeMatchesData = false;
@@ -475,7 +545,7 @@
       return filtered;
     }
 
-    /***** STEP 6: COPY FUNCTIONALITY *****/
+    /***** COPY FUNCTIONALITY *****/
     function findNodeById(tree, id) {
       for (let obj of tree) {
         if (obj.id == id) return obj;
@@ -509,7 +579,8 @@
     }
 
     function copyNode(id) {
-      const fullNode = findNodeById(originalTreeData, id);
+      const activeTab = getActiveTab();
+      const fullNode = findNodeById(activeTab.originalTreeData, id);
       if (!fullNode) {
         alert("Node not found in original data.");
         return;
@@ -522,26 +593,27 @@
       });
     }
 
-    /***** STEP 7: EXPAND/COLLAPSE ALL & EVENT DELEGATION *****/
+    /***** EXPAND/COLLAPSE ALL & EVENT DELEGATION *****/
+    // Toggle expansion on clicking a node.
     treeViewContent.addEventListener("click", function(e) {
       let target = e.target;
       if (target.classList.contains("toggle") || target.closest(".tree-row")) {
         const row = target.closest(".tree-row");
         if (!row) return;
         const id = row.dataset.id;
-        const node = findNodeById(originalTreeData, id);
+        let activeTab = getActiveTab();
+        const node = findNodeById(activeTab.originalTreeData, id);
         if (node) {
           node.expanded = !node.expanded;
-          // Reapply current sort order before re-rendering.
-          if (currentSortField) {
-            sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
+          if (activeTab.currentSortField) {
+            sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
           }
           const dataExact = document.getElementById("dataExactCheckbox").checked;
           const dataCase = document.getElementById("dataCaseCheckbox").checked;
-          currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
-                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
-                        : originalTreeData;
-          renderVirtualTree(currentTreeData);
+          activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                        ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                        : activeTab.originalTreeData;
+          renderVirtualTree();
         }
       }
     });
@@ -564,31 +636,33 @@
       });
     }
     document.getElementById("expandAllBtn").addEventListener("click", () => {
-      expandAllNodes(originalTreeData);
-      if (currentSortField) {
-        sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
+      let activeTab = getActiveTab();
+      expandAllNodes(activeTab.originalTreeData);
+      if (activeTab.currentSortField) {
+        sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
       }
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
-                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
-                        : originalTreeData;
-      renderVirtualTree(currentTreeData);
+      activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                        ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                        : activeTab.originalTreeData;
+      renderVirtualTree();
     });
     document.getElementById("collapseAllBtn").addEventListener("click", () => {
-      collapseAllNodes(originalTreeData);
-      if (currentSortField) {
-        sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
+      let activeTab = getActiveTab();
+      collapseAllNodes(activeTab.originalTreeData);
+      if (activeTab.currentSortField) {
+        sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
       }
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
-                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
-                        : originalTreeData;
-      renderVirtualTree(currentTreeData);
+      activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                        ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                        : activeTab.originalTreeData;
+      renderVirtualTree();
     });
 
-    /***** STEP 8: HEADER SORTING & COLUMN RESIZING *****/
+    /***** HEADER SORTING & COLUMN RESIZING *****/
     // Helper to extract the value to sort from a node based on field.
     function getSortValue(node, field) {
       if (field === "line") {
@@ -645,6 +719,7 @@
       headerCell.addEventListener('click', function(e) {
         if (e.target.classList.contains('resizer')) return;
         const field = headerCell.getAttribute('data-field');
+        let activeTab = getActiveTab();
         let currentSort = headerCell.getAttribute('data-sort');
         let ascending = true;
         if (currentSort === 'asc') {
@@ -656,18 +731,17 @@
           headerCell.setAttribute('data-sort', 'asc');
           headerCell.querySelector('.sort-indicator').textContent = ' ▲';
         }
-        // Save current sort field and order globally.
-        currentSortField = field;
-        currentSortAscending = ascending;
+        activeTab.currentSortField = field;
+        activeTab.currentSortAscending = ascending;
         document.querySelectorAll('.header-cell').forEach(cell => {
           if (cell !== headerCell) {
             cell.setAttribute('data-sort', 'none');
             cell.querySelector('.sort-indicator').textContent = '';
           }
         });
-        sortTreeNodes(originalTreeData, field, ascending);
-        currentTreeData = originalTreeData;
-        renderVirtualTree(currentTreeData);
+        sortTreeNodes(activeTab.originalTreeData, field, ascending);
+        activeTab.currentTreeData = activeTab.originalTreeData;
+        renderVirtualTree();
       });
     });
 
@@ -693,7 +767,7 @@
       });
     });
 
-    /***** STEP 9: TAG SEARCH CONTROLS *****/
+    /***** TAG SEARCH CONTROLS *****/
     function createTagElement(text, type) {
       const tag = document.createElement("span");
       tag.className = "tag";
@@ -703,42 +777,44 @@
       removeBtn.textContent = "×";
       removeBtn.addEventListener("click", function(e) {
         e.stopPropagation();
+        let activeTab = getActiveTab();
         if (type === "code") {
-          codeSearchTerms = codeSearchTerms.filter(term => term !== text);
-          updateTagContainer("codeSearchTags", codeSearchTerms);
+          activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
+          updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
         } else if (type === "data") {
-          dataSearchTerms = dataSearchTerms.filter(term => term !== text);
-          updateTagContainer("dataSearchTags", dataSearchTerms);
+          activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
+          updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         }
       });
       tag.appendChild(removeBtn);
       return tag;
     }
-    function updateTagContainer(containerId, termsArray) {
+    function updateTagContainer(containerId, termsArray, type) {
       const container = document.getElementById(containerId);
       Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
       termsArray.forEach(term => {
-        const tagElem = createTagElement(term, containerId === "codeSearchTags" ? "code" : "data");
+        const tagElem = createTagElement(term, type);
         container.insertBefore(tagElem, container.querySelector("input"));
       });
     }
     function setupTagInput(inputId, type) {
       const input = document.getElementById(inputId);
       input.addEventListener("keydown", function(e) {
-        if (e.key === "Enter" || e.key === "," ) {
+        if (e.key === "Enter" || e.key === ",") {
           e.preventDefault();
           const text = input.value.trim();
           if (text !== "") {
+            let activeTab = getActiveTab();
             if (type === "code") {
-              if (!codeSearchTerms.includes(text)) {
-                codeSearchTerms.push(text);
+              if (!activeTab.codeSearchTerms.includes(text)) {
+                activeTab.codeSearchTerms.push(text);
               }
-              updateTagContainer("codeSearchTags", codeSearchTerms);
+              updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
             } else if (type === "data") {
-              if (!dataSearchTerms.includes(text)) {
-                dataSearchTerms.push(text);
+              if (!activeTab.dataSearchTerms.includes(text)) {
+                activeTab.dataSearchTerms.push(text);
               }
-              updateTagContainer("dataSearchTags", dataSearchTerms);
+              updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
             }
             input.value = "";
           }
@@ -747,16 +823,17 @@
       input.addEventListener("blur", function(e) {
         const text = input.value.trim();
         if (text !== "") {
+          let activeTab = getActiveTab();
           if (type === "code") {
-            if (!codeSearchTerms.includes(text)) {
-              codeSearchTerms.push(text);
+            if (!activeTab.codeSearchTerms.includes(text)) {
+              activeTab.codeSearchTerms.push(text);
             }
-            updateTagContainer("codeSearchTags", codeSearchTerms);
+            updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
           } else if (type === "data") {
-            if (!dataSearchTerms.includes(text)) {
-              dataSearchTerms.push(text);
+            if (!activeTab.dataSearchTerms.includes(text)) {
+              activeTab.dataSearchTerms.push(text);
             }
-            updateTagContainer("dataSearchTags", dataSearchTerms);
+            updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
           }
           input.value = "";
         }
@@ -765,73 +842,80 @@
     setupTagInput("codeSearchInput", "code");
     setupTagInput("dataSearchInput", "data");
 
-    /***** STEP 10: SEARCH & CLEAR BUTTONS *****/
+    /***** SEARCH & CLEAR BUTTONS *****/
     document.getElementById("searchBtn").addEventListener("click", function() {
+      let activeTab = getActiveTab();
       const codeInput = document.getElementById("codeSearchInput");
       const dataInput = document.getElementById("dataSearchInput");
       if (codeInput.value.trim() !== "") {
         const text = codeInput.value.trim();
-        if (!codeSearchTerms.includes(text)) {
-          codeSearchTerms.push(text);
+        if (!activeTab.codeSearchTerms.includes(text)) {
+          activeTab.codeSearchTerms.push(text);
         }
-        updateTagContainer("codeSearchTags", codeSearchTerms);
+        updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
         codeInput.value = "";
       }
       if (dataInput.value.trim() !== "") {
         const text = dataInput.value.trim();
-        if (!dataSearchTerms.includes(text)) {
-          dataSearchTerms.push(text);
+        if (!activeTab.dataSearchTerms.includes(text)) {
+          activeTab.dataSearchTerms.push(text);
         }
-        updateTagContainer("dataSearchTags", dataSearchTerms);
+        updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         dataInput.value = "";
       }
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
-                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
-                        : originalTreeData;
-      renderVirtualTree(currentTreeData);
+      activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                        ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                        : activeTab.originalTreeData;
+      renderVirtualTree();
     });
 
     document.getElementById("clearSearchBtn").addEventListener("click", function() {
-      codeSearchTerms = [];
-      dataSearchTerms = [];
-      updateTagContainer("codeSearchTags", codeSearchTerms);
-      updateTagContainer("dataSearchTags", dataSearchTerms);
+      let activeTab = getActiveTab();
+      activeTab.codeSearchTerms = [];
+      activeTab.dataSearchTerms = [];
+      updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+      updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
       document.getElementById("codeSearchInput").value = "";
       document.getElementById("dataSearchInput").value = "";
       document.getElementById("dataExactCheckbox").checked = false;
       document.getElementById("dataCaseCheckbox").checked = false;
-      currentTreeData = originalTreeData;
-      renderVirtualTree(currentTreeData);
+      activeTab.currentTreeData = activeTab.originalTreeData;
+      renderVirtualTree();
     });
 
-    /***** STEP 11: FILE INPUT, PARSING & DEFAULT SORT (by Line) *****/
+    /***** FILE INPUT, PARSING & TAB CREATION *****/
     document.getElementById("parseBtn").addEventListener("click", function() {
       const fileInput = document.getElementById("fileInput");
       if (!fileInput.files || fileInput.files.length === 0) {
-        alert("Please select a DXF file.");
+        alert("Please select at least one DXF file.");
         return;
       }
-      const file = fileInput.files[0];
-      const reader = new FileReader();
-      reader.onload = function(event) {
-        const text = event.target.result;
-        const tags = parseDxf(text);
-        const grouped = groupObjects(tags, 0);
-        originalTreeData = grouped.objects;
-        currentTreeData = originalTreeData;
-        collapseAllNodes(originalTreeData);
-        // Default sort by "line" ascending
-        currentSortField = "line";
-        currentSortAscending = true;
-        sortTreeNodes(originalTreeData, "line", true);
-        const lineHeader = document.querySelector('.tree-line.header-cell');
-        lineHeader.setAttribute('data-sort', 'asc');
-        lineHeader.querySelector('.sort-indicator').textContent = ' ▲';
-        renderVirtualTree(currentTreeData);
-      };
-      reader.readAsText(file, "ascii");
+      Array.from(fileInput.files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          const text = event.target.result;
+          const tags = parseDxf(text);
+          const grouped = groupObjects(tags, 0);
+          // Create a new tab object to hold this file's data and search/sort state.
+          const newTab = {
+            id: Date.now() + Math.random(),
+            name: file.name,
+            originalTreeData: grouped.objects,
+            currentTreeData: grouped.objects,
+            codeSearchTerms: [],
+            dataSearchTerms: [],
+            currentSortField: "line",
+            currentSortAscending: true
+          };
+          tabs.push(newTab);
+          activeTabId = newTab.id;
+          updateTabUI();
+          renderVirtualTree();
+        };
+        reader.readAsText(file, "ascii");
+      });
     });
   </script>
 </body>
