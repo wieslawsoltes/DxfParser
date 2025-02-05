@@ -210,6 +210,11 @@
     let codeSearchTerms = [];
     let dataSearchTerms = [];
 
+    // Global variables to track current sort order.
+    // Default sort by "line" ascending.
+    let currentSortField = "line";
+    let currentSortAscending = true;
+
     /***** STEP 1: PARSING – Store tag’s originating line *****/
     function parseDxf(text) {
       const lines = text.split(/\r?\n/);
@@ -515,6 +520,10 @@
         const node = findNodeById(originalTreeData, id);
         if (node) {
           node.expanded = !node.expanded;
+          // Reapply current sort order (if any) before re-rendering.
+          if (currentSortField) {
+            sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
+          }
           const dataExact = document.getElementById("dataExactCheckbox").checked;
           const dataCase = document.getElementById("dataCaseCheckbox").checked;
           currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
@@ -544,6 +553,10 @@
     }
     document.getElementById("expandAllBtn").addEventListener("click", () => {
       expandAllNodes(originalTreeData);
+      // Reapply current sort order after expanding.
+      if (currentSortField) {
+        sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
+      }
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
       currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
@@ -553,6 +566,9 @@
     });
     document.getElementById("collapseAllBtn").addEventListener("click", () => {
       collapseAllNodes(originalTreeData);
+      if (currentSortField) {
+        sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
+      }
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
       currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
@@ -629,6 +645,9 @@
           headerCell.setAttribute('data-sort', 'asc');
           headerCell.querySelector('.sort-indicator').textContent = ' ▲';
         }
+        // Save current sort field and order globally.
+        currentSortField = field;
+        currentSortAscending = ascending;
         document.querySelectorAll('.header-cell').forEach(cell => {
           if (cell !== headerCell) {
             cell.setAttribute('data-sort', 'none');
@@ -664,7 +683,6 @@
     });
 
     /***** STEP 9: TAG SEARCH CONTROLS *****/
-    // Helper to create a tag element
     function createTagElement(text, type) {
       const tag = document.createElement("span");
       tag.className = "tag";
@@ -685,7 +703,6 @@
       tag.appendChild(removeBtn);
       return tag;
     }
-    // Update the tag container's content (except the input)
     function updateTagContainer(containerId, termsArray) {
       const container = document.getElementById(containerId);
       Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
@@ -694,7 +711,6 @@
         container.insertBefore(tagElem, container.querySelector("input"));
       });
     }
-    // Add event listener for tag input
     function setupTagInput(inputId, type) {
       const input = document.getElementById(inputId);
       input.addEventListener("keydown", function(e) {
@@ -795,9 +811,10 @@
         originalTreeData = grouped.objects;
         currentTreeData = originalTreeData;
         collapseAllNodes(originalTreeData);
-        // *** Default sort by Line (ascending) ***
+        // Default sort by "line" ascending
+        currentSortField = "line";
+        currentSortAscending = true;
         sortTreeNodes(originalTreeData, "line", true);
-        // Update the header for "Line" to indicate sorted ascending by default.
         const lineHeader = document.querySelector('.tree-line.header-cell');
         lineHeader.setAttribute('data-sort', 'asc');
         lineHeader.querySelector('.sort-indicator').textContent = ' ▲';
