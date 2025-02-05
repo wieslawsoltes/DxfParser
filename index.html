@@ -4,17 +4,29 @@
   <meta charset="utf-8">
   <title>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing, Tag Search & Virtual Scroll</title>
   <style>
+    /* Ensure the html and body fill the viewport */
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    /* Main container that holds all content as a column flex container */
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      box-sizing: border-box;
+      padding: 1em;
+    }
     body {
       font-family: sans-serif;
-      margin: 2em;
     }
-    /* Container for the tree view */
-    #treeView {
-      border: 1px solid #ccc;
-      padding: 4px;
-      max-height: 600px;
-      overflow-y: auto;
+    /* Container for the tree view; will fill remaining space */
+    #treeViewContainer {
       position: relative;
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid #ccc;
     }
     /* Header row with three columns: Line, Code, Data */
     .tree-header {
@@ -132,56 +144,56 @@
   </style>
 </head>
 <body>
-  <h1>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing, Tag Search & Virtual Scroll</h1>
-  <p>
-    Select an ASCII DXF file and click <strong>Parse File</strong> to see its structure.
-  </p>
-  
-  <!-- File Input -->
-  <input type="file" id="fileInput" accept=".dxf">
-  <button id="parseBtn">Parse File</button>
+  <div class="main-container">
+    <h1>Optimized DXF Parser – Tree Data Grid</h1>
+    <p>Select an ASCII DXF file and click <strong>Parse File</strong> to see its structure.</p>
+    
+    <!-- File Input -->
+    <input type="file" id="fileInput" accept=".dxf">
+    <button id="parseBtn">Parse File</button>
 
-  <!-- Search Controls: tag-style inputs for Code and Data -->
-  <div class="controls">
-    <div id="codeSearchTags" class="tag-container">
-      <input type="text" id="codeSearchInput" placeholder="Search by Code">
+    <!-- Search Controls: tag-style inputs for Code and Data -->
+    <div class="controls">
+      <div id="codeSearchTags" class="tag-container">
+        <input type="text" id="codeSearchInput" placeholder="Search by Code">
+      </div>
+      <div id="dataSearchTags" class="tag-container">
+        <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+      </div>
+      <label>
+        <input type="checkbox" id="dataExactCheckbox">
+        Exact Data Match
+      </label>
+      <label>
+        <input type="checkbox" id="dataCaseCheckbox">
+        Case Sensitive
+      </label>
+      <button id="searchBtn">Search</button>
+      <button id="clearSearchBtn">Clear Search</button>
+      <button id="expandAllBtn">Expand All</button>
+      <button id="collapseAllBtn">Collapse All</button>
     </div>
-    <div id="dataSearchTags" class="tag-container">
-      <input type="text" id="dataSearchInput" placeholder="Search by Data value">
-    </div>
-    <label>
-      <input type="checkbox" id="dataExactCheckbox">
-      Exact Data Match
-    </label>
-    <label>
-      <input type="checkbox" id="dataCaseCheckbox">
-      Case Sensitive
-    </label>
-    <button id="searchBtn">Search</button>
-    <button id="clearSearchBtn">Clear Search</button>
-    <button id="expandAllBtn">Expand All</button>
-    <button id="collapseAllBtn">Collapse All</button>
-  </div>
 
-  <!-- Tree Grid Header: Order: Line, Code, Data -->
-  <div id="treeGridHeader" class="tree-header">
-    <div class="tree-line header-cell" data-field="line" data-sort="none" data-size="100px">
-      Line <span class="sort-indicator"></span>
-      <div class="resizer"></div>
+    <!-- Tree Grid Header: Order: Line, Code, Data -->
+    <div id="treeGridHeader" class="tree-header">
+      <div class="tree-line header-cell" data-field="line" data-sort="none" data-size="100px">
+        Line <span class="sort-indicator"></span>
+        <div class="resizer"></div>
+      </div>
+      <div class="tree-code header-cell" data-field="code" data-sort="none" data-size="100px">
+        Code <span class="sort-indicator"></span>
+        <div class="resizer"></div>
+      </div>
+      <div class="tree-data header-cell" data-field="type" data-sort="none" data-size="auto">
+        Data <span class="sort-indicator"></span>
+        <div class="resizer"></div>
+      </div>
     </div>
-    <div class="tree-code header-cell" data-field="code" data-sort="none" data-size="100px">
-      Code <span class="sort-indicator"></span>
-      <div class="resizer"></div>
-    </div>
-    <div class="tree-data header-cell" data-field="type" data-sort="none" data-size="auto">
-      Data <span class="sort-indicator"></span>
-      <div class="resizer"></div>
-    </div>
-  </div>
 
-  <!-- Virtual Scroll Container -->
-  <div id="treeViewContainer" style="position: relative; height: 600px; overflow-y: auto; border: 1px solid #ccc;">
-    <div id="treeViewContent" style="position: relative;"></div>
+    <!-- Virtual Scroll Container -->
+    <div id="treeViewContainer">
+      <div id="treeViewContent" style="position: relative;"></div>
+    </div>
   </div>
 
   <script>
@@ -520,7 +532,7 @@
         const node = findNodeById(originalTreeData, id);
         if (node) {
           node.expanded = !node.expanded;
-          // Reapply current sort order (if any) before re-rendering.
+          // Reapply current sort order before re-rendering.
           if (currentSortField) {
             sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
           }
@@ -553,7 +565,6 @@
     }
     document.getElementById("expandAllBtn").addEventListener("click", () => {
       expandAllNodes(originalTreeData);
-      // Reapply current sort order after expanding.
       if (currentSortField) {
         sortTreeNodes(originalTreeData, currentSortField, currentSortAscending);
       }
