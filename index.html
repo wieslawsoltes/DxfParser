@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Optimized DXF Parser – Lazy Load, Virtual Scroll & Enhanced Search (Fixed Search)</title>
+  <title>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing & Virtual Scroll</title>
   <style>
     body {
       font-family: sans-serif;
@@ -23,11 +23,37 @@
       border-bottom: 1px solid #ccc;
       padding-bottom: 4px;
       margin-bottom: 4px;
+      background: #eee;
+      user-select: none;
     }
-    .tree-header .tree-code {
+    .tree-header > div {
+      display: flex;
+      align-items: center;
+      position: relative;
+      padding: 0 4px;
+    }
+    /* Header cell specific styles */
+    .header-cell {
+      cursor: pointer;
+    }
+    .header-cell .resizer {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 5px;
+      height: 100%;
+      cursor: col-resize;
+    }
+    .header-cell .sort-indicator {
+      margin-left: 4px;
+      font-size: 0.8em;
+    }
+    /* Predefined column sizes: first column fixed; second flexible */
+    .tree-code {
       width: 100px;
+      /* If resized, inline style will override */
     }
-    .tree-header .tree-data {
+    .tree-data {
       flex: 1;
     }
     /* A row in the tree */
@@ -39,14 +65,7 @@
       left: 0;
       right: 0;
     }
-    .tree-code {
-      width: 100px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .tree-data {
-      flex: 1;
+    .tree-code, .tree-data {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -86,7 +105,7 @@
   </style>
 </head>
 <body>
-  <h1>Optimized DXF Parser – Lazy Load, Virtual Scroll & Enhanced Search (Fixed Search)</h1>
+  <h1>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing & Virtual Scroll</h1>
   <p>
     Select an ASCII DXF file and click <strong>Parse File</strong> to see its structure.
   </p>
@@ -110,6 +129,18 @@
     <button id="collapseAllBtn">Collapse All</button>
   </div>
 
+  <!-- Tree Grid Header with resizers and sort controls -->
+  <div id="treeGridHeader" class="tree-header">
+    <div class="tree-code header-cell" data-field="code" data-sort="none" data-size="100px">
+      Code <span class="sort-indicator"></span>
+      <div class="resizer"></div>
+    </div>
+    <div class="tree-data header-cell" data-field="type" data-sort="none" data-size="auto">
+      Type <span class="sort-indicator"></span>
+      <div class="resizer"></div>
+    </div>
+  </div>
+
   <!-- Virtual Scroll Container -->
   <div id="treeViewContainer" style="position: relative; height: 600px; overflow-y: auto; border: 1px solid #ccc;">
     <div id="treeViewContent" style="position: relative;"></div>
@@ -129,6 +160,12 @@
     let currentTreeData = [];  // The tree currently displayed (may be filtered)
     let flatTreeNodes = [];    // Flat list of visible nodes for virtual scrolling
     const ITEM_HEIGHT = 24;    // Height per row in pixels
+
+    // Global variable for column widths (in pixels or null for auto)
+    let columnWidths = {
+      code: 100,  // fixed pixel width for "Code" column
+      type: null  // "Type" column is auto (flex) until resized
+    };
 
     /***** STEP 1: PARSING (Incremental – use streams in production) *****/
     function parseDxf(text) {
@@ -246,13 +283,25 @@
         }
         row.appendChild(toggleSpan);
 
+        // "Code" column cell
         const codeDiv = document.createElement("div");
         codeDiv.className = "tree-code";
-        codeDiv.textContent = (node.properties && node.properties.length) || (node.children && node.children.length) ? "0" : "";
+        if (columnWidths.code) {
+          codeDiv.style.width = columnWidths.code + "px";
+        }
+        // For demonstration, container nodes show "0" while leaves show an empty string.
+        codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
         row.appendChild(codeDiv);
 
+        // "Type" column cell
         const dataDiv = document.createElement("div");
         dataDiv.className = "tree-data";
+        if (columnWidths.type) {
+          dataDiv.style.width = columnWidths.type + "px";
+          dataDiv.style.flex = "0 0 auto";
+        } else {
+          dataDiv.style.flex = "1";
+        }
         dataDiv.textContent = node.type;
         row.appendChild(dataDiv);
 
@@ -428,7 +477,6 @@
     }
     document.getElementById("expandAllBtn").addEventListener("click", () => {
       expandAllNodes(originalTreeData);
-      // Re-run filter if search is active.
       const codeQuery = document.getElementById("codeSearchInput").value.trim();
       const dataQuery = document.getElementById("dataSearchInput").value.trim();
       const dataExact = document.getElementById("dataExactCheckbox").checked;
@@ -450,7 +498,92 @@
       renderVirtualTree(currentTreeData);
     });
 
-    /***** STEP 8: FILE INPUT, SEARCH & CONTROLS (with Debounce) *****/
+    /***** STEP 8: HEADER SORTING & COLUMN RESIZING *****/
+    // Helper to extract the value to sort from a node based on field.
+    function getSortValue(node, field) {
+      if (field === "code") {
+        // For container nodes, display "0"; otherwise, empty.
+        if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
+          return "0";
+        } else {
+          return "";
+        }
+      } else if (field === "type") {
+        return node.type;
+      }
+      return "";
+    }
+
+    // Recursively sort tree nodes by field (sorting sibling nodes only).
+    function sortTreeNodes(nodes, field, ascending) {
+      nodes.sort((a, b) => {
+        let aVal = getSortValue(a, field);
+        let bVal = getSortValue(b, field);
+        return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
+      });
+      nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+          sortTreeNodes(node.children, field, ascending);
+        }
+      });
+    }
+
+    // Attach sort event listeners to header cells.
+    document.querySelectorAll('.header-cell').forEach(headerCell => {
+      headerCell.addEventListener('click', function(e) {
+        // Do not trigger sort if clicking on the resizer.
+        if (e.target.classList.contains('resizer')) return;
+        const field = headerCell.getAttribute('data-field');
+        let currentSort = headerCell.getAttribute('data-sort');
+        let ascending = true;
+        if (currentSort === 'asc') {
+          ascending = false;
+          headerCell.setAttribute('data-sort', 'desc');
+          headerCell.querySelector('.sort-indicator').textContent = ' ▼';
+        } else {
+          ascending = true;
+          headerCell.setAttribute('data-sort', 'asc');
+          headerCell.querySelector('.sort-indicator').textContent = ' ▲';
+        }
+        // Reset sort state on other header cells.
+        document.querySelectorAll('.header-cell').forEach(cell => {
+          if (cell !== headerCell) {
+            cell.setAttribute('data-sort', 'none');
+            cell.querySelector('.sort-indicator').textContent = '';
+          }
+        });
+        // Sort the original tree data recursively by the selected field.
+        sortTreeNodes(originalTreeData, field, ascending);
+        currentTreeData = originalTreeData;
+        renderVirtualTree(currentTreeData);
+      });
+    });
+
+    // Attach column resizing event listeners.
+    document.querySelectorAll('.header-cell .resizer').forEach(resizer => {
+      resizer.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+        const headerCell = resizer.parentElement;
+        const field = headerCell.getAttribute('data-field');
+        const startX = e.clientX;
+        const startWidth = headerCell.offsetWidth;
+        function onMouseMove(e) {
+          const newWidth = startWidth + (e.clientX - startX);
+          headerCell.style.width = newWidth + 'px';
+          columnWidths[field] = newWidth;
+          // Re-render the visible rows so that each cell updates its inline width.
+          updateVisibleNodes();
+        }
+        function onMouseUp() {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        }
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+    });
+
+    /***** STEP 9: FILE INPUT, SEARCH & CONTROLS (with Debounce) *****/
     let searchTimeout;
     document.getElementById("searchBtn").addEventListener("click", function() {
       clearTimeout(searchTimeout);
