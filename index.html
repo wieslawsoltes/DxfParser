@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing & Virtual Scroll</title>
+  <title>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing, Tag Search & Virtual Scroll</title>
   <style>
     body {
       font-family: sans-serif;
@@ -89,17 +89,33 @@
     .controls {
       margin: 1em 0;
     }
-    .controls input[type="text"] {
-      padding: 4px;
-      margin-right: 4px;
-      width: 200px;
-    }
-    .controls label {
+    /* Tag container styling for multi-item search */
+    .tag-container {
+      display: inline-block;
+      border: 1px solid #ccc;
+      padding: 2px;
+      min-width: 200px;
       margin-right: 8px;
+      vertical-align: middle;
+      border-radius: 4px;
     }
-    .controls button {
-      padding: 4px 8px;
-      margin-right: 4px;
+    .tag-container input {
+      border: none;
+      outline: none;
+      font-family: inherit;
+    }
+    .tag {
+      display: inline-block;
+      background-color: #ddd;
+      padding: 2px 6px;
+      margin: 2px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    .tag .remove {
+      margin-left: 4px;
+      cursor: pointer;
+      font-weight: bold;
     }
     /* Vertical grid lines between header and row columns */
     .tree-header > div,
@@ -116,16 +132,23 @@
   </style>
 </head>
 <body>
-  <h1>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing & Virtual Scroll</h1>
+  <h1>Optimized DXF Parser – Tree Data Grid with Sorting, Resizing, Tag Search & Virtual Scroll</h1>
   <p>
     Select an ASCII DXF file and click <strong>Parse File</strong> to see its structure.
   </p>
+  
+  <!-- File Input -->
   <input type="file" id="fileInput" accept=".dxf">
   <button id="parseBtn">Parse File</button>
 
+  <!-- Search Controls: tag-style inputs for Code and Data -->
   <div class="controls">
-    <input type="text" id="codeSearchInput" placeholder="Search by Code">
-    <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+    <div id="codeSearchTags" class="tag-container">
+      <input type="text" id="codeSearchInput" placeholder="Search by Code">
+    </div>
+    <div id="dataSearchTags" class="tag-container">
+      <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+    </div>
     <label>
       <input type="checkbox" id="dataExactCheckbox">
       Exact Data Match
@@ -140,7 +163,7 @@
     <button id="collapseAllBtn">Collapse All</button>
   </div>
 
-  <!-- Tree Grid Header: New order: Line, Code, Data -->
+  <!-- Tree Grid Header: Order: Line, Code, Data -->
   <div id="treeGridHeader" class="tree-header">
     <div class="tree-line header-cell" data-field="line" data-sort="none" data-size="100px">
       Line <span class="sort-indicator"></span>
@@ -162,7 +185,7 @@
   </div>
 
   <script>
-    /***** GLOBALS *****/
+    /***** GLOBAL VARIABLES *****/
     const containerMapping = {
       "SECTION": "ENDSEC",
       "BLOCK":   "ENDBLK",
@@ -176,12 +199,16 @@
     let flatTreeNodes = [];    // Flat list of visible nodes for virtual scrolling
     const ITEM_HEIGHT = 24;    // Height per row in pixels
 
-    // Global variable for column widths (three columns now)
+    // Global column widths (three columns)
     let columnWidths = {
       line: 100,
       code: 100,
       type: null  // Data column is auto until resized
     };
+
+    // Global arrays for search tags (for Code and Data)
+    let codeSearchTerms = [];
+    let dataSearchTerms = [];
 
     /***** STEP 1: PARSING – Store tag’s originating line *****/
     function parseDxf(text) {
@@ -193,8 +220,7 @@
         const code = parseInt(codeLine, 10);
         if (isNaN(code)) continue;
         let value = "";
-        // Store the line number (1-indexed) where the code appears
-        const tagLine = i + 1;
+        const tagLine = i + 1; // 1-indexed
         if (i + 1 < lines.length) {
           value = lines[i + 1].trim();
         }
@@ -220,11 +246,11 @@
         const obj = {
           id: nextId++,
           type: tags[i].value,
-          line: tags[i].line, // store the line number for this tag
+          line: tags[i].line,
           properties: [],
           children: [],
           isContainer: containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
-          expanded: false // for lazy rendering
+          expanded: false
         };
         i++;
         while (i < tags.length && tags[i].code !== 0) {
@@ -248,13 +274,12 @@
       nodes.forEach(node => {
         flatNodes.push({ node, level });
         if (node.expanded && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
-          // For each property, create a synthetic property node that stores line, code, and data.
           node.properties.forEach(prop => {
             flatNodes.push({
               node: {
                 id: nextId++,
-                type: "", // not used for property rows
-                line: prop.line, // property tag line
+                type: "",
+                line: prop.line,
                 properties: [],
                 children: [],
                 isContainer: false,
@@ -265,7 +290,6 @@
               level: level + 1
             });
           });
-          // Then add child objects recursively
           flatNodes = flatNodes.concat(flattenTree(node.children, level + 1));
         }
       });
@@ -296,7 +320,6 @@
         row.className = "tree-row tree-node";
         row.style.top = (i * ITEM_HEIGHT) + "px";
         row.style.height = ITEM_HEIGHT + "px";
-        // Set data-id for event delegation (manual expansion)
         row.dataset.id = node.id;
 
         // --- LINE COLUMN (with expander) ---
@@ -306,19 +329,16 @@
           lineDiv.style.width = columnWidths.line + "px";
         }
         lineDiv.style.textAlign = "left";
-        // Create inner container for expander and line number; apply tree-level indentation
         const lineContent = document.createElement("div");
         lineContent.style.display = "flex";
         lineContent.style.alignItems = "center";
         lineContent.style.marginLeft = (level * 20) + "px";
-        // If this is not a property and has children/properties, add the expander toggle
         if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
           const toggleSpan = document.createElement("span");
           toggleSpan.className = "toggle";
           toggleSpan.textContent = node.expanded ? "▼" : "►";
           lineContent.appendChild(toggleSpan);
         } else {
-          // Otherwise, add a spacer for alignment
           const spacer = document.createElement("span");
           spacer.style.display = "inline-block";
           spacer.style.width = "16px";
@@ -337,7 +357,6 @@
           codeDiv.style.width = columnWidths.code + "px";
         }
         codeDiv.style.textAlign = "left";
-        // No indentation here—the expander was moved to the Line column.
         const codeText = document.createElement("span");
         if (node.isProperty) {
           codeText.textContent = node.code;
@@ -357,7 +376,7 @@
           dataDiv.style.flex = "1";
         }
         dataDiv.textContent = node.isProperty ? node.data : node.type;
-        // Append the copy button inside the Data cell (to avoid extra grid borders)
+        // Append the copy button inside the Data cell
         const copyButton = document.createElement("button");
         copyButton.textContent = "Copy";
         copyButton.className = "copy-button";
@@ -375,38 +394,34 @@
 
     treeViewContainer.addEventListener("scroll", updateVisibleNodes);
 
-    /***** STEP 5: SEARCH & FILTER *****/
-    function filterObject(obj, codeQuery, dataQuery, dataExact, dataCase) {
-      const searchActive = (codeQuery !== "" || dataQuery !== "");
+    /***** STEP 5: SEARCH & FILTER (updated for multiple tags) *****/
+    function filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
+      const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
       let typeMatchesData = false;
-      if (dataQuery !== "") {
+      if (dataTerms.length > 0) {
         if (dataExact) {
-          typeMatchesData = dataCase ? (obj.type === dataQuery)
-                                     : (obj.type.toLowerCase() === dataQuery.toLowerCase());
+          typeMatchesData = dataTerms.some(term => dataCase ? (obj.type === term) : (obj.type.toLowerCase() === term.toLowerCase()));
         } else {
-          typeMatchesData = dataCase ? obj.type.includes(dataQuery)
-                                     : obj.type.toLowerCase().includes(dataQuery.toLowerCase());
+          typeMatchesData = dataTerms.some(term => dataCase ? obj.type.includes(term) : obj.type.toLowerCase().includes(term.toLowerCase()));
         }
       } else {
         typeMatchesData = true;
       }
       const filteredProperties = obj.properties.filter(prop => {
-        let codeMatch = !codeQuery || (String(prop.code) === codeQuery);
+        const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
         let dataMatch = true;
-        if (dataQuery) {
+        if (dataTerms.length > 0) {
           if (dataExact) {
-            dataMatch = dataCase ? (prop.value === dataQuery)
-                                   : (prop.value.toLowerCase() === dataQuery.toLowerCase());
+            dataMatch = dataTerms.some(term => dataCase ? (prop.value === term) : (prop.value.toLowerCase() === term.toLowerCase()));
           } else {
-            dataMatch = dataCase ? prop.value.includes(dataQuery)
-                                   : prop.value.toLowerCase().includes(dataQuery.toLowerCase());
+            dataMatch = dataTerms.some(term => dataCase ? prop.value.includes(term) : prop.value.toLowerCase().includes(term.toLowerCase()));
           }
         }
         return codeMatch && dataMatch;
       });
       const filteredChildren = [];
       obj.children.forEach(child => {
-        const filteredChild = filterObject(child, codeQuery, dataQuery, dataExact, dataCase);
+        const filteredChild = filterObject(child, codeTerms, dataTerms, dataExact, dataCase);
         if (filteredChild !== null) {
           filteredChildren.push(filteredChild);
         }
@@ -432,10 +447,10 @@
       }
     }
 
-    function filterTree(objects, codeQuery, dataQuery, dataExact, dataCase) {
+    function filterTree(objects, codeTerms, dataTerms, dataExact, dataCase) {
       const filtered = [];
       objects.forEach(obj => {
-        const filteredObj = filterObject(obj, codeQuery, dataQuery, dataExact, dataCase);
+        const filteredObj = filterObject(obj, codeTerms, dataTerms, dataExact, dataCase);
         if (filteredObj !== null) {
           filtered.push(filteredObj);
         }
@@ -500,12 +515,10 @@
         const node = findNodeById(originalTreeData, id);
         if (node) {
           node.expanded = !node.expanded;
-          const codeQuery = document.getElementById("codeSearchInput").value.trim();
-          const dataQuery = document.getElementById("dataSearchInput").value.trim();
           const dataExact = document.getElementById("dataExactCheckbox").checked;
           const dataCase = document.getElementById("dataCaseCheckbox").checked;
-          currentTreeData = (codeQuery || dataQuery)
-                        ? filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase)
+          currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
+                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
                         : originalTreeData;
           renderVirtualTree(currentTreeData);
         }
@@ -516,7 +529,6 @@
       nodes.forEach(node => {
         if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
           node.expanded = true;
-          // Also sort children if needed
           if (node.properties && node.properties.length) {
             node.properties.sort((a, b) => a.code - b.code);
           }
@@ -532,23 +544,19 @@
     }
     document.getElementById("expandAllBtn").addEventListener("click", () => {
       expandAllNodes(originalTreeData);
-      const codeQuery = document.getElementById("codeSearchInput").value.trim();
-      const dataQuery = document.getElementById("dataSearchInput").value.trim();
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      currentTreeData = (codeQuery || dataQuery)
-                        ? filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase)
+      currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
+                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
                         : originalTreeData;
       renderVirtualTree(currentTreeData);
     });
     document.getElementById("collapseAllBtn").addEventListener("click", () => {
       collapseAllNodes(originalTreeData);
-      const codeQuery = document.getElementById("codeSearchInput").value.trim();
-      const dataQuery = document.getElementById("dataSearchInput").value.trim();
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      currentTreeData = (codeQuery || dataQuery)
-                        ? filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase)
+      currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
+                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
                         : originalTreeData;
       renderVirtualTree(currentTreeData);
     });
@@ -559,32 +567,27 @@
       if (field === "line") {
         return node.line ? Number(node.line) : 0;
       } else if (field === "code") {
-        // For Code column, sort numerically.
         if (node.isProperty) {
           return (typeof node.code === 'number' ? node.code : parseInt(node.code, 10)) || 0;
         }
-        // For non-property nodes with children/properties, return 0; otherwise, a high number so empty sorts last.
         return ((node.properties && node.properties.length) || (node.children && node.children.length)) ? 0 : Number.MAX_SAFE_INTEGER;
       } else if (field === "type") {
-        // For the Data column, use node.data if a property row, else node.type.
         return node.isProperty ? node.data : node.type;
       }
       return "";
     }
 
-    // Recursively sort tree nodes by field (sorting sibling nodes only).
+    // Recursively sort tree nodes by field.
     function sortTreeNodes(nodes, field, ascending) {
       nodes.sort((a, b) => {
         let aVal = getSortValue(a, field);
         let bVal = getSortValue(b, field);
         if (field === "code" || field === "line") {
-          // Numeric sort.
           return (aVal - bVal) * (ascending ? 1 : -1);
         } else {
           return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
         }
       });
-      // Also sort properties arrays for each node
       nodes.forEach(node => {
         if (node.properties && node.properties.length) {
           node.properties.sort((a, b) => {
@@ -611,10 +614,9 @@
       });
     }
 
-    // Attach sort event listeners to header cells.
     document.querySelectorAll('.header-cell').forEach(headerCell => {
       headerCell.addEventListener('click', function(e) {
-        if (e.target.classList.contains('resizer')) return; // ignore resizer clicks
+        if (e.target.classList.contains('resizer')) return;
         const field = headerCell.getAttribute('data-field');
         let currentSort = headerCell.getAttribute('data-sort');
         let ascending = true;
@@ -639,7 +641,6 @@
       });
     });
 
-    // Attach column resizing event listeners.
     document.querySelectorAll('.header-cell .resizer').forEach(resizer => {
       resizer.addEventListener('mousedown', function(e) {
         e.stopPropagation();
@@ -662,23 +663,116 @@
       });
     });
 
-    /***** STEP 9: FILE INPUT, SEARCH & CONTROLS (with Debounce) *****/
-    let searchTimeout;
+    /***** STEP 9: TAG SEARCH CONTROLS *****/
+    // Helper to create a tag element
+    function createTagElement(text, type) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = text;
+      const removeBtn = document.createElement("span");
+      removeBtn.className = "remove";
+      removeBtn.textContent = "×";
+      removeBtn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        if (type === "code") {
+          codeSearchTerms = codeSearchTerms.filter(term => term !== text);
+          updateTagContainer("codeSearchTags", codeSearchTerms);
+        } else if (type === "data") {
+          dataSearchTerms = dataSearchTerms.filter(term => term !== text);
+          updateTagContainer("dataSearchTags", dataSearchTerms);
+        }
+      });
+      tag.appendChild(removeBtn);
+      return tag;
+    }
+    // Update the tag container's content (except the input)
+    function updateTagContainer(containerId, termsArray) {
+      const container = document.getElementById(containerId);
+      // Remove all child tags (but keep the input)
+      Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
+      termsArray.forEach(term => {
+        const tagElem = createTagElement(term, containerId === "codeSearchTags" ? "code" : "data");
+        container.insertBefore(tagElem, container.querySelector("input"));
+      });
+    }
+    // Add event listener for tag input
+    function setupTagInput(inputId, type) {
+      const input = document.getElementById(inputId);
+      input.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" || e.key === "," ) {
+          e.preventDefault();
+          const text = input.value.trim();
+          if (text !== "") {
+            if (type === "code") {
+              if (!codeSearchTerms.includes(text)) {
+                codeSearchTerms.push(text);
+              }
+              updateTagContainer("codeSearchTags", codeSearchTerms);
+            } else if (type === "data") {
+              if (!dataSearchTerms.includes(text)) {
+                dataSearchTerms.push(text);
+              }
+              updateTagContainer("dataSearchTags", dataSearchTerms);
+            }
+            input.value = "";
+          }
+        }
+      });
+      input.addEventListener("blur", function(e) {
+        const text = input.value.trim();
+        if (text !== "") {
+          if (type === "code") {
+            if (!codeSearchTerms.includes(text)) {
+              codeSearchTerms.push(text);
+            }
+            updateTagContainer("codeSearchTags", codeSearchTerms);
+          } else if (type === "data") {
+            if (!dataSearchTerms.includes(text)) {
+              dataSearchTerms.push(text);
+            }
+            updateTagContainer("dataSearchTags", dataSearchTerms);
+          }
+          input.value = "";
+        }
+      });
+    }
+    setupTagInput("codeSearchInput", "code");
+    setupTagInput("dataSearchInput", "data");
+
+    /***** STEP 10: SEARCH & CLEAR BUTTONS *****/
     document.getElementById("searchBtn").addEventListener("click", function() {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => {
-        const codeQuery = document.getElementById("codeSearchInput").value.trim();
-        const dataQuery = document.getElementById("dataSearchInput").value.trim();
-        const dataExact = document.getElementById("dataExactCheckbox").checked;
-        const dataCase = document.getElementById("dataCaseCheckbox").checked;
-        currentTreeData = (!codeQuery && !dataQuery)
-                          ? originalTreeData
-                          : filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase);
-        renderVirtualTree(currentTreeData);
-      }, 300);
+      // If any text remains in the inputs, add them as tags
+      const codeInput = document.getElementById("codeSearchInput");
+      const dataInput = document.getElementById("dataSearchInput");
+      if (codeInput.value.trim() !== "") {
+        const text = codeInput.value.trim();
+        if (!codeSearchTerms.includes(text)) {
+          codeSearchTerms.push(text);
+        }
+        updateTagContainer("codeSearchTags", codeSearchTerms);
+        codeInput.value = "";
+      }
+      if (dataInput.value.trim() !== "") {
+        const text = dataInput.value.trim();
+        if (!dataSearchTerms.includes(text)) {
+          dataSearchTerms.push(text);
+        }
+        updateTagContainer("dataSearchTags", dataSearchTerms);
+        dataInput.value = "";
+      }
+      const dataExact = document.getElementById("dataExactCheckbox").checked;
+      const dataCase = document.getElementById("dataCaseCheckbox").checked;
+      currentTreeData = (codeSearchTerms.length || dataSearchTerms.length)
+                        ? filterTree(originalTreeData, codeSearchTerms, dataSearchTerms, dataExact, dataCase)
+                        : originalTreeData;
+      renderVirtualTree(currentTreeData);
     });
 
     document.getElementById("clearSearchBtn").addEventListener("click", function() {
+      codeSearchTerms = [];
+      dataSearchTerms = [];
+      updateTagContainer("codeSearchTags", codeSearchTerms);
+      updateTagContainer("dataSearchTags", dataSearchTerms);
       document.getElementById("codeSearchInput").value = "";
       document.getElementById("dataSearchInput").value = "";
       document.getElementById("dataExactCheckbox").checked = false;
@@ -687,6 +781,7 @@
       renderVirtualTree(currentTreeData);
     });
 
+    /***** STEP 11: FILE INPUT & PARSING *****/
     document.getElementById("parseBtn").addEventListener("click", function() {
       const fileInput = document.getElementById("fileInput");
       if (!fileInput.files || fileInput.files.length === 0) {
