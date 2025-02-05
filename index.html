@@ -16,7 +16,7 @@
       overflow-y: auto;
       position: relative;
     }
-    /* Header row with two columns */
+    /* Header row with three columns: Line, Code, Data */
     .tree-header {
       display: flex;
       font-weight: bold;
@@ -48,10 +48,10 @@
       margin-left: 4px;
       font-size: 0.8em;
     }
-    /* Predefined column sizes: first column fixed; second flexible */
-    .tree-code {
+    /* Predefined column sizes */
+    .tree-line, .tree-code {
       width: 100px;
-      /* If resized, inline style will override */
+      text-align: left;
     }
     .tree-data {
       flex: 1;
@@ -60,12 +60,12 @@
     .tree-row {
       display: flex;
       align-items: center;
-      padding: 2px 0;
+      padding: 0; /* no extra vertical padding */
       position: absolute;
       left: 0;
       right: 0;
     }
-    .tree-code, .tree-data {
+    .tree-line, .tree-code, .tree-data {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -74,7 +74,6 @@
       display: inline-block;
       width: 16px;
       text-align: center;
-      margin-right: 5px;
       user-select: none;
       cursor: pointer;
     }
@@ -83,7 +82,7 @@
       font-size: 0.8em;
       display: none;
     }
-    .tree-node:hover .copy-button {
+    .tree-row:hover .copy-button {
       display: inline;
     }
     /* Controls */
@@ -101,6 +100,18 @@
     .controls button {
       padding: 4px 8px;
       margin-right: 4px;
+    }
+    /* Vertical grid lines between header and row columns */
+    .tree-header > div,
+    .tree-row > div {
+      border-right: 1px solid #ccc;
+      padding: 0 4px;
+      height: 100%;
+      box-sizing: border-box;
+    }
+    .tree-header > div:last-child,
+    .tree-row > div:last-child {
+      border-right: none;
     }
   </style>
 </head>
@@ -129,14 +140,18 @@
     <button id="collapseAllBtn">Collapse All</button>
   </div>
 
-  <!-- Tree Grid Header with resizers and sort controls -->
+  <!-- Tree Grid Header: New order: Line, Code, Data -->
   <div id="treeGridHeader" class="tree-header">
+    <div class="tree-line header-cell" data-field="line" data-sort="none" data-size="100px">
+      Line <span class="sort-indicator"></span>
+      <div class="resizer"></div>
+    </div>
     <div class="tree-code header-cell" data-field="code" data-sort="none" data-size="100px">
       Code <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
     <div class="tree-data header-cell" data-field="type" data-sort="none" data-size="auto">
-      Type <span class="sort-indicator"></span>
+      Data <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
   </div>
@@ -161,13 +176,14 @@
     let flatTreeNodes = [];    // Flat list of visible nodes for virtual scrolling
     const ITEM_HEIGHT = 24;    // Height per row in pixels
 
-    // Global variable for column widths (in pixels or null for auto)
+    // Global variable for column widths (three columns now)
     let columnWidths = {
-      code: 100,  // fixed pixel width for "Code" column
-      type: null  // "Type" column is auto (flex) until resized
+      line: 100,
+      code: 100,
+      type: null  // Data column is auto until resized
     };
 
-    /***** STEP 1: PARSING (Incremental – use streams in production) *****/
+    /***** STEP 1: PARSING – Store tag’s originating line *****/
     function parseDxf(text) {
       const lines = text.split(/\r?\n/);
       const tags = [];
@@ -177,11 +193,13 @@
         const code = parseInt(codeLine, 10);
         if (isNaN(code)) continue;
         let value = "";
+        // Store the line number (1-indexed) where the code appears
+        const tagLine = i + 1;
         if (i + 1 < lines.length) {
           value = lines[i + 1].trim();
         }
-        i++;
-        tags.push({ code, value });
+        i++; // Skip the value line
+        tags.push({ line: tagLine, code, value });
       }
       return tags;
     }
@@ -202,6 +220,7 @@
         const obj = {
           id: nextId++,
           type: tags[i].value,
+          line: tags[i].line, // store the line number for this tag
           properties: [],
           children: [],
           isContainer: containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
@@ -229,15 +248,19 @@
       nodes.forEach(node => {
         flatNodes.push({ node, level });
         if (node.expanded && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
-          // Add properties as synthetic nodes
+          // For each property, create a synthetic property node that stores line, code, and data.
           node.properties.forEach(prop => {
             flatNodes.push({
               node: {
                 id: nextId++,
-                type: `${prop.code} - ${prop.value}`,
+                type: "", // not used for property rows
+                line: prop.line, // property tag line
                 properties: [],
                 children: [],
-                isContainer: false
+                isContainer: false,
+                isProperty: true,
+                code: prop.code,
+                data: prop.value
               },
               level: level + 1
             });
@@ -273,27 +296,58 @@
         row.className = "tree-row tree-node";
         row.style.top = (i * ITEM_HEIGHT) + "px";
         row.style.height = ITEM_HEIGHT + "px";
-        row.style.paddingLeft = (level * 20) + "px";
+        // Set data-id for event delegation (manual expansion)
         row.dataset.id = node.id;
 
-        const toggleSpan = document.createElement("span");
-        toggleSpan.className = "toggle";
-        if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
-          toggleSpan.textContent = node.expanded ? "▼" : "►";
+        // --- LINE COLUMN (with expander) ---
+        const lineDiv = document.createElement("div");
+        lineDiv.className = "tree-line";
+        if (columnWidths.line) {
+          lineDiv.style.width = columnWidths.line + "px";
         }
-        row.appendChild(toggleSpan);
+        lineDiv.style.textAlign = "left";
+        // Create inner container for expander and line number; apply tree-level indentation
+        const lineContent = document.createElement("div");
+        lineContent.style.display = "flex";
+        lineContent.style.alignItems = "center";
+        lineContent.style.marginLeft = (level * 20) + "px";
+        // If this is not a property and has children/properties, add the expander toggle
+        if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
+          const toggleSpan = document.createElement("span");
+          toggleSpan.className = "toggle";
+          toggleSpan.textContent = node.expanded ? "▼" : "►";
+          lineContent.appendChild(toggleSpan);
+        } else {
+          // Otherwise, add a spacer for alignment
+          const spacer = document.createElement("span");
+          spacer.style.display = "inline-block";
+          spacer.style.width = "16px";
+          lineContent.appendChild(spacer);
+        }
+        const lineNumberSpan = document.createElement("span");
+        lineNumberSpan.textContent = node.line || "";
+        lineContent.appendChild(lineNumberSpan);
+        lineDiv.appendChild(lineContent);
+        row.appendChild(lineDiv);
 
-        // "Code" column cell
+        // --- CODE COLUMN ---
         const codeDiv = document.createElement("div");
         codeDiv.className = "tree-code";
         if (columnWidths.code) {
           codeDiv.style.width = columnWidths.code + "px";
         }
-        // For demonstration, container nodes show "0" while leaves show an empty string.
-        codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
+        codeDiv.style.textAlign = "left";
+        // No indentation here—the expander was moved to the Line column.
+        const codeText = document.createElement("span");
+        if (node.isProperty) {
+          codeText.textContent = node.code;
+        } else {
+          codeText.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
+        }
+        codeDiv.appendChild(codeText);
         row.appendChild(codeDiv);
 
-        // "Type" column cell
+        // --- DATA COLUMN ---
         const dataDiv = document.createElement("div");
         dataDiv.className = "tree-data";
         if (columnWidths.type) {
@@ -302,9 +356,8 @@
         } else {
           dataDiv.style.flex = "1";
         }
-        dataDiv.textContent = node.type;
-        row.appendChild(dataDiv);
-
+        dataDiv.textContent = node.isProperty ? node.data : node.type;
+        // Append the copy button inside the Data cell (to avoid extra grid borders)
         const copyButton = document.createElement("button");
         copyButton.textContent = "Copy";
         copyButton.className = "copy-button";
@@ -312,7 +365,9 @@
           e.stopPropagation();
           copyNode(node.id);
         });
-        row.appendChild(copyButton);
+        dataDiv.appendChild(copyButton);
+        row.appendChild(dataDiv);
+
         fragment.appendChild(row);
       }
       treeViewContent.appendChild(fragment);
@@ -436,7 +491,6 @@
     }
 
     /***** STEP 7: EXPAND/COLLAPSE ALL & EVENT DELEGATION *****/
-    // Use event delegation on treeViewContent.
     treeViewContent.addEventListener("click", function(e) {
       let target = e.target;
       if (target.classList.contains("toggle") || target.closest(".tree-row")) {
@@ -446,16 +500,13 @@
         const node = findNodeById(originalTreeData, id);
         if (node) {
           node.expanded = !node.expanded;
-          // If a search is active, re-run filter; otherwise use the full tree.
           const codeQuery = document.getElementById("codeSearchInput").value.trim();
           const dataQuery = document.getElementById("dataSearchInput").value.trim();
           const dataExact = document.getElementById("dataExactCheckbox").checked;
           const dataCase = document.getElementById("dataCaseCheckbox").checked;
-          if (codeQuery || dataQuery) {
-            currentTreeData = filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase);
-          } else {
-            currentTreeData = originalTreeData;
-          }
+          currentTreeData = (codeQuery || dataQuery)
+                        ? filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase)
+                        : originalTreeData;
           renderVirtualTree(currentTreeData);
         }
       }
@@ -465,6 +516,10 @@
       nodes.forEach(node => {
         if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
           node.expanded = true;
+          // Also sort children if needed
+          if (node.properties && node.properties.length) {
+            node.properties.sort((a, b) => a.code - b.code);
+          }
           expandAllNodes(node.children);
         }
       });
@@ -501,15 +556,18 @@
     /***** STEP 8: HEADER SORTING & COLUMN RESIZING *****/
     // Helper to extract the value to sort from a node based on field.
     function getSortValue(node, field) {
-      if (field === "code") {
-        // For container nodes, display "0"; otherwise, empty.
-        if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
-          return "0";
-        } else {
-          return "";
+      if (field === "line") {
+        return node.line ? Number(node.line) : 0;
+      } else if (field === "code") {
+        // For Code column, sort numerically.
+        if (node.isProperty) {
+          return (typeof node.code === 'number' ? node.code : parseInt(node.code, 10)) || 0;
         }
+        // For non-property nodes with children/properties, return 0; otherwise, a high number so empty sorts last.
+        return ((node.properties && node.properties.length) || (node.children && node.children.length)) ? 0 : Number.MAX_SAFE_INTEGER;
       } else if (field === "type") {
-        return node.type;
+        // For the Data column, use node.data if a property row, else node.type.
+        return node.isProperty ? node.data : node.type;
       }
       return "";
     }
@@ -519,9 +577,34 @@
       nodes.sort((a, b) => {
         let aVal = getSortValue(a, field);
         let bVal = getSortValue(b, field);
-        return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
+        if (field === "code" || field === "line") {
+          // Numeric sort.
+          return (aVal - bVal) * (ascending ? 1 : -1);
+        } else {
+          return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
+        }
       });
+      // Also sort properties arrays for each node
       nodes.forEach(node => {
+        if (node.properties && node.properties.length) {
+          node.properties.sort((a, b) => {
+            let aVal, bVal;
+            if (field === "code") {
+              aVal = (typeof a.code === 'number' ? a.code : parseInt(a.code, 10)) || 0;
+              bVal = (typeof b.code === 'number' ? b.code : parseInt(b.code, 10)) || 0;
+              return (aVal - bVal) * (ascending ? 1 : -1);
+            } else if (field === "line") {
+              aVal = a.line || 0;
+              bVal = b.line || 0;
+              return (aVal - bVal) * (ascending ? 1 : -1);
+            } else if (field === "type") {
+              aVal = a.value || "";
+              bVal = b.value || "";
+              return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
+            }
+            return 0;
+          });
+        }
         if (node.children && node.children.length > 0) {
           sortTreeNodes(node.children, field, ascending);
         }
@@ -531,8 +614,7 @@
     // Attach sort event listeners to header cells.
     document.querySelectorAll('.header-cell').forEach(headerCell => {
       headerCell.addEventListener('click', function(e) {
-        // Do not trigger sort if clicking on the resizer.
-        if (e.target.classList.contains('resizer')) return;
+        if (e.target.classList.contains('resizer')) return; // ignore resizer clicks
         const field = headerCell.getAttribute('data-field');
         let currentSort = headerCell.getAttribute('data-sort');
         let ascending = true;
@@ -545,14 +627,12 @@
           headerCell.setAttribute('data-sort', 'asc');
           headerCell.querySelector('.sort-indicator').textContent = ' ▲';
         }
-        // Reset sort state on other header cells.
         document.querySelectorAll('.header-cell').forEach(cell => {
           if (cell !== headerCell) {
             cell.setAttribute('data-sort', 'none');
             cell.querySelector('.sort-indicator').textContent = '';
           }
         });
-        // Sort the original tree data recursively by the selected field.
         sortTreeNodes(originalTreeData, field, ascending);
         currentTreeData = originalTreeData;
         renderVirtualTree(currentTreeData);
@@ -571,7 +651,6 @@
           const newWidth = startWidth + (e.clientX - startX);
           headerCell.style.width = newWidth + 'px';
           columnWidths[field] = newWidth;
-          // Re-render the visible rows so that each cell updates its inline width.
           updateVisibleNodes();
         }
         function onMouseUp() {
@@ -592,11 +671,9 @@
         const dataQuery = document.getElementById("dataSearchInput").value.trim();
         const dataExact = document.getElementById("dataExactCheckbox").checked;
         const dataCase = document.getElementById("dataCaseCheckbox").checked;
-        if (!codeQuery && !dataQuery) {
-          currentTreeData = originalTreeData;
-        } else {
-          currentTreeData = filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase);
-        }
+        currentTreeData = (!codeQuery && !dataQuery)
+                          ? originalTreeData
+                          : filterTree(originalTreeData, codeQuery, dataQuery, dataExact, dataCase);
         renderVirtualTree(currentTreeData);
       }, 300);
     });
@@ -623,7 +700,6 @@
         const tags = parseDxf(text);
         const grouped = groupObjects(tags, 0);
         originalTreeData = grouped.objects;
-        // Initialize currentTreeData with the full tree.
         currentTreeData = originalTreeData;
         collapseAllNodes(originalTreeData);
         renderVirtualTree(currentTreeData);
