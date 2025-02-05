@@ -2,15 +2,14 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>DXF Parser (Refactored with VirtualTreeView)</title>
+  <title>DXF Parser</title>
   <style>
-    /* Ensure the html and body fill the viewport */
+    /* ======= STYLES (Mostly the same as before) ======= */
     html, body {
       height: 100%;
       margin: 0;
       padding: 0;
     }
-    /* Main container that holds all content as a column flex container */
     .main-container {
       display: flex;
       flex-direction: column;
@@ -21,9 +20,6 @@
     body {
       font-family: sans-serif;
     }
-    /* ------------------------------
-       Tab container styles
-       ------------------------------ */
     #tabContainer {
       display: flex;
       border-bottom: 1px solid #ccc;
@@ -49,10 +45,6 @@
       cursor: pointer;
       padding: 0 4px;
     }
-
-    /* ------------------------------
-       Tree grid and header styles
-       ------------------------------ */
     .tree-header {
       display: flex;
       font-weight: bold;
@@ -72,7 +64,6 @@
     .tree-header > div:last-child {
       border-right: none;
     }
-    /* Header cell specific styles */
     .header-cell {
       cursor: pointer;
     }
@@ -95,24 +86,22 @@
     .tree-data {
       flex: 1;
     }
-
-    /* The container for scrolling */
+    /* Virtual scroll container */
     #treeViewContainer {
       position: relative;
-      flex: 1; /* to fill remaining space */
+      flex: 1;
       overflow-y: auto;
       border: 1px solid #ccc;
     }
     #treeViewContent {
       position: relative;
     }
-
-    /* Row styling */
+    /* Rows */
     .tree-row {
       display: flex;
       align-items: center;
       padding: 0;
-      position: absolute; /* absolutely positioned for virtual scroll */
+      position: absolute;
       left: 0;
       right: 0;
       border-bottom: 1px solid #eee;
@@ -130,7 +119,6 @@
     .tree-data:last-child {
       border-right: none;
     }
-
     .toggle {
       display: inline-block;
       width: 16px;
@@ -146,13 +134,10 @@
     .tree-row:hover .copy-button {
       display: inline;
     }
-
-    /* Controls */
+    /* Controls / Tag-style search */
     .controls {
       margin: 1em 0;
     }
-
-    /* Tag container styling for multi-item search */
     .tag-container {
       display: inline-block;
       border: 1px solid #ccc;
@@ -184,16 +169,16 @@
 </head>
 <body>
   <div class="main-container">
-    <h1>DXF Parser (Refactored)</h1>
+    <h1>DXF Parser</h1>
 
-    <!-- File Input (allowing multiple files) -->
+    <!-- File Input -->
     <input type="file" id="fileInput" accept=".dxf" multiple>
     <button id="parseBtn">Parse File(s)</button>
 
-    <!-- Tab Container (each parsed file appears as a tab) -->
+    <!-- Tab Container -->
     <div id="tabContainer"></div>
 
-    <!-- Search Controls: tag-style inputs for Code and Data -->
+    <!-- Search Controls -->
     <div class="controls">
       <div id="codeSearchTags" class="tag-container">
         <input type="text" id="codeSearchInput" placeholder="Search by Code">
@@ -215,7 +200,7 @@
       <button id="collapseAllBtn">Collapse All</button>
     </div>
 
-    <!-- Tree Grid Header: columns: Line, Code, Data -->
+    <!-- Tree Grid Header -->
     <div id="treeGridHeader" class="tree-header">
       <div class="tree-line header-cell" data-field="line" data-sort="none" data-size="100px">
         Line <span class="sort-indicator"></span>
@@ -231,281 +216,411 @@
       </div>
     </div>
 
-    <!-- The scrollable container and content for the Virtual Tree -->
+    <!-- Virtual Scroll Container -->
     <div id="treeViewContainer">
       <div id="treeViewContent"></div>
     </div>
   </div>
 
-  <!-- 1) VirtualTreeView Class -->
+  <!-- 1) DxfParser Class -->
   <script>
-  class VirtualTreeView {
-    /**
-     * @param {HTMLElement} container The scrolling container (e.g. #treeViewContainer).
-     * @param {HTMLElement} content The content wrapper inside the container (e.g. #treeViewContent).
-     * @param {Object} options:
-     *   - itemHeight {number} Each row's height in pixels.
-     *   - copyCallback {function} If provided, called with (nodeId) when copy button is clicked.
-     *   - onToggleExpand {function} If provided, called with (nodeId) when user clicks toggle arrow.
-     *   - getLineWidth {function} If provided, returns the current width for the "line" column.
-     *   - getCodeWidth {function} If provided, returns the current width for the "code" column.
-     *   - getDataWidth {function} If provided, returns the current width for the "data" column (or null for flex).
-     */
-    constructor(container, content, options = {}) {
-      this.container = container;
-      this.content = content;
-      this.itemHeight = options.itemHeight || 24;
-      this.copyCallback = options.copyCallback || null;
-      this.onToggleExpand = options.onToggleExpand || null;
-
-      // Column width getters
-      this.getLineWidth = options.getLineWidth || (() => 100);
-      this.getCodeWidth = options.getCodeWidth || (() => 100);
-      this.getDataWidth = options.getDataWidth || (() => null);
-
-      // Our flattened data
-      this.flatData = [];
-      this.treeData = [];
-
-      // Listen for scrolling
-      this.container.addEventListener("scroll", this.updateVisibleNodes.bind(this));
-
-      // Click handling inside the content
-      this.content.addEventListener("click", (e) => {
-        // Toggle expansion if user clicked the arrow
-        if (e.target.classList.contains("toggle")) {
-          const row = e.target.closest(".tree-row");
-          if (row) {
-            const nodeId = row.dataset.id;
-            if (this.onToggleExpand) {
-              this.onToggleExpand(nodeId);
-            }
-          }
-        }
-        // Otherwise, if user clicked copy button, we handle that in the button's event
-      });
-    }
-
-    setData(treeData) {
-      this.treeData = treeData || [];
-      this.refresh();
-    }
-
-    refresh() {
-      this.flatData = this.flattenTree(this.treeData);
-      this.content.style.height = (this.flatData.length * this.itemHeight) + "px";
-      this.updateVisibleNodes();
-    }
-
-    flattenTree(nodes, level = 0) {
-      let flat = [];
-      for (let node of nodes) {
-        flat.push({ node, level });
-        if (node.expanded) {
-          // Insert properties
-          if (node.properties && node.properties.length) {
-            for (let prop of node.properties) {
-              // We'll give each property its own "fake" ID
-              // so it can be individually identified if needed.
-              flat.push({
-                node: {
-                  id: `prop-${node.id}-${prop.line}-${prop.code}`,
-                  isProperty: true,
-                  line: prop.line,
-                  code: prop.code,
-                  data: prop.value
-                },
-                level: level + 1
-              });
-            }
-          }
-          // Insert children
-          if (node.children && node.children.length) {
-            flat = flat.concat(this.flattenTree(node.children, level + 1));
-          }
-        }
+    class DxfParser {
+      constructor() {
+        // Map container objects to their ending markers
+        this.containerMapping = {
+          "SECTION": "ENDSEC",
+          "BLOCK":   "ENDBLK",
+          "TABLE":   "ENDTAB",
+          "OBJECT":  "ENDOBJ",
+          "POLYLINE":"SEQEND"
+        };
+        this.nextId = 1;
       }
-      return flat;
-    }
 
-    updateVisibleNodes() {
-      const scrollTop = this.container.scrollTop;
-      const containerHeight = this.container.clientHeight;
-      const startIndex = Math.floor(scrollTop / this.itemHeight);
-      const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
-      const endIndex = Math.min(startIndex + visibleCount, this.flatData.length);
+      /**
+       * Main entry point to parse a DXF text:
+       *   1) parse text into tags
+       *   2) group into hierarchical objects
+       *   3) returns an array of top-level objects
+       */
+      parse(text) {
+        const tags = this.parseDxf(text);
+        const grouped = this.groupObjects(tags, 0);
+        return grouped.objects;
+      }
 
-      this.content.innerHTML = "";
-      const fragment = document.createDocumentFragment();
-
-      for (let i = startIndex; i < endIndex; i++) {
-        const { node, level } = this.flatData[i];
-        const row = document.createElement("div");
-        row.className = "tree-row tree-node";
-        row.style.top = (i * this.itemHeight) + "px";
-        row.style.height = this.itemHeight + "px";
-        row.style.position = "absolute";
-        row.dataset.id = node.id;
-
-        // --- LINE COLUMN ---
-        const lineDiv = document.createElement("div");
-        lineDiv.className = "tree-line";
-        const lineWidth = this.getLineWidth();
-        if (lineWidth) {
-          lineDiv.style.width = lineWidth + "px";
+      /**
+       * Splits the text into lines, forms { line, code, value }
+       * @param {string} text - entire DXF file contents
+       * @returns {Array} list of { line, code, value }
+       */
+      parseDxf(text) {
+        const lines = text.split(/\r?\n/);
+        const tags = [];
+        for (let i = 0; i < lines.length; i++) {
+          const codeLine = lines[i].trim();
+          if (!codeLine) continue;
+          const code = parseInt(codeLine, 10);
+          if (isNaN(code)) continue;
+          let value = "";
+          const tagLine = i + 1; // store 1-based line number
+          if (i + 1 < lines.length) {
+            value = lines[i + 1].trim();
+          }
+          i++; // skip the value line
+          tags.push({ line: tagLine, code, value });
         }
-        lineDiv.style.textAlign = "left";
+        return tags;
+      }
 
-        // Indentation & toggle
-        const lineContent = document.createElement("div");
-        lineContent.style.display = "flex";
-        lineContent.style.alignItems = "center";
-        lineContent.style.marginLeft = (level * 20) + "px";
+      /**
+       * Converts the list of tags into a tree of objects.
+       * Recursively processes container objects (SECTION, BLOCK, etc.)
+       * @param {Array} tags - list of { line, code, value }
+       * @param {number} startIndex
+       * @param {string|null} endMarker
+       * @returns { { objects, nextIndex } }
+       */
+      groupObjects(tags, startIndex, endMarker = null) {
+        const objects = [];
+        let i = startIndex;
 
-        if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
-          // toggle arrow
-          const toggleSpan = document.createElement("span");
-          toggleSpan.className = "toggle";
-          toggleSpan.textContent = node.expanded ? "▼" : "►";
-          lineContent.appendChild(toggleSpan);
-        } else {
-          // spacer
-          const spacer = document.createElement("span");
-          spacer.style.display = "inline-block";
-          spacer.style.width = "16px";
-          lineContent.appendChild(spacer);
+        while (i < tags.length) {
+          // If we encounter the endMarker at code==0, we stop
+          if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
+            i++;
+            return { objects, nextIndex: i };
+          }
+          // If code != 0, skip until next code==0
+          if (tags[i].code !== 0) {
+            i++;
+            continue;
+          }
+          // Build a new object
+          const obj = {
+            id: this.nextId++,
+            type: tags[i].value,
+            line: tags[i].line,
+            properties: [],
+            children: [],
+            isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
+            expanded: false
+          };
+          i++;
+
+          // Gather properties until next code==0 or until we run out
+          while (i < tags.length && tags[i].code !== 0) {
+            obj.properties.push(tags[i]);
+            i++;
+          }
+
+          // If container, recursively parse children
+          if (obj.isContainer) {
+            const marker = this.containerMapping[obj.type.toUpperCase()];
+            const result = this.groupObjects(tags, i, marker);
+            obj.children = result.objects;
+            i = result.nextIndex;
+          }
+
+          objects.push(obj);
         }
-        const lineNumberSpan = document.createElement("span");
-        lineNumberSpan.textContent = node.line || "";
-        lineContent.appendChild(lineNumberSpan);
+        return { objects, nextIndex: i };
+      }
 
-        lineDiv.appendChild(lineContent);
-        row.appendChild(lineDiv);
-
-        // --- CODE COLUMN ---
-        const codeDiv = document.createElement("div");
-        codeDiv.className = "tree-code";
-        const codeWidth = this.getCodeWidth();
-        if (codeWidth) {
-          codeDiv.style.width = codeWidth + "px";
+      /**
+       * Find a node by ID in the entire tree (recursively).
+       */
+      findNodeById(tree, id) {
+        for (const obj of tree) {
+          if (String(obj.id) === String(id)) {
+            return obj;
+          }
+          if (obj.children && obj.children.length) {
+            const result = this.findNodeById(obj.children, id);
+            if (result) return result;
+          }
         }
-        codeDiv.style.textAlign = "left";
-        if (node.isProperty) {
-          codeDiv.textContent = node.code;
-        } else {
-          codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length))
-            ? "0"
-            : "";
-        }
-        row.appendChild(codeDiv);
+        return null;
+      }
 
-        // --- DATA COLUMN ---
-        const dataDiv = document.createElement("div");
-        dataDiv.className = "tree-data";
-        const dataWidth = this.getDataWidth();
-        if (dataWidth) {
-          dataDiv.style.width = dataWidth + "px";
-          dataDiv.style.flex = "0 0 auto";
-        } else {
-          dataDiv.style.flex = "1";
-        }
-        dataDiv.textContent = node.isProperty ? node.data : node.type || "";
+      /**
+       * Serialize a node (and its children) back to DXF text.
+       * @param {Object} node
+       * @returns {string} multiline DXF
+       */
+      serializeNode(node) {
+        let lines = [];
+        lines.push("0");
+        lines.push(node.type);
 
-        // If we have a copy callback, add a button
-        if (this.copyCallback && !node.isProperty) {
-          // Typically we only show "Copy" for top-level or container nodes,
-          // but you could also show for properties if desired:
-          const copyButton = document.createElement("button");
-          copyButton.textContent = "Copy";
-          copyButton.className = "copy-button";
-          copyButton.addEventListener("click", (e) => {
-            e.stopPropagation();
-            this.copyCallback(node.id);
+        node.properties.forEach(prop => {
+          lines.push(prop.code.toString());
+          lines.push(prop.value);
+        });
+
+        // If container, recursively serialize children
+        if (node.isContainer && node.children && node.children.length) {
+          node.children.forEach(child => {
+            lines.push(this.serializeNode(child));
           });
-          dataDiv.appendChild(copyButton);
+          const endMarker = this.containerMapping[node.type.toUpperCase()];
+          if (endMarker) {
+            lines.push("0");
+            lines.push(endMarker);
+          }
         }
 
-        row.appendChild(dataDiv);
-        fragment.appendChild(row);
+        return lines.join("\n");
       }
-      this.content.appendChild(fragment);
     }
-  }
   </script>
 
-  <!-- 2) Main App Code -->
+  <!-- 2) VirtualTreeView Class (unchanged from previous refactor) -->
   <script>
-    /***** GLOBALS *****/
-    let tabs = [];
-    let activeTabId = null; // track which tab is active
+    class VirtualTreeView {
+      constructor(container, content, options = {}) {
+        this.container = container;
+        this.content = content;
+        this.itemHeight = options.itemHeight || 24;
+        this.copyCallback = options.copyCallback || null;
+        this.onToggleExpand = options.onToggleExpand || null;
 
-    // Column widths
-    let columnWidths = {
-      line: 100,
-      code: 100,
-      type: null  // "auto" -> fill
-    };
+        // Column width getters
+        this.getLineWidth = options.getLineWidth || (() => 100);
+        this.getCodeWidth = options.getCodeWidth || (() => 100);
+        this.getDataWidth = options.getDataWidth || (() => null);
+
+        this.flatData = [];
+        this.treeData = [];
+
+        // Listen for scrolling
+        this.container.addEventListener("scroll", this.updateVisibleNodes.bind(this));
+
+        // Click handling
+        this.content.addEventListener("click", (e) => {
+          if (e.target.classList.contains("toggle")) {
+            const row = e.target.closest(".tree-row");
+            if (row) {
+              const nodeId = row.dataset.id;
+              // Let the outside code handle toggling
+              if (this.onToggleExpand) {
+                this.onToggleExpand(nodeId);
+              }
+            }
+          }
+          // Copy is handled in the button's click
+        });
+      }
+
+      setData(treeData) {
+        this.treeData = treeData || [];
+        this.refresh();
+      }
+
+      refresh() {
+        this.flatData = this.flattenTree(this.treeData);
+        this.content.style.height = (this.flatData.length * this.itemHeight) + "px";
+        this.updateVisibleNodes();
+      }
+
+      flattenTree(nodes, level = 0) {
+        let flat = [];
+        for (let node of nodes) {
+          flat.push({ node, level });
+          if (node.expanded) {
+            if (node.properties && node.properties.length) {
+              for (let prop of node.properties) {
+                flat.push({
+                  node: {
+                    id: `prop-${node.id}-${prop.line}-${prop.code}`,
+                    isProperty: true,
+                    line: prop.line,
+                    code: prop.code,
+                    data: prop.value
+                  },
+                  level: level + 1
+                });
+              }
+            }
+            if (node.children && node.children.length) {
+              flat = flat.concat(this.flattenTree(node.children, level + 1));
+            }
+          }
+        }
+        return flat;
+      }
+
+      updateVisibleNodes() {
+        const scrollTop = this.container.scrollTop;
+        const containerHeight = this.container.clientHeight;
+        const startIndex = Math.floor(scrollTop / this.itemHeight);
+        const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
+        const endIndex = Math.min(startIndex + visibleCount, this.flatData.length);
+
+        this.content.innerHTML = "";
+        const fragment = document.createDocumentFragment();
+
+        for (let i = startIndex; i < endIndex; i++) {
+          const { node, level } = this.flatData[i];
+          const row = document.createElement("div");
+          row.className = "tree-row tree-node";
+          row.style.top = (i * this.itemHeight) + "px";
+          row.style.height = this.itemHeight + "px";
+          row.style.position = "absolute";
+          row.dataset.id = node.id;
+
+          // --- LINE ---
+          const lineDiv = document.createElement("div");
+          lineDiv.className = "tree-line";
+          const lineWidth = this.getLineWidth();
+          if (lineWidth) {
+            lineDiv.style.width = lineWidth + "px";
+          }
+          lineDiv.style.textAlign = "left";
+
+          const lineContent = document.createElement("div");
+          lineContent.style.display = "flex";
+          lineContent.style.alignItems = "center";
+          lineContent.style.marginLeft = (level * 20) + "px";
+
+          if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
+            const toggleSpan = document.createElement("span");
+            toggleSpan.className = "toggle";
+            toggleSpan.textContent = node.expanded ? "▼" : "►";
+            lineContent.appendChild(toggleSpan);
+          } else {
+            const spacer = document.createElement("span");
+            spacer.style.width = "16px";
+            spacer.style.display = "inline-block";
+            lineContent.appendChild(spacer);
+          }
+          const lineNumberSpan = document.createElement("span");
+          lineNumberSpan.textContent = node.line || "";
+          lineContent.appendChild(lineNumberSpan);
+
+          lineDiv.appendChild(lineContent);
+          row.appendChild(lineDiv);
+
+          // --- CODE ---
+          const codeDiv = document.createElement("div");
+          codeDiv.className = "tree-code";
+          const codeWidth = this.getCodeWidth();
+          if (codeWidth) {
+            codeDiv.style.width = codeWidth + "px";
+          }
+          codeDiv.style.textAlign = "left";
+          if (node.isProperty) {
+            codeDiv.textContent = node.code;
+          } else {
+            codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
+          }
+          row.appendChild(codeDiv);
+
+          // --- DATA ---
+          const dataDiv = document.createElement("div");
+          dataDiv.className = "tree-data";
+          const dataWidth = this.getDataWidth();
+          if (dataWidth) {
+            dataDiv.style.width = dataWidth + "px";
+            dataDiv.style.flex = "0 0 auto";
+          } else {
+            dataDiv.style.flex = "1";
+          }
+          dataDiv.textContent = node.isProperty ? node.data : node.type || "";
+
+          // Copy button (for non-property nodes)
+          if (this.copyCallback && !node.isProperty) {
+            const copyButton = document.createElement("button");
+            copyButton.textContent = "Copy";
+            copyButton.className = "copy-button";
+            copyButton.addEventListener("click", (e) => {
+              e.stopPropagation();
+              this.copyCallback(node.id);
+            });
+            dataDiv.appendChild(copyButton);
+          }
+
+          row.appendChild(dataDiv);
+          fragment.appendChild(row);
+        }
+
+        this.content.appendChild(fragment);
+      }
+    }
+  </script>
+
+  <!-- 3) Main App Code Integrating DxfParser & VirtualTreeView -->
+  <script>
+    /***** 1) Instantiate classes and global state *****/
+    const dxfParser = new DxfParser();  // Our new parser class
 
     // We'll reuse the container / content for the VirtualTreeView
     const treeViewContainer = document.getElementById("treeViewContainer");
     const treeViewContent = document.getElementById("treeViewContent");
 
-    // We create our VirtualTreeView instance
+    // Column widths
+    let columnWidths = {
+      line: 100,
+      code: 100,
+      type: null
+    };
+
+    // Tabs array
+    let tabs = [];
+    let activeTabId = null;
+
+    // The actual tree view instance
     const myTreeView = new VirtualTreeView(treeViewContainer, treeViewContent, {
       itemHeight: 24,
       copyCallback: (nodeId) => {
-        // If user clicks the "Copy" button, we find the original node and copy it.
+        // Called when user clicks "Copy"
         const activeTab = getActiveTab();
         if (!activeTab) return;
-        const node = findNodeById(activeTab.originalTreeData, nodeId);
+        const node = dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
         if (!node) {
           alert("Node not found in original data.");
           return;
         }
-        const serialized = serializeNode(node);
+        const serialized = dxfParser.serializeNode(node);
         navigator.clipboard.writeText(serialized).then(() => {
-          alert("Copied node tree to clipboard as valid DXF tags.");
+          alert("Copied node to clipboard as valid DXF tags.");
         }, () => {
           alert("Failed to copy to clipboard.");
         });
       },
       onToggleExpand: (nodeId) => {
-        // Called when user clicks on the expand/collapse arrow
+        // Flip expansion for the node in the original tree
         const activeTab = getActiveTab();
         if (!activeTab) return;
-        const node = findNodeById(activeTab.originalTreeData, nodeId);
+        const node = dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
         if (node) {
-          // Toggle expansion
           node.expanded = !node.expanded;
 
           // If there's a current sort, re-sort
           if (activeTab.currentSortField) {
             sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
           }
-
-          // Re-filter (if there's an active filter)
+          // Re-filter if necessary
           const dataExact = document.getElementById("dataExactCheckbox").checked;
           const dataCase = document.getElementById("dataCaseCheckbox").checked;
           activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
             ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
             : activeTab.originalTreeData;
 
-          // Finally, update the tree
+          // Update the tree
           myTreeView.setData(activeTab.currentTreeData);
         }
       },
-      // Methods to read current column widths on each render
       getLineWidth: () => columnWidths.line,
       getCodeWidth: () => columnWidths.code,
       getDataWidth: () => columnWidths.type
     });
 
-    // Helper to get the active tab object
     function getActiveTab() {
-      return tabs.find(tab => tab.id === activeTabId);
+      return tabs.find(t => t.id === activeTabId);
     }
 
-    // Update the Tab UI
+    // Rebuild tab UI
     function updateTabUI() {
       const tabContainer = document.getElementById("tabContainer");
       tabContainer.innerHTML = "";
@@ -514,18 +629,17 @@
         tabElem.className = "tab" + (tab.id === activeTabId ? " active" : "");
         tabElem.textContent = tab.name;
         tabElem.dataset.tabId = tab.id;
-        // Click to activate
-        tabElem.addEventListener("click", function() {
+
+        tabElem.addEventListener("click", () => {
           activeTabId = tab.id;
           updateTabUI();
-          // Render the tree for this tab
           myTreeView.setData(tab.currentTreeData);
         });
         // Close button
         const closeBtn = document.createElement("span");
         closeBtn.className = "close-tab";
         closeBtn.textContent = "×";
-        closeBtn.addEventListener("click", function(e) {
+        closeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           tabs = tabs.filter(t => t.id !== tab.id);
           if (activeTabId === tab.id) {
@@ -535,7 +649,7 @@
           if (activeTabId) {
             myTreeView.setData(getActiveTab().currentTreeData);
           } else {
-            myTreeView.setData([]); // no tab, empty data
+            myTreeView.setData([]);
           }
         });
         tabElem.appendChild(closeBtn);
@@ -543,73 +657,7 @@
       });
     }
 
-    /***** Original code: parseDxf, groupObjects, etc. *****/
-    const containerMapping = {
-      "SECTION": "ENDSEC",
-      "BLOCK":   "ENDBLK",
-      "TABLE":   "ENDTAB",
-      "OBJECT":  "ENDOBJ",
-      "POLYLINE": "SEQEND"
-    };
-    let nextId = 1;
-
-    function parseDxf(text) {
-      const lines = text.split(/\r?\n/);
-      const tags = [];
-      for (let i = 0; i < lines.length; i++) {
-        const codeLine = lines[i].trim();
-        if (!codeLine) continue;
-        const code = parseInt(codeLine, 10);
-        if (isNaN(code)) continue;
-        let value = "";
-        const tagLine = i + 1; // 1-indexed
-        if (i + 1 < lines.length) {
-          value = lines[i + 1].trim();
-        }
-        i++; // skip the value line
-        tags.push({ line: tagLine, code, value });
-      }
-      return tags;
-    }
-
-    function groupObjects(tags, startIndex, endMarker = null) {
-      const objects = [];
-      let i = startIndex;
-      while (i < tags.length) {
-        if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
-          i++;
-          return { objects, nextIndex: i };
-        }
-        if (tags[i].code !== 0) {
-          i++;
-          continue;
-        }
-        const obj = {
-          id: nextId++,
-          type: tags[i].value,
-          line: tags[i].line,
-          properties: [],
-          children: [],
-          isContainer: containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
-          expanded: false
-        };
-        i++;
-        while (i < tags.length && tags[i].code !== 0) {
-          obj.properties.push(tags[i]);
-          i++;
-        }
-        if (obj.isContainer) {
-          const containerEnd = containerMapping[obj.type.toUpperCase()];
-          const result = groupObjects(tags, i, containerEnd);
-          obj.children = result.objects;
-          i = result.nextIndex;
-        }
-        objects.push(obj);
-      }
-      return { objects, nextIndex: i };
-    }
-
-    /***** Searching & Filtering *****/
+    /***** 2) Search & Filter Logic (unchanged) *****/
     function filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
       const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
       let typeMatchesData = false;
@@ -628,6 +676,7 @@
       } else {
         typeMatchesData = true;
       }
+
       const filteredProperties = obj.properties.filter(prop => {
         const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
         let dataMatch = true;
@@ -635,15 +684,18 @@
           if (dataExact) {
             dataMatch = dataTerms.some(term => dataCase
               ? (prop.value === term)
-              : (prop.value.toLowerCase() === term.toLowerCase()));
+              : (prop.value.toLowerCase() === term.toLowerCase())
+            );
           } else {
             dataMatch = dataTerms.some(term => dataCase
               ? prop.value.includes(term)
-              : prop.value.toLowerCase().includes(term.toLowerCase()));
+              : prop.value.toLowerCase().includes(term.toLowerCase())
+            );
           }
         }
         return codeMatch && dataMatch;
       });
+
       const filteredChildren = [];
       obj.children.forEach(child => {
         const filteredChild = filterObject(child, codeTerms, dataTerms, dataExact, dataCase);
@@ -651,6 +703,7 @@
           filteredChildren.push(filteredChild);
         }
       });
+
       if (searchActive && obj.isContainer) {
         if (filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
@@ -683,40 +736,7 @@
       return filtered;
     }
 
-    /***** Copy Functionality *****/
-    function findNodeById(tree, id) {
-      for (let obj of tree) {
-        if (String(obj.id) === String(id)) return obj;
-        if (obj.children && obj.children.length) {
-          const result = findNodeById(obj.children, id);
-          if (result) return result;
-        }
-      }
-      return null;
-    }
-
-    function serializeNode(node) {
-      let lines = [];
-      lines.push("0");
-      lines.push(node.type);
-      node.properties.forEach(prop => {
-        lines.push(prop.code.toString());
-        lines.push(prop.value);
-      });
-      if (node.isContainer && node.children && node.children.length) {
-        node.children.forEach(child => {
-          lines.push(serializeNode(child));
-        });
-        const endMarker = containerMapping[node.type.toUpperCase()];
-        if (endMarker) {
-          lines.push("0");
-          lines.push(endMarker);
-        }
-      }
-      return lines.join("\n");
-    }
-
-    /***** Expand/Collapse All (still uses the original tree) *****/
+    /***** 3) Expand/Collapse All *****/
     function expandAllNodes(nodes) {
       nodes.forEach(node => {
         if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
@@ -731,47 +751,36 @@
         collapseAllNodes(node.children);
       });
     }
-
-    // Expand/Collapse All
     document.getElementById("expandAllBtn").addEventListener("click", () => {
-      let activeTab = getActiveTab();
+      const activeTab = getActiveTab();
       if (!activeTab) return;
       expandAllNodes(activeTab.originalTreeData);
-
-      // If sorted
       if (activeTab.currentSortField) {
         sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
       }
-      // Re-filter
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
       activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
         ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
         : activeTab.originalTreeData;
-
-      // Re-render
       myTreeView.setData(activeTab.currentTreeData);
     });
     document.getElementById("collapseAllBtn").addEventListener("click", () => {
-      let activeTab = getActiveTab();
+      const activeTab = getActiveTab();
       if (!activeTab) return;
       collapseAllNodes(activeTab.originalTreeData);
-
-      // If sorted
       if (activeTab.currentSortField) {
         sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
       }
-      // Re-filter
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
       activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
         ? filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
         : activeTab.originalTreeData;
-
       myTreeView.setData(activeTab.currentTreeData);
     });
 
-    /***** Header Sorting *****/
+    /***** 4) Sorting *****/
     function getSortValue(node, field) {
       if (field === "line") {
         return node.line ? Number(node.line) : 0;
@@ -780,48 +789,44 @@
           const c = parseInt(node.code, 10);
           return isNaN(c) ? Number.MAX_SAFE_INTEGER : c;
         }
-        // If it's a container, treat as code=0
-        return 0;
+        return 0; // container objects => code 0
       } else if (field === "type") {
-        return node.isProperty ? node.data : node.type;
+        return node.isProperty ? (node.data || "") : (node.type || "");
       }
       return "";
     }
 
     function sortTreeNodes(nodes, field, ascending) {
       nodes.sort((a, b) => {
-        let aVal = getSortValue(a, field);
-        let bVal = getSortValue(b, field);
+        const aVal = getSortValue(a, field);
+        const bVal = getSortValue(b, field);
         if (field === "code" || field === "line") {
           return (aVal - bVal) * (ascending ? 1 : -1);
         } else {
-          // type => string compare
-          aVal = aVal || "";
-          bVal = bVal || "";
           return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
         }
       });
-      // Sort properties if needed
       nodes.forEach(node => {
+        // Sort node's properties (if relevant to field)
         if (node.properties && node.properties.length) {
           node.properties.sort((a, b) => {
             if (field === "code") {
-              const aVal = parseInt(a.code, 10) || 0;
-              const bVal = parseInt(b.code, 10) || 0;
-              return (aVal - bVal) * (ascending ? 1 : -1);
+              const aC = parseInt(a.code, 10) || 0;
+              const bC = parseInt(b.code, 10) || 0;
+              return (aC - bC) * (ascending ? 1 : -1);
             } else if (field === "line") {
-              const aVal = a.line || 0;
-              const bVal = b.line || 0;
-              return (aVal - bVal) * (ascending ? 1 : -1);
+              const aL = a.line || 0;
+              const bL = b.line || 0;
+              return (aL - bL) * (ascending ? 1 : -1);
             } else if (field === "type") {
-              const aVal = a.value || "";
-              const bVal = b.value || "";
-              return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
+              const aV = a.value || "";
+              const bV = b.value || "";
+              return aV.localeCompare(bV) * (ascending ? 1 : -1);
             }
             return 0;
           });
         }
-        // Recurse children
+        // Recurse
         if (node.children && node.children.length) {
           sortTreeNodes(node.children, field, ascending);
         }
@@ -830,7 +835,6 @@
 
     document.querySelectorAll('.header-cell').forEach(headerCell => {
       headerCell.addEventListener('click', function(e) {
-        // Skip if user clicked the resizer
         if (e.target.classList.contains('resizer')) return;
         const field = headerCell.getAttribute('data-field');
         const activeTab = getActiveTab();
@@ -850,7 +854,6 @@
         activeTab.currentSortField = field;
         activeTab.currentSortAscending = ascending;
 
-        // Clear sort indicators on other columns
         document.querySelectorAll('.header-cell').forEach(cell => {
           if (cell !== headerCell) {
             cell.setAttribute('data-sort', 'none');
@@ -858,9 +861,8 @@
           }
         });
 
-        // Sort original data
         sortTreeNodes(activeTab.originalTreeData, field, ascending);
-        // Re-filter (if active)
+        // Re-filter if needed
         const dataExact = document.getElementById("dataExactCheckbox").checked;
         const dataCase = document.getElementById("dataCaseCheckbox").checked;
         activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
@@ -881,10 +883,9 @@
         const startWidth = headerCell.offsetWidth;
         function onMouseMove(e) {
           const newWidth = startWidth + (e.clientX - startX);
-          columnWidths[field] = newWidth; // store in global
-          // Also apply inline style so the header updates
+          columnWidths[field] = newWidth; // store globally
           headerCell.style.width = newWidth + 'px';
-          // Trigger re-render of visible rows (they use getLineWidth etc.)
+          // Trigger re-render of visible rows
           myTreeView.updateVisibleNodes();
         }
         function onMouseUp() {
@@ -896,17 +897,18 @@
       });
     });
 
-    /***** Tag-style Search Inputs *****/
+    /***** 5) Tag-style Search Inputs *****/
     function createTagElement(text, type) {
       const tag = document.createElement("span");
       tag.className = "tag";
       tag.textContent = text;
+
       const removeBtn = document.createElement("span");
       removeBtn.className = "remove";
       removeBtn.textContent = "×";
       removeBtn.addEventListener("click", function(e) {
         e.stopPropagation();
-        let activeTab = getActiveTab();
+        const activeTab = getActiveTab();
         if (!activeTab) return;
         if (type === "code") {
           activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
@@ -915,7 +917,7 @@
           activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
           updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         }
-        // After removing a tag, re-run the filter
+        // Re-filter
         const dataExact = document.getElementById("dataExactCheckbox").checked;
         const dataCase = document.getElementById("dataCaseCheckbox").checked;
         activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
@@ -924,8 +926,10 @@
         myTreeView.setData(activeTab.currentTreeData);
       });
       tag.appendChild(removeBtn);
+
       return tag;
     }
+
     function updateTagContainer(containerId, termsArray, type) {
       const container = document.getElementById(containerId);
       Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
@@ -934,6 +938,7 @@
         container.insertBefore(tagElem, container.querySelector("input"));
       });
     }
+
     function setupTagInput(inputId, type) {
       const input = document.getElementById(inputId);
       input.addEventListener("keydown", function(e) {
@@ -941,14 +946,14 @@
           e.preventDefault();
           const text = input.value.trim();
           if (text !== "") {
-            let activeTab = getActiveTab();
+            const activeTab = getActiveTab();
             if (!activeTab) return;
             if (type === "code") {
               if (!activeTab.codeSearchTerms.includes(text)) {
                 activeTab.codeSearchTerms.push(text);
               }
               updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-            } else if (type === "data") {
+            } else {
               if (!activeTab.dataSearchTerms.includes(text)) {
                 activeTab.dataSearchTerms.push(text);
               }
@@ -961,14 +966,14 @@
       input.addEventListener("blur", function(e) {
         const text = input.value.trim();
         if (text !== "") {
-          let activeTab = getActiveTab();
+          const activeTab = getActiveTab();
           if (!activeTab) return;
           if (type === "code") {
             if (!activeTab.codeSearchTerms.includes(text)) {
               activeTab.codeSearchTerms.push(text);
             }
             updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-          } else if (type === "data") {
+          } else {
             if (!activeTab.dataSearchTerms.includes(text)) {
               activeTab.dataSearchTerms.push(text);
             }
@@ -983,7 +988,7 @@
 
     // Search & Clear
     document.getElementById("searchBtn").addEventListener("click", function() {
-      let activeTab = getActiveTab();
+      const activeTab = getActiveTab();
       if (!activeTab) return;
       const codeInput = document.getElementById("codeSearchInput");
       const dataInput = document.getElementById("dataSearchInput");
@@ -1004,6 +1009,7 @@
         updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         dataInput.value = "";
       }
+
       const dataExact = document.getElementById("dataExactCheckbox").checked;
       const dataCase = document.getElementById("dataCaseCheckbox").checked;
       activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
@@ -1013,7 +1019,7 @@
     });
 
     document.getElementById("clearSearchBtn").addEventListener("click", function() {
-      let activeTab = getActiveTab();
+      const activeTab = getActiveTab();
       if (!activeTab) return;
       activeTab.codeSearchTerms = [];
       activeTab.dataSearchTerms = [];
@@ -1027,7 +1033,7 @@
       myTreeView.setData(activeTab.currentTreeData);
     });
 
-    /***** File Input & Parsing *****/
+    /***** 6) File Input & Parsing Integration *****/
     document.getElementById("parseBtn").addEventListener("click", function() {
       const fileInput = document.getElementById("fileInput");
       if (!fileInput.files || fileInput.files.length === 0) {
@@ -1038,15 +1044,16 @@
         const reader = new FileReader();
         reader.onload = function(event) {
           const text = event.target.result;
-          const tags = parseDxf(text);
-          const grouped = groupObjects(tags, 0);
 
-          // New tab
+          // Use DxfParser class
+          const objects = dxfParser.parse(text);
+
+          // Make a new tab
           const newTab = {
             id: Date.now() + Math.random(),
             name: file.name,
-            originalTreeData: grouped.objects,
-            currentTreeData: grouped.objects,
+            originalTreeData: objects,
+            currentTreeData: objects,
             codeSearchTerms: [],
             dataSearchTerms: [],
             currentSortField: "line",
@@ -1056,10 +1063,10 @@
           activeTabId = newTab.id;
           updateTabUI();
 
-          // Show its data
+          // Show this tab's data
           myTreeView.setData(newTab.currentTreeData);
         };
-        // We read as ASCII or UTF-8 depending on your files
+        // Read as ASCII or UTF-8, depending on your files
         reader.readAsText(file, "ascii");
       });
     });
