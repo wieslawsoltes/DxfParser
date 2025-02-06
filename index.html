@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8">
   <title>DXF Parser</title>
+  <!-- Include vis-network for the graph overlay -->
+  <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     /* ======= GLOBAL STYLES ======= */
     html, body {
@@ -191,8 +194,11 @@
     }
     
     /* ======= OVERLAY DIALOG STYLES ======= */
-    /* Cloud Overlay (unchanged) */
-    #cloudOverlay {
+    /* All overlay dialogs share the same style */
+    #cloudOverlay,
+    #statsOverlay,
+    #graphOverlay,
+    #depsOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -202,7 +208,7 @@
       background-color: rgba(0,0,0,0.5);
       z-index: 1000;
     }
-    #cloudOverlay .overlay-content {
+    .overlay-content {
       background: #fff;
       margin: 20px;
       padding: 1em;
@@ -213,7 +219,10 @@
       position: relative;
       overflow-y: auto;
     }
-    #closeCloudOverlay {
+    #closeCloudOverlay,
+    #closeStatsOverlay,
+    #closeGraphOverlay,
+    #closeDepsOverlay {
       position: absolute;
       top: 10px;
       right: 10px;
@@ -227,41 +236,27 @@
       border-radius: 4px;
       background: #f9f9f9;
     }
-    
-    /* Statistics Overlay (new) */
-    #statsOverlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0,0,0,0.5);
-      z-index: 1000;
-    }
-    #statsOverlay .overlay-content {
-      background: #fff;
-      margin: 20px;
-      padding: 1em;
-      width: calc(100% - 40px);
-      height: calc(100% - 40px);
-      border: 4px solid rgba(0, 0, 0, 0.2);
-      border-radius: 8px;
-      position: relative;
-      overflow-y: auto;
-    }
-    #closeStatsOverlay {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      cursor: pointer;
-    }
-    /* Simple styling for the statistics list */
+    /* Styling for statistics list */
     #overlayStatsContent ul {
       list-style: none;
       padding: 0;
     }
     #overlayStatsContent li {
+      padding: 0.5em 0;
+      border-bottom: 1px solid #eee;
+    }
+    /* Graph overlay: the container for vis-network */
+    #overlayGraphContent {
+      width: 100%;
+      height: 100%;
+      border: 1px solid #ddd;
+    }
+    /* Dependencies overlay: styling for dependency listing */
+    #overlayDepsContent ul {
+      list-style: none;
+      padding: 0;
+    }
+    #overlayDepsContent li {
       padding: 0.5em 0;
       border-bottom: 1px solid #eee;
     }
@@ -299,6 +294,8 @@
     <!-- NEW: Buttons to show overlay dialogs -->
     <button id="showCloudOverlayBtn">Show Cloud Data</button>
     <button id="showStatsOverlayBtn">Show DXF Statistics</button>
+    <button id="showGraphOverlayBtn">Show Hierarchy Graph</button>
+    <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
   </div>
   
   <!-- Tree Grid Header -->
@@ -343,12 +340,30 @@
   </div>
 </div>
 
-<!-- OVERLAY DIALOG for DXF Statistics (NEW) -->
+<!-- OVERLAY DIALOG for DXF Statistics -->
 <div id="statsOverlay">
   <div class="overlay-content">
     <button id="closeStatsOverlay">Close</button>
     <h2>DXF Statistics</h2>
     <div id="overlayStatsContent"></div>
+  </div>
+</div>
+
+<!-- OVERLAY DIALOG for Object Hierarchy Graph -->
+<div id="graphOverlay">
+  <div class="overlay-content">
+    <button id="closeGraphOverlay">Close</button>
+    <h2>Object Hierarchy Graph</h2>
+    <div id="overlayGraphContent"></div>
+  </div>
+</div>
+
+<!-- OVERLAY DIALOG for DXF Dependencies -->
+<div id="depsOverlay">
+  <div class="overlay-content">
+    <button id="closeDepsOverlay">Close</button>
+    <h2>DXF Dependencies</h2>
+    <div id="overlayDepsContent"></div>
   </div>
 </div>
 
@@ -736,13 +751,29 @@ class App {
     document.getElementById("closeCloudOverlay").addEventListener("click", () => {
       document.getElementById("cloudOverlay").style.display = "none";
     });
-    // NEW: Statistics overlay event listeners.
+    // Statistics overlay event listeners.
     document.getElementById("showStatsOverlayBtn").addEventListener("click", () => {
       this.updateStats();
       document.getElementById("statsOverlay").style.display = "block";
     });
     document.getElementById("closeStatsOverlay").addEventListener("click", () => {
       document.getElementById("statsOverlay").style.display = "none";
+    });
+    // Graph overlay event listeners.
+    document.getElementById("showGraphOverlayBtn").addEventListener("click", () => {
+      this.updateGraph();
+      document.getElementById("graphOverlay").style.display = "block";
+    });
+    document.getElementById("closeGraphOverlay").addEventListener("click", () => {
+      document.getElementById("graphOverlay").style.display = "none";
+    });
+    // Dependencies overlay event listeners.
+    document.getElementById("showDepsOverlayBtn").addEventListener("click", () => {
+      this.updateDependencies();
+      document.getElementById("depsOverlay").style.display = "block";
+    });
+    document.getElementById("closeDepsOverlay").addEventListener("click", () => {
+      document.getElementById("depsOverlay").style.display = "none";
     });
     // Automatically update filtering when checkboxes change.
     document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -1344,14 +1375,13 @@ class App {
     populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
   }
   
-  // NEW: Compute and update DXF statistics in the statistics overlay.
+  // NEW: Update the DXF statistics overlay.
   updateStats() {
     const activeTab = this.getActiveTab();
     if (!activeTab) {
       document.getElementById("overlayStatsContent").innerHTML = "No DXF data loaded.";
       return;
     }
-    // Recursive function to compute statistics.
     function computeStats(nodes, depth = 1) {
       let stats = {
         totalObjects: 0,
@@ -1388,7 +1418,6 @@ class App {
       });
       return stats;
     }
-    
     const stats = computeStats(activeTab.originalTreeData);
     const avgProps = stats.totalObjects > 0 ? (stats.totalProperties / stats.totalObjects).toFixed(2) : 0;
     const statsHtml = `
@@ -1408,6 +1437,131 @@ class App {
       </ul>
     `;
     document.getElementById("overlayStatsContent").innerHTML = statsHtml;
+  }
+  
+  // NEW: Build graph data from DXF hierarchy. To improve performance, only traverse to a maximum depth.
+  buildGraph(nodes, parentId, nodesArr, edgesArr, maxDepth = 5, currentDepth = 1) {
+    nodes.forEach(node => {
+      if (!node.isProperty) {
+        // Only include nodes up to the maxDepth
+        if (currentDepth > maxDepth) return;
+        nodesArr.push({
+          id: node.id,
+          label: `${node.type}\n(Line ${node.line})`
+        });
+        if (parentId !== null) {
+          edgesArr.push({
+            from: parentId,
+            to: node.id
+          });
+        }
+        if (node.children && node.children.length) {
+          this.buildGraph(node.children, node.id, nodesArr, edgesArr, maxDepth, currentDepth + 1);
+        }
+      }
+    });
+  }
+  
+  // NEW: Update the Object Hierarchy Graph overlay using vis-network.
+  updateGraph() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      document.getElementById("overlayGraphContent").innerHTML = "No DXF data loaded.";
+      return;
+    }
+    const nodesArr = [];
+    const edgesArr = [];
+    // Limit the graph to a maximum depth for performance
+    this.buildGraph(activeTab.originalTreeData, null, nodesArr, edgesArr, 5);
+    
+    const container = document.getElementById("overlayGraphContent");
+    container.innerHTML = ""; // Clear previous content
+    
+    const data = {
+      nodes: new vis.DataSet(nodesArr),
+      edges: new vis.DataSet(edgesArr)
+    };
+    
+    const options = {
+      layout: {
+        hierarchical: {
+          direction: 'UD',
+          sortMethod: 'directed',
+          nodeSpacing: 100,
+          levelSeparation: 150
+        }
+      },
+      physics: {
+        hierarchicalRepulsion: {
+          nodeDistance: 120
+        },
+        solver: 'hierarchicalRepulsion'
+      },
+      edges: {
+        smooth: true
+      }
+    };
+    
+    new vis.Network(container, data, options);
+  }
+  
+  // NEW: Update the DXF Dependencies overlay.
+  updateDependencies() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      document.getElementById("overlayDepsContent").innerHTML = "No DXF data loaded.";
+      return;
+    }
+    // We'll search for dependency objects in the TABLE section.
+    const dependencies = {
+      LTYPE: [],
+      STYLE: [],
+      APPID: [],
+      LAYER: [],
+      DIMSTYLE: [],
+      VPORT: [],
+      XREF: []
+    };
+    
+    function traverse(nodes) {
+      nodes.forEach(node => {
+        if (!node.isProperty && node.type.toUpperCase() === "TABLE") {
+          // In a TABLE container, examine children for dependency types.
+          if (node.children && node.children.length) {
+            node.children.forEach(child => {
+              const type = child.type.toUpperCase();
+              if (dependencies.hasOwnProperty(type)) {
+                dependencies[type].push(child);
+              }
+            });
+          }
+        } else if (!node.isProperty && node.children && node.children.length) {
+          traverse(node.children);
+        }
+      });
+    }
+    traverse(activeTab.originalTreeData);
+    
+    let html = "";
+    for (const depType in dependencies) {
+      if (dependencies[depType].length > 0) {
+        html += `<h3>${depType} (${dependencies[depType].length})</h3><ul>`;
+        dependencies[depType].forEach(dep => {
+          let depInfo = dep.type;
+          if (dep.properties && dep.properties.length) {
+            // For STYLE objects, code 3 is usually the font file.
+            const props = dep.properties.map(p => `${p.code}:${p.value}`).join(", ");
+            depInfo += ` [${props}]`;
+          }
+          html += `<li>${depInfo}</li>`;
+        });
+        html += "</ul>";
+      }
+    }
+    if (!html) {
+      html = "No dependency objects found.";
+    }
+    document.getElementById("overlayDepsContent").innerHTML = html;
   }
 }
 
