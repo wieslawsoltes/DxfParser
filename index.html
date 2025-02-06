@@ -1,1398 +1,1352 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>DXF Parser</title>
-  <!-- We no longer need D3.js or vis-network for the graph feature -->
-  <style>
-    /* ======= GLOBAL STYLES ======= */
-    html, body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-    *, *:before, *:after {
-      box-sizing: border-box;
-    }
-    .main-container {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      padding: 1em;
-    }
-    body {
-      font-family: sans-serif;
-    }
-    
-    /* ======= TAB STYLES ======= */
-    #tabContainer {
-      display: flex;
-      flex-wrap: wrap;
-      border-bottom: 1px solid #ccc;
-      margin: 1em 0;
-    }
-    .tab {
-      padding: 0.5em 1em;
-      border: 1px solid #ccc;
-      border-bottom: none;
-      cursor: pointer;
-      margin-right: 2px;
-      margin-bottom: 2px;
-      background: #eee;
-      position: relative;
-    }
-    .tab.active {
-      background: #fff;
-      font-weight: bold;
-    }
-    .tab .close-tab {
-      position: absolute;
-      top: 0;
-      right: 2px;
-      cursor: pointer;
-      padding: 0 4px;
-    }
-    
-    /* ======= HEADER STYLES ======= */
-    .tree-header {
-      display: flex;
-      align-items: center;
-      height: 24px;
-      font-weight: bold;
-      border-bottom: 1px solid #ccc;
-      background: #eee;
-      user-select: none;
-    }
-    .header-cell {
-      display: flex;
-      align-items: center;
-      height: 100%;
-      position: relative;
-      padding: 0 4px;
-      border-right: 1px solid #ccc;
-      cursor: pointer;
-    }
-    .header-cell.flex-fixed {
-      flex: none;
-    }
-    .header-cell.flex-grow {
-      flex: 1;
-    }
-    .header-cell:last-child {
-      border-right: none;
-    }
-    .header-cell .resizer {
-      position: absolute;
-      right: 0;
-      top: 0;
-      width: 5px;
-      height: 100%;
-      cursor: col-resize;
-    }
-    .header-cell .sort-indicator {
-      margin-left: 4px;
-      font-size: 0.8em;
-    }
-    
-    /* ======= CELL STYLES ======= */
-    .tree-line,
-    .tree-code,
-    .tree-object-count,
-    .tree-data-size {
-      flex: none;
-      padding: 0 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      text-align: left;
-      border-right: 1px solid #ccc;
-      height: 100%;
-    }
-    .tree-data {
-      flex: 1;
-      padding: 0 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      border-right: 1px solid #ccc;
-      height: 100%;
-    }
-    .tree-line:last-child,
-    .tree-code:last-child,
-    .tree-data:last-child,
-    .tree-object-count:last-child,
-    .tree-data-size:last-child {
-      border-right: none;
-    }
-    
-    /* ======= VIRTUAL SCROLLER ======= */
-    #treeViewContainer {
-      position: relative;
-      flex: 1;
-      overflow-y: auto;
-      border: 1px solid #ccc;
-    }
-    #treeViewContent {
-      position: relative;
-    }
-    
-    /* ======= ROW STYLES ======= */
-    .tree-row {
-      display: flex;
-      align-items: center;
-      height: 24px;
-      border-bottom: 1px solid #eee;
-    }
-    .toggle {
-      display: inline-block;
-      width: 16px;
-      text-align: center;
-      user-select: none;
-      cursor: pointer;
-    }
-    .copy-button {
-      margin-left: 8px;
-      font-size: 0.8em;
-      display: none;
-    }
-    .tree-row:hover .copy-button {
-      display: inline;
-    }
-    
-    /* ======= CONTROLS ======= */
-    .controls {
-      margin: 1em 0;
-    }
-    .tag-container {
-      display: inline-block;
-      border: 1px solid #ccc;
-      padding: 2px;
-      min-width: 200px;
-      margin-right: 8px;
-      border-radius: 4px;
-      vertical-align: middle;
-    }
-    .tag-container input {
-      border: none;
-      outline: none;
-      font-family: inherit;
-    }
-    .tag {
-      display: inline-block;
-      background: #ddd;
-      padding: 2px 6px;
-      margin: 2px;
-      border-radius: 4px;
-      font-size: 0.9em;
-    }
-    .tag .remove {
-      margin-left: 4px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-    
-    /* ======= OVERLAY DIALOG STYLES ======= */
-    /* All overlay dialogs share a common style */
-    #cloudOverlay,
-    #statsOverlay,
-    #depsOverlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0,0,0,0.5);
-      z-index: 1000;
-    }
-    .overlay-content {
-      background: #fff;
-      margin: 20px;
-      padding: 1em;
-      width: calc(100% - 40px);
-      height: calc(100% - 40px);
-      border: 4px solid rgba(0, 0, 0, 0.2);
-      border-radius: 8px;
-      position: relative;
-      overflow-y: auto;
-    }
-    #closeCloudOverlay,
-    #closeStatsOverlay,
-    #closeDepsOverlay {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      cursor: pointer;
-    }
-    .cloud-tag {
-      display: inline-block;
-      margin: 4px;
-      padding: 2px 6px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      background: #f9f9f9;
-    }
-    /* Styling for statistics list */
-    #overlayStatsContent ul {
-      list-style: none;
-      padding: 0;
-    }
-    #overlayStatsContent li {
-      padding: 0.5em 0;
-      border-bottom: 1px solid #eee;
-    }
-    /* Dependencies overlay: styling for dependency listing */
-    #overlayDepsContent ul {
-      list-style: none;
-      padding: 0;
-    }
-    #overlayDepsContent li {
-      padding: 0.5em 0;
-      border-bottom: 1px solid #eee;
-    }
-  </style>
+    <meta charset="utf-8">
+    <title>DXF Parser</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        *, *:before, *:after {
+            box-sizing: border-box;
+        }
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 1em;
+        }
+        body {
+            font-family: sans-serif;
+        }
+        #tabContainer {
+            display: flex;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #ccc;
+            margin: 1em 0;
+        }
+        .tab {
+            padding: 0.5em 1em;
+            border: 1px solid #ccc;
+            border-bottom: none;
+            cursor: pointer;
+            margin-right: 2px;
+            margin-bottom: 2px;
+            background: #eee;
+            position: relative;
+        }
+        .tab.active {
+            background: #fff;
+            font-weight: bold;
+        }
+        .tab .close-tab {
+            position: absolute;
+            top: 0;
+            right: 2px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+        .tree-header {
+            display: flex;
+            align-items: center;
+            height: 24px;
+            font-weight: bold;
+            border-bottom: 1px solid #ccc;
+            background: #eee;
+            user-select: none;
+        }
+        .header-cell {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            position: relative;
+            padding: 0 4px;
+            border-right: 1px solid #ccc;
+            cursor: pointer;
+        }
+        .header-cell.flex-fixed {
+            flex: none;
+        }
+        .header-cell.flex-grow {
+            flex: 1;
+        }
+        .header-cell:last-child {
+            border-right: none;
+        }
+        .header-cell .resizer {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 5px;
+            height: 100%;
+            cursor: col-resize;
+        }
+        .header-cell .sort-indicator {
+            margin-left: 4px;
+            font-size: 0.8em;
+        }
+        .tree-line,
+        .tree-code,
+        .tree-object-count,
+        .tree-data-size {
+            flex: none;
+            padding: 0 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: left;
+            border-right: 1px solid #ccc;
+            height: 100%;
+        }
+        .tree-data {
+            flex: 1;
+            padding: 0 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-right: 1px solid #ccc;
+            height: 100%;
+        }
+        .tree-line:last-child,
+        .tree-code:last-child,
+        .tree-data:last-child,
+        .tree-object-count:last-child,
+        .tree-data-size:last-child {
+            border-right: none;
+        }
+        #treeViewContainer {
+            position: relative;
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+        }
+        #treeViewContent {
+            position: relative;
+        }
+        .tree-row {
+            display: flex;
+            align-items: center;
+            height: 24px;
+            border-bottom: 1px solid #eee;
+        }
+        .toggle {
+            display: inline-block;
+            width: 16px;
+            text-align: center;
+            user-select: none;
+            cursor: pointer;
+        }
+        .copy-button {
+            margin-left: 8px;
+            font-size: 0.8em;
+            display: none;
+        }
+        .tree-row:hover .copy-button {
+            display: inline;
+        }
+        .controls {
+            margin: 1em 0;
+        }
+        .tag-container {
+            display: inline-block;
+            border: 1px solid #ccc;
+            padding: 2px;
+            min-width: 200px;
+            margin-right: 8px;
+            border-radius: 4px;
+            vertical-align: middle;
+        }
+        .tag-container input {
+            border: none;
+            outline: none;
+            font-family: inherit;
+        }
+        .tag {
+            display: inline-block;
+            background: #ddd;
+            padding: 2px 6px;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .tag .remove {
+            margin-left: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #cloudOverlay,
+        #statsOverlay,
+        #depsOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .overlay-content {
+            background: #fff;
+            margin: 20px;
+            padding: 1em;
+            width: calc(100% - 40px);
+            height: calc(100% - 40px);
+            border: 4px solid rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            position: relative;
+            overflow-y: auto;
+        }
+        #closeCloudOverlay,
+        #closeStatsOverlay,
+        #closeDepsOverlay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+        }
+        .cloud-tag {
+            display: inline-block;
+            margin: 4px;
+            padding: 2px 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        #overlayStatsContent ul {
+            list-style: none;
+            padding: 0;
+        }
+        #overlayStatsContent li {
+            padding: 0.5em 0;
+            border-bottom: 1px solid #eee;
+        }
+        #overlayDepsContent ul {
+            list-style: none;
+            padding: 0;
+        }
+        #overlayDepsContent li {
+            padding: 0.5em 0;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
 </head>
 <body>
 <div class="main-container">
-  <h1>DXF Parser</h1>
-  
-  <!-- File Input -->
-  <input type="file" id="fileInput" accept=".dxf" multiple>
-  <button id="parseBtn">Parse File(s)</button>
-  
-  <!-- Tab Container -->
-  <div id="tabContainer"></div>
-  
-  <!-- Search Controls -->
-  <div class="controls">
-    <div id="codeSearchTags" class="tag-container">
-      <input type="text" id="codeSearchInput" placeholder="Search by Code">
+    <h1>DXF Parser</h1>
+
+    <input type="file" id="fileInput" accept=".dxf" multiple>
+    <button id="parseBtn">Parse File(s)</button>
+
+    <div id="tabContainer"></div>
+
+    <div class="controls">
+        <div id="codeSearchTags" class="tag-container">
+            <input type="text" id="codeSearchInput" placeholder="Search by Code">
+        </div>
+        <div id="dataSearchTags" class="tag-container">
+            <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+        </div>
+        <label>
+            <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
+        </label>
+        <label>
+            <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
+        </label>
+        <button id="searchBtn">Search</button>
+        <button id="clearSearchBtn">Clear Search</button>
+        <button id="expandAllBtn">Expand All</button>
+        <button id="collapseAllBtn">Collapse All</button>
+        <button id="showCloudOverlayBtn">Show Cloud Data</button>
+        <button id="showStatsOverlayBtn">Show DXF Statistics</button>
+        <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
     </div>
-    <div id="dataSearchTags" class="tag-container">
-      <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+
+    <div id="treeGridHeader" class="tree-header">
+        <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
+            Line <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+        </div>
+        <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+            Code <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+        </div>
+        <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+            Data <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+        </div>
+        <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 100px; text-align: right;">
+            Object Count <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+        </div>
+        <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 100px; text-align: right;">
+            Data Size <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+        </div>
     </div>
-    <label>
-      <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
-    </label>
-    <label>
-      <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
-    </label>
-    <button id="searchBtn">Search</button>
-    <button id="clearSearchBtn">Clear Search</button>
-    <button id="expandAllBtn">Expand All</button>
-    <button id="collapseAllBtn">Collapse All</button>
-    <!-- NEW: Buttons to show overlay dialogs (graph button removed) -->
-    <button id="showCloudOverlayBtn">Show Cloud Data</button>
-    <button id="showStatsOverlayBtn">Show DXF Statistics</button>
-    <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
-  </div>
-  
-  <!-- Tree Grid Header -->
-  <div id="treeGridHeader" class="tree-header">
-    <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
-      Line <span class="sort-indicator"></span>
-      <div class="resizer"></div>
+
+    <div id="treeViewContainer">
+        <div id="treeViewContent"></div>
     </div>
-    <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
-      Code <span class="sort-indicator"></span>
-      <div class="resizer"></div>
-    </div>
-    <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
-      Data <span class="sort-indicator"></span>
-      <div class="resizer"></div>
-    </div>
-    <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 100px; text-align: right;">
-      Object Count <span class="sort-indicator"></span>
-      <div class="resizer"></div>
-    </div>
-    <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 100px; text-align: right;">
-      Data Size <span class="sort-indicator"></span>
-      <div class="resizer"></div>
-    </div>
-  </div>
-  
-  <!-- Virtual Scroll Container -->
-  <div id="treeViewContainer">
-    <div id="treeViewContent"></div>
-  </div>
 </div>
 
-<!-- OVERLAY DIALOG for Cloud Data -->
 <div id="cloudOverlay">
-  <div class="overlay-content">
-    <button id="closeCloudOverlay">Close</button>
-    <h2>Cloud Data</h2>
-    <h3>Object Cloud</h3>
-    <div id="overlayObjectCloud"></div>
-    <h3>Code Cloud</h3>
-    <div id="overlayCodeCloud"></div>
-  </div>
+    <div class="overlay-content">
+        <button id="closeCloudOverlay">Close</button>
+        <h2>Cloud Data</h2>
+        <h3>Object Cloud</h3>
+        <div id="overlayObjectCloud"></div>
+        <h3>Code Cloud</h3>
+        <div id="overlayCodeCloud"></div>
+    </div>
 </div>
 
-<!-- OVERLAY DIALOG for DXF Statistics -->
 <div id="statsOverlay">
-  <div class="overlay-content">
-    <button id="closeStatsOverlay">Close</button>
-    <h2>DXF Statistics</h2>
-    <div id="overlayStatsContent"></div>
-  </div>
+    <div class="overlay-content">
+        <button id="closeStatsOverlay">Close</button>
+        <h2>DXF Statistics</h2>
+        <div id="overlayStatsContent"></div>
+    </div>
 </div>
 
-<!-- OVERLAY DIALOG for DXF Dependencies -->
 <div id="depsOverlay">
-  <div class="overlay-content">
-    <button id="closeDepsOverlay">Close</button>
-    <h2>DXF Dependencies</h2>
-    <div id="overlayDepsContent"></div>
-  </div>
+    <div class="overlay-content">
+        <button id="closeDepsOverlay">Close</button>
+        <h2>DXF Dependencies</h2>
+        <div id="overlayDepsContent"></div>
+    </div>
 </div>
 
-<!-- 1) DxfParser Class -->
 <script>
-class DxfParser {
-  constructor() {
-    this.containerMapping = {
-      "SECTION": "ENDSEC",
-      "BLOCK":   "ENDBLK",
-      "TABLE":   "ENDTAB",
-      "OBJECT":  "ENDOBJ",
-      "POLYLINE": "SEQEND"
-    };
-    this.nextId = 1;
-  }
-  
-  parse(text) {
-    const tags = this.parseDxf(text);
-    const grouped = this.groupObjects(tags, 0);
-    return grouped.objects;
-  }
-  
-  parseDxf(text) {
-    const lines = text.split(/\r?\n/);
-    const tags = [];
-    for (let i = 0; i < lines.length; i++) {
-      const codeLine = lines[i].trim();
-      if (!codeLine) continue;
-      const code = parseInt(codeLine, 10);
-      if (isNaN(code)) continue;
-      let value = "";
-      if (i + 1 < lines.length) {
-        value = lines[i + 1].trim();
-      }
-      i++;
-      tags.push({ line: i, code, value });
-    }
-    return tags;
-  }
-  
-  groupObjects(tags, startIndex, endMarker = null) {
-    const objects = [];
-    let i = startIndex;
-    while (i < tags.length) {
-      if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
-        i++;
-        return { objects, nextIndex: i };
-      }
-      if (tags[i].code !== 0) {
-        i++;
-        continue;
-      }
-      const obj = {
-        id: this.nextId++,
-        type: tags[i].value,
-        line: tags[i].line,
-        properties: [],
-        children: [],
-        isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
-        expanded: false
-      };
-      i++;
-      while (i < tags.length && tags[i].code !== 0) {
-        obj.properties.push(tags[i]);
-        i++;
-      }
-      if (obj.isContainer) {
-        const marker = this.containerMapping[obj.type.toUpperCase()];
-        const result = this.groupObjects(tags, i, marker);
-        obj.children = result.objects;
-        i = result.nextIndex;
-      }
-      objects.push(obj);
-    }
-    return { objects, nextIndex: i };
-  }
-  
-  findNodeById(tree, id) {
-    for (const obj of tree) {
-      if (String(obj.id) === String(id)) return obj;
-      if (obj.children && obj.children.length) {
-        const result = this.findNodeById(obj.children, id);
-        if (result) return result;
-      }
-    }
-    return null;
-  }
-  
-  serializeNode(node) {
-    let lines = [];
-    lines.push("0");
-    lines.push(node.type);
-    node.properties.forEach(prop => {
-      lines.push(prop.code.toString());
-      lines.push(prop.value);
-    });
-    if (node.isContainer && node.children && node.children.length) {
-      node.children.forEach(child => {
-        lines.push(this.serializeNode(child));
-      });
-      const endMarker = this.containerMapping[node.type.toUpperCase()];
-      if (endMarker) {
-        lines.push("0");
-        lines.push(endMarker);
-      }
-    }
-    return lines.join("\n");
-  }
-}
-</script>
+    class DxfParser {
+        constructor() {
+            this.containerMapping = {
+                "SECTION": "ENDSEC",
+                "BLOCK":   "ENDBLK",
+                "TABLE":   "ENDTAB",
+                "OBJECT":  "ENDOBJ",
+                "POLYLINE": "SEQEND"
+            };
+            this.nextId = 1;
+        }
 
-<!-- 2) VirtualTreeView Class -->
-<script>
-class VirtualTreeView {
-  constructor(container, content, options = {}) {
-    this.container = container;
-    this.content = content;
-    this.itemHeight = options.itemHeight || 24;
-    this.copyCallback = options.copyCallback || null;
-    this.onToggleExpand = options.onToggleExpand || null;
-    this.getLineWidth = options.getLineWidth || (() => 100);
-    this.getCodeWidth = options.getCodeWidth || (() => 100);
-    this.getDataWidth = options.getDataWidth || (() => null);
-    this.columnWidths = options.columnWidths;
-    
-    this.flatData = [];
-    this.treeData = [];
-    
-    this.container.addEventListener("scroll", () => {
-      requestAnimationFrame(() => this.updateVisibleNodes());
-    });
-    this.content.addEventListener("click", (e) => {
-      if (e.target.classList.contains("toggle")) {
-        const row = e.target.closest(".tree-row");
-        if (row) {
-          const nodeId = row.dataset.id;
-          if (this.onToggleExpand) {
-            this.onToggleExpand(nodeId);
-          }
+        parse(text) {
+            const tags = this.parseDxf(text);
+            const grouped = this.groupObjects(tags, 0);
+            return grouped.objects;
         }
-      }
-    });
-  }
-  
-  setData(treeData) {
-    this.treeData = treeData || [];
-    this.refresh();
-  }
-  
-  refresh() {
-    this.flatData = this.flattenTree(this.treeData);
-    console.log("Total rows:", this.flatData.length);
-    this.updateVisibleNodes();
-  }
-  
-  flattenTree(nodes, level = 0) {
-    let flat = [];
-    for (let node of nodes) {
-      flat.push({ node, level });
-      if (node.expanded) {
-        if (node.properties && node.properties.length) {
-          for (let prop of node.properties) {
-            flat.push({
-              node: {
-                id: `prop-${node.id}-${prop.line}-${prop.code}`,
-                isProperty: true,
-                line: prop.line,
-                code: prop.code,
-                data: prop.value
-              },
-              level: level + 1
-            });
-          }
-        }
-        if (node.children && node.children.length) {
-          flat = flat.concat(this.flattenTree(node.children, level + 1));
-        }
-      }
-    }
-    return flat;
-  }
-  
-  computeObjectCount(node) {
-    if (!node.children || node.children.length === 0) return 0;
-    let count = 0;
-    for (let child of node.children) {
-      if (!child.isProperty) {
-        count++;
-        if (child.children && child.children.length) {
-          count += this.computeObjectCount(child);
-        }
-      }
-    }
-    return count;
-  }
-  
-  computeDataSize(node) {
-    let size = 0;
-    if (node.isProperty) {
-      size += node.data ? node.data.length : 0;
-    } else {
-      size += node.type ? node.type.length : 0;
-      if (node.properties && node.properties.length) {
-        for (let prop of node.properties) {
-          size += prop.value ? prop.value.length : 0;
-        }
-      }
-      if (node.children && node.children.length) {
-        for (let child of node.children) {
-          size += this.computeDataSize(child);
-        }
-      }
-    }
-    return size;
-  }
-  
-  updateVisibleNodes() {
-    const scrollTop = this.container.scrollTop;
-    const containerHeight = this.container.clientHeight;
-    const totalRows = this.flatData.length;
-    const fullHeight = totalRows * this.itemHeight;
-    this.content.style.height = fullHeight + "px";
-    
-    const startIndex = Math.floor(scrollTop / this.itemHeight);
-    const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
-    const endIndex = Math.min(startIndex + visibleCount, totalRows);
-    
-    const containerElem = document.createElement("div");
-    const topSpacer = document.createElement("div");
-    topSpacer.style.height = (startIndex * this.itemHeight) + "px";
-    containerElem.appendChild(topSpacer);
-    
-    const fragment = document.createDocumentFragment();
-    for (let i = startIndex; i < endIndex; i++) {
-      const { node, level } = this.flatData[i];
-      const row = document.createElement("div");
-      row.className = "tree-row tree-node";
-      row.style.display = "flex";
-      row.style.position = "relative";
-      row.style.height = this.itemHeight + "px";
-      row.dataset.id = node.id;
-      
-      // LINE Column
-      const lineDiv = document.createElement("div");
-      lineDiv.className = "tree-line";
-      const lineWidth = this.getLineWidth();
-      if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
-      lineDiv.style.textAlign = "left";
-      const lineContent = document.createElement("div");
-      lineContent.style.display = "flex";
-      lineContent.style.alignItems = "center";
-      lineContent.style.marginLeft = (level * 20) + "px";
-      if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
-        const toggleSpan = document.createElement("span");
-        toggleSpan.className = "toggle";
-        toggleSpan.textContent = node.expanded ? "▼" : "►";
-        lineContent.appendChild(toggleSpan);
-      } else {
-        const spacer = document.createElement("span");
-        spacer.style.width = "16px";
-        spacer.style.display = "inline-block";
-        lineContent.appendChild(spacer);
-      }
-      const lineNumberSpan = document.createElement("span");
-      lineNumberSpan.textContent = node.line || "";
-      lineContent.appendChild(lineNumberSpan);
-      lineDiv.appendChild(lineContent);
-      row.appendChild(lineDiv);
-      
-      // CODE Column
-      const codeDiv = document.createElement("div");
-      codeDiv.className = "tree-code";
-      const codeWidth = this.getCodeWidth();
-      if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
-      codeDiv.style.textAlign = "left";
-      if (node.isProperty) {
-        codeDiv.textContent = node.code;
-      } else {
-        codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
-      }
-      row.appendChild(codeDiv);
-      
-      // DATA Column
-      const dataDiv = document.createElement("div");
-      dataDiv.className = "tree-data";
-      const dataWidth = this.getDataWidth();
-      if (dataWidth) {
-        dataDiv.style.width = dataWidth + "px";
-        dataDiv.style.flex = "0 0 auto";
-      } else {
-        dataDiv.style.flex = "1";
-      }
-      dataDiv.textContent = node.isProperty ? node.data : node.type || "";
-      if (this.copyCallback && !node.isProperty) {
-        const copyButton = document.createElement("button");
-        copyButton.textContent = "Copy";
-        copyButton.className = "copy-button";
-        copyButton.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.copyCallback(node.id);
-        });
-        dataDiv.appendChild(copyButton);
-      }
-      row.appendChild(dataDiv);
-      
-      // Object Count Column
-      const objectCountDiv = document.createElement("div");
-      objectCountDiv.className = "tree-object-count";
-      objectCountDiv.style.width = this.columnWidths.objectCount + "px";
-      objectCountDiv.style.textAlign = "right";
-      if (!node.isProperty && node.children && node.children.length) {
-        objectCountDiv.textContent = this.computeObjectCount(node);
-      } else {
-        objectCountDiv.textContent = "";
-      }
-      row.appendChild(objectCountDiv);
-      
-      // Data Size Column
-      const dataSizeDiv = document.createElement("div");
-      dataSizeDiv.className = "tree-data-size";
-      dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
-      dataSizeDiv.style.textAlign = "right";
-      dataSizeDiv.textContent = this.computeDataSize(node);
-      row.appendChild(dataSizeDiv);
-      
-      fragment.appendChild(row);
-    }
-    containerElem.appendChild(fragment);
-    
-    const bottomSpacer = document.createElement("div");
-    const bottomHeight = Math.max(0, fullHeight - (startIndex + visibleCount) * this.itemHeight);
-    bottomSpacer.style.height = bottomHeight + "px";
-    containerElem.appendChild(bottomSpacer);
-    
-    this.content.innerHTML = "";
-    this.content.appendChild(containerElem);
-  }
-}
-</script>
 
-<!-- 3) Main App Code -->
-<script>
-class App {
-  constructor() {
-    this.columnWidths = { line: 100, code: 100, type: null, objectCount: 100, dataSize: 100 };
-    this.dxfParser = new DxfParser();
-    this.treeViewContainer = document.getElementById("treeViewContainer");
-    this.treeViewContent = document.getElementById("treeViewContent");
-    this.tabs = [];
-    this.activeTabId = null;
-    this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
-      itemHeight: 24,
-      copyCallback: (nodeId) => this.handleCopy(nodeId),
-      onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
-      getLineWidth: () => this.columnWidths.line,
-      getCodeWidth: () => this.columnWidths.code,
-      getDataWidth: () => this.columnWidths.type,
-      columnWidths: this.columnWidths
-    });
-    this.initEventListeners();
-  }
-  
-  initEventListeners() {
-    document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
-    document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
-    document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
-    document.querySelectorAll('.header-cell').forEach(headerCell => {
-      headerCell.addEventListener('click', (e) => {
-        if (e.target.classList.contains('resizer')) return;
-        this.handleHeaderClick(headerCell);
-      });
-    });
-    document.querySelectorAll('.header-cell .resizer').forEach(resizer => {
-      resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDown(e));
-    });
-    this.setupTagInput("codeSearchInput", "code");
-    this.setupTagInput("dataSearchInput", "data");
-    document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
-    document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
-    document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
-      this.updateClouds();
-      document.getElementById("cloudOverlay").style.display = "block";
-    });
-    document.getElementById("closeCloudOverlay").addEventListener("click", () => {
-      document.getElementById("cloudOverlay").style.display = "none";
-    });
-    // Statistics overlay event listeners.
-    document.getElementById("showStatsOverlayBtn").addEventListener("click", () => {
-      this.updateStats();
-      document.getElementById("statsOverlay").style.display = "block";
-    });
-    document.getElementById("closeStatsOverlay").addEventListener("click", () => {
-      document.getElementById("statsOverlay").style.display = "none";
-    });
-    // Dependencies overlay event listeners.
-    document.getElementById("showDepsOverlayBtn").addEventListener("click", () => {
-      this.updateDependencies();
-      document.getElementById("depsOverlay").style.display = "block";
-    });
-    document.getElementById("closeDepsOverlay").addEventListener("click", () => {
-      document.getElementById("depsOverlay").style.display = "none";
-    });
-    // Automatically update filtering when checkboxes change.
-    document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
-    document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
-    // Automatically update filtering when the search input texts change.
-    document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-    document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-  }
-  
-  // NEW: Compute effective search terms from tag arrays and input fields and update grid.
-  updateEffectiveSearchTerms() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    const codeInput = document.getElementById("codeSearchInput");
-    const dataInput = document.getElementById("dataSearchInput");
-    const codeText = codeInput.value.trim();
-    const dataText = dataInput.value.trim();
-    const effectiveCodeSearchTerms = activeTab.codeSearchTerms.slice();
-    const effectiveDataSearchTerms = activeTab.dataSearchTerms.slice();
-    if (codeText !== "" && !effectiveCodeSearchTerms.includes(codeText)) {
-      effectiveCodeSearchTerms.push(codeText);
-    }
-    if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
-      effectiveDataSearchTerms.push(dataText);
-    }
-    const dataExact = document.getElementById("dataExactCheckbox").checked;
-    const dataCase = document.getElementById("dataCaseCheckbox").checked;
-    activeTab.currentTreeData = (effectiveCodeSearchTerms.length || effectiveDataSearchTerms.length)
-      ? this.filterTree(activeTab.originalTreeData, effectiveCodeSearchTerms, effectiveDataSearchTerms, dataExact, dataCase)
-      : activeTab.originalTreeData;
-    this.myTreeView.setData(activeTab.currentTreeData);
-    this.treeViewContainer.scrollTop = 0;
-  }
-  
-  // NEW: Reapply filtering when search option checkboxes change.
-  handleSearchOptionChange() {
-    this.updateEffectiveSearchTerms();
-  }
-  
-  getActiveTab() {
-    return this.tabs.find(t => t.id === this.activeTabId);
-  }
-  
-  updateTabUI() {
-    const tabContainer = document.getElementById("tabContainer");
-    tabContainer.innerHTML = "";
-    this.tabs.forEach(tab => {
-      const tabElem = document.createElement("div");
-      tabElem.className = "tab" + (tab.id === this.activeTabId ? " active" : "");
-      tabElem.textContent = tab.name;
-      tabElem.dataset.tabId = tab.id;
-      tabElem.addEventListener("click", () => {
-        this.activeTabId = tab.id;
-        this.updateTabUI();
-        this.myTreeView.setData(tab.currentTreeData);
-      });
-      const closeBtn = document.createElement("span");
-      closeBtn.className = "close-tab";
-      closeBtn.textContent = "×";
-      closeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.tabs = this.tabs.filter(t => t.id !== tab.id);
-        if (this.activeTabId === tab.id) {
-          this.activeTabId = this.tabs.length ? this.tabs[0].id : null;
-        }
-        this.updateTabUI();
-        if (this.activeTabId) {
-          this.myTreeView.setData(this.getActiveTab().currentTreeData);
-        } else {
-          this.myTreeView.setData([]);
-        }
-      });
-      tabElem.appendChild(closeBtn);
-      tabContainer.appendChild(tabElem);
-    });
-  }
-  
-  expandAllNodes(nodes) {
-    nodes.forEach(node => {
-      if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
-        node.expanded = true;
-        this.expandAllNodes(node.children);
-      }
-    });
-  }
-  
-  collapseAllNodes(nodes) {
-    nodes.forEach(node => {
-      node.expanded = false;
-      this.collapseAllNodes(node.children);
-    });
-  }
-  
-  handleExpandAll() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    this.expandAllNodes(activeTab.originalTreeData);
-    if (activeTab.currentSortField) {
-      this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
-    }
-    const dataExact = document.getElementById("dataExactCheckbox").checked;
-    const dataCase = document.getElementById("dataCaseCheckbox").checked;
-    activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-      ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-      : activeTab.originalTreeData;
-    this.myTreeView.setData(activeTab.currentTreeData);
-    this.treeViewContainer.scrollTop = 0;
-  }
-  
-  handleCollapseAll() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    this.collapseAllNodes(activeTab.originalTreeData);
-    if (activeTab.currentSortField) {
-      this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
-    }
-    const dataExact = document.getElementById("dataExactCheckbox").checked;
-    const dataCase = document.getElementById("dataCaseCheckbox").checked;
-    activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-      ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-      : activeTab.originalTreeData;
-    this.myTreeView.setData(activeTab.currentTreeData);
-    this.treeViewContainer.scrollTop = 0;
-  }
-  
-  handleToggleExpand(nodeId) {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
-    if (node) {
-      node.expanded = !node.expanded;
-      if (activeTab.currentSortField) {
-        this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
-      }
-      const dataExact = document.getElementById("dataExactCheckbox").checked;
-      const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-        ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-        : activeTab.originalTreeData;
-      this.myTreeView.setData(activeTab.currentTreeData);
-    }
-  }
-  
-  getSortValue(node, field) {
-    if (field === "line") {
-      return node.line ? Number(node.line) : 0;
-    } else if (field === "code") {
-      if (node.isProperty) {
-        const c = parseInt(node.code, 10);
-        return isNaN(c) ? Number.MAX_SAFE_INTEGER : c;
-      }
-      return 0;
-    } else if (field === "type") {
-      return node.isProperty ? (node.data || "") : (node.type || "");
-    } else if (field === "objectCount") {
-      if (node.isProperty) return 0;
-      function countDescendants(n) {
-        if (!n.children || n.children.length === 0) return 0;
-        let count = 0;
-        for (let child of n.children) {
-          if (!child.isProperty) {
-            count++;
-            if (child.children && child.children.length) {
-              count += countDescendants(child);
+        parseDxf(text) {
+            const lines = text.split(/\r?\n/);
+            const tags = [];
+            for (let i = 0; i < lines.length; i++) {
+                const codeLine = lines[i].trim();
+                if (!codeLine) continue;
+                const code = parseInt(codeLine, 10);
+                if (isNaN(code)) continue;
+                let value = "";
+                if (i + 1 < lines.length) {
+                    value = lines[i + 1].trim();
+                }
+                i++;
+                tags.push({ line: i, code, value });
             }
-          }
+            return tags;
         }
-        return count;
-      }
-      return countDescendants(node);
-    } else if (field === "dataSize") {
-      function computeSize(n) {
-        if (n.isProperty) {
-          return n.data ? n.data.length : 0;
-        } else {
-          let size = n.type ? n.type.length : 0;
-          if (n.properties && n.properties.length) {
-            for (let prop of n.properties) {
-              size += prop.value ? prop.value.length : 0;
+
+        groupObjects(tags, startIndex, endMarker = null) {
+            const objects = [];
+            let i = startIndex;
+            while (i < tags.length) {
+                if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
+                    i++;
+                    return { objects, nextIndex: i };
+                }
+                if (tags[i].code !== 0) {
+                    i++;
+                    continue;
+                }
+                const obj = {
+                    id: this.nextId++,
+                    type: tags[i].value,
+                    line: tags[i].line,
+                    properties: [],
+                    children: [],
+                    isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
+                    expanded: false
+                };
+                i++;
+                while (i < tags.length && tags[i].code !== 0) {
+                    obj.properties.push(tags[i]);
+                    i++;
+                }
+                if (obj.isContainer) {
+                    const marker = this.containerMapping[obj.type.toUpperCase()];
+                    const result = this.groupObjects(tags, i, marker);
+                    obj.children = result.objects;
+                    i = result.nextIndex;
+                }
+                objects.push(obj);
             }
-          }
-          if (n.children && n.children.length) {
-            for (let child of n.children) {
-              size += computeSize(child);
+            return { objects, nextIndex: i };
+        }
+
+        findNodeById(tree, id) {
+            for (const obj of tree) {
+                if (String(obj.id) === String(id)) return obj;
+                if (obj.children && obj.children.length) {
+                    const result = this.findNodeById(obj.children, id);
+                    if (result) return result;
+                }
             }
-          }
-          return size;
+            return null;
         }
-      }
-      return computeSize(node);
-    }
-    return "";
-  }
-  
-  sortTreeNodes(nodes, field, ascending) {
-    nodes.sort((a, b) => {
-      const aVal = this.getSortValue(a, field);
-      const bVal = this.getSortValue(b, field);
-      if (field === "code" || field === "line" || field === "objectCount" || field === "dataSize") {
-        return (aVal - bVal) * (ascending ? 1 : -1);
-      } else {
-        return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
-      }
-    });
-    nodes.forEach(node => {
-      if (node.properties && node.properties.length) {
-        node.properties.sort((aProp, bProp) => {
-          if (field === "code") {
-            const aC = parseInt(aProp.code, 10) || 0;
-            const bC = parseInt(bProp.code, 10) || 0;
-            return (aC - bC) * (ascending ? 1 : -1);
-          } else if (field === "line") {
-            const aL = aProp.line || 0;
-            const bL = bProp.line || 0;
-            return (aL - bL) * (ascending ? 1 : -1);
-          } else if (field === "type") {
-            const aV = aProp.value || "";
-            const bV = bProp.value || "";
-            return aV.localeCompare(bV) * (ascending ? 1 : -1);
-          }
-          return 0;
-        });
-      }
-      if (node.children && node.children.length) {
-        this.sortTreeNodes(node.children, field, ascending);
-      }
-    });
-  }
-  
-  handleHeaderClick(headerCell) {
-    const field = headerCell.getAttribute('data-field');
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    let currentSort = headerCell.getAttribute('data-sort');
-    let ascending = true;
-    if (currentSort === 'asc') {
-      ascending = false;
-      headerCell.setAttribute('data-sort', 'desc');
-      headerCell.querySelector('.sort-indicator').textContent = ' ▼';
-    } else {
-      ascending = true;
-      headerCell.setAttribute('data-sort', 'asc');
-      headerCell.querySelector('.sort-indicator').textContent = ' ▲';
-    }
-    activeTab.currentSortField = field;
-    activeTab.currentSortAscending = ascending;
-    document.querySelectorAll('.header-cell').forEach(cell => {
-      if (cell !== headerCell) {
-        cell.setAttribute('data-sort', 'none');
-        cell.querySelector('.sort-indicator').textContent = '';
-      }
-    });
-    this.sortTreeNodes(activeTab.originalTreeData, field, ascending);
-    const dataExact = document.getElementById("dataExactCheckbox").checked;
-    const dataCase = document.getElementById("dataCaseCheckbox").checked;
-    activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-      ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-      : activeTab.originalTreeData;
-    this.myTreeView.setData(activeTab.currentTreeData);
-  }
-  
-  handleResizerMouseDown(e) {
-    e.stopPropagation();
-    const headerCell = e.target.parentElement;
-    const field = headerCell.getAttribute('data-field');
-    const startX = e.clientX;
-    const startWidth = headerCell.offsetWidth;
-    const onMouseMove = (eMove) => {
-      const newWidth = startWidth + (eMove.clientX - startX);
-      this.columnWidths[field] = newWidth;
-      headerCell.style.width = newWidth + "px";
-      headerCell.style.flex = "none";
-      this.myTreeView.updateVisibleNodes();
-    };
-    const onMouseUp = () => {
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  }
-  
-  filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
-    const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
-    let typeMatchesData = false;
-    if (dataTerms.length > 0) {
-      if (dataExact) {
-        typeMatchesData = dataTerms.some(term => dataCase
-          ? (obj.type === term)
-          : (obj.type.toLowerCase() === term.toLowerCase())
-        );
-      } else {
-        typeMatchesData = dataTerms.some(term => dataCase
-          ? obj.type.includes(term)
-          : obj.type.toLowerCase().includes(term.toLowerCase())
-        );
-      }
-    } else {
-      typeMatchesData = true;
-    }
-    const filteredProperties = obj.properties.filter(prop => {
-      const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
-      let dataMatch = true;
-      if (dataTerms.length > 0) {
-        if (dataExact) {
-          dataMatch = dataTerms.some(term => dataCase
-            ? (prop.value === term)
-            : (prop.value.toLowerCase() === term.toLowerCase())
-          );
-        } else {
-          dataMatch = dataTerms.some(term => dataCase
-            ? prop.value.includes(term)
-            : prop.value.toLowerCase().includes(term.toLowerCase())
-          );
-        }
-      }
-      return codeMatch && dataMatch;
-    });
-    const filteredChildren = [];
-    obj.children.forEach(child => {
-      const filteredChild = this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase);
-      if (filteredChild !== null) {
-        filteredChildren.push(filteredChild);
-      }
-    });
-    if (searchActive && obj.isContainer) {
-      if (filteredProperties.length === 0 && filteredChildren.length === 0) {
-        return null;
-      }
-      return {
-        ...obj,
-        properties: filteredProperties,
-        children: filteredChildren
-      };
-    } else {
-      if (typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0) {
-        return {
-          ...obj,
-          properties: filteredProperties,
-          children: filteredChildren
-        };
-      }
-      return null;
-    }
-  }
-  
-  filterTree(objects, codeTerms, dataTerms, dataExact, dataCase) {
-    const filtered = [];
-    objects.forEach(obj => {
-      const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase);
-      if (filteredObj !== null) {
-        filtered.push(filteredObj);
-      }
-    });
-    return filtered;
-  }
-  
-  handleCopy(nodeId) {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
-    if (!node) {
-      alert("Node not found in original data.");
-      return;
-    }
-    const serialized = this.dxfParser.serializeNode(node);
-    navigator.clipboard.writeText(serialized).then(() => {
-      alert("Copied node to clipboard as valid DXF tags.");
-    }, () => {
-      alert("Failed to copy to clipboard.");
-    });
-  }
-  
-  handleParse() {
-    const fileInput = document.getElementById("fileInput");
-    if (!fileInput.files || fileInput.files.length === 0) {
-      alert("Please select at least one DXF file.");
-      return;
-    }
-    Array.from(fileInput.files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target.result;
-        const objects = this.dxfParser.parse(text);
-        const newTab = {
-          id: Date.now() + Math.random(),
-          name: file.name,
-          originalTreeData: objects,
-          currentTreeData: objects,
-          codeSearchTerms: [],
-          dataSearchTerms: [],
-          currentSortField: "line",
-          currentSortAscending: true
-        };
-        this.tabs.push(newTab);
-        this.activeTabId = newTab.id;
-        this.updateTabUI();
-        this.myTreeView.setData(newTab.currentTreeData);
-      };
-      reader.readAsText(file, "ascii");
-    });
-  }
-  
-  createTagElement(text, type) {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = text;
-    const removeBtn = document.createElement("span");
-    removeBtn.className = "remove";
-    removeBtn.textContent = "×";
-    removeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const activeTab = this.getActiveTab();
-      if (!activeTab) return;
-      if (type === "code") {
-        activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
-        this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-      } else if (type === "data") {
-        activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
-        this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-      }
-      const dataExact = document.getElementById("dataExactCheckbox").checked;
-      const dataCase = document.getElementById("dataCaseCheckbox").checked;
-      activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-        ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-        : activeTab.originalTreeData;
-      this.myTreeView.setData(activeTab.currentTreeData);
-      this.treeViewContainer.scrollTop = 0;
-    });
-    tag.appendChild(removeBtn);
-    return tag;
-  }
-  
-  updateTagContainer(containerId, termsArray, type) {
-    const container = document.getElementById(containerId);
-    Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
-    termsArray.forEach(term => {
-      const tagElem = this.createTagElement(term, type);
-      container.insertBefore(tagElem, container.querySelector("input"));
-    });
-  }
-  
-  setupTagInput(inputId, type) {
-    const input = document.getElementById(inputId);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === ",") {
-        e.preventDefault();
-        const text = input.value.trim();
-        if (text !== "") {
-          const activeTab = this.getActiveTab();
-          if (!activeTab) return;
-          if (type === "code") {
-            if (!activeTab.codeSearchTerms.includes(text)) {
-              activeTab.codeSearchTerms.push(text);
-            }
-            this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-          } else {
-            if (!activeTab.dataSearchTerms.includes(text)) {
-              activeTab.dataSearchTerms.push(text);
-            }
-            this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-          }
-          input.value = "";
-          this.updateEffectiveSearchTerms();
-        }
-      }
-    });
-    input.addEventListener("blur", () => {
-      const text = input.value.trim();
-      if (text !== "") {
-        const activeTab = this.getActiveTab();
-        if (!activeTab) return;
-        if (type === "code") {
-          if (!activeTab.codeSearchTerms.includes(text)) {
-            activeTab.codeSearchTerms.push(text);
-          }
-          this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-        } else {
-          if (!activeTab.dataSearchTerms.includes(text)) {
-            activeTab.dataSearchTerms.push(text);
-          }
-          this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-        }
-        input.value = "";
-        this.updateEffectiveSearchTerms();
-      }
-    });
-  }
-  
-  handleSearch() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    const codeInput = document.getElementById("codeSearchInput");
-    const dataInput = document.getElementById("dataSearchInput");
-    if (codeInput.value.trim() !== "") {
-      const text = codeInput.value.trim();
-      if (!activeTab.codeSearchTerms.includes(text)) {
-        activeTab.codeSearchTerms.push(text);
-      }
-      this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-      codeInput.value = "";
-    }
-    if (dataInput.value.trim() !== "") {
-      const text = dataInput.value.trim();
-      if (!activeTab.dataSearchTerms.includes(text)) {
-        activeTab.dataSearchTerms.push(text);
-      }
-      this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-      dataInput.value = "";
-    }
-    this.updateEffectiveSearchTerms();
-  }
-  
-  handleClearSearch() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    activeTab.codeSearchTerms = [];
-    activeTab.dataSearchTerms = [];
-    this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-    this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-    document.getElementById("codeSearchInput").value = "";
-    document.getElementById("dataSearchInput").value = "";
-    document.getElementById("dataExactCheckbox").checked = false;
-    document.getElementById("dataCaseCheckbox").checked = false;
-    activeTab.currentTreeData = activeTab.originalTreeData;
-    this.myTreeView.setData(activeTab.currentTreeData);
-    this.treeViewContainer.scrollTop = 0;
-  }
-  
-  // NEW: When a cloud tag is clicked, filter the active tree data.
-  // For object cloud tags, force an exact match.
-  handleCloudTagClick(cloudType, value) {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) return;
-    activeTab.codeSearchTerms = [];
-    activeTab.dataSearchTerms = [];
-    if (cloudType === "object") {
-      activeTab.dataSearchTerms.push(value);
-      this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-    } else if (cloudType === "code") {
-      activeTab.codeSearchTerms.push(value);
-      this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-    }
-    const dataExact = cloudType === "object" ? true : document.getElementById("dataExactCheckbox").checked;
-    const dataCase = document.getElementById("dataCaseCheckbox").checked;
-    activeTab.currentTreeData = this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase);
-    this.myTreeView.setData(activeTab.currentTreeData);
-    this.treeViewContainer.scrollTop = 0;
-    document.getElementById("cloudOverlay").style.display = "none";
-  }
-  
-  // NEW: Update the cloud data inside the overlay.
-  updateClouds() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) {
-      document.getElementById("overlayObjectCloud").innerHTML = "";
-      document.getElementById("overlayCodeCloud").innerHTML = "";
-      return;
-    }
-    const objectCounts = {};
-    const codeCounts = {};
-    
-    function traverse(nodes) {
-      nodes.forEach(node => {
-        if (!node.isProperty) {
-          objectCounts[node.type] = (objectCounts[node.type] || 0) + 1;
-          node.properties.forEach(prop => {
-            codeCounts[prop.code] = (codeCounts[prop.code] || 0) + 1;
-          });
-          if (node.children && node.children.length > 0) {
-            traverse(node.children);
-          }
-        }
-      });
-    }
-    traverse(activeTab.originalTreeData);
-    
-    const populateCloud = (element, counts, minFont, maxFont, cloudType) => {
-      element.innerHTML = "";
-      const maxCount = Math.max(...Object.values(counts), 1);
-      for (const key in counts) {
-        const count = counts[key];
-        const fontSize = minFont + ((count / maxCount) * (maxFont - minFont));
-        const span = document.createElement("span");
-        span.className = "cloud-tag";
-        span.style.fontSize = fontSize + "px";
-        span.textContent = `${key} (${count})`;
-        span.addEventListener("click", () => {
-          this.handleCloudTagClick(cloudType, key);
-        });
-        element.appendChild(span);
-      }
-    };
-    
-    const minFont = 12, maxFont = 36;
-    const overlayObjectCloudElem = document.getElementById("overlayObjectCloud");
-    const overlayCodeCloudElem = document.getElementById("overlayCodeCloud");
-    populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
-    populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
-  }
-  
-  // NEW: Update the DXF statistics overlay.
-  updateStats() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) {
-      document.getElementById("overlayStatsContent").innerHTML = "No DXF data loaded.";
-      return;
-    }
-    function computeStats(nodes, depth = 1) {
-      let stats = {
-        totalObjects: 0,
-        totalProperties: 0,
-        maxDepth: depth,
-        totalDataSize: 0,
-        countByType: {}
-      };
-      nodes.forEach(node => {
-        if (!node.isProperty) {
-          stats.totalObjects++;
-          stats.countByType[node.type] = (stats.countByType[node.type] || 0) + 1;
-          let nodeDataSize = node.type ? node.type.length : 0;
-          if (node.properties && node.properties.length) {
-            stats.totalProperties += node.properties.length;
+
+        serializeNode(node) {
+            let lines = [];
+            lines.push("0");
+            lines.push(node.type);
             node.properties.forEach(prop => {
-              nodeDataSize += prop.value ? prop.value.length : 0;
+                lines.push(prop.code.toString());
+                lines.push(prop.value);
             });
-          }
-          stats.totalDataSize += nodeDataSize;
-          if (node.children && node.children.length) {
-            const childStats = computeStats(node.children, depth + 1);
-            stats.totalObjects += childStats.totalObjects;
-            stats.totalProperties += childStats.totalProperties;
-            stats.totalDataSize += childStats.totalDataSize;
-            for (let type in childStats.countByType) {
-              stats.countByType[type] = (stats.countByType[type] || 0) + childStats.countByType[type];
+            if (node.isContainer && node.children && node.children.length) {
+                node.children.forEach(child => {
+                    lines.push(this.serializeNode(child));
+                });
+                const endMarker = this.containerMapping[node.type.toUpperCase()];
+                if (endMarker) {
+                    lines.push("0");
+                    lines.push(endMarker);
+                }
             }
-            if (childStats.maxDepth > stats.maxDepth) {
-              stats.maxDepth = childStats.maxDepth;
-            }
-          }
+            return lines.join("\n");
         }
-      });
-      return stats;
     }
-    const stats = computeStats(activeTab.originalTreeData);
-    const avgProps = stats.totalObjects > 0 ? (stats.totalProperties / stats.totalObjects).toFixed(2) : 0;
-    const statsHtml = `
+</script>
+
+<script>
+    class VirtualTreeView {
+        constructor(container, content, options = {}) {
+            this.container = container;
+            this.content = content;
+            this.itemHeight = options.itemHeight || 24;
+            this.copyCallback = options.copyCallback || null;
+            this.onToggleExpand = options.onToggleExpand || null;
+            this.getLineWidth = options.getLineWidth || (() => 100);
+            this.getCodeWidth = options.getCodeWidth || (() => 100);
+            this.getDataWidth = options.getDataWidth || (() => null);
+            this.columnWidths = options.columnWidths;
+
+            this.flatData = [];
+            this.treeData = [];
+
+            this.container.addEventListener("scroll", () => {
+                requestAnimationFrame(() => this.updateVisibleNodes());
+            });
+            this.content.addEventListener("click", (e) => {
+                if (e.target.classList.contains("toggle")) {
+                    const row = e.target.closest(".tree-row");
+                    if (row) {
+                        const nodeId = row.dataset.id;
+                        if (this.onToggleExpand) {
+                            this.onToggleExpand(nodeId);
+                        }
+                    }
+                }
+            });
+        }
+
+        setData(treeData) {
+            this.treeData = treeData || [];
+            this.refresh();
+        }
+
+        refresh() {
+            this.flatData = this.flattenTree(this.treeData);
+            console.log("Total rows:", this.flatData.length);
+            this.updateVisibleNodes();
+        }
+
+        flattenTree(nodes, level = 0) {
+            let flat = [];
+            for (let node of nodes) {
+                flat.push({ node, level });
+                if (node.expanded) {
+                    if (node.properties && node.properties.length) {
+                        for (let prop of node.properties) {
+                            flat.push({
+                                node: {
+                                    id: `prop-${node.id}-${prop.line}-${prop.code}`,
+                                    isProperty: true,
+                                    line: prop.line,
+                                    code: prop.code,
+                                    data: prop.value
+                                },
+                                level: level + 1
+                            });
+                        }
+                    }
+                    if (node.children && node.children.length) {
+                        flat = flat.concat(this.flattenTree(node.children, level + 1));
+                    }
+                }
+            }
+            return flat;
+        }
+
+        computeObjectCount(node) {
+            if (!node.children || node.children.length === 0) return 0;
+            let count = 0;
+            for (let child of node.children) {
+                if (!child.isProperty) {
+                    count++;
+                    if (child.children && child.children.length) {
+                        count += this.computeObjectCount(child);
+                    }
+                }
+            }
+            return count;
+        }
+
+        computeDataSize(node) {
+            let size = 0;
+            if (node.isProperty) {
+                size += node.data ? node.data.length : 0;
+            } else {
+                size += node.type ? node.type.length : 0;
+                if (node.properties && node.properties.length) {
+                    for (let prop of node.properties) {
+                        size += prop.value ? prop.value.length : 0;
+                    }
+                }
+                if (node.children && node.children.length) {
+                    for (let child of node.children) {
+                        size += this.computeDataSize(child);
+                    }
+                }
+            }
+            return size;
+        }
+
+        updateVisibleNodes() {
+            const scrollTop = this.container.scrollTop;
+            const containerHeight = this.container.clientHeight;
+            const totalRows = this.flatData.length;
+            const fullHeight = totalRows * this.itemHeight;
+            this.content.style.height = fullHeight + "px";
+
+            const startIndex = Math.floor(scrollTop / this.itemHeight);
+            const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
+            const endIndex = Math.min(startIndex + visibleCount, totalRows);
+
+            const containerElem = document.createElement("div");
+            const topSpacer = document.createElement("div");
+            topSpacer.style.height = (startIndex * this.itemHeight) + "px";
+            containerElem.appendChild(topSpacer);
+
+            const fragment = document.createDocumentFragment();
+            for (let i = startIndex; i < endIndex; i++) {
+                const { node, level } = this.flatData[i];
+                const row = document.createElement("div");
+                row.className = "tree-row tree-node";
+                row.style.display = "flex";
+                row.style.position = "relative";
+                row.style.height = this.itemHeight + "px";
+                row.dataset.id = node.id;
+
+                const lineDiv = document.createElement("div");
+                lineDiv.className = "tree-line";
+                const lineWidth = this.getLineWidth();
+                if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
+                lineDiv.style.textAlign = "left";
+                const lineContent = document.createElement("div");
+                lineContent.style.display = "flex";
+                lineContent.style.alignItems = "center";
+                lineContent.style.marginLeft = (level * 20) + "px";
+                if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
+                    const toggleSpan = document.createElement("span");
+                    toggleSpan.className = "toggle";
+                    toggleSpan.textContent = node.expanded ? "▼" : "►";
+                    lineContent.appendChild(toggleSpan);
+                } else {
+                    const spacer = document.createElement("span");
+                    spacer.style.width = "16px";
+                    spacer.style.display = "inline-block";
+                    lineContent.appendChild(spacer);
+                }
+                const lineNumberSpan = document.createElement("span");
+                lineNumberSpan.textContent = node.line || "";
+                lineContent.appendChild(lineNumberSpan);
+                lineDiv.appendChild(lineContent);
+                row.appendChild(lineDiv);
+
+                const codeDiv = document.createElement("div");
+                codeDiv.className = "tree-code";
+                const codeWidth = this.getCodeWidth();
+                if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
+                codeDiv.style.textAlign = "left";
+                if (node.isProperty) {
+                    codeDiv.textContent = node.code;
+                } else {
+                    codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
+                }
+                row.appendChild(codeDiv);
+
+                const dataDiv = document.createElement("div");
+                dataDiv.className = "tree-data";
+                const dataWidth = this.getDataWidth();
+                if (dataWidth) {
+                    dataDiv.style.width = dataWidth + "px";
+                    dataDiv.style.flex = "0 0 auto";
+                } else {
+                    dataDiv.style.flex = "1";
+                }
+                dataDiv.textContent = node.isProperty ? node.data : node.type || "";
+                if (this.copyCallback && !node.isProperty) {
+                    const copyButton = document.createElement("button");
+                    copyButton.textContent = "Copy";
+                    copyButton.className = "copy-button";
+                    copyButton.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        this.copyCallback(node.id);
+                    });
+                    dataDiv.appendChild(copyButton);
+                }
+                row.appendChild(dataDiv);
+
+                const objectCountDiv = document.createElement("div");
+                objectCountDiv.className = "tree-object-count";
+                objectCountDiv.style.width = this.columnWidths.objectCount + "px";
+                objectCountDiv.style.textAlign = "right";
+                if (!node.isProperty && node.children && node.children.length) {
+                    objectCountDiv.textContent = this.computeObjectCount(node);
+                } else {
+                    objectCountDiv.textContent = "";
+                }
+                row.appendChild(objectCountDiv);
+
+                const dataSizeDiv = document.createElement("div");
+                dataSizeDiv.className = "tree-data-size";
+                dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
+                dataSizeDiv.style.textAlign = "right";
+                dataSizeDiv.textContent = this.computeDataSize(node);
+                row.appendChild(dataSizeDiv);
+
+                fragment.appendChild(row);
+            }
+            containerElem.appendChild(fragment);
+
+            const bottomSpacer = document.createElement("div");
+            const bottomHeight = Math.max(0, fullHeight - (startIndex + visibleCount) * this.itemHeight);
+            bottomSpacer.style.height = bottomHeight + "px";
+            containerElem.appendChild(bottomSpacer);
+
+            this.content.innerHTML = "";
+            this.content.appendChild(containerElem);
+        }
+    }
+</script>
+
+<script>
+    class App {
+        constructor() {
+            this.columnWidths = { line: 100, code: 100, type: null, objectCount: 100, dataSize: 100 };
+            this.dxfParser = new DxfParser();
+            this.treeViewContainer = document.getElementById("treeViewContainer");
+            this.treeViewContent = document.getElementById("treeViewContent");
+            this.tabs = [];
+            this.activeTabId = null;
+            this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
+                itemHeight: 24,
+                copyCallback: (nodeId) => this.handleCopy(nodeId),
+                onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
+                getLineWidth: () => this.columnWidths.line,
+                getCodeWidth: () => this.columnWidths.code,
+                getDataWidth: () => this.columnWidths.type,
+                columnWidths: this.columnWidths
+            });
+            this.initEventListeners();
+        }
+
+        initEventListeners() {
+            document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
+            document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
+            document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
+            document.querySelectorAll('.header-cell').forEach(headerCell => {
+                headerCell.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('resizer')) return;
+                    this.handleHeaderClick(headerCell);
+                });
+            });
+            document.querySelectorAll('.header-cell .resizer').forEach(resizer => {
+                resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDown(e));
+            });
+            this.setupTagInput("codeSearchInput", "code");
+            this.setupTagInput("dataSearchInput", "data");
+            document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
+            document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
+            document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
+                this.updateClouds();
+                document.getElementById("cloudOverlay").style.display = "block";
+            });
+            document.getElementById("closeCloudOverlay").addEventListener("click", () => {
+                document.getElementById("cloudOverlay").style.display = "none";
+            });
+            document.getElementById("showStatsOverlayBtn").addEventListener("click", () => {
+                this.updateStats();
+                document.getElementById("statsOverlay").style.display = "block";
+            });
+            document.getElementById("closeStatsOverlay").addEventListener("click", () => {
+                document.getElementById("statsOverlay").style.display = "none";
+            });
+            document.getElementById("showDepsOverlayBtn").addEventListener("click", () => {
+                this.updateDependencies();
+                document.getElementById("depsOverlay").style.display = "block";
+            });
+            document.getElementById("closeDepsOverlay").addEventListener("click", () => {
+                document.getElementById("depsOverlay").style.display = "none";
+            });
+            document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
+            document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
+            document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
+            document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
+        }
+
+        updateEffectiveSearchTerms() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            const codeInput = document.getElementById("codeSearchInput");
+            const dataInput = document.getElementById("dataSearchInput");
+            const codeText = codeInput.value.trim();
+            const dataText = dataInput.value.trim();
+            const effectiveCodeSearchTerms = activeTab.codeSearchTerms.slice();
+            const effectiveDataSearchTerms = activeTab.dataSearchTerms.slice();
+            if (codeText !== "" && !effectiveCodeSearchTerms.includes(codeText)) {
+                effectiveCodeSearchTerms.push(codeText);
+            }
+            if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
+                effectiveDataSearchTerms.push(dataText);
+            }
+            const dataExact = document.getElementById("dataExactCheckbox").checked;
+            const dataCase = document.getElementById("dataCaseCheckbox").checked;
+            activeTab.currentTreeData = (effectiveCodeSearchTerms.length || effectiveDataSearchTerms.length)
+                ? this.filterTree(activeTab.originalTreeData, effectiveCodeSearchTerms, effectiveDataSearchTerms, dataExact, dataCase)
+                : activeTab.originalTreeData;
+            this.myTreeView.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+        }
+
+        handleSearchOptionChange() {
+            this.updateEffectiveSearchTerms();
+        }
+
+        getActiveTab() {
+            return this.tabs.find(t => t.id === this.activeTabId);
+        }
+
+        updateTabUI() {
+            const tabContainer = document.getElementById("tabContainer");
+            tabContainer.innerHTML = "";
+            this.tabs.forEach(tab => {
+                const tabElem = document.createElement("div");
+                tabElem.className = "tab" + (tab.id === this.activeTabId ? " active" : "");
+                tabElem.textContent = tab.name;
+                tabElem.dataset.tabId = tab.id;
+                tabElem.addEventListener("click", () => {
+                    this.activeTabId = tab.id;
+                    this.updateTabUI();
+                    this.myTreeView.setData(tab.currentTreeData);
+                });
+                const closeBtn = document.createElement("span");
+                closeBtn.className = "close-tab";
+                closeBtn.textContent = "×";
+                closeBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    this.tabs = this.tabs.filter(t => t.id !== tab.id);
+                    if (this.activeTabId === tab.id) {
+                        this.activeTabId = this.tabs.length ? this.tabs[0].id : null;
+                    }
+                    this.updateTabUI();
+                    if (this.activeTabId) {
+                        this.myTreeView.setData(this.getActiveTab().currentTreeData);
+                    } else {
+                        this.myTreeView.setData([]);
+                    }
+                });
+                tabElem.appendChild(closeBtn);
+                tabContainer.appendChild(tabElem);
+            });
+        }
+
+        expandAllNodes(nodes) {
+            nodes.forEach(node => {
+                if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
+                    node.expanded = true;
+                    this.expandAllNodes(node.children);
+                }
+            });
+        }
+
+        collapseAllNodes(nodes) {
+            nodes.forEach(node => {
+                node.expanded = false;
+                this.collapseAllNodes(node.children);
+            });
+        }
+
+        handleExpandAll() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            this.expandAllNodes(activeTab.originalTreeData);
+            if (activeTab.currentSortField) {
+                this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
+            }
+            const dataExact = document.getElementById("dataExactCheckbox").checked;
+            const dataCase = document.getElementById("dataCaseCheckbox").checked;
+            activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                : activeTab.originalTreeData;
+            this.myTreeView.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+        }
+
+        handleCollapseAll() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            this.collapseAllNodes(activeTab.originalTreeData);
+            if (activeTab.currentSortField) {
+                this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
+            }
+            const dataExact = document.getElementById("dataExactCheckbox").checked;
+            const dataCase = document.getElementById("dataCaseCheckbox").checked;
+            activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                : activeTab.originalTreeData;
+            this.myTreeView.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+        }
+
+        handleToggleExpand(nodeId) {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
+            if (node) {
+                node.expanded = !node.expanded;
+                if (activeTab.currentSortField) {
+                    this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
+                }
+                const dataExact = document.getElementById("dataExactCheckbox").checked;
+                const dataCase = document.getElementById("dataCaseCheckbox").checked;
+                activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                    ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                    : activeTab.originalTreeData;
+                this.myTreeView.setData(activeTab.currentTreeData);
+            }
+        }
+
+        getSortValue(node, field) {
+            if (field === "line") {
+                return node.line ? Number(node.line) : 0;
+            } else if (field === "code") {
+                if (node.isProperty) {
+                    const c = parseInt(node.code, 10);
+                    return isNaN(c) ? Number.MAX_SAFE_INTEGER : c;
+                }
+                return 0;
+            } else if (field === "type") {
+                return node.isProperty ? (node.data || "") : (node.type || "");
+            } else if (field === "objectCount") {
+                if (node.isProperty) return 0;
+                function countDescendants(n) {
+                    if (!n.children || n.children.length === 0) return 0;
+                    let count = 0;
+                    for (let child of n.children) {
+                        if (!child.isProperty) {
+                            count++;
+                            if (child.children && child.children.length) {
+                                count += countDescendants(child);
+                            }
+                        }
+                    }
+                    return count;
+                }
+                return countDescendants(node);
+            } else if (field === "dataSize") {
+                function computeSize(n) {
+                    if (n.isProperty) {
+                        return n.data ? n.data.length : 0;
+                    } else {
+                        let size = n.type ? n.type.length : 0;
+                        if (n.properties && n.properties.length) {
+                            for (let prop of n.properties) {
+                                size += prop.value ? prop.value.length : 0;
+                            }
+                        }
+                        if (n.children && n.children.length) {
+                            for (let child of n.children) {
+                                size += computeSize(child);
+                            }
+                        }
+                        return size;
+                    }
+                }
+                return computeSize(node);
+            }
+            return "";
+        }
+
+        sortTreeNodes(nodes, field, ascending) {
+            nodes.sort((a, b) => {
+                const aVal = this.getSortValue(a, field);
+                const bVal = this.getSortValue(b, field);
+                if (field === "code" || field === "line" || field === "objectCount" || field === "dataSize") {
+                    return (aVal - bVal) * (ascending ? 1 : -1);
+                } else {
+                    return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
+                }
+            });
+            nodes.forEach(node => {
+                if (node.properties && node.properties.length) {
+                    node.properties.sort((aProp, bProp) => {
+                        if (field === "code") {
+                            const aC = parseInt(aProp.code, 10) || 0;
+                            const bC = parseInt(bProp.code, 10) || 0;
+                            return (aC - bC) * (ascending ? 1 : -1);
+                        } else if (field === "line") {
+                            const aL = aProp.line || 0;
+                            const bL = bProp.line || 0;
+                            return (aL - bL) * (ascending ? 1 : -1);
+                        } else if (field === "type") {
+                            const aV = aProp.value || "";
+                            const bV = bProp.value || "";
+                            return aV.localeCompare(bV) * (ascending ? 1 : -1);
+                        }
+                        return 0;
+                    });
+                }
+                if (node.children && node.children.length) {
+                    this.sortTreeNodes(node.children, field, ascending);
+                }
+            });
+        }
+
+        handleHeaderClick(headerCell) {
+            const field = headerCell.getAttribute('data-field');
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            let currentSort = headerCell.getAttribute('data-sort');
+            let ascending = true;
+            if (currentSort === 'asc') {
+                ascending = false;
+                headerCell.setAttribute('data-sort', 'desc');
+                headerCell.querySelector('.sort-indicator').textContent = ' ▼';
+            } else {
+                ascending = true;
+                headerCell.setAttribute('data-sort', 'asc');
+                headerCell.querySelector('.sort-indicator').textContent = ' ▲';
+            }
+            activeTab.currentSortField = field;
+            activeTab.currentSortAscending = ascending;
+            document.querySelectorAll('.header-cell').forEach(cell => {
+                if (cell !== headerCell) {
+                    cell.setAttribute('data-sort', 'none');
+                    cell.querySelector('.sort-indicator').textContent = '';
+                }
+            });
+            this.sortTreeNodes(activeTab.originalTreeData, field, ascending);
+            const dataExact = document.getElementById("dataExactCheckbox").checked;
+            const dataCase = document.getElementById("dataCaseCheckbox").checked;
+            activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                : activeTab.originalTreeData;
+            this.myTreeView.setData(activeTab.currentTreeData);
+        }
+
+        handleResizerMouseDown(e) {
+            e.stopPropagation();
+            const headerCell = e.target.parentElement;
+            const field = headerCell.getAttribute('data-field');
+            const startX = e.clientX;
+            const startWidth = headerCell.offsetWidth;
+            const onMouseMove = (eMove) => {
+                const newWidth = startWidth + (eMove.clientX - startX);
+                this.columnWidths[field] = newWidth;
+                headerCell.style.width = newWidth + "px";
+                headerCell.style.flex = "none";
+                this.myTreeView.updateVisibleNodes();
+            };
+            const onMouseUp = () => {
+                document.removeEventListener("mousemove", onMouseMove);
+                document.removeEventListener("mouseup", onMouseUp);
+            };
+            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mouseup", onMouseUp);
+        }
+
+        filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
+            const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
+            let typeMatchesData = false;
+            if (dataTerms.length > 0) {
+                if (dataExact) {
+                    typeMatchesData = dataTerms.some(term => dataCase
+                        ? (obj.type === term)
+                        : (obj.type.toLowerCase() === term.toLowerCase())
+                    );
+                } else {
+                    typeMatchesData = dataTerms.some(term => dataCase
+                        ? obj.type.includes(term)
+                        : obj.type.toLowerCase().includes(term.toLowerCase())
+                    );
+                }
+            } else {
+                typeMatchesData = true;
+            }
+            const filteredProperties = obj.properties.filter(prop => {
+                const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
+                let dataMatch = true;
+                if (dataTerms.length > 0) {
+                    if (dataExact) {
+                        dataMatch = dataTerms.some(term => dataCase
+                            ? (prop.value === term)
+                            : (prop.value.toLowerCase() === term.toLowerCase())
+                        );
+                    } else {
+                        dataMatch = dataTerms.some(term => dataCase
+                            ? prop.value.includes(term)
+                            : prop.value.toLowerCase().includes(term.toLowerCase())
+                        );
+                    }
+                }
+                return codeMatch && dataMatch;
+            });
+            const filteredChildren = [];
+            obj.children.forEach(child => {
+                const filteredChild = this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase);
+                if (filteredChild !== null) {
+                    filteredChildren.push(filteredChild);
+                }
+            });
+            if (searchActive && obj.isContainer) {
+                if (filteredProperties.length === 0 && filteredChildren.length === 0) {
+                    return null;
+                }
+                return {
+                    ...obj,
+                    properties: filteredProperties,
+                    children: filteredChildren
+                };
+            } else {
+                if (typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0) {
+                    return {
+                        ...obj,
+                        properties: filteredProperties,
+                        children: filteredChildren
+                    };
+                }
+                return null;
+            }
+        }
+
+        filterTree(objects, codeTerms, dataTerms, dataExact, dataCase) {
+            const filtered = [];
+            objects.forEach(obj => {
+                const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase);
+                if (filteredObj !== null) {
+                    filtered.push(filteredObj);
+                }
+            });
+            return filtered;
+        }
+
+        handleCopy(nodeId) {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
+            if (!node) {
+                alert("Node not found in original data.");
+                return;
+            }
+            const serialized = this.dxfParser.serializeNode(node);
+            navigator.clipboard.writeText(serialized).then(() => {
+                alert("Copied node to clipboard as valid DXF tags.");
+            }, () => {
+                alert("Failed to copy to clipboard.");
+            });
+        }
+
+        handleParse() {
+            const fileInput = document.getElementById("fileInput");
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert("Please select at least one DXF file.");
+                return;
+            }
+            Array.from(fileInput.files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const text = event.target.result;
+                    const objects = this.dxfParser.parse(text);
+                    const newTab = {
+                        id: Date.now() + Math.random(),
+                        name: file.name,
+                        originalTreeData: objects,
+                        currentTreeData: objects,
+                        codeSearchTerms: [],
+                        dataSearchTerms: [],
+                        currentSortField: "line",
+                        currentSortAscending: true
+                    };
+                    this.tabs.push(newTab);
+                    this.activeTabId = newTab.id;
+                    this.updateTabUI();
+                    this.myTreeView.setData(newTab.currentTreeData);
+                };
+                reader.readAsText(file, "ascii");
+            });
+        }
+
+        createTagElement(text, type) {
+            const tag = document.createElement("span");
+            tag.className = "tag";
+            tag.textContent = text;
+            const removeBtn = document.createElement("span");
+            removeBtn.className = "remove";
+            removeBtn.textContent = "×";
+            removeBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const activeTab = this.getActiveTab();
+                if (!activeTab) return;
+                if (type === "code") {
+                    activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
+                    this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+                } else if (type === "data") {
+                    activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
+                    this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+                }
+                const dataExact = document.getElementById("dataExactCheckbox").checked;
+                const dataCase = document.getElementById("dataCaseCheckbox").checked;
+                activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
+                    ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
+                    : activeTab.originalTreeData;
+                this.myTreeView.setData(activeTab.currentTreeData);
+                this.treeViewContainer.scrollTop = 0;
+            });
+            tag.appendChild(removeBtn);
+            return tag;
+        }
+
+        updateTagContainer(containerId, termsArray, type) {
+            const container = document.getElementById(containerId);
+            Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
+            termsArray.forEach(term => {
+                const tagElem = this.createTagElement(term, type);
+                container.insertBefore(tagElem, container.querySelector("input"));
+            });
+        }
+
+        setupTagInput(inputId, type) {
+            const input = document.getElementById(inputId);
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    const text = input.value.trim();
+                    if (text !== "") {
+                        const activeTab = this.getActiveTab();
+                        if (!activeTab) return;
+                        if (type === "code") {
+                            if (!activeTab.codeSearchTerms.includes(text)) {
+                                activeTab.codeSearchTerms.push(text);
+                            }
+                            this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+                        } else {
+                            if (!activeTab.dataSearchTerms.includes(text)) {
+                                activeTab.dataSearchTerms.push(text);
+                            }
+                            this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+                        }
+                        input.value = "";
+                        this.updateEffectiveSearchTerms();
+                    }
+                }
+            });
+            input.addEventListener("blur", () => {
+                const text = input.value.trim();
+                if (text !== "") {
+                    const activeTab = this.getActiveTab();
+                    if (!activeTab) return;
+                    if (type === "code") {
+                        if (!activeTab.codeSearchTerms.includes(text)) {
+                            activeTab.codeSearchTerms.push(text);
+                        }
+                        this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+                    } else {
+                        if (!activeTab.dataSearchTerms.includes(text)) {
+                            activeTab.dataSearchTerms.push(text);
+                        }
+                        this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+                    }
+                    input.value = "";
+                    this.updateEffectiveSearchTerms();
+                }
+            });
+        }
+
+        handleSearch() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            const codeInput = document.getElementById("codeSearchInput");
+            const dataInput = document.getElementById("dataSearchInput");
+            if (codeInput.value.trim() !== "") {
+                const text = codeInput.value.trim();
+                if (!activeTab.codeSearchTerms.includes(text)) {
+                    activeTab.codeSearchTerms.push(text);
+                }
+                this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+                codeInput.value = "";
+            }
+            if (dataInput.value.trim() !== "") {
+                const text = dataInput.value.trim();
+                if (!activeTab.dataSearchTerms.includes(text)) {
+                    activeTab.dataSearchTerms.push(text);
+                }
+                this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+                dataInput.value = "";
+            }
+            this.updateEffectiveSearchTerms();
+        }
+
+        handleClearSearch() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            activeTab.codeSearchTerms = [];
+            activeTab.dataSearchTerms = [];
+            this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+            this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+            document.getElementById("codeSearchInput").value = "";
+            document.getElementById("dataSearchInput").value = "";
+            document.getElementById("dataExactCheckbox").checked = false;
+            document.getElementById("dataCaseCheckbox").checked = false;
+            activeTab.currentTreeData = activeTab.originalTreeData;
+            this.myTreeView.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+        }
+
+        handleCloudTagClick(cloudType, value) {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) return;
+            activeTab.codeSearchTerms = [];
+            activeTab.dataSearchTerms = [];
+            if (cloudType === "object") {
+                activeTab.dataSearchTerms.push(value);
+                this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+            } else if (cloudType === "code") {
+                activeTab.codeSearchTerms.push(value);
+                this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+            }
+            const dataExact = cloudType === "object" ? true : document.getElementById("dataExactCheckbox").checked;
+            const dataCase = document.getElementById("dataCaseCheckbox").checked;
+            activeTab.currentTreeData = this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase);
+            this.myTreeView.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+            document.getElementById("cloudOverlay").style.display = "none";
+        }
+
+        updateClouds() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) {
+                document.getElementById("overlayObjectCloud").innerHTML = "";
+                document.getElementById("overlayCodeCloud").innerHTML = "";
+                return;
+            }
+            const objectCounts = {};
+            const codeCounts = {};
+
+            function traverse(nodes) {
+                nodes.forEach(node => {
+                    if (!node.isProperty) {
+                        objectCounts[node.type] = (objectCounts[node.type] || 0) + 1;
+                        node.properties.forEach(prop => {
+                            codeCounts[prop.code] = (codeCounts[prop.code] || 0) + 1;
+                        });
+                        if (node.children && node.children.length > 0) {
+                            traverse(node.children);
+                        }
+                    }
+                });
+            }
+            traverse(activeTab.originalTreeData);
+
+            const populateCloud = (element, counts, minFont, maxFont, cloudType) => {
+                element.innerHTML = "";
+                const maxCount = Math.max(...Object.values(counts), 1);
+                for (const key in counts) {
+                    const count = counts[key];
+                    const fontSize = minFont + ((count / maxCount) * (maxFont - minFont));
+                    const span = document.createElement("span");
+                    span.className = "cloud-tag";
+                    span.style.fontSize = fontSize + "px";
+                    span.textContent = `${key} (${count})`;
+                    span.addEventListener("click", () => {
+                        this.handleCloudTagClick(cloudType, key);
+                    });
+                    element.appendChild(span);
+                }
+            };
+
+            const minFont = 12, maxFont = 36;
+            const overlayObjectCloudElem = document.getElementById("overlayObjectCloud");
+            const overlayCodeCloudElem = document.getElementById("overlayCodeCloud");
+            populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
+            populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
+        }
+
+        updateStats() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) {
+                document.getElementById("overlayStatsContent").innerHTML = "No DXF data loaded.";
+                return;
+            }
+            function computeStats(nodes, depth = 1) {
+                let stats = {
+                    totalObjects: 0,
+                    totalProperties: 0,
+                    maxDepth: depth,
+                    totalDataSize: 0,
+                    countByType: {}
+                };
+                nodes.forEach(node => {
+                    if (!node.isProperty) {
+                        stats.totalObjects++;
+                        stats.countByType[node.type] = (stats.countByType[node.type] || 0) + 1;
+                        let nodeDataSize = node.type ? node.type.length : 0;
+                        if (node.properties && node.properties.length) {
+                            stats.totalProperties += node.properties.length;
+                            node.properties.forEach(prop => {
+                                nodeDataSize += prop.value ? prop.value.length : 0;
+                            });
+                        }
+                        stats.totalDataSize += nodeDataSize;
+                        if (node.children && node.children.length) {
+                            const childStats = computeStats(node.children, depth + 1);
+                            stats.totalObjects += childStats.totalObjects;
+                            stats.totalProperties += childStats.totalProperties;
+                            stats.totalDataSize += childStats.totalDataSize;
+                            for (let type in childStats.countByType) {
+                                stats.countByType[type] = (stats.countByType[type] || 0) + childStats.countByType[type];
+                            }
+                            if (childStats.maxDepth > stats.maxDepth) {
+                                stats.maxDepth = childStats.maxDepth;
+                            }
+                        }
+                    }
+                });
+                return stats;
+            }
+            const stats = computeStats(activeTab.originalTreeData);
+            const avgProps = stats.totalObjects > 0 ? (stats.totalProperties / stats.totalObjects).toFixed(2) : 0;
+            const statsHtml = `
       <ul>
         <li><strong>Total Objects:</strong> ${stats.totalObjects}</li>
         <li><strong>Total Properties:</strong> ${stats.totalProperties}</li>
@@ -1402,69 +1356,68 @@ class App {
         <li><strong>Object Type Counts:</strong>
           <ul>
             ${Object.entries(stats.countByType)
-              .map(([type, count]) => `<li>${type}: ${count}</li>`)
-              .join('')}
+                .map(([type, count]) => `<li>${type}: ${count}</li>`)
+                .join('')}
           </ul>
         </li>
       </ul>
     `;
-    document.getElementById("overlayStatsContent").innerHTML = statsHtml;
-  }
-  
-  // NEW: Update the DXF Dependencies overlay.
-  updateDependencies() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) {
-      document.getElementById("overlayDepsContent").innerHTML = "No DXF data loaded.";
-      return;
-    }
-    // Define a list of dependency types to search for.
-    const dependencyTypes = ["LTYPE", "STYLE", "APPID", "LAYER", "DIMSTYLE", "VPORT", "XREF", "SHAPE"];
-    const dependencies = {};
-    dependencyTypes.forEach(type => dependencies[type] = []);
-    
-    function traverse(nodes) {
-      nodes.forEach(node => {
-        if (!node.isProperty) {
-          const type = node.type.toUpperCase();
-          if (dependencyTypes.includes(type)) {
-            dependencies[type].push(node);
-          }
-          if (node.children && node.children.length) {
-            traverse(node.children);
-          }
+            document.getElementById("overlayStatsContent").innerHTML = statsHtml;
         }
-      });
-    }
-    traverse(activeTab.originalTreeData);
-    
-    let html = "";
-    dependencyTypes.forEach(depType => {
-      if (dependencies[depType].length > 0) {
-        html += `<h3>${depType} (${dependencies[depType].length})</h3><ul>`;
-        dependencies[depType].forEach(dep => {
-          let depInfo = `${dep.type} (Line ${dep.line})`;
-          if (dep.properties && dep.properties.length) {
-            const propSummary = dep.properties.map(p => `${p.code}:${p.value}`).join(", ");
-            depInfo += ` [${propSummary}]`;
-          }
-          html += `<li>${depInfo}</li>`;
-        });
-        html += "</ul>";
-      }
-    });
-    
-    if (!html) {
-      html = "No external dependency objects found.";
-    }
-    
-    document.getElementById("overlayDepsContent").innerHTML = html;
-  }
-}
 
-document.addEventListener("DOMContentLoaded", () => {
-  new App();
-});
+        updateDependencies() {
+            const activeTab = this.getActiveTab();
+            if (!activeTab) {
+                document.getElementById("overlayDepsContent").innerHTML = "No DXF data loaded.";
+                return;
+            }
+
+            const dependencyTypes = ["LTYPE", "STYLE", "APPID", "LAYER", "DIMSTYLE", "VPORT", "XREF", "SHAPE"];
+            const dependencies = {};
+            dependencyTypes.forEach(type => dependencies[type] = []);
+
+            function traverse(nodes) {
+                nodes.forEach(node => {
+                    if (!node.isProperty) {
+                        const type = node.type.toUpperCase();
+                        if (dependencyTypes.includes(type)) {
+                            dependencies[type].push(node);
+                        }
+                        if (node.children && node.children.length) {
+                            traverse(node.children);
+                        }
+                    }
+                });
+            }
+            traverse(activeTab.originalTreeData);
+
+            let html = "";
+            dependencyTypes.forEach(depType => {
+                if (dependencies[depType].length > 0) {
+                    html += `<h3>${depType} (${dependencies[depType].length})</h3><ul>`;
+                    dependencies[depType].forEach(dep => {
+                        let depInfo = `${dep.type} (Line ${dep.line})`;
+                        if (dep.properties && dep.properties.length) {
+                            const propSummary = dep.properties.map(p => `${p.code}:${p.value}`).join(", ");
+                            depInfo += ` [${propSummary}]`;
+                        }
+                        html += `<li>${depInfo}</li>`;
+                    });
+                    html += "</ul>";
+                }
+            });
+
+            if (!html) {
+                html = "No external dependency objects found.";
+            }
+
+            document.getElementById("overlayDepsContent").innerHTML = html;
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        new App();
+    });
 </script>
 </body>
 </html>
