@@ -3,9 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>DXF Parser</title>
-  <!-- Include vis-network for the graph overlay -->
-  <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
-  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <!-- We no longer need D3.js or vis-network for the graph feature -->
   <style>
     /* ======= GLOBAL STYLES ======= */
     html, body {
@@ -197,7 +195,6 @@
     /* All overlay dialogs share a common style */
     #cloudOverlay,
     #statsOverlay,
-    #graphOverlay,
     #depsOverlay {
       display: none;
       position: fixed;
@@ -221,7 +218,6 @@
     }
     #closeCloudOverlay,
     #closeStatsOverlay,
-    #closeGraphOverlay,
     #closeDepsOverlay {
       position: absolute;
       top: 10px;
@@ -244,12 +240,6 @@
     #overlayStatsContent li {
       padding: 0.5em 0;
       border-bottom: 1px solid #eee;
-    }
-    /* Graph overlay: the container for vis-network */
-    #overlayGraphContent {
-      width: 100%;
-      height: 100%;
-      border: 1px solid #ddd;
     }
     /* Dependencies overlay: styling for dependency listing */
     #overlayDepsContent ul {
@@ -291,10 +281,9 @@
     <button id="clearSearchBtn">Clear Search</button>
     <button id="expandAllBtn">Expand All</button>
     <button id="collapseAllBtn">Collapse All</button>
-    <!-- NEW: Buttons to show overlay dialogs -->
+    <!-- NEW: Buttons to show overlay dialogs (graph button removed) -->
     <button id="showCloudOverlayBtn">Show Cloud Data</button>
     <button id="showStatsOverlayBtn">Show DXF Statistics</button>
-    <button id="showGraphOverlayBtn">Show Hierarchy Graph</button>
     <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
   </div>
   
@@ -346,15 +335,6 @@
     <button id="closeStatsOverlay">Close</button>
     <h2>DXF Statistics</h2>
     <div id="overlayStatsContent"></div>
-  </div>
-</div>
-
-<!-- OVERLAY DIALOG for Object Hierarchy Graph -->
-<div id="graphOverlay">
-  <div class="overlay-content">
-    <button id="closeGraphOverlay">Close</button>
-    <h2>Object Hierarchy Graph</h2>
-    <div id="overlayGraphContent"></div>
   </div>
 </div>
 
@@ -758,14 +738,6 @@ class App {
     });
     document.getElementById("closeStatsOverlay").addEventListener("click", () => {
       document.getElementById("statsOverlay").style.display = "none";
-    });
-    // Graph overlay event listeners.
-    document.getElementById("showGraphOverlayBtn").addEventListener("click", () => {
-      this.updateGraph();
-      document.getElementById("graphOverlay").style.display = "block";
-    });
-    document.getElementById("closeGraphOverlay").addEventListener("click", () => {
-      document.getElementById("graphOverlay").style.display = "none";
     });
     // Dependencies overlay event listeners.
     document.getElementById("showDepsOverlayBtn").addEventListener("click", () => {
@@ -1439,71 +1411,6 @@ class App {
     document.getElementById("overlayStatsContent").innerHTML = statsHtml;
   }
   
-  // NEW: Build graph data from DXF hierarchy. To improve performance, limit the depth.
-  buildGraph(nodes, parentId, nodesArr, edgesArr, maxDepth = 5, currentDepth = 1) {
-    nodes.forEach(node => {
-      if (!node.isProperty) {
-        if (currentDepth > maxDepth) return;
-        nodesArr.push({
-          id: node.id,
-          label: `${node.type}\n(Line ${node.line})`
-        });
-        if (parentId !== null) {
-          edgesArr.push({
-            from: parentId,
-            to: node.id
-          });
-        }
-        if (node.children && node.children.length > 0) {
-          this.buildGraph(node.children, node.id, nodesArr, edgesArr, maxDepth, currentDepth + 1);
-        }
-      }
-    });
-  }
-  
-  // NEW: Update the Object Hierarchy Graph overlay using vis-network.
-  updateGraph() {
-    const activeTab = this.getActiveTab();
-    if (!activeTab) {
-      document.getElementById("overlayGraphContent").innerHTML = "No DXF data loaded.";
-      return;
-    }
-    const nodesArr = [];
-    const edgesArr = [];
-    // Limit to a maximum depth (set here to 5)
-    this.buildGraph(activeTab.originalTreeData, null, nodesArr, edgesArr, 5);
-    
-    const container = document.getElementById("overlayGraphContent");
-    container.innerHTML = "";
-    
-    const data = {
-      nodes: new vis.DataSet(nodesArr),
-      edges: new vis.DataSet(edgesArr)
-    };
-    
-    const options = {
-      layout: {
-        hierarchical: {
-          direction: 'UD',
-          sortMethod: 'directed',
-          nodeSpacing: 100,
-          levelSeparation: 150
-        }
-      },
-      physics: {
-        hierarchicalRepulsion: {
-          nodeDistance: 120
-        },
-        solver: 'hierarchicalRepulsion'
-      },
-      edges: {
-        smooth: true
-      }
-    };
-    
-    new vis.Network(container, data, options);
-  }
-  
   // NEW: Update the DXF Dependencies overlay.
   updateDependencies() {
     const activeTab = this.getActiveTab();
@@ -1511,7 +1418,7 @@ class App {
       document.getElementById("overlayDepsContent").innerHTML = "No DXF data loaded.";
       return;
     }
-    // Define a set of dependency types to search for
+    // Define a list of dependency types to search for.
     const dependencyTypes = ["LTYPE", "STYLE", "APPID", "LAYER", "DIMSTYLE", "VPORT", "XREF", "SHAPE"];
     const dependencies = {};
     dependencyTypes.forEach(type => dependencies[type] = []);
@@ -1537,7 +1444,6 @@ class App {
         html += `<h3>${depType} (${dependencies[depType].length})</h3><ul>`;
         dependencies[depType].forEach(dep => {
           let depInfo = `${dep.type} (Line ${dep.line})`;
-          // Optionally, include a summary of properties (for STYLE, etc.)
           if (dep.properties && dep.properties.length) {
             const propSummary = dep.properties.map(p => `${p.code}:${p.value}`).join(", ");
             depInfo += ` [${propSummary}]`;
