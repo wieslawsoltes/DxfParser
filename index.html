@@ -75,7 +75,7 @@
     .header-cell.flex-fixed {
       flex: none;
     }
-    /* Grow column */
+    /* Grow column (Data) */
     .header-cell.flex-grow {
       flex: 1;
     }
@@ -96,7 +96,7 @@
     }
     
     /* ======= CELL STYLES ======= */
-    /* Fixed columns: Line, Code, Object Count, Data Size */
+    /* Fixed columns (Line, Code, Object Count, Data Size) */
     .tree-line,
     .tree-code,
     .tree-object-count,
@@ -120,7 +120,7 @@
       border-right: 1px solid #ccc;
       height: 100%;
     }
-    /* Remove right border on last cell */
+    /* Remove right border on the last cell */
     .tree-line:last-child,
     .tree-code:last-child,
     .tree-data:last-child,
@@ -257,7 +257,6 @@
 <script>
 class DxfParser {
   constructor() {
-    // Map container objects to their ending markers
     this.containerMapping = {
       "SECTION": "ENDSEC",
       "BLOCK":   "ENDBLK",
@@ -375,7 +374,7 @@ class VirtualTreeView {
     this.getLineWidth = options.getLineWidth || (() => 100);
     this.getCodeWidth = options.getCodeWidth || (() => 100);
     this.getDataWidth = options.getDataWidth || (() => null);
-    // Save columnWidths from options so we can use them in updateVisibleNodes.
+    // Use the same columnWidths object from options.
     this.columnWidths = options.columnWidths;
     
     this.flatData = [];
@@ -435,7 +434,7 @@ class VirtualTreeView {
     return flat;
   }
   
-  // Returns the total number of non-property descendant nodes.
+  // Returns the total count of non-property descendant nodes.
   computeObjectCount(node) {
     if (!node.children || node.children.length === 0) return 0;
     let count = 0;
@@ -450,7 +449,7 @@ class VirtualTreeView {
     return count;
   }
   
-  // Returns the total data “size” for the node.
+  // Returns the total data size for the node.
   computeDataSize(node) {
     let size = 0;
     if (node.isProperty) {
@@ -607,7 +606,7 @@ class App {
     this.treeViewContent = document.getElementById("treeViewContent");
     this.tabs = [];
     this.activeTabId = null;
-    // Pass columnWidths into VirtualTreeView options.
+    // Pass the same columnWidths object into VirtualTreeView options.
     this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
       itemHeight: 24,
       copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -870,15 +869,17 @@ class App {
     const onMouseMove = (eMove) => {
       const newWidth = startWidth + (eMove.clientX - startX);
       this.columnWidths[field] = newWidth;
-      headerCell.style.width = newWidth + 'px';
+      // Update the header cell's inline style and force fixed width (remove flex-grow)
+      headerCell.style.width = newWidth + "px";
+      headerCell.style.flex = "none";
       this.myTreeView.updateVisibleNodes();
     };
     const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
     };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
   }
   
   filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
