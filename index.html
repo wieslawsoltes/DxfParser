@@ -4,23 +4,26 @@
   <meta charset="utf-8">
   <title>DXF Parser</title>
   <style>
-    /* ======= STYLES ======= */
+    /* ======= GLOBAL STYLES ======= */
     html, body {
       height: 100%;
       margin: 0;
       padding: 0;
     }
+    *, *:before, *:after {
+      box-sizing: border-box;
+    }
     .main-container {
       display: flex;
       flex-direction: column;
       height: 100vh;
-      box-sizing: border-box;
       padding: 1em;
     }
     body {
       font-family: sans-serif;
     }
-    /* Allow tabs to wrap if screen is too narrow */
+    
+    /* ======= TAB STYLES ======= */
     #tabContainer {
       display: flex;
       flex-wrap: wrap;
@@ -34,8 +37,8 @@
       cursor: pointer;
       margin-right: 2px;
       margin-bottom: 2px;
-      position: relative;
       background: #eee;
+      position: relative;
     }
     .tab.active {
       background: #fff;
@@ -48,28 +51,31 @@
       cursor: pointer;
       padding: 0 4px;
     }
+    
+    /* ======= HEADER STYLES ======= */
     .tree-header {
       display: flex;
+      align-items: center;
+      height: 24px;  /* fixed header height */
       font-weight: bold;
       border-bottom: 1px solid #ccc;
-      padding-bottom: 4px;
-      margin-bottom: 4px;
       background: #eee;
       user-select: none;
     }
-    /* Header cells for fixed-width columns use flex: none and an explicit width.
-       The Data header cell uses flex: 1 so that it expands. */
     .header-cell {
-      cursor: pointer;
       display: flex;
       align-items: center;
+      height: 100%;
       position: relative;
       padding: 0 4px;
       border-right: 1px solid #ccc;
+      cursor: pointer;
     }
+    /* Fixed-width header cells */
     .header-cell.flex-fixed {
       flex: none;
     }
+    /* Grow column */
     .header-cell.flex-grow {
       flex: 1;
     }
@@ -88,7 +94,9 @@
       margin-left: 4px;
       font-size: 0.8em;
     }
-    /* Row cells – fixed width cells have flex: none; Data cell uses flex: 1 */
+    
+    /* ======= CELL STYLES ======= */
+    /* Fixed columns: Line, Code, Object Count, Data Size */
     .tree-line,
     .tree-code,
     .tree-object-count,
@@ -100,7 +108,9 @@
       text-overflow: ellipsis;
       text-align: left;
       border-right: 1px solid #ccc;
+      height: 100%;
     }
+    /* The Data column grows */
     .tree-data {
       flex: 1;
       padding: 0 4px;
@@ -108,8 +118,9 @@
       overflow: hidden;
       text-overflow: ellipsis;
       border-right: 1px solid #ccc;
+      height: 100%;
     }
-    /* Remove right border on the last cell */
+    /* Remove right border on last cell */
     .tree-line:last-child,
     .tree-code:last-child,
     .tree-data:last-child,
@@ -117,6 +128,8 @@
     .tree-data-size:last-child {
       border-right: none;
     }
+    
+    /* ======= VIRTUAL SCROLLER ======= */
     #treeViewContainer {
       position: relative;
       flex: 1;
@@ -126,12 +139,13 @@
     #treeViewContent {
       position: relative;
     }
-    /* Each row uses relative positioning with flex layout */
+    
+    /* ======= ROW STYLES ======= */
     .tree-row {
       display: flex;
       align-items: center;
+      height: 24px;  /* fixed row height */
       border-bottom: 1px solid #eee;
-      box-sizing: border-box;
     }
     .toggle {
       display: inline-block;
@@ -148,6 +162,8 @@
     .tree-row:hover .copy-button {
       display: inline;
     }
+    
+    /* ======= CONTROLS ======= */
     .controls {
       margin: 1em 0;
     }
@@ -157,8 +173,8 @@
       padding: 2px;
       min-width: 200px;
       margin-right: 8px;
-      vertical-align: middle;
       border-radius: 4px;
+      vertical-align: middle;
     }
     .tag-container input {
       border: none;
@@ -167,7 +183,7 @@
     }
     .tag {
       display: inline-block;
-      background-color: #ddd;
+      background: #ddd;
       padding: 2px 6px;
       margin: 2px;
       border-radius: 4px;
@@ -183,14 +199,14 @@
 <body>
 <div class="main-container">
   <h1>DXF Parser</h1>
-
+  
   <!-- File Input -->
   <input type="file" id="fileInput" accept=".dxf" multiple>
   <button id="parseBtn">Parse File(s)</button>
-
+  
   <!-- Tab Container -->
   <div id="tabContainer"></div>
-
+  
   <!-- Search Controls -->
   <div class="controls">
     <div id="codeSearchTags" class="tag-container">
@@ -199,44 +215,38 @@
     <div id="dataSearchTags" class="tag-container">
       <input type="text" id="dataSearchInput" placeholder="Search by Data value">
     </div>
-    <label>
-      <input type="checkbox" id="dataExactCheckbox">
-      Exact Data Match
-    </label>
-    <label>
-      <input type="checkbox" id="dataCaseCheckbox">
-      Case Sensitive
-    </label>
+    <label><input type="checkbox" id="dataExactCheckbox"> Exact Data Match</label>
+    <label><input type="checkbox" id="dataCaseCheckbox"> Case Sensitive</label>
     <button id="searchBtn">Search</button>
     <button id="clearSearchBtn">Clear Search</button>
     <button id="expandAllBtn">Expand All</button>
     <button id="collapseAllBtn">Collapse All</button>
   </div>
-
+  
   <!-- Tree Grid Header -->
   <div id="treeGridHeader" class="tree-header">
-    <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" data-size="100px" style="width: 100px;">
+    <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
       Line <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
-    <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" data-size="100px" style="width: 100px;">
+    <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
       Code <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
-    <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" data-size="auto" style="flex: 1;">
+    <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
       Data <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
-    <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" data-size="100px" style="width: 100px; text-align: right;">
+    <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 100px; text-align: right;">
       Object Count <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
-    <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" data-size="100px" style="width: 100px; text-align: right;">
+    <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 100px; text-align: right;">
       Data Size <span class="sort-indicator"></span>
       <div class="resizer"></div>
     </div>
   </div>
-
+  
   <!-- Virtual Scroll Container -->
   <div id="treeViewContainer">
     <div id="treeViewContent"></div>
@@ -257,13 +267,13 @@ class DxfParser {
     };
     this.nextId = 1;
   }
-
+  
   parse(text) {
     const tags = this.parseDxf(text);
     const grouped = this.groupObjects(tags, 0);
     return grouped.objects;
   }
-
+  
   parseDxf(text) {
     const lines = text.split(/\r?\n/);
     const tags = [];
@@ -273,16 +283,15 @@ class DxfParser {
       const code = parseInt(codeLine, 10);
       if (isNaN(code)) continue;
       let value = "";
-      const tagLine = i + 1;
       if (i + 1 < lines.length) {
         value = lines[i + 1].trim();
       }
       i++;
-      tags.push({ line: tagLine, code, value });
+      tags.push({ line: i, code, value });
     }
     return tags;
   }
-
+  
   groupObjects(tags, startIndex, endMarker = null) {
     const objects = [];
     let i = startIndex;
@@ -319,7 +328,7 @@ class DxfParser {
     }
     return { objects, nextIndex: i };
   }
-
+  
   findNodeById(tree, id) {
     for (const obj of tree) {
       if (String(obj.id) === String(id)) return obj;
@@ -330,7 +339,7 @@ class DxfParser {
     }
     return null;
   }
-
+  
   serializeNode(node) {
     let lines = [];
     lines.push("0");
@@ -354,7 +363,7 @@ class DxfParser {
 }
 </script>
 
-<!-- 2) VirtualTreeView Class (Using fullHeight without MAX_HEIGHT) -->
+<!-- 2) VirtualTreeView Class -->
 <script>
 class VirtualTreeView {
   constructor(container, content, options = {}) {
@@ -366,10 +375,12 @@ class VirtualTreeView {
     this.getLineWidth = options.getLineWidth || (() => 100);
     this.getCodeWidth = options.getCodeWidth || (() => 100);
     this.getDataWidth = options.getDataWidth || (() => null);
+    // Save columnWidths from options so we can use them in updateVisibleNodes.
+    this.columnWidths = options.columnWidths;
+    
     this.flatData = [];
     this.treeData = [];
-
-    // Use requestAnimationFrame to throttle scroll updates.
+    
     this.container.addEventListener("scroll", () => {
       requestAnimationFrame(() => this.updateVisibleNodes());
     });
@@ -385,17 +396,18 @@ class VirtualTreeView {
       }
     });
   }
-
+  
   setData(treeData) {
     this.treeData = treeData || [];
     this.refresh();
   }
-
+  
   refresh() {
     this.flatData = this.flattenTree(this.treeData);
+    console.log("Total rows:", this.flatData.length);
     this.updateVisibleNodes();
   }
-
+  
   flattenTree(nodes, level = 0) {
     let flat = [];
     for (let node of nodes) {
@@ -422,8 +434,8 @@ class VirtualTreeView {
     }
     return flat;
   }
-
-  // Returns the total count of non-property descendant nodes.
+  
+  // Returns the total number of non-property descendant nodes.
   computeObjectCount(node) {
     if (!node.children || node.children.length === 0) return 0;
     let count = 0;
@@ -437,7 +449,7 @@ class VirtualTreeView {
     }
     return count;
   }
-
+  
   // Returns the total data “size” for the node.
   computeDataSize(node) {
     let size = 0;
@@ -458,21 +470,19 @@ class VirtualTreeView {
     }
     return size;
   }
-
+  
   updateVisibleNodes() {
     const scrollTop = this.container.scrollTop;
     const containerHeight = this.container.clientHeight;
     const totalRows = this.flatData.length;
-    const fullHeight = totalRows * this.itemHeight;  // Use fullHeight without cap.
+    const fullHeight = totalRows * this.itemHeight;
     this.content.style.height = fullHeight + "px";
     
-    // In this case, the effective scrollTop is just scrollTop.
     const effectiveScrollTop = scrollTop;
     const startIndex = Math.floor(effectiveScrollTop / this.itemHeight);
     const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
     const endIndex = Math.min(startIndex + visibleCount, totalRows);
     
-    // Create a container with a top spacer, visible rows, and a bottom spacer.
     const containerElem = document.createElement("div");
     const topSpacer = document.createElement("div");
     topSpacer.style.height = (startIndex * this.itemHeight) + "px";
@@ -554,7 +564,7 @@ class VirtualTreeView {
       // Object Count Column
       const objectCountDiv = document.createElement("div");
       objectCountDiv.className = "tree-object-count";
-      objectCountDiv.style.width = "100px";
+      objectCountDiv.style.width = this.columnWidths.objectCount + "px";
       objectCountDiv.style.textAlign = "right";
       if (!node.isProperty && node.children && node.children.length) {
         objectCountDiv.textContent = this.computeObjectCount(node);
@@ -566,7 +576,7 @@ class VirtualTreeView {
       // Data Size Column
       const dataSizeDiv = document.createElement("div");
       dataSizeDiv.className = "tree-data-size";
-      dataSizeDiv.style.width = "100px";
+      dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
       dataSizeDiv.style.textAlign = "right";
       dataSizeDiv.textContent = this.computeDataSize(node);
       row.appendChild(dataSizeDiv);
@@ -590,23 +600,26 @@ class VirtualTreeView {
 <script>
 class App {
   constructor() {
+    // Initialize column widths (for fixed columns)
+    this.columnWidths = { line: 100, code: 100, type: null, objectCount: 100, dataSize: 100 };
     this.dxfParser = new DxfParser();
     this.treeViewContainer = document.getElementById("treeViewContainer");
     this.treeViewContent = document.getElementById("treeViewContent");
-    this.columnWidths = { line: 100, code: 100, type: null };
     this.tabs = [];
     this.activeTabId = null;
+    // Pass columnWidths into VirtualTreeView options.
     this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
       itemHeight: 24,
       copyCallback: (nodeId) => this.handleCopy(nodeId),
       onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
       getLineWidth: () => this.columnWidths.line,
       getCodeWidth: () => this.columnWidths.code,
-      getDataWidth: () => this.columnWidths.type
+      getDataWidth: () => this.columnWidths.type,
+      columnWidths: this.columnWidths
     });
     this.initEventListeners();
   }
-
+  
   initEventListeners() {
     document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
     document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
@@ -625,11 +638,11 @@ class App {
     document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
     document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
   }
-
+  
   getActiveTab() {
     return this.tabs.find(t => t.id === this.activeTabId);
   }
-
+  
   updateTabUI() {
     const tabContainer = document.getElementById("tabContainer");
     tabContainer.innerHTML = "";
@@ -663,7 +676,7 @@ class App {
       tabContainer.appendChild(tabElem);
     });
   }
-
+  
   expandAllNodes(nodes) {
     nodes.forEach(node => {
       if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
@@ -672,13 +685,14 @@ class App {
       }
     });
   }
+  
   collapseAllNodes(nodes) {
     nodes.forEach(node => {
       node.expanded = false;
       this.collapseAllNodes(node.children);
     });
   }
-
+  
   handleExpandAll() {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -694,7 +708,7 @@ class App {
     this.myTreeView.setData(activeTab.currentTreeData);
     this.treeViewContainer.scrollTop = 0;
   }
-
+  
   handleCollapseAll() {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -710,7 +724,7 @@ class App {
     this.myTreeView.setData(activeTab.currentTreeData);
     this.treeViewContainer.scrollTop = 0;
   }
-
+  
   handleToggleExpand(nodeId) {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -728,7 +742,7 @@ class App {
       this.myTreeView.setData(activeTab.currentTreeData);
     }
   }
-
+  
   getSortValue(node, field) {
     if (field === "line") {
       return node.line ? Number(node.line) : 0;
@@ -779,7 +793,7 @@ class App {
     }
     return "";
   }
-
+  
   sortTreeNodes(nodes, field, ascending) {
     nodes.sort((a, b) => {
       const aVal = this.getSortValue(a, field);
@@ -814,7 +828,7 @@ class App {
       }
     });
   }
-
+  
   handleHeaderClick(headerCell) {
     const field = headerCell.getAttribute('data-field');
     const activeTab = this.getActiveTab();
@@ -846,7 +860,7 @@ class App {
       : activeTab.originalTreeData;
     this.myTreeView.setData(activeTab.currentTreeData);
   }
-
+  
   handleResizerMouseDown(e) {
     e.stopPropagation();
     const headerCell = e.target.parentElement;
@@ -866,7 +880,7 @@ class App {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }
-
+  
   filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
     const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
     let typeMatchesData = false;
@@ -930,7 +944,7 @@ class App {
       return null;
     }
   }
-
+  
   filterTree(objects, codeTerms, dataTerms, dataExact, dataCase) {
     const filtered = [];
     objects.forEach(obj => {
@@ -941,7 +955,7 @@ class App {
     });
     return filtered;
   }
-
+  
   handleCopy(nodeId) {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -957,7 +971,7 @@ class App {
       alert("Failed to copy to clipboard.");
     });
   }
-
+  
   handleParse() {
     const fileInput = document.getElementById("fileInput");
     if (!fileInput.files || fileInput.files.length === 0) {
@@ -987,7 +1001,7 @@ class App {
       reader.readAsText(file, "ascii");
     });
   }
-
+  
   createTagElement(text, type) {
     const tag = document.createElement("span");
     tag.className = "tag";
@@ -1017,7 +1031,7 @@ class App {
     tag.appendChild(removeBtn);
     return tag;
   }
-
+  
   updateTagContainer(containerId, termsArray, type) {
     const container = document.getElementById(containerId);
     Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
@@ -1026,7 +1040,7 @@ class App {
       container.insertBefore(tagElem, container.querySelector("input"));
     });
   }
-
+  
   setupTagInput(inputId, type) {
     const input = document.getElementById(inputId);
     input.addEventListener("keydown", (e) => {
@@ -1071,7 +1085,7 @@ class App {
       }
     });
   }
-
+  
   handleSearch() {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -1101,7 +1115,7 @@ class App {
     this.myTreeView.setData(activeTab.currentTreeData);
     this.treeViewContainer.scrollTop = 0;
   }
-
+  
   handleClearSearch() {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
