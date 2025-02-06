@@ -194,6 +194,42 @@
       cursor: pointer;
       font-weight: bold;
     }
+    
+    /* ======= OVERLAY (DIALOG) STYLES ======= */
+    #cloudOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1000;
+    }
+    #cloudOverlay .overlay-content {
+      background: #fff;
+      margin: 5% auto;
+      padding: 1em;
+      width: 80%;
+      max-width: 600px;
+      border-radius: 4px;
+      position: relative;
+    }
+    #closeCloudOverlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      cursor: pointer;
+    }
+    /* Cloud tag styles within overlay */
+    .cloud-tag {
+      display: inline-block;
+      margin: 4px;
+      padding: 2px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #f9f9f9;
+    }
   </style>
 </head>
 <body>
@@ -221,6 +257,8 @@
     <button id="clearSearchBtn">Clear Search</button>
     <button id="expandAllBtn">Expand All</button>
     <button id="collapseAllBtn">Collapse All</button>
+    <!-- NEW: Button to show cloud data overlay -->
+    <button id="showCloudOverlayBtn">Show Cloud Data</button>
   </div>
   
   <!-- Tree Grid Header -->
@@ -250,6 +288,18 @@
   <!-- Virtual Scroll Container -->
   <div id="treeViewContainer">
     <div id="treeViewContent"></div>
+  </div>
+</div>
+
+<!-- OVERLAY DIALOG for Cloud Data -->
+<div id="cloudOverlay">
+  <div class="overlay-content">
+    <button id="closeCloudOverlay">Close</button>
+    <h2>Cloud Data</h2>
+    <h3>Object Cloud</h3>
+    <div id="overlayObjectCloud"></div>
+    <h3>Code Cloud</h3>
+    <div id="overlayCodeCloud"></div>
   </div>
 </div>
 
@@ -477,8 +527,7 @@ class VirtualTreeView {
     const fullHeight = totalRows * this.itemHeight;
     this.content.style.height = fullHeight + "px";
     
-    const effectiveScrollTop = scrollTop;
-    const startIndex = Math.floor(effectiveScrollTop / this.itemHeight);
+    const startIndex = Math.floor(scrollTop / this.itemHeight);
     const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
     const endIndex = Math.min(startIndex + visibleCount, totalRows);
     
@@ -636,6 +685,15 @@ class App {
     this.setupTagInput("dataSearchInput", "data");
     document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
     document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
+    // NEW: Show Cloud Data Overlay button
+    document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
+      this.updateClouds();
+      document.getElementById("cloudOverlay").style.display = "block";
+    });
+    // NEW: Close overlay button
+    document.getElementById("closeCloudOverlay").addEventListener("click", () => {
+      document.getElementById("cloudOverlay").style.display = "none";
+    });
   }
   
   getActiveTab() {
@@ -869,7 +927,6 @@ class App {
     const onMouseMove = (eMove) => {
       const newWidth = startWidth + (eMove.clientX - startX);
       this.columnWidths[field] = newWidth;
-      // Update the header cell's inline style and force fixed width (remove flex-grow)
       headerCell.style.width = newWidth + "px";
       headerCell.style.flex = "none";
       this.myTreeView.updateVisibleNodes();
@@ -1131,6 +1188,83 @@ class App {
     activeTab.currentTreeData = activeTab.originalTreeData;
     this.myTreeView.setData(activeTab.currentTreeData);
     this.treeViewContainer.scrollTop = 0;
+  }
+  
+  // NEW: When a cloud tag is clicked, filter the active tree data.
+  handleCloudTagClick(cloudType, value) {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) return;
+    // Clear existing search terms.
+    activeTab.codeSearchTerms = [];
+    activeTab.dataSearchTerms = [];
+    if (cloudType === "object") {
+      activeTab.dataSearchTerms.push(value);
+      this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+    } else if (cloudType === "code") {
+      activeTab.codeSearchTerms.push(value);
+      this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+    }
+    // Use current checkbox settings for filtering.
+    const dataExact = document.getElementById("dataExactCheckbox").checked;
+    const dataCase = document.getElementById("dataCaseCheckbox").checked;
+    activeTab.currentTreeData = this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase);
+    this.myTreeView.setData(activeTab.currentTreeData);
+    this.treeViewContainer.scrollTop = 0;
+    // Close the overlay.
+    document.getElementById("cloudOverlay").style.display = "none";
+  }
+  
+  // NEW: Update the cloud data inside the overlay.
+  updateClouds() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      document.getElementById("overlayObjectCloud").innerHTML = "";
+      document.getElementById("overlayCodeCloud").innerHTML = "";
+      return;
+    }
+    const objectCounts = {};
+    const codeCounts = {};
+    
+    // Traverse the tree recursively.
+    function traverse(nodes) {
+      nodes.forEach(node => {
+        if (!node.isProperty) {
+          objectCounts[node.type] = (objectCounts[node.type] || 0) + 1;
+          node.properties.forEach(prop => {
+            codeCounts[prop.code] = (codeCounts[prop.code] || 0) + 1;
+          });
+          if (node.children && node.children.length > 0) {
+            traverse(node.children);
+          }
+        }
+      });
+    }
+    traverse(activeTab.originalTreeData);
+    
+    // Helper function (as an arrow function so that 'this' refers to the App instance)
+    const populateCloud = (element, counts, minFont, maxFont, cloudType) => {
+      element.innerHTML = "";
+      const maxCount = Math.max(...Object.values(counts), 1);
+      for (const key in counts) {
+        const count = counts[key];
+        const fontSize = minFont + ((count / maxCount) * (maxFont - minFont));
+        const span = document.createElement("span");
+        span.className = "cloud-tag";
+        span.style.fontSize = fontSize + "px";
+        span.textContent = `${key} (${count})`;
+        // When a cloud tag is clicked, filter the tree data.
+        span.addEventListener("click", () => {
+          this.handleCloudTagClick(cloudType, key);
+        });
+        element.appendChild(span);
+      }
+    };
+    
+    const minFont = 12, maxFont = 36;
+    const overlayObjectCloudElem = document.getElementById("overlayObjectCloud");
+    const overlayCodeCloudElem = document.getElementById("overlayCodeCloud");
+    populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
+    populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
   }
 }
 
