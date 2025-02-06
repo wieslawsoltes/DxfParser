@@ -248,8 +248,12 @@
     <div id="dataSearchTags" class="tag-container">
       <input type="text" id="dataSearchInput" placeholder="Search by Data value">
     </div>
-    <label><input type="checkbox" id="dataExactCheckbox"> Exact Data Match</label>
-    <label><input type="checkbox" id="dataCaseCheckbox"> Case Sensitive</label>
+    <label>
+      <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
+    </label>
+    <label>
+      <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
+    </label>
     <button id="searchBtn">Search</button>
     <button id="clearSearchBtn">Clear Search</button>
     <button id="expandAllBtn">Expand All</button>
@@ -684,6 +688,43 @@ class App {
     document.getElementById("closeCloudOverlay").addEventListener("click", () => {
       document.getElementById("cloudOverlay").style.display = "none";
     });
+    // Automatically update filtering when checkboxes change.
+    document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
+    document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
+    // Automatically update filtering when the search input texts change.
+    document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
+    document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
+  }
+  
+  // NEW: Compute the effective search terms using both the search tag arrays and current input values.
+  updateEffectiveSearchTerms() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) return;
+    const codeInput = document.getElementById("codeSearchInput");
+    const dataInput = document.getElementById("dataSearchInput");
+    const codeText = codeInput.value.trim();
+    const dataText = dataInput.value.trim();
+    // Make a copy of the existing tag search terms.
+    const effectiveCodeSearchTerms = activeTab.codeSearchTerms.slice();
+    const effectiveDataSearchTerms = activeTab.dataSearchTerms.slice();
+    if (codeText !== "" && !effectiveCodeSearchTerms.includes(codeText)) {
+      effectiveCodeSearchTerms.push(codeText);
+    }
+    if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
+      effectiveDataSearchTerms.push(dataText);
+    }
+    const dataExact = document.getElementById("dataExactCheckbox").checked;
+    const dataCase = document.getElementById("dataCaseCheckbox").checked;
+    activeTab.currentTreeData = (effectiveCodeSearchTerms.length || effectiveDataSearchTerms.length)
+      ? this.filterTree(activeTab.originalTreeData, effectiveCodeSearchTerms, effectiveDataSearchTerms, dataExact, dataCase)
+      : activeTab.originalTreeData;
+    this.myTreeView.setData(activeTab.currentTreeData);
+    this.treeViewContainer.scrollTop = 0;
+  }
+  
+  // NEW: Reapply filtering when checkbox search options change.
+  handleSearchOptionChange() {
+    this.updateEffectiveSearchTerms();
   }
   
   getActiveTab() {
@@ -1110,6 +1151,7 @@ class App {
             this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
           }
           input.value = "";
+          this.updateEffectiveSearchTerms();
         }
       }
     });
@@ -1130,6 +1172,7 @@ class App {
           this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         }
         input.value = "";
+        this.updateEffectiveSearchTerms();
       }
     });
   }
@@ -1155,13 +1198,7 @@ class App {
       this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
       dataInput.value = "";
     }
-    const dataExact = document.getElementById("dataExactCheckbox").checked;
-    const dataCase = document.getElementById("dataCaseCheckbox").checked;
-    activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-      ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-      : activeTab.originalTreeData;
-    this.myTreeView.setData(activeTab.currentTreeData);
-    this.treeViewContainer.scrollTop = 0;
+    this.updateEffectiveSearchTerms();
   }
   
   handleClearSearch() {
@@ -1185,7 +1222,6 @@ class App {
   handleCloudTagClick(cloudType, value) {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
-    // Clear existing search terms.
     activeTab.codeSearchTerms = [];
     activeTab.dataSearchTerms = [];
     if (cloudType === "object") {
@@ -1195,13 +1231,11 @@ class App {
       activeTab.codeSearchTerms.push(value);
       this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
     }
-    // For object cloud tags, force exact matching.
     const dataExact = cloudType === "object" ? true : document.getElementById("dataExactCheckbox").checked;
     const dataCase = document.getElementById("dataCaseCheckbox").checked;
     activeTab.currentTreeData = this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase);
     this.myTreeView.setData(activeTab.currentTreeData);
     this.treeViewContainer.scrollTop = 0;
-    // Close the overlay.
     document.getElementById("cloudOverlay").style.display = "none";
   }
   
