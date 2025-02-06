@@ -256,9 +256,11 @@
     <div id="tabContainer"></div>
 
     <div class="controls">
+      <!-- Code search tag input -->
       <div id="codeSearchTags" class="tag-container">
         <input type="text" id="codeSearchInput" placeholder="Search by Code">
       </div>
+      <!-- Data search tag input -->
       <div id="dataSearchTags" class="tag-container">
         <input type="text" id="dataSearchInput" placeholder="Search by Data value">
       </div>
@@ -268,6 +270,11 @@
       <label>
         <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
       </label>
+      <!-- New Line Range Filter controls -->
+      <label for="minLineInput" style="margin-left:8px;">Min Line:</label>
+      <input type="number" id="minLineInput" style="width:80px;">
+      <label for="maxLineInput" style="margin-left:8px;">Max Line:</label>
+      <input type="number" id="maxLineInput" style="width:80px;">
       <button id="searchBtn">Search</button>
       <button id="clearSearchBtn">Clear Search</button>
       <button id="expandAllBtn">Expand All</button>
@@ -631,7 +638,6 @@
           } else {
             dataDiv.style.flex = "1";
           }
-          // For property rows, if the code is one of the handle-related codes, render a clickable link.
           const handleCodes = [5, 105, 330, 350, 360];
           if (node.isProperty) {
             if (handleCodes.includes(Number(node.code))) {
@@ -652,7 +658,6 @@
             }
           } else {
             dataDiv.textContent = node.type || "";
-            // If the container object has a handle, show it as a clickable link.
             if (node.handle) {
               const spanHandle = document.createElement("span");
               spanHandle.textContent = " (" + node.handle + ")";
@@ -722,7 +727,6 @@
         this.treeViewContent = document.getElementById("treeViewContent");
         this.tabs = [];
         this.activeTabId = null;
-        // Pass in the onHandleClick callback.
         this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -778,7 +782,8 @@
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        // New event listener for the Go-to-Handle control.
+        document.getElementById("minLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
+        document.getElementById("maxLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
       }
 
@@ -797,11 +802,25 @@
         if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
           effectiveDataSearchTerms.push(dataText);
         }
-        const dataExact = document.getElementById("dataExactCheckbox").checked;
-        const dataCase = document.getElementById("dataCaseCheckbox").checked;
-        activeTab.currentTreeData = (effectiveCodeSearchTerms.length || effectiveDataSearchTerms.length)
-          ? this.filterTree(activeTab.originalTreeData, effectiveCodeSearchTerms, effectiveDataSearchTerms, dataExact, dataCase)
-          : activeTab.originalTreeData;
+        const minLineInputVal = document.getElementById("minLineInput").value.trim();
+        const maxLineInputVal = document.getElementById("maxLineInput").value.trim();
+        const minLine = minLineInputVal !== "" ? parseInt(minLineInputVal, 10) : null;
+        const maxLine = maxLineInputVal !== "" ? parseInt(maxLineInputVal, 10) : null;
+        activeTab.minLine = minLine;
+        activeTab.maxLine = maxLine;
+        // Save the checkbox states into the active tab.
+        activeTab.dataExact = document.getElementById("dataExactCheckbox").checked;
+        activeTab.dataCase = document.getElementById("dataCaseCheckbox").checked;
+  
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          effectiveCodeSearchTerms,
+          effectiveDataSearchTerms,
+          activeTab.dataExact,
+          activeTab.dataCase,
+          minLine,
+          maxLine
+        );
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
@@ -824,8 +843,17 @@
           tabElem.dataset.tabId = tab.id;
           tabElem.addEventListener("click", () => {
             this.activeTabId = tab.id;
-            this.updateTabUI();
+            // Update global inputs from this tab’s filter state.
+            document.getElementById("codeSearchInput").value = "";
+            document.getElementById("dataSearchInput").value = "";
+            this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
+            this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
+            document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
+            document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
+            document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
+            document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
             this.myTreeView.setData(tab.currentTreeData);
+            this.updateTabUI();
           });
           const closeBtn = document.createElement("span");
           closeBtn.className = "close-tab";
@@ -871,11 +899,15 @@
         if (activeTab.currentSortField) {
           this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
         }
-        const dataExact = document.getElementById("dataExactCheckbox").checked;
-        const dataCase = document.getElementById("dataCaseCheckbox").checked;
-        activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-          ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-          : activeTab.originalTreeData;
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          activeTab.codeSearchTerms,
+          activeTab.dataSearchTerms,
+          activeTab.dataExact,
+          activeTab.dataCase,
+          activeTab.minLine,
+          activeTab.maxLine
+        );
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
@@ -887,11 +919,15 @@
         if (activeTab.currentSortField) {
           this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
         }
-        const dataExact = document.getElementById("dataExactCheckbox").checked;
-        const dataCase = document.getElementById("dataCaseCheckbox").checked;
-        activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-          ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-          : activeTab.originalTreeData;
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          activeTab.codeSearchTerms,
+          activeTab.dataSearchTerms,
+          activeTab.dataExact,
+          activeTab.dataCase,
+          activeTab.minLine,
+          activeTab.maxLine
+        );
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
@@ -905,11 +941,15 @@
           if (activeTab.currentSortField) {
             this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
           }
-          const dataExact = document.getElementById("dataExactCheckbox").checked;
-          const dataCase = document.getElementById("dataCaseCheckbox").checked;
-          activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-            ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-            : activeTab.originalTreeData;
+          activeTab.currentTreeData = this.filterTree(
+            activeTab.originalTreeData,
+            activeTab.codeSearchTerms,
+            activeTab.dataSearchTerms,
+            activeTab.dataExact,
+            activeTab.dataCase,
+            activeTab.minLine,
+            activeTab.maxLine
+          );
           this.myTreeView.setData(activeTab.currentTreeData);
         }
       }
@@ -1024,11 +1064,15 @@
           }
         });
         this.sortTreeNodes(activeTab.originalTreeData, field, ascending);
-        const dataExact = document.getElementById("dataExactCheckbox").checked;
-        const dataCase = document.getElementById("dataCaseCheckbox").checked;
-        activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-          ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-          : activeTab.originalTreeData;
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          activeTab.codeSearchTerms,
+          activeTab.dataSearchTerms,
+          activeTab.dataExact,
+          activeTab.dataCase,
+          activeTab.minLine,
+          activeTab.maxLine
+        );
         this.myTreeView.setData(activeTab.currentTreeData);
       }
 
@@ -1053,25 +1097,34 @@
         document.addEventListener("mouseup", onMouseUp);
       }
 
-      filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
-        const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
-        let typeMatchesData = false;
-        if (dataTerms.length > 0) {
-          if (dataExact) {
-            typeMatchesData = dataTerms.some(term => dataCase
-              ? (obj.type === term)
-              : (obj.type.toLowerCase() === term.toLowerCase())
-            );
-          } else {
-            typeMatchesData = dataTerms.some(term => dataCase
-              ? obj.type.includes(term)
-              : obj.type.toLowerCase().includes(term.toLowerCase())
-            );
+      filterTree(objects, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
+        const filtered = [];
+        objects.forEach(obj => {
+          const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine);
+          if (filteredObj !== null) {
+            filtered.push(filteredObj);
           }
-        } else {
-          typeMatchesData = true;
+        });
+        return filtered;
+      }
+
+      filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
+        let nodeLine = parseInt(obj.line, 10);
+        let lineMatches = true;
+        if (minLine !== null && minLine !== undefined && !isNaN(minLine)) {
+          if (isNaN(nodeLine) || nodeLine < minLine) lineMatches = false;
+        }
+        if (maxLine !== null && maxLine !== undefined && !isNaN(maxLine)) {
+          if (isNaN(nodeLine) || nodeLine > maxLine) lineMatches = false;
         }
         const filteredProperties = obj.properties.filter(prop => {
+          let propLine = parseInt(prop.line, 10);
+          if (minLine !== null && minLine !== undefined && !isNaN(minLine)) {
+            if (isNaN(propLine) || propLine < minLine) return false;
+          }
+          if (maxLine !== null && maxLine !== undefined && !isNaN(maxLine)) {
+            if (isNaN(propLine) || propLine > maxLine) return false;
+          }
           const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
           let dataMatch = true;
           if (dataTerms.length > 0) {
@@ -1091,13 +1144,33 @@
         });
         const filteredChildren = [];
         obj.children.forEach(child => {
-          const filteredChild = this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase);
+          const filteredChild = this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine);
           if (filteredChild !== null) {
             filteredChildren.push(filteredChild);
           }
         });
-        if (searchActive && obj.isContainer) {
-          if (filteredProperties.length === 0 && filteredChildren.length === 0) {
+        let typeMatchesData = false;
+        if (dataTerms.length > 0) {
+          if (dataExact) {
+            typeMatchesData = dataTerms.some(term => dataCase
+              ? (obj.type === term)
+              : (obj.type.toLowerCase() === term.toLowerCase())
+            );
+          } else {
+            typeMatchesData = dataTerms.some(term => dataCase
+              ? obj.type.includes(term)
+              : obj.type.toLowerCase().includes(term.toLowerCase())
+            );
+          }
+        } else {
+          typeMatchesData = true;
+        }
+        const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
+        if (!obj.isContainer && !lineMatches) {
+          return null;
+        }
+        if (searchActive) {
+          if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
             return null;
           }
           return {
@@ -1106,26 +1179,15 @@
             children: filteredChildren
           };
         } else {
-          if (typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0) {
-            return {
-              ...obj,
-              properties: filteredProperties,
-              children: filteredChildren
-            };
+          if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
+            return null;
           }
-          return null;
+          return {
+            ...obj,
+            properties: filteredProperties,
+            children: filteredChildren
+          };
         }
-      }
-
-      filterTree(objects, codeTerms, dataTerms, dataExact, dataCase) {
-        const filtered = [];
-        objects.forEach(obj => {
-          const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase);
-          if (filteredObj !== null) {
-            filtered.push(filteredObj);
-          }
-        });
-        return filtered;
       }
 
       handleCopy(nodeId) {
@@ -1163,7 +1225,11 @@
               codeSearchTerms: [],
               dataSearchTerms: [],
               currentSortField: "line",
-              currentSortAscending: true
+              currentSortAscending: true,
+              minLine: null,
+              maxLine: null,
+              dataExact: false,
+              dataCase: false
             };
             this.tabs.push(newTab);
             this.activeTabId = newTab.id;
@@ -1192,11 +1258,15 @@
             activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
             this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
           }
-          const dataExact = document.getElementById("dataExactCheckbox").checked;
-          const dataCase = document.getElementById("dataCaseCheckbox").checked;
-          activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
-            ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
-            : activeTab.originalTreeData;
+          activeTab.currentTreeData = this.filterTree(
+            activeTab.originalTreeData,
+            activeTab.codeSearchTerms,
+            activeTab.dataSearchTerms,
+            activeTab.dataExact,
+            activeTab.dataCase,
+            activeTab.minLine,
+            activeTab.maxLine
+          );
           this.myTreeView.setData(activeTab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
         });
@@ -1289,13 +1359,25 @@
         if (!activeTab) return;
         activeTab.codeSearchTerms = [];
         activeTab.dataSearchTerms = [];
+        activeTab.minLine = null;
+        activeTab.maxLine = null;
         this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
         this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         document.getElementById("codeSearchInput").value = "";
         document.getElementById("dataSearchInput").value = "";
         document.getElementById("dataExactCheckbox").checked = false;
         document.getElementById("dataCaseCheckbox").checked = false;
-        activeTab.currentTreeData = activeTab.originalTreeData;
+        document.getElementById("minLineInput").value = "";
+        document.getElementById("maxLineInput").value = "";
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          activeTab.codeSearchTerms,
+          activeTab.dataSearchTerms,
+          false,
+          false,
+          null,
+          null
+        );
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
@@ -1303,7 +1385,6 @@
       // -------------------------------
       // New Methods for Handle Navigation
       // -------------------------------
-      // Recursively find the chain (path) of nodes leading to an object with a matching handle.
       findPathByHandle(nodes, handle) {
         for (const node of nodes) {
           if (node.handle && node.handle.toUpperCase() === handle.toUpperCase()) {
@@ -1319,7 +1400,6 @@
         return null;
       }
 
-      // Called when the "Go to Handle" button is pressed
       handleGoToHandle() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1328,7 +1408,6 @@
         this.handleLinkToHandle(handleValue);
       }
 
-      // Called when a handle link is clicked or when using the control.
       handleLinkToHandle(handle) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1337,20 +1416,15 @@
           alert("Definition not found for handle: " + handle);
           return;
         }
-        // Expand every node along the found path.
         path.forEach(node => node.expanded = true);
         activeTab.currentTreeData = activeTab.originalTreeData;
         this.myTreeView.setData(activeTab.currentTreeData);
-        // Use a delay to allow the tree to re-render.
         setTimeout(() => {
           const targetNodeId = path[path.length - 1].id;
-          // Find the flat index of the target node.
           const flatData = this.myTreeView.flatData;
           const targetIndex = flatData.findIndex(item => String(item.node.id) === String(targetNodeId));
           if (targetIndex >= 0) {
-            // Scroll so that the target row is visible.
             this.treeViewContainer.scrollTop = targetIndex * this.myTreeView.itemHeight;
-            // If the element exists in the DOM, highlight it.
             const element = this.treeViewContent.querySelector(`[data-id="${targetNodeId}"]`);
             if (element) {
               element.style.backgroundColor = "yellow";
