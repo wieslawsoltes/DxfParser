@@ -56,7 +56,7 @@
     .tree-header {
       display: flex;
       align-items: center;
-      height: 24px;  /* fixed header height */
+      height: 24px;
       font-weight: bold;
       border-bottom: 1px solid #ccc;
       background: #eee;
@@ -71,11 +71,9 @@
       border-right: 1px solid #ccc;
       cursor: pointer;
     }
-    /* Fixed-width header cells */
     .header-cell.flex-fixed {
       flex: none;
     }
-    /* Grow column (Data) */
     .header-cell.flex-grow {
       flex: 1;
     }
@@ -96,7 +94,6 @@
     }
     
     /* ======= CELL STYLES ======= */
-    /* Fixed columns (Line, Code, Object Count, Data Size) */
     .tree-line,
     .tree-code,
     .tree-object-count,
@@ -110,7 +107,6 @@
       border-right: 1px solid #ccc;
       height: 100%;
     }
-    /* The Data column grows */
     .tree-data {
       flex: 1;
       padding: 0 4px;
@@ -120,7 +116,6 @@
       border-right: 1px solid #ccc;
       height: 100%;
     }
-    /* Remove right border on the last cell */
     .tree-line:last-child,
     .tree-code:last-child,
     .tree-data:last-child,
@@ -144,7 +139,7 @@
     .tree-row {
       display: flex;
       align-items: center;
-      height: 24px;  /* fixed row height */
+      height: 24px;
       border-bottom: 1px solid #eee;
     }
     .toggle {
@@ -206,14 +201,17 @@
       background-color: rgba(0,0,0,0.5);
       z-index: 1000;
     }
+    /* The overlay dialog now nearly fits the screen with transparent borders */
     #cloudOverlay .overlay-content {
       background: #fff;
-      margin: 5% auto;
+      margin: 20px;
       padding: 1em;
-      width: 80%;
-      max-width: 600px;
-      border-radius: 4px;
+      width: calc(100% - 40px);
+      height: calc(100% - 40px);
+      border: 4px solid rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
       position: relative;
+      overflow-y: auto;
     }
     #closeCloudOverlay {
       position: absolute;
@@ -221,7 +219,6 @@
       right: 10px;
       cursor: pointer;
     }
-    /* Cloud tag styles within overlay */
     .cloud-tag {
       display: inline-block;
       margin: 4px;
@@ -424,7 +421,6 @@ class VirtualTreeView {
     this.getLineWidth = options.getLineWidth || (() => 100);
     this.getCodeWidth = options.getCodeWidth || (() => 100);
     this.getDataWidth = options.getDataWidth || (() => null);
-    // Use the same columnWidths object from options.
     this.columnWidths = options.columnWidths;
     
     this.flatData = [];
@@ -484,7 +480,6 @@ class VirtualTreeView {
     return flat;
   }
   
-  // Returns the total count of non-property descendant nodes.
   computeObjectCount(node) {
     if (!node.children || node.children.length === 0) return 0;
     let count = 0;
@@ -499,7 +494,6 @@ class VirtualTreeView {
     return count;
   }
   
-  // Returns the total data size for the node.
   computeDataSize(node) {
     let size = 0;
     if (node.isProperty) {
@@ -648,14 +642,12 @@ class VirtualTreeView {
 <script>
 class App {
   constructor() {
-    // Initialize column widths (for fixed columns)
     this.columnWidths = { line: 100, code: 100, type: null, objectCount: 100, dataSize: 100 };
     this.dxfParser = new DxfParser();
     this.treeViewContainer = document.getElementById("treeViewContainer");
     this.treeViewContent = document.getElementById("treeViewContent");
     this.tabs = [];
     this.activeTabId = null;
-    // Pass the same columnWidths object into VirtualTreeView options.
     this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
       itemHeight: 24,
       copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -685,12 +677,10 @@ class App {
     this.setupTagInput("dataSearchInput", "data");
     document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
     document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
-    // NEW: Show Cloud Data Overlay button
     document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
       this.updateClouds();
       document.getElementById("cloudOverlay").style.display = "block";
     });
-    // NEW: Close overlay button
     document.getElementById("closeCloudOverlay").addEventListener("click", () => {
       document.getElementById("cloudOverlay").style.display = "none";
     });
@@ -1191,6 +1181,7 @@ class App {
   }
   
   // NEW: When a cloud tag is clicked, filter the active tree data.
+  // For object cloud tags, force an exact match.
   handleCloudTagClick(cloudType, value) {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -1204,8 +1195,8 @@ class App {
       activeTab.codeSearchTerms.push(value);
       this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
     }
-    // Use current checkbox settings for filtering.
-    const dataExact = document.getElementById("dataExactCheckbox").checked;
+    // For object cloud tags, force exact matching.
+    const dataExact = cloudType === "object" ? true : document.getElementById("dataExactCheckbox").checked;
     const dataCase = document.getElementById("dataCaseCheckbox").checked;
     activeTab.currentTreeData = this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase);
     this.myTreeView.setData(activeTab.currentTreeData);
@@ -1225,7 +1216,6 @@ class App {
     const objectCounts = {};
     const codeCounts = {};
     
-    // Traverse the tree recursively.
     function traverse(nodes) {
       nodes.forEach(node => {
         if (!node.isProperty) {
@@ -1241,7 +1231,6 @@ class App {
     }
     traverse(activeTab.originalTreeData);
     
-    // Helper function (as an arrow function so that 'this' refers to the App instance)
     const populateCloud = (element, counts, minFont, maxFont, cloudType) => {
       element.innerHTML = "";
       const maxCount = Math.max(...Object.values(counts), 1);
@@ -1252,7 +1241,6 @@ class App {
         span.className = "cloud-tag";
         span.style.fontSize = fontSize + "px";
         span.textContent = `${key} (${count})`;
-        // When a cloud tag is clicked, filter the tree data.
         span.addEventListener("click", () => {
           this.handleCloudTagClick(cloudType, key);
         });
