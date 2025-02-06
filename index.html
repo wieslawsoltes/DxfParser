@@ -452,23 +452,40 @@ class VirtualTreeView {
   updateVisibleNodes() {
     const scrollTop = this.container.scrollTop;
     const containerHeight = this.container.clientHeight;
-    const startIndex = Math.floor(scrollTop / this.itemHeight);
-    const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
-    const endIndex = Math.min(startIndex + visibleCount, this.flatData.length);
+    const totalRows = this.flatData.length;
+    const fullHeight = totalRows * this.itemHeight;
 
+    // Define a safe maximum height for the scrollable content.
+    // For example, 3,000,000 pixels.
+    const MAX_HEIGHT = 3000000;
+    const scale = fullHeight > MAX_HEIGHT ? MAX_HEIGHT / fullHeight : 1;
+
+    // Set the content's height to the capped value.
+    this.content.style.height = Math.min(fullHeight, MAX_HEIGHT) + "px";
+
+    // Map the container's scrollTop to the effective scroll position in the full-height space.
+    const effectiveScrollTop = scrollTop / scale;
+    const startIndex = Math.floor(effectiveScrollTop / this.itemHeight);
+    const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
+    const endIndex = Math.min(startIndex + visibleCount, totalRows);
+
+    // Clear the existing rows.
     this.content.innerHTML = "";
     const fragment = document.createDocumentFragment();
 
+    // Render only the visible rows.
     for (let i = startIndex; i < endIndex; i++) {
       const { node, level } = this.flatData[i];
       const row = document.createElement("div");
       row.className = "tree-row tree-node";
-      row.style.top = (i * this.itemHeight) + "px";
+
+      // Compute the top offset using the scale factor.
+      row.style.top = (i * this.itemHeight * scale) + "px";
       row.style.height = this.itemHeight + "px";
       row.style.position = "absolute";
       row.dataset.id = node.id;
 
-      // --- LINE ---
+      // --- LINE Column ---
       const lineDiv = document.createElement("div");
       lineDiv.className = "tree-line";
       const lineWidth = this.getLineWidth();
@@ -482,6 +499,7 @@ class VirtualTreeView {
       lineContent.style.alignItems = "center";
       lineContent.style.marginLeft = (level * 20) + "px";
 
+      // Only add a toggle if the node has properties or children.
       if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
         const toggleSpan = document.createElement("span");
         toggleSpan.className = "toggle";
@@ -496,11 +514,10 @@ class VirtualTreeView {
       const lineNumberSpan = document.createElement("span");
       lineNumberSpan.textContent = node.line || "";
       lineContent.appendChild(lineNumberSpan);
-
       lineDiv.appendChild(lineContent);
       row.appendChild(lineDiv);
 
-      // --- CODE ---
+      // --- CODE Column ---
       const codeDiv = document.createElement("div");
       codeDiv.className = "tree-code";
       const codeWidth = this.getCodeWidth();
@@ -517,7 +534,7 @@ class VirtualTreeView {
       }
       row.appendChild(codeDiv);
 
-      // --- DATA ---
+      // --- DATA Column ---
       const dataDiv = document.createElement("div");
       dataDiv.className = "tree-data";
       const dataWidth = this.getDataWidth();
@@ -529,7 +546,7 @@ class VirtualTreeView {
       }
       dataDiv.textContent = node.isProperty ? node.data : node.type || "";
 
-      // Copy button (for non-property nodes)
+      // Append a copy button if applicable and if not a property row.
       if (this.copyCallback && !node.isProperty) {
         const copyButton = document.createElement("button");
         copyButton.textContent = "Copy";
@@ -541,11 +558,13 @@ class VirtualTreeView {
         dataDiv.appendChild(copyButton);
       }
       row.appendChild(dataDiv);
+
       fragment.appendChild(row);
     }
 
     this.content.appendChild(fragment);
   }
+
 }
 </script>
 
