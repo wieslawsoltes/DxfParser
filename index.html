@@ -190,7 +190,8 @@
       font-weight: bold;
     }
     
-    /* ======= OVERLAY (DIALOG) STYLES ======= */
+    /* ======= OVERLAY DIALOG STYLES ======= */
+    /* Cloud Overlay (unchanged) */
     #cloudOverlay {
       display: none;
       position: fixed;
@@ -201,7 +202,6 @@
       background-color: rgba(0,0,0,0.5);
       z-index: 1000;
     }
-    /* The overlay dialog now nearly fits the screen with transparent borders */
     #cloudOverlay .overlay-content {
       background: #fff;
       margin: 20px;
@@ -226,6 +226,44 @@
       border: 1px solid #ccc;
       border-radius: 4px;
       background: #f9f9f9;
+    }
+    
+    /* Statistics Overlay (new) */
+    #statsOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1000;
+    }
+    #statsOverlay .overlay-content {
+      background: #fff;
+      margin: 20px;
+      padding: 1em;
+      width: calc(100% - 40px);
+      height: calc(100% - 40px);
+      border: 4px solid rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      position: relative;
+      overflow-y: auto;
+    }
+    #closeStatsOverlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      cursor: pointer;
+    }
+    /* Simple styling for the statistics list */
+    #overlayStatsContent ul {
+      list-style: none;
+      padding: 0;
+    }
+    #overlayStatsContent li {
+      padding: 0.5em 0;
+      border-bottom: 1px solid #eee;
     }
   </style>
 </head>
@@ -258,8 +296,9 @@
     <button id="clearSearchBtn">Clear Search</button>
     <button id="expandAllBtn">Expand All</button>
     <button id="collapseAllBtn">Collapse All</button>
-    <!-- NEW: Button to show cloud data overlay -->
+    <!-- NEW: Buttons to show overlay dialogs -->
     <button id="showCloudOverlayBtn">Show Cloud Data</button>
+    <button id="showStatsOverlayBtn">Show DXF Statistics</button>
   </div>
   
   <!-- Tree Grid Header -->
@@ -301,6 +340,15 @@
     <div id="overlayObjectCloud"></div>
     <h3>Code Cloud</h3>
     <div id="overlayCodeCloud"></div>
+  </div>
+</div>
+
+<!-- OVERLAY DIALOG for DXF Statistics (NEW) -->
+<div id="statsOverlay">
+  <div class="overlay-content">
+    <button id="closeStatsOverlay">Close</button>
+    <h2>DXF Statistics</h2>
+    <div id="overlayStatsContent"></div>
   </div>
 </div>
 
@@ -688,6 +736,14 @@ class App {
     document.getElementById("closeCloudOverlay").addEventListener("click", () => {
       document.getElementById("cloudOverlay").style.display = "none";
     });
+    // NEW: Statistics overlay event listeners.
+    document.getElementById("showStatsOverlayBtn").addEventListener("click", () => {
+      this.updateStats();
+      document.getElementById("statsOverlay").style.display = "block";
+    });
+    document.getElementById("closeStatsOverlay").addEventListener("click", () => {
+      document.getElementById("statsOverlay").style.display = "none";
+    });
     // Automatically update filtering when checkboxes change.
     document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
     document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -696,7 +752,7 @@ class App {
     document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
   }
   
-  // NEW: Compute the effective search terms using both the search tag arrays and current input values.
+  // NEW: Compute effective search terms from tag arrays and input fields and update grid.
   updateEffectiveSearchTerms() {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
@@ -704,7 +760,6 @@ class App {
     const dataInput = document.getElementById("dataSearchInput");
     const codeText = codeInput.value.trim();
     const dataText = dataInput.value.trim();
-    // Make a copy of the existing tag search terms.
     const effectiveCodeSearchTerms = activeTab.codeSearchTerms.slice();
     const effectiveDataSearchTerms = activeTab.dataSearchTerms.slice();
     if (codeText !== "" && !effectiveCodeSearchTerms.includes(codeText)) {
@@ -722,7 +777,7 @@ class App {
     this.treeViewContainer.scrollTop = 0;
   }
   
-  // NEW: Reapply filtering when checkbox search options change.
+  // NEW: Reapply filtering when search option checkboxes change.
   handleSearchOptionChange() {
     this.updateEffectiveSearchTerms();
   }
@@ -1287,6 +1342,72 @@ class App {
     const overlayCodeCloudElem = document.getElementById("overlayCodeCloud");
     populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
     populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
+  }
+  
+  // NEW: Compute and update DXF statistics in the statistics overlay.
+  updateStats() {
+    const activeTab = this.getActiveTab();
+    if (!activeTab) {
+      document.getElementById("overlayStatsContent").innerHTML = "No DXF data loaded.";
+      return;
+    }
+    // Recursive function to compute statistics.
+    function computeStats(nodes, depth = 1) {
+      let stats = {
+        totalObjects: 0,
+        totalProperties: 0,
+        maxDepth: depth,
+        totalDataSize: 0,
+        countByType: {}
+      };
+      nodes.forEach(node => {
+        if (!node.isProperty) {
+          stats.totalObjects++;
+          stats.countByType[node.type] = (stats.countByType[node.type] || 0) + 1;
+          let nodeDataSize = node.type ? node.type.length : 0;
+          if (node.properties && node.properties.length) {
+            stats.totalProperties += node.properties.length;
+            node.properties.forEach(prop => {
+              nodeDataSize += prop.value ? prop.value.length : 0;
+            });
+          }
+          stats.totalDataSize += nodeDataSize;
+          if (node.children && node.children.length) {
+            const childStats = computeStats(node.children, depth + 1);
+            stats.totalObjects += childStats.totalObjects;
+            stats.totalProperties += childStats.totalProperties;
+            stats.totalDataSize += childStats.totalDataSize;
+            for (let type in childStats.countByType) {
+              stats.countByType[type] = (stats.countByType[type] || 0) + childStats.countByType[type];
+            }
+            if (childStats.maxDepth > stats.maxDepth) {
+              stats.maxDepth = childStats.maxDepth;
+            }
+          }
+        }
+      });
+      return stats;
+    }
+    
+    const stats = computeStats(activeTab.originalTreeData);
+    const avgProps = stats.totalObjects > 0 ? (stats.totalProperties / stats.totalObjects).toFixed(2) : 0;
+    const statsHtml = `
+      <ul>
+        <li><strong>Total Objects:</strong> ${stats.totalObjects}</li>
+        <li><strong>Total Properties:</strong> ${stats.totalProperties}</li>
+        <li><strong>Maximum Nesting Depth:</strong> ${stats.maxDepth}</li>
+        <li><strong>Total Data Size:</strong> ${stats.totalDataSize} characters</li>
+        <li><strong>Average Properties per Object:</strong> ${avgProps}</li>
+        <li><strong>Object Type Counts:</strong>
+          <ul>
+            ${Object.entries(stats.countByType)
+              .map(([type, count]) => `<li>${type}: ${count}</li>`)
+              .join('')}
+          </ul>
+        </li>
+      </ul>
+    `;
+    document.getElementById("overlayStatsContent").innerHTML = statsHtml;
   }
 }
 
