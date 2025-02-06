@@ -20,8 +20,10 @@
     body {
       font-family: sans-serif;
     }
+    /* Modified: Added flex-wrap to allow tabs to wrap when needed */
     #tabContainer {
       display: flex;
+      flex-wrap: wrap;
       border-bottom: 1px solid #ccc;
       margin: 1em 0;
     }
@@ -31,6 +33,7 @@
       border-bottom: none;
       cursor: pointer;
       margin-right: 2px;
+      margin-bottom: 2px; /* Optional: add some vertical spacing between rows */
       position: relative;
       background: #eee;
     }
@@ -221,6 +224,7 @@
 <script>
 class DxfParser {
   constructor() {
+    // Map container objects to their ending markers
     this.containerMapping = {
       "SECTION": "ENDSEC",
       "BLOCK":   "ENDBLK",
@@ -246,11 +250,11 @@ class DxfParser {
       const code = parseInt(codeLine, 10);
       if (isNaN(code)) continue;
       let value = "";
-      const tagLine = i + 1;
+      const tagLine = i + 1; // store 1-based line number
       if (i + 1 < lines.length) {
         value = lines[i + 1].trim();
       }
-      i++;
+      i++; // skip the value line
       tags.push({ line: tagLine, code, value });
     }
     return tags;
@@ -259,6 +263,7 @@ class DxfParser {
   groupObjects(tags, startIndex, endMarker = null) {
     const objects = [];
     let i = startIndex;
+
     while (i < tags.length) {
       if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
         i++;
@@ -278,16 +283,19 @@ class DxfParser {
         expanded: false
       };
       i++;
+
       while (i < tags.length && tags[i].code !== 0) {
         obj.properties.push(tags[i]);
         i++;
       }
+
       if (obj.isContainer) {
         const marker = this.containerMapping[obj.type.toUpperCase()];
         const result = this.groupObjects(tags, i, marker);
         obj.children = result.objects;
         i = result.nextIndex;
       }
+
       objects.push(obj);
     }
     return { objects, nextIndex: i };
@@ -310,10 +318,12 @@ class DxfParser {
     let lines = [];
     lines.push("0");
     lines.push(node.type);
+
     node.properties.forEach(prop => {
       lines.push(prop.code.toString());
       lines.push(prop.value);
     });
+
     if (node.isContainer && node.children && node.children.length) {
       node.children.forEach(child => {
         lines.push(this.serializeNode(child));
@@ -324,6 +334,7 @@ class DxfParser {
         lines.push(endMarker);
       }
     }
+
     return lines.join("\n");
   }
 }
@@ -338,13 +349,19 @@ class VirtualTreeView {
     this.itemHeight = options.itemHeight || 24;
     this.copyCallback = options.copyCallback || null;
     this.onToggleExpand = options.onToggleExpand || null;
+
+    // Column width getters
     this.getLineWidth = options.getLineWidth || (() => 100);
     this.getCodeWidth = options.getCodeWidth || (() => 100);
     this.getDataWidth = options.getDataWidth || (() => null);
+
     this.flatData = [];
     this.treeData = [];
 
+    // Listen for scrolling
     this.container.addEventListener("scroll", this.updateVisibleNodes.bind(this));
+
+    // Event delegation for toggle (expand/collapse)
     this.content.addEventListener("click", (e) => {
       if (e.target.classList.contains("toggle")) {
         const row = e.target.closest(".tree-row");
@@ -683,6 +700,7 @@ class App {
         return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
       }
     });
+
     nodes.forEach(node => {
       if (node.properties && node.properties.length) {
         node.properties.sort((aProp, bProp) => {
@@ -712,6 +730,7 @@ class App {
     const field = headerCell.getAttribute('data-field');
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
+
     let currentSort = headerCell.getAttribute('data-sort');
     let ascending = true;
     if (currentSort === 'asc') {
@@ -725,18 +744,22 @@ class App {
     }
     activeTab.currentSortField = field;
     activeTab.currentSortAscending = ascending;
+
     document.querySelectorAll('.header-cell').forEach(cell => {
       if (cell !== headerCell) {
         cell.setAttribute('data-sort', 'none');
         cell.querySelector('.sort-indicator').textContent = '';
       }
     });
+
     this.sortTreeNodes(activeTab.originalTreeData, field, ascending);
+
     const dataExact = document.getElementById("dataExactCheckbox").checked;
     const dataCase = document.getElementById("dataCaseCheckbox").checked;
     activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
       ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
       : activeTab.originalTreeData;
+
     this.myTreeView.setData(activeTab.currentTreeData);
   }
 
@@ -746,6 +769,7 @@ class App {
     const field = headerCell.getAttribute('data-field');
     const startX = e.clientX;
     const startWidth = headerCell.offsetWidth;
+
     const onMouseMove = (eMove) => {
       const newWidth = startWidth + (eMove.clientX - startX);
       this.columnWidths[field] = newWidth;
@@ -762,6 +786,7 @@ class App {
 
   filterObject(obj, codeTerms, dataTerms, dataExact, dataCase) {
     const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
+
     let typeMatchesData = false;
     if (dataTerms.length > 0) {
       if (dataExact) {
@@ -778,6 +803,7 @@ class App {
     } else {
       typeMatchesData = true;
     }
+
     const filteredProperties = obj.properties.filter(prop => {
       const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
       let dataMatch = true;
@@ -796,6 +822,7 @@ class App {
       }
       return codeMatch && dataMatch;
     });
+
     const filteredChildren = [];
     obj.children.forEach(child => {
       const filteredChild = this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase);
@@ -803,6 +830,7 @@ class App {
         filteredChildren.push(filteredChild);
       }
     });
+
     if (searchActive && obj.isContainer) {
       if (filteredProperties.length === 0 && filteredChildren.length === 0) {
         return null;
@@ -885,6 +913,7 @@ class App {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = text;
+
     const removeBtn = document.createElement("span");
     removeBtn.className = "remove";
     removeBtn.textContent = "×";
@@ -907,6 +936,7 @@ class App {
       this.myTreeView.setData(activeTab.currentTreeData);
     });
     tag.appendChild(removeBtn);
+
     return tag;
   }
 
@@ -969,6 +999,7 @@ class App {
     if (!activeTab) return;
     const codeInput = document.getElementById("codeSearchInput");
     const dataInput = document.getElementById("dataSearchInput");
+
     if (codeInput.value.trim() !== "") {
       const text = codeInput.value.trim();
       if (!activeTab.codeSearchTerms.includes(text)) {
@@ -985,6 +1016,7 @@ class App {
       this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
       dataInput.value = "";
     }
+
     const dataExact = document.getElementById("dataExactCheckbox").checked;
     const dataCase = document.getElementById("dataCaseCheckbox").checked;
     activeTab.currentTreeData = (activeTab.codeSearchTerms.length || activeTab.dataSearchTerms.length)
@@ -996,6 +1028,7 @@ class App {
   handleClearSearch() {
     const activeTab = this.getActiveTab();
     if (!activeTab) return;
+
     activeTab.codeSearchTerms = [];
     activeTab.dataSearchTerms = [];
     this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
