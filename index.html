@@ -2,8 +2,11 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <!-- This meta tag makes the app responsive on mobile devices -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DXF Parser</title>
   <style>
+    /* Base Styles */
     html, body {
       height: 100%;
       margin: 0;
@@ -148,6 +151,9 @@
     }
     .controls {
       margin: 1em 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
     }
     .tag-container {
       display: inline-block;
@@ -176,7 +182,7 @@
       cursor: pointer;
       font-weight: bold;
     }
-    /* New handle navigation styling */
+    /* Handle Navigation */
     #handleNavigation {
       margin-top: 0.5em;
     }
@@ -189,6 +195,7 @@
       font-size: 1em;
       margin-left: 4px;
     }
+    /* Overlays */
     #cloudOverlay,
     #statsOverlay,
     #depsOverlay {
@@ -244,23 +251,45 @@
       padding: 0.5em 0;
       border-bottom: 1px solid #eee;
     }
+
+    /* Mobile Responsive Styles */
+    @media (max-width: 600px) {
+      .main-container {
+        padding: 0.5em;
+      }
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .controls > * {
+        margin-bottom: 0.5em;
+        width: 100%;
+      }
+      .tag-container {
+        min-width: 100%;
+      }
+      #treeGridHeader .header-cell {
+        padding: 0 2px;
+      }
+      .tree-row {
+        height: 32px; /* Slightly larger touch targets */
+      }
+      .tree-row .toggle {
+        width: 20px;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="main-container">
     <h1>DXF Parser</h1>
-
     <input type="file" id="fileInput" accept=".dxf" multiple>
     <button id="parseBtn">Parse File(s)</button>
-
     <div id="tabContainer"></div>
-
     <div class="controls">
-      <!-- Code search tag input -->
       <div id="codeSearchTags" class="tag-container">
         <input type="text" id="codeSearchInput" placeholder="Search by Code">
       </div>
-      <!-- Data search tag input -->
       <div id="dataSearchTags" class="tag-container">
         <input type="text" id="dataSearchInput" placeholder="Search by Data value">
       </div>
@@ -270,7 +299,6 @@
       <label>
         <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
       </label>
-      <!-- New Line Range Filter controls -->
       <label for="minLineInput" style="margin-left:8px;">Min Line:</label>
       <input type="number" id="minLineInput" style="width:80px;">
       <label for="maxLineInput" style="margin-left:8px;">Max Line:</label>
@@ -282,14 +310,11 @@
       <button id="showCloudOverlayBtn">Show Cloud Data</button>
       <button id="showStatsOverlayBtn">Show DXF Statistics</button>
       <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
-      
-      <!-- New Handle Navigation Controls -->
       <div id="handleNavigation">
         <input type="text" id="handleSearchInput" placeholder="Go to Handle">
         <button id="goToHandleBtn">Go to Handle</button>
       </div>
     </div>
-
     <div id="treeGridHeader" class="tree-header">
       <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
         Line <span class="sort-indicator"></span>
@@ -312,7 +337,6 @@
         <div class="resizer"></div>
       </div>
     </div>
-
     <div id="treeViewContainer">
       <div id="treeViewContent"></div>
     </div>
@@ -359,13 +383,11 @@
         // List of DXF handle codes we consider.
         this.handleCodes = [5, 105, 330, 350, 360];
       }
-
       parse(text) {
         const tags = this.parseDxf(text);
         const grouped = this.groupObjects(tags, 0);
         return grouped.objects;
       }
-
       parseDxf(text) {
         const lines = text.split(/\r?\n/);
         const tags = [];
@@ -383,7 +405,6 @@
         }
         return tags;
       }
-
       groupObjects(tags, startIndex, endMarker = null) {
         const objects = [];
         let i = startIndex;
@@ -410,7 +431,6 @@
             obj.properties.push(tags[i]);
             i++;
           }
-          // If any property has a handle code, store its value as the object's handle.
           const handleProp = obj.properties.find(prop => this.handleCodes.includes(prop.code));
           if (handleProp) {
             obj.handle = handleProp.value;
@@ -425,7 +445,6 @@
         }
         return { objects, nextIndex: i };
       }
-
       findNodeById(tree, id) {
         for (const obj of tree) {
           if (String(obj.id) === String(id)) return obj;
@@ -436,7 +455,6 @@
         }
         return null;
       }
-
       serializeNode(node) {
         let lines = [];
         lines.push("0");
@@ -473,10 +491,8 @@
         this.getCodeWidth = options.getCodeWidth || (() => 100);
         this.getDataWidth = options.getDataWidth || (() => null);
         this.columnWidths = options.columnWidths;
-
         this.flatData = [];
         this.treeData = [];
-
         this.container.addEventListener("scroll", () => {
           requestAnimationFrame(() => this.updateVisibleNodes());
         });
@@ -492,18 +508,15 @@
           }
         });
       }
-
       setData(treeData) {
         this.treeData = treeData || [];
         this.refresh();
       }
-
       refresh() {
         this.flatData = this.flattenTree(this.treeData);
         console.log("Total rows:", this.flatData.length);
         this.updateVisibleNodes();
       }
-
       flattenTree(nodes, level = 0) {
         let flat = [];
         for (let node of nodes) {
@@ -530,7 +543,6 @@
         }
         return flat;
       }
-
       computeObjectCount(node) {
         if (!node.children || node.children.length === 0) return 0;
         let count = 0;
@@ -544,7 +556,6 @@
         }
         return count;
       }
-
       computeDataSize(node) {
         let size = 0;
         if (node.isProperty) {
@@ -564,23 +575,19 @@
         }
         return size;
       }
-
       updateVisibleNodes() {
         const scrollTop = this.container.scrollTop;
         const containerHeight = this.container.clientHeight;
         const totalRows = this.flatData.length;
         const fullHeight = totalRows * this.itemHeight;
         this.content.style.height = fullHeight + "px";
-
         const startIndex = Math.floor(scrollTop / this.itemHeight);
         const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
         const endIndex = Math.min(startIndex + visibleCount, totalRows);
-
         const containerElem = document.createElement("div");
         const topSpacer = document.createElement("div");
         topSpacer.style.height = (startIndex * this.itemHeight) + "px";
         containerElem.appendChild(topSpacer);
-
         const fragment = document.createDocumentFragment();
         for (let i = startIndex; i < endIndex; i++) {
           const { node, level } = this.flatData[i];
@@ -590,7 +597,6 @@
           row.style.position = "relative";
           row.style.height = this.itemHeight + "px";
           row.dataset.id = node.id;
-
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
           const lineWidth = this.getLineWidth();
@@ -616,7 +622,6 @@
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
-
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
           const codeWidth = this.getCodeWidth();
@@ -628,7 +633,6 @@
             codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
           }
           row.appendChild(codeDiv);
-
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
           const dataWidth = this.getDataWidth();
@@ -684,7 +688,6 @@
             }
           }
           row.appendChild(dataDiv);
-
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = this.columnWidths.objectCount + "px";
@@ -695,23 +698,19 @@
             objectCountDiv.textContent = "";
           }
           row.appendChild(objectCountDiv);
-
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
           dataSizeDiv.style.textAlign = "right";
           dataSizeDiv.textContent = this.computeDataSize(node);
           row.appendChild(dataSizeDiv);
-
           fragment.appendChild(row);
         }
         containerElem.appendChild(fragment);
-
         const bottomSpacer = document.createElement("div");
         const bottomHeight = Math.max(0, fullHeight - (startIndex + visibleCount) * this.itemHeight);
         bottomSpacer.style.height = bottomHeight + "px";
         containerElem.appendChild(bottomSpacer);
-
         this.content.innerHTML = "";
         this.content.appendChild(containerElem);
       }
@@ -739,7 +738,6 @@
         });
         this.initEventListeners();
       }
-
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
@@ -786,7 +784,6 @@
         document.getElementById("maxLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
       }
-
       updateEffectiveSearchTerms() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -808,10 +805,8 @@
         const maxLine = maxLineInputVal !== "" ? parseInt(maxLineInputVal, 10) : null;
         activeTab.minLine = minLine;
         activeTab.maxLine = maxLine;
-        // Save the checkbox states into the active tab.
         activeTab.dataExact = document.getElementById("dataExactCheckbox").checked;
         activeTab.dataCase = document.getElementById("dataCaseCheckbox").checked;
-  
         activeTab.currentTreeData = this.filterTree(
           activeTab.originalTreeData,
           effectiveCodeSearchTerms,
@@ -824,15 +819,12 @@
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
-
       handleSearchOptionChange() {
         this.updateEffectiveSearchTerms();
       }
-
       getActiveTab() {
         return this.tabs.find(t => t.id === this.activeTabId);
       }
-
       updateTabUI() {
         const tabContainer = document.getElementById("tabContainer");
         tabContainer.innerHTML = "";
@@ -875,7 +867,6 @@
           tabContainer.appendChild(tabElem);
         });
       }
-
       expandAllNodes(nodes) {
         nodes.forEach(node => {
           if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
@@ -884,14 +875,12 @@
           }
         });
       }
-
       collapseAllNodes(nodes) {
         nodes.forEach(node => {
           node.expanded = false;
           this.collapseAllNodes(node.children);
         });
       }
-
       handleExpandAll() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -911,7 +900,6 @@
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
-
       handleCollapseAll() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -931,7 +919,6 @@
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
-
       handleToggleExpand(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -953,7 +940,6 @@
           this.myTreeView.setData(activeTab.currentTreeData);
         }
       }
-
       getSortValue(node, field) {
         if (field === "line") {
           return node.line ? Number(node.line) : 0;
@@ -1004,7 +990,6 @@
         }
         return "";
       }
-
       sortTreeNodes(nodes, field, ascending) {
         nodes.sort((a, b) => {
           const aVal = this.getSortValue(a, field);
@@ -1039,7 +1024,6 @@
           }
         });
       }
-
       handleHeaderClick(headerCell) {
         const field = headerCell.getAttribute('data-field');
         const activeTab = this.getActiveTab();
@@ -1075,7 +1059,6 @@
         );
         this.myTreeView.setData(activeTab.currentTreeData);
       }
-
       handleResizerMouseDown(e) {
         e.stopPropagation();
         const headerCell = e.target.parentElement;
@@ -1096,7 +1079,6 @@
         document.addEventListener("mousemove", onMouseMove);
         document.addEventListener("mouseup", onMouseUp);
       }
-
       filterTree(objects, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
         const filtered = [];
         objects.forEach(obj => {
@@ -1107,7 +1089,6 @@
         });
         return filtered;
       }
-
       filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
         let nodeLine = parseInt(obj.line, 10);
         let lineMatches = true;
@@ -1189,7 +1170,6 @@
           };
         }
       }
-
       handleCopy(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1205,7 +1185,6 @@
           alert("Failed to copy to clipboard.");
         });
       }
-
       handleParse() {
         const fileInput = document.getElementById("fileInput");
         if (!fileInput.files || fileInput.files.length === 0) {
@@ -1239,7 +1218,6 @@
           reader.readAsText(file, "ascii");
         });
       }
-
       createTagElement(text, type) {
         const tag = document.createElement("span");
         tag.className = "tag";
@@ -1273,7 +1251,6 @@
         tag.appendChild(removeBtn);
         return tag;
       }
-
       updateTagContainer(containerId, termsArray, type) {
         const container = document.getElementById(containerId);
         Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
@@ -1282,7 +1259,6 @@
           container.insertBefore(tagElem, container.querySelector("input"));
         });
       }
-
       setupTagInput(inputId, type) {
         const input = document.getElementById(inputId);
         input.addEventListener("keydown", (e) => {
@@ -1329,7 +1305,6 @@
           }
         });
       }
-
       handleSearch() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1353,7 +1328,6 @@
         }
         this.updateEffectiveSearchTerms();
       }
-
       handleClearSearch() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1381,10 +1355,6 @@
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
-
-      // -------------------------------
-      // New Methods for Handle Navigation
-      // -------------------------------
       findPathByHandle(nodes, handle) {
         for (const node of nodes) {
           if (node.handle && node.handle.toUpperCase() === handle.toUpperCase()) {
@@ -1399,7 +1369,6 @@
         }
         return null;
       }
-
       handleGoToHandle() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1407,7 +1376,6 @@
         if (!handleValue) return;
         this.handleLinkToHandle(handleValue);
       }
-
       handleLinkToHandle(handle) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1433,8 +1401,6 @@
           }
         }, 300);
       }
-      // -------------------------------
-
       updateClouds() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -1444,7 +1410,6 @@
         }
         const objectCounts = {};
         const codeCounts = {};
-
         function traverse(nodes) {
           nodes.forEach(node => {
             if (!node.isProperty) {
@@ -1459,7 +1424,6 @@
           });
         }
         traverse(activeTab.originalTreeData);
-
         const populateCloud = (element, counts, minFont, maxFont, cloudType) => {
           element.innerHTML = "";
           const maxCount = Math.max(...Object.values(counts), 1);
@@ -1476,14 +1440,12 @@
             element.appendChild(span);
           }
         };
-
         const minFont = 12, maxFont = 36;
         const overlayObjectCloudElem = document.getElementById("overlayObjectCloud");
         const overlayCodeCloudElem = document.getElementById("overlayCodeCloud");
         populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
         populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
       }
-
       updateStats() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -1546,18 +1508,15 @@
         `;
         document.getElementById("overlayStatsContent").innerHTML = statsHtml;
       }
-
       updateDependencies() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
           document.getElementById("overlayDepsContent").innerHTML = "No DXF data loaded.";
           return;
         }
-
         const dependencyTypes = ["LTYPE", "STYLE", "APPID", "LAYER", "DIMSTYLE", "VPORT", "XREF", "SHAPE"];
         const dependencies = {};
         dependencyTypes.forEach(type => dependencies[type] = []);
-
         function traverse(nodes) {
           nodes.forEach(node => {
             if (!node.isProperty) {
@@ -1572,7 +1531,6 @@
           });
         }
         traverse(activeTab.originalTreeData);
-
         let html = "";
         dependencyTypes.forEach(depType => {
           if (dependencies[depType].length > 0) {
@@ -1588,15 +1546,12 @@
             html += "</ul>";
           }
         });
-
         if (!html) {
           html = "No external dependency objects found.";
         }
-
         document.getElementById("overlayDepsContent").innerHTML = html;
       }
     }
-
     document.addEventListener("DOMContentLoaded", () => {
       new App();
     });
