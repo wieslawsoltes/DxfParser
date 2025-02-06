@@ -20,7 +20,7 @@
     body {
       font-family: sans-serif;
     }
-    /* Modified: Added flex-wrap to allow tabs to wrap when needed */
+    /* Allow tabs to wrap if screen is too narrow */
     #tabContainer {
       display: flex;
       flex-wrap: wrap;
@@ -33,7 +33,7 @@
       border-bottom: none;
       cursor: pointer;
       margin-right: 2px;
-      margin-bottom: 2px; /* Optional: add some vertical spacing between rows */
+      margin-bottom: 2px;
       position: relative;
       background: #eee;
     }
@@ -98,8 +98,7 @@
     #treeViewContent {
       position: relative;
     }
-    /* The .tree-row class no longer uses absolute positioning.
-       Instead, each row uses relative positioning with a flex layout. */
+    /* Now each row uses relative positioning with flex layout */
     .tree-row {
       display: flex;
       align-items: center;
@@ -263,7 +262,6 @@ class DxfParser {
   groupObjects(tags, startIndex, endMarker = null) {
     const objects = [];
     let i = startIndex;
-
     while (i < tags.length) {
       if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
         i++;
@@ -283,19 +281,16 @@ class DxfParser {
         expanded: false
       };
       i++;
-
       while (i < tags.length && tags[i].code !== 0) {
         obj.properties.push(tags[i]);
         i++;
       }
-
       if (obj.isContainer) {
         const marker = this.containerMapping[obj.type.toUpperCase()];
         const result = this.groupObjects(tags, i, marker);
         obj.children = result.objects;
         i = result.nextIndex;
       }
-
       objects.push(obj);
     }
     return { objects, nextIndex: i };
@@ -318,12 +313,10 @@ class DxfParser {
     let lines = [];
     lines.push("0");
     lines.push(node.type);
-
     node.properties.forEach(prop => {
       lines.push(prop.code.toString());
       lines.push(prop.value);
     });
-
     if (node.isContainer && node.children && node.children.length) {
       node.children.forEach(child => {
         lines.push(this.serializeNode(child));
@@ -334,13 +327,12 @@ class DxfParser {
         lines.push(endMarker);
       }
     }
-
     return lines.join("\n");
   }
 }
 </script>
 
-<!-- 2) VirtualTreeView Class -->
+<!-- 2) VirtualTreeView Class (Using Spacers) -->
 <script>
 class VirtualTreeView {
   constructor(container, content, options = {}) {
@@ -349,19 +341,16 @@ class VirtualTreeView {
     this.itemHeight = options.itemHeight || 24;
     this.copyCallback = options.copyCallback || null;
     this.onToggleExpand = options.onToggleExpand || null;
-
-    // Column width getters
     this.getLineWidth = options.getLineWidth || (() => 100);
     this.getCodeWidth = options.getCodeWidth || (() => 100);
     this.getDataWidth = options.getDataWidth || (() => null);
-
     this.flatData = [];
     this.treeData = [];
 
-    // Listen for scrolling
-    this.container.addEventListener("scroll", this.updateVisibleNodes.bind(this));
-
-    // Event delegation for toggle (expand/collapse)
+    // Use requestAnimationFrame to throttle scroll updates.
+    this.container.addEventListener("scroll", () => {
+      requestAnimationFrame(() => this.updateVisibleNodes());
+    });
     this.content.addEventListener("click", (e) => {
       if (e.target.classList.contains("toggle")) {
         const row = e.target.closest(".tree-row");
@@ -417,37 +406,29 @@ class VirtualTreeView {
     const containerHeight = this.container.clientHeight;
     const totalRows = this.flatData.length;
     const fullHeight = totalRows * this.itemHeight;
-
-    // Set a safe maximum height.
+    
+    // Cap the content height to a safe maximum.
     const MAX_HEIGHT = 3000000;
-    let scale = 1;
-    let contentHeight;
-    if (fullHeight > MAX_HEIGHT) {
-      scale = MAX_HEIGHT / fullHeight;
-      // Adjust content height so that maximum scrollTop maps to fullHeight - containerHeight.
-      contentHeight = scale * (fullHeight - containerHeight) + containerHeight;
-    } else {
-      contentHeight = fullHeight;
-    }
+    const contentHeight = fullHeight > MAX_HEIGHT ? MAX_HEIGHT : fullHeight;
     this.content.style.height = contentHeight + "px";
-
-    // Map the container's scrollTop to the effective scroll offset.
-    const effectiveScrollTop = scrollTop / scale;
+    
+    // Compute scroll ratio (if content is capped).
+    const maxScroll = contentHeight - containerHeight;
+    const scrollRatio = maxScroll > 0 ? scrollTop / maxScroll : 0;
+    
+    // Effective scroll offset into the full list.
+    const effectiveScrollTop = scrollRatio * (fullHeight - containerHeight);
     const startIndex = Math.floor(effectiveScrollTop / this.itemHeight);
     const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
     const endIndex = Math.min(startIndex + visibleCount, totalRows);
-
-    // Clear any previous rows.
-    this.content.innerHTML = "";
-
-    // Create a container for the visible rows and position it via a CSS transform.
-    const rowsContainer = document.createElement("div");
-    rowsContainer.style.position = "absolute";
-    rowsContainer.style.left = "0";
-    rowsContainer.style.right = "0";
-    const translateY = startIndex * this.itemHeight * scale;
-    rowsContainer.style.transform = `translateY(${translateY}px)`;
-
+    
+    // Create container with top spacer, visible rows, and bottom spacer.
+    const containerElem = document.createElement("div");
+    
+    const topSpacer = document.createElement("div");
+    topSpacer.style.height = (startIndex * this.itemHeight) + "px";
+    containerElem.appendChild(topSpacer);
+    
     const fragment = document.createDocumentFragment();
     for (let i = startIndex; i < endIndex; i++) {
       const { node, level } = this.flatData[i];
@@ -457,14 +438,12 @@ class VirtualTreeView {
       row.style.position = "relative";
       row.style.height = this.itemHeight + "px";
       row.dataset.id = node.id;
-
+      
       // LINE Column
       const lineDiv = document.createElement("div");
       lineDiv.className = "tree-line";
       const lineWidth = this.getLineWidth();
-      if (lineWidth) {
-        lineDiv.style.width = lineWidth + "px";
-      }
+      if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
       lineDiv.style.textAlign = "left";
       const lineContent = document.createElement("div");
       lineContent.style.display = "flex";
@@ -486,24 +465,20 @@ class VirtualTreeView {
       lineContent.appendChild(lineNumberSpan);
       lineDiv.appendChild(lineContent);
       row.appendChild(lineDiv);
-
+      
       // CODE Column
       const codeDiv = document.createElement("div");
       codeDiv.className = "tree-code";
       const codeWidth = this.getCodeWidth();
-      if (codeWidth) {
-        codeDiv.style.width = codeWidth + "px";
-      }
+      if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
       codeDiv.style.textAlign = "left";
       if (node.isProperty) {
         codeDiv.textContent = node.code;
       } else {
-        codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length))
-          ? "0"
-          : "";
+        codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
       }
       row.appendChild(codeDiv);
-
+      
       // DATA Column
       const dataDiv = document.createElement("div");
       dataDiv.className = "tree-data";
@@ -528,13 +503,20 @@ class VirtualTreeView {
       row.appendChild(dataDiv);
       fragment.appendChild(row);
     }
-    rowsContainer.appendChild(fragment);
-    this.content.appendChild(rowsContainer);
+    containerElem.appendChild(fragment);
+    
+    const bottomSpacer = document.createElement("div");
+    const bottomHeight = Math.max(0, fullHeight - (startIndex + visibleCount) * this.itemHeight);
+    bottomSpacer.style.height = bottomHeight + "px";
+    containerElem.appendChild(bottomSpacer);
+    
+    this.content.innerHTML = "";
+    this.content.appendChild(containerElem);
   }
 }
 </script>
 
-<!-- 3) Main App Code -->
+<!-- 3) Main App Code (with scroll reset in search handlers) -->
 <script>
 class App {
   constructor() {
@@ -640,6 +622,8 @@ class App {
       ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
       : activeTab.originalTreeData;
     this.myTreeView.setData(activeTab.currentTreeData);
+    // Reset scroll position after expanding.
+    this.treeViewContainer.scrollTop = 0;
   }
 
   handleCollapseAll() {
@@ -655,6 +639,8 @@ class App {
       ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
       : activeTab.originalTreeData;
     this.myTreeView.setData(activeTab.currentTreeData);
+    // Reset scroll position after collapsing.
+    this.treeViewContainer.scrollTop = 0;
   }
 
   handleToggleExpand(nodeId) {
@@ -934,6 +920,8 @@ class App {
         ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
         : activeTab.originalTreeData;
       this.myTreeView.setData(activeTab.currentTreeData);
+      // Reset scroll position after filtering.
+      this.treeViewContainer.scrollTop = 0;
     });
     tag.appendChild(removeBtn);
 
@@ -1023,6 +1011,8 @@ class App {
       ? this.filterTree(activeTab.originalTreeData, activeTab.codeSearchTerms, activeTab.dataSearchTerms, dataExact, dataCase)
       : activeTab.originalTreeData;
     this.myTreeView.setData(activeTab.currentTreeData);
+    // Reset scroll position after search filtering.
+    this.treeViewContainer.scrollTop = 0;
   }
 
   handleClearSearch() {
@@ -1039,6 +1029,8 @@ class App {
     document.getElementById("dataCaseCheckbox").checked = false;
     activeTab.currentTreeData = activeTab.originalTreeData;
     this.myTreeView.setData(activeTab.currentTreeData);
+    // Reset scroll position after clearing search.
+    this.treeViewContainer.scrollTop = 0;
   }
 }
 
