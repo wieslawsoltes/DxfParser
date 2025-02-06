@@ -15,15 +15,16 @@
     *, *:before, *:after {
       box-sizing: border-box;
     }
+    body {
+      font-family: sans-serif;
+    }
     .main-container {
       display: flex;
       flex-direction: column;
       height: 100vh;
       padding: 1em;
     }
-    body {
-      font-family: sans-serif;
-    }
+    /* Tabs */
     #tabContainer {
       display: flex;
       flex-wrap: wrap;
@@ -51,6 +52,7 @@
       cursor: pointer;
       padding: 0 4px;
     }
+    /* Tree Grid Header */
     .tree-header {
       display: flex;
       align-items: center;
@@ -149,12 +151,61 @@
     .tree-row:hover .copy-button {
       display: inline;
     }
-    .controls {
+    /* Filter Panel – wraps the filtering controls */
+    .filter-panel {
+      border: 1px solid #ccc;
+      border-radius: 4px;
       margin: 1em 0;
+      overflow: hidden;
+    }
+    .filter-toggle {
+      background: #eee;
+      padding: 0.5em;
+      cursor: pointer;
+      user-select: none;
       display: flex;
-      flex-wrap: wrap;
+      justify-content: space-between;
       align-items: center;
     }
+    .filter-toggle .toggle-icon {
+      font-size: 1em;
+    }
+    .filter-content {
+      padding: 0.5em;
+    }
+    /* On larger screens show filter content by default */
+    @media (min-width: 601px) {
+      .filter-panel .filter-content {
+        display: block;
+      }
+    }
+    /* On mobile, collapse filter content by default */
+    @media (max-width: 600px) {
+      .filter-panel .filter-content {
+        display: none;
+      }
+      .filter-panel.expanded .filter-content {
+        display: block;
+      }
+      /* Stack filter inputs vertically */
+      .filter-content > * {
+        margin-bottom: 0.5em;
+        width: 100%;
+      }
+      .tag-container {
+        min-width: 100%;
+      }
+      #treeGridHeader .header-cell {
+        padding: 0 2px;
+      }
+      .tree-row {
+        height: 32px; /* slightly larger touch targets */
+      }
+      .tree-row .toggle {
+        width: 20px;
+      }
+    }
+    /* Tag container */
     .tag-container {
       display: inline-block;
       border: 1px solid #ccc;
@@ -235,48 +286,15 @@
       border-radius: 4px;
       background: #f9f9f9;
     }
-    #overlayStatsContent ul {
-      list-style: none;
-      padding: 0;
-    }
-    #overlayStatsContent li {
-      padding: 0.5em 0;
-      border-bottom: 1px solid #eee;
-    }
+    #overlayStatsContent ul,
     #overlayDepsContent ul {
       list-style: none;
       padding: 0;
     }
+    #overlayStatsContent li,
     #overlayDepsContent li {
       padding: 0.5em 0;
       border-bottom: 1px solid #eee;
-    }
-
-    /* Mobile Responsive Styles */
-    @media (max-width: 600px) {
-      .main-container {
-        padding: 0.5em;
-      }
-      .controls {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      .controls > * {
-        margin-bottom: 0.5em;
-        width: 100%;
-      }
-      .tag-container {
-        min-width: 100%;
-      }
-      #treeGridHeader .header-cell {
-        padding: 0 2px;
-      }
-      .tree-row {
-        height: 32px; /* Slightly larger touch targets */
-      }
-      .tree-row .toggle {
-        width: 20px;
-      }
     }
   </style>
 </head>
@@ -286,35 +304,46 @@
     <input type="file" id="fileInput" accept=".dxf" multiple>
     <button id="parseBtn">Parse File(s)</button>
     <div id="tabContainer"></div>
-    <div class="controls">
-      <div id="codeSearchTags" class="tag-container">
-        <input type="text" id="codeSearchInput" placeholder="Search by Code">
+
+    <!-- Filter Panel – filtering controls are tucked away on mobile -->
+    <div class="filter-panel" id="filterPanel">
+      <div class="filter-toggle">
+        <span>Filters</span>
+        <span class="toggle-icon">▼</span>
       </div>
-      <div id="dataSearchTags" class="tag-container">
-        <input type="text" id="dataSearchInput" placeholder="Search by Data value">
-      </div>
-      <label>
-        <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
-      </label>
-      <label>
-        <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
-      </label>
-      <label for="minLineInput" style="margin-left:8px;">Min Line:</label>
-      <input type="number" id="minLineInput" style="width:80px;">
-      <label for="maxLineInput" style="margin-left:8px;">Max Line:</label>
-      <input type="number" id="maxLineInput" style="width:80px;">
-      <button id="searchBtn">Search</button>
-      <button id="clearSearchBtn">Clear Search</button>
-      <button id="expandAllBtn">Expand All</button>
-      <button id="collapseAllBtn">Collapse All</button>
-      <button id="showCloudOverlayBtn">Show Cloud Data</button>
-      <button id="showStatsOverlayBtn">Show DXF Statistics</button>
-      <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
-      <div id="handleNavigation">
-        <input type="text" id="handleSearchInput" placeholder="Go to Handle">
-        <button id="goToHandleBtn">Go to Handle</button>
+      <div class="filter-content">
+        <!-- The original filtering controls are placed here -->
+        <div id="codeSearchTags" class="tag-container">
+          <input type="text" id="codeSearchInput" placeholder="Search by Code">
+        </div>
+        <div id="dataSearchTags" class="tag-container">
+          <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+        </div>
+        <label>
+          <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
+        </label>
+        <label>
+          <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
+        </label>
+        <label for="minLineInput" style="margin-left:8px;">Min Line:</label>
+        <input type="number" id="minLineInput" style="width:80px;">
+        <label for="maxLineInput" style="margin-left:8px;">Max Line:</label>
+        <input type="number" id="maxLineInput" style="width:80px;">
+        <button id="searchBtn">Search</button>
+        <button id="clearSearchBtn">Clear Search</button>
+        <button id="expandAllBtn">Expand All</button>
+        <button id="collapseAllBtn">Collapse All</button>
+        <button id="showCloudOverlayBtn">Show Cloud Data</button>
+        <button id="showStatsOverlayBtn">Show DXF Statistics</button>
+        <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
+        <div id="handleNavigation">
+          <input type="text" id="handleSearchInput" placeholder="Go to Handle">
+          <button id="goToHandleBtn">Go to Handle</button>
+        </div>
       </div>
     </div>
+    <!-- End Filter Panel -->
+
     <div id="treeGridHeader" class="tree-header">
       <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
         Line <span class="sort-indicator"></span>
@@ -342,6 +371,7 @@
     </div>
   </div>
 
+  <!-- Overlays (unchanged) -->
   <div id="cloudOverlay">
     <div class="overlay-content">
       <button id="closeCloudOverlay">Close</button>
@@ -369,6 +399,7 @@
     </div>
   </div>
 
+  <!-- DXF Parser, VirtualTreeView, and App classes (unchanged) -->
   <script>
     class DxfParser {
       constructor() {
@@ -1554,6 +1585,17 @@
     }
     document.addEventListener("DOMContentLoaded", () => {
       new App();
+      
+      // Toggle the filter panel on mobile.
+      const filterToggle = document.querySelector('.filter-toggle');
+      if(filterToggle) {
+        filterToggle.addEventListener('click', () => {
+          const panel = filterToggle.parentElement;
+          panel.classList.toggle('expanded');
+          const icon = filterToggle.querySelector('.toggle-icon');
+          icon.textContent = panel.classList.contains('expanded') ? '▲' : '▼';
+        });
+      }
     });
   </script>
 </body>
