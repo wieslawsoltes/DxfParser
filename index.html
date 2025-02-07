@@ -1162,87 +1162,110 @@
         });
         return filtered;
       }
+ 
       filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
+        // 1. Check if the node’s own line number is within bounds.
         let nodeLine = parseInt(obj.line, 10);
         let lineMatches = true;
-        if (minLine !== null && minLine !== undefined && !isNaN(minLine)) {
+        if (minLine != null && !isNaN(minLine)) {
           if (isNaN(nodeLine) || nodeLine < minLine) lineMatches = false;
         }
-        if (maxLine !== null && maxLine !== undefined && !isNaN(maxLine)) {
+        if (maxLine != null && !isNaN(maxLine)) {
           if (isNaN(nodeLine) || nodeLine > maxLine) lineMatches = false;
         }
+
+        // 2. Filter the node’s properties.
         const filteredProperties = obj.properties.filter(prop => {
           let propLine = parseInt(prop.line, 10);
-          if (minLine !== null && minLine !== undefined && !isNaN(minLine)) {
+          if (minLine != null && !isNaN(minLine)) {
             if (isNaN(propLine) || propLine < minLine) return false;
           }
-          if (maxLine !== null && maxLine !== undefined && !isNaN(maxLine)) {
+          if (maxLine != null && !isNaN(maxLine)) {
             if (isNaN(propLine) || propLine > maxLine) return false;
           }
-          const codeMatch = (codeTerms.length === 0) || codeTerms.some(term => String(prop.code) === term);
+          // Code filter – if active, require a property’s code to match.
+          const codeMatch = (codeTerms.length === 0) ||
+            codeTerms.some(term => String(prop.code) === term);
+          // Data filter – if active, test the property value.
           let dataMatch = true;
           if (dataTerms.length > 0) {
             if (dataExact) {
-              dataMatch = dataTerms.some(term => dataCase
-                ? (prop.value === term)
-                : (prop.value.toLowerCase() === term.toLowerCase())
+              dataMatch = dataTerms.some(term =>
+                dataCase ? (prop.value === term)
+                         : (prop.value.toLowerCase() === term.toLowerCase())
               );
             } else {
-              dataMatch = dataTerms.some(term => dataCase
-                ? prop.value.includes(term)
-                : prop.value.toLowerCase().includes(term.toLowerCase())
+              dataMatch = dataTerms.some(term =>
+                dataCase ? prop.value.includes(term)
+                         : prop.value.toLowerCase().includes(term.toLowerCase())
               );
             }
           }
           return codeMatch && dataMatch;
         });
-        const filteredChildren = [];
-        obj.children.forEach(child => {
-          const filteredChild = this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine);
-          if (filteredChild !== null) {
-            filteredChildren.push(filteredChild);
-          }
-        });
+
+        // 3. Recursively filter child objects.
+        const filteredChildren = obj.children
+          .map(child => this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine))
+          .filter(child => child !== null);
+
+        // 4. Determine which search filters are “active.”
+        const codeFilterActive = codeTerms.length > 0;
+        const dataFilterActive = dataTerms.length > 0;
+
+        // For the node’s own type, check it only if the data filter is active.
         let typeMatchesData = false;
-        if (dataTerms.length > 0) {
+        if (dataFilterActive) {
           if (dataExact) {
-            typeMatchesData = dataTerms.some(term => dataCase
-              ? (obj.type === term)
-              : (obj.type.toLowerCase() === term.toLowerCase())
+            typeMatchesData = dataTerms.some(term =>
+              dataCase ? (obj.type === term)
+                       : (obj.type.toLowerCase() === term.toLowerCase())
             );
           } else {
-            typeMatchesData = dataTerms.some(term => dataCase
-              ? obj.type.includes(term)
-              : obj.type.toLowerCase().includes(term.toLowerCase())
+            typeMatchesData = dataTerms.some(term =>
+              dataCase ? obj.type.includes(term)
+                       : obj.type.toLowerCase().includes(term.toLowerCase())
             );
           }
-        } else {
-          typeMatchesData = true;
         }
-        const searchActive = (codeTerms.length > 0 || dataTerms.length > 0);
-        if (!obj.isContainer && !lineMatches) {
+
+        // 5. Now decide whether to keep the node.
+
+        // If no search filters are active, fall back to line-matching:
+        if (!codeFilterActive && !dataFilterActive) {
+          if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
+            return null;
+          }
+          return {
+            ...obj,
+            properties: filteredProperties,
+            children: filteredChildren
+          };
+        }
+
+        // If a code filter is active but no property or descendant matches, drop this node.
+        if (codeFilterActive && filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
         }
-        if (searchActive) {
-          if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
-            return null;
-          }
-          return {
-            ...obj,
-            properties: filteredProperties,
-            children: filteredChildren
-          };
-        } else {
-          if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
-            return null;
-          }
-          return {
-            ...obj,
-            properties: filteredProperties,
-            children: filteredChildren
-          };
+
+        // If a data filter is active but neither the node’s type nor any property/child matches, drop it.
+        if (dataFilterActive && !(typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0)) {
+          return null;
         }
+
+        // (Optionally, you may still want to drop the node if it fails the line filter and has no matches.)
+        if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
+          return null;
+        }
+
+        // If the node passes all checks, return it with its filtered properties and children.
+        return {
+          ...obj,
+          properties: filteredProperties,
+          children: filteredChildren
+        };
       }
+
       handleCopy(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
