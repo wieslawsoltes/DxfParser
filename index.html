@@ -595,7 +595,8 @@
         this.getLineWidth = options.getLineWidth || (() => 100);
         this.getCodeWidth = options.getCodeWidth || (() => 100);
         this.getDataWidth = options.getDataWidth || (() => null);
-        this.columnWidths = options.columnWidths;
+        // Save the columnWidths object so it can be used by both header and rows.
+        this.columnWidths = options.columnWidths || {};
         this.flatData = [];
         this.treeData = [];
         this.container.addEventListener("scroll", () => {
@@ -680,6 +681,42 @@
         }
         return size;
       }
+      // This new method syncs the header cells using the shared columnWidths.
+      syncHeaderWidths() {
+        const header = document.getElementById("treeGridHeader");
+        if (!header) return;
+        // "line" column header
+        const lineCell = header.querySelector('.tree-line');
+        if (lineCell && this.columnWidths.line) {
+          lineCell.style.width = this.columnWidths.line + "px";
+        }
+        // "code" column header
+        const codeCell = header.querySelector('.tree-code');
+        if (codeCell && this.columnWidths.code) {
+          codeCell.style.width = this.columnWidths.code + "px";
+        }
+        // "data" (or type) column header
+        const typeCell = header.querySelector('.tree-data');
+        if (typeCell) {
+          if (this.columnWidths.type) {
+            typeCell.style.width = this.columnWidths.type + "px";
+            typeCell.style.flex = "0 0 auto";
+          } else {
+            typeCell.style.width = "";
+            typeCell.style.flex = "1";
+          }
+        }
+        // "objectCount" column header
+        const objectCountCell = header.querySelector('.tree-object-count');
+        if (objectCountCell && this.columnWidths.objectCount) {
+          objectCountCell.style.width = this.columnWidths.objectCount + "px";
+        }
+        // "dataSize" column header
+        const dataSizeCell = header.querySelector('.tree-data-size');
+        if (dataSizeCell && this.columnWidths.dataSize) {
+          dataSizeCell.style.width = this.columnWidths.dataSize + "px";
+        }
+      }
       updateVisibleNodes() {
         const scrollTop = this.container.scrollTop;
         const containerHeight = this.container.clientHeight;
@@ -702,11 +739,12 @@
           row.style.position = "relative";
           row.style.height = this.itemHeight + "px";
           row.dataset.id = node.id;
+          
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
           const lineWidth = this.getLineWidth();
           if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
-          lineDiv.style.textAlign = "left";
+          // Build line content with indentation for hierarchy
           const lineContent = document.createElement("div");
           lineContent.style.display = "flex";
           lineContent.style.alignItems = "center";
@@ -727,6 +765,7 @@
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
+          
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
           const codeWidth = this.getCodeWidth();
@@ -738,6 +777,7 @@
             codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
           }
           row.appendChild(codeDiv);
+          
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
           const dataWidth = this.getDataWidth();
@@ -793,6 +833,7 @@
             }
           }
           row.appendChild(dataDiv);
+          
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = this.columnWidths.objectCount + "px";
@@ -803,12 +844,14 @@
             objectCountDiv.textContent = "";
           }
           row.appendChild(objectCountDiv);
+          
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
           dataSizeDiv.style.textAlign = "right";
           dataSizeDiv.textContent = this.computeDataSize(node);
           row.appendChild(dataSizeDiv);
+          
           fragment.appendChild(row);
         }
         containerElem.appendChild(fragment);
@@ -818,6 +861,9 @@
         containerElem.appendChild(bottomSpacer);
         this.content.innerHTML = "";
         this.content.appendChild(containerElem);
+        
+        // Sync header widths after updating rows.
+        this.syncHeaderWidths();
       }
     }
   </script>
@@ -1201,6 +1247,7 @@
           this.columnWidths[field] = newWidth;
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
+          // Refresh the rows – the updateVisibleNodes() call will in turn sync the header.
           this.myTreeView.updateVisibleNodes();
         };
         const onMouseUp = () => {
@@ -1282,7 +1329,6 @@
           }
         }
         // 5. Now decide whether to keep the node.
-        // If no search filters are active, fall back to line-matching:
         if (!codeFilterActive && !dataFilterActive) {
           if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
             return null;
@@ -1293,19 +1339,15 @@
             children: filteredChildren
           };
         }
-        // If a code filter is active but no property or descendant matches, drop this node.
         if (codeFilterActive && filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
         }
-        // If a data filter is active but neither the node’s type nor any property/child matches, drop it.
         if (dataFilterActive && !(typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0)) {
           return null;
         }
-        // (Optionally, you may still want to drop the node if it fails the line filter and has no matches.)
         if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
         }
-        // If the node passes all checks, return it with its filtered properties and children.
         return {
           ...obj,
           properties: filteredProperties,
@@ -1351,7 +1393,6 @@
               maxLine: null,
               dataExact: false,
               dataCase: false,
-              // NEW per‑tab navigation history:
               navigationHistory: [],
               currentHistoryIndex: -1
             };
@@ -1514,7 +1555,6 @@
         }
         return null;
       }
-      // Navigation by handle with history tracking.
       navigateToHandle(handle, addHistory = true) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1523,7 +1563,6 @@
           alert("Definition not found for handle: " + handle);
           return;
         }
-        // Expand the path to ensure the target is visible.
         path.forEach(node => node.expanded = true);
         activeTab.currentTreeData = activeTab.originalTreeData;
         this.myTreeView.setData(activeTab.currentTreeData);
@@ -1541,7 +1580,6 @@
           }
         }, 300);
         if (addHistory) {
-          // If not at the end of history, remove forward history.
           if (activeTab.currentHistoryIndex < activeTab.navigationHistory.length - 1) {
             activeTab.navigationHistory.splice(activeTab.currentHistoryIndex + 1);
           }
@@ -1559,10 +1597,8 @@
         this.navigateToHandle(handleValue, true);
       }
       handleLinkToHandle(handle) {
-        // This method is now simply a proxy to navigateToHandle.
         this.navigateToHandle(handle, true);
       }
-      // Navigation history UI updates.
       updateNavHistoryUI() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("navHistoryList");
