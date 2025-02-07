@@ -48,6 +48,24 @@
     .top-right-buttons {
       display: flex;
       gap: 0.5em;
+      flex-wrap: wrap;
+    }
+    /* Navigation history container with controls */
+    #navHistoryContainer {
+      margin-bottom: 1em;
+      padding: 0.5em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #navHistoryControls {
+      margin-bottom: 0.5em;
+    }
+    #navHistoryControls button {
+      margin-right: 4px;
+    }
+    #navHistoryList {
+      overflow-x: auto;
+      white-space: nowrap;
     }
     /* Tabs */
     #tabContainer {
@@ -349,6 +367,15 @@
     <div class="file-input-row">
       <input type="file" id="fileInput" accept=".dxf" multiple>
       <button id="parseBtn">Parse File(s)</button>
+    </div>
+    <!-- Navigation history container with controls and list -->
+    <div id="navHistoryContainer">
+      <div id="navHistoryControls">
+        <button id="backBtn" disabled>Back</button>
+        <button id="forwardBtn" disabled>Forward</button>
+        <button id="clearHistoryBtn">Clear</button>
+      </div>
+      <div id="navHistoryList"></div>
     </div>
     <div id="tabContainer"></div>
 
@@ -814,6 +841,9 @@
           getDataWidth: () => this.columnWidths.type,
           columnWidths: this.columnWidths
         });
+        // Navigation history: an array of handle strings and an index pointer.
+        this.navigationHistory = [];
+        this.currentHistoryIndex = -1;
         this.initEventListeners();
       }
       initEventListeners() {
@@ -861,6 +891,10 @@
         document.getElementById("minLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("maxLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
+        // Navigation controls from the history area.
+        document.getElementById("backBtn").addEventListener("click", () => this.navigateBack());
+        document.getElementById("forwardBtn").addEventListener("click", () => this.navigateForward());
+        document.getElementById("clearHistoryBtn").addEventListener("click", () => this.clearNavigationHistory());
         const filterToggle = document.querySelector('.filter-toggle');
         if(filterToggle) {
           filterToggle.addEventListener('click', () => {
@@ -1488,14 +1522,8 @@
         }
         return null;
       }
-      handleGoToHandle() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab) return;
-        const handleValue = document.getElementById("handleSearchInput").value.trim();
-        if (!handleValue) return;
-        this.handleLinkToHandle(handleValue);
-      }
-      handleLinkToHandle(handle) {
+      // NEW: Navigation by handle with history tracking.
+      navigateToHandle(handle, addHistory = true) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const path = this.findPathByHandle(activeTab.originalTreeData, handle);
@@ -1503,6 +1531,7 @@
           alert("Definition not found for handle: " + handle);
           return;
         }
+        // Expand the path to ensure the target is visible.
         path.forEach(node => node.expanded = true);
         activeTab.currentTreeData = activeTab.originalTreeData;
         this.myTreeView.setData(activeTab.currentTreeData);
@@ -1519,6 +1548,79 @@
             }
           }
         }, 300);
+        if (addHistory) {
+          // If not at the end of history, remove forward history.
+          if (this.currentHistoryIndex < this.navigationHistory.length - 1) {
+            this.navigationHistory.splice(this.currentHistoryIndex + 1);
+          }
+          this.navigationHistory.push(handle);
+          this.currentHistoryIndex = this.navigationHistory.length - 1;
+          this.updateNavHistoryUI();
+          this.updateNavButtons();
+        }
+      }
+      handleGoToHandle() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        const handleValue = document.getElementById("handleSearchInput").value.trim();
+        if (!handleValue) return;
+        this.navigateToHandle(handleValue, true);
+      }
+      handleLinkToHandle(handle) {
+        // This method is now simply a proxy to navigateToHandle.
+        this.navigateToHandle(handle, true);
+      }
+      // Navigation history UI updates.
+      updateNavHistoryUI() {
+        const listContainer = document.getElementById("navHistoryList");
+        listContainer.innerHTML = "";
+        this.navigationHistory.forEach((handle, index) => {
+          const span = document.createElement("span");
+          span.textContent = handle;
+          span.style.cursor = "pointer";
+          span.style.marginRight = "8px";
+          if (index === this.currentHistoryIndex) {
+            span.style.fontWeight = "bold";
+            span.style.textDecoration = "underline";
+          }
+          span.addEventListener("click", () => {
+            this.currentHistoryIndex = index;
+            this.navigateToHandle(handle, false);
+            this.updateNavHistoryUI();
+            this.updateNavButtons();
+          });
+          listContainer.appendChild(span);
+        });
+      }
+      updateNavButtons() {
+        const backBtn = document.getElementById("backBtn");
+        const forwardBtn = document.getElementById("forwardBtn");
+        backBtn.disabled = this.currentHistoryIndex <= 0;
+        forwardBtn.disabled = this.currentHistoryIndex >= this.navigationHistory.length - 1;
+      }
+      navigateBack() {
+        if (this.currentHistoryIndex > 0) {
+          this.currentHistoryIndex--;
+          const handle = this.navigationHistory[this.currentHistoryIndex];
+          this.navigateToHandle(handle, false);
+          this.updateNavHistoryUI();
+          this.updateNavButtons();
+        }
+      }
+      navigateForward() {
+        if (this.currentHistoryIndex < this.navigationHistory.length - 1) {
+          this.currentHistoryIndex++;
+          const handle = this.navigationHistory[this.currentHistoryIndex];
+          this.navigateToHandle(handle, false);
+          this.updateNavHistoryUI();
+          this.updateNavButtons();
+        }
+      }
+      clearNavigationHistory() {
+        this.navigationHistory = [];
+        this.currentHistoryIndex = -1;
+        this.updateNavHistoryUI();
+        this.updateNavButtons();
       }
       updateClouds() {
         const activeTab = this.getActiveTab();
