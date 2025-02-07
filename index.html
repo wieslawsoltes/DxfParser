@@ -152,20 +152,24 @@
     .tree-data-size:last-child {
       border-right: none;
     }
+    /* --- Updated container and row clipping styles --- */
     #treeViewContainer {
       position: relative;
       flex: 1;
-      overflow: auto;
+      overflow: auto; /* allow scrolling */
       border: 1px solid #ccc;
+      clip-path: inset(0);
     }
     #treeViewContent {
       position: relative;
+      overflow: hidden; /* clip any overflowing content */
     }
     .tree-row {
       display: flex;
       align-items: center;
       height: 24px;
       border-bottom: 1px solid #eee;
+      overflow: hidden; /* clip row contents when scrolled */
     }
     .toggle {
       display: inline-block;
@@ -866,12 +870,12 @@
             icon.textContent = panel.classList.contains('expanded') ? '▲' : '▼';
           });
         }
-        // --- Added scroll listener to sync header horizontal position ---
+        // --- Sync header horizontal position on scroll ---
         this.treeViewContainer.addEventListener("scroll", (e) => {
           const scrollLeft = e.target.scrollLeft;
           document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
         });
-        // --- Added resize listener to update row layouts on layout changes ---
+        // --- Update row layouts on window resize ---
         window.addEventListener("resize", () => {
           this.myTreeView.updateVisibleNodes();
         });
