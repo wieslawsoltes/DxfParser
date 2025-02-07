@@ -25,7 +25,7 @@
       align-items: center;
       margin-bottom: 1em;
     }
-    /* File input row (for file input, streamed parsing check box, and parse button on the same line) */
+    /* File input row */
     .file-input-row {
       display: inline-flex;
       align-items: center;
@@ -38,7 +38,7 @@
       gap: 0.5em;
       flex-wrap: wrap;
     }
-    /* NEW: Added button styles remain the same as the other top-right buttons */
+    /* Navigation History */
     #navHistoryContainer {
       margin-bottom: 1em;
       padding: 0.5em;
@@ -48,6 +48,7 @@
     #navHistoryControls { margin-bottom: 0.5em; }
     #navHistoryControls button { margin-right: 4px; }
     #navHistoryList { overflow-x: auto; white-space: nowrap; }
+    /* Tabs */
     #tabContainer {
       display: flex;
       flex-wrap: wrap;
@@ -222,14 +223,13 @@
       cursor: pointer;
       font-weight: bold;
     }
-    /* Overlays */
+    /* Overlays – all dialogs are hidden by default and appear above the tree view */
     #cloudOverlay,
     #statsOverlay,
     #depsOverlay,
-    #hexViewerOverlay,
     #binaryObjectsOverlay,
-    /* NEW: New overlay for Handle Map */
-    #handleMapOverlay {
+    #handleMapOverlay,
+    #hexViewerOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -237,8 +237,15 @@
       width: 100%;
       height: 100%;
       background-color: rgba(0,0,0,0.5);
-      z-index: 1000;
     }
+    /* Raise the hex viewer above the other overlays */
+    #hexViewerOverlay { z-index: 1100; }
+    /* The other overlays get z-index: 1000 */
+    #cloudOverlay,
+    #statsOverlay,
+    #depsOverlay,
+    #binaryObjectsOverlay,
+    #handleMapOverlay { z-index: 1000; }
     .overlay-content {
       background: #fff;
       margin: 20px;
@@ -255,7 +262,6 @@
     #closeDepsOverlay,
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
-    /* NEW: New close button for handle map overlay */
     #closeHandleMapOverlay,
     #saveBinaryBtn,
     #previewImageBtn {
@@ -268,7 +274,6 @@
     #closeDepsOverlay,
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
-    /* NEW: New handle map close button */
     #closeHandleMapOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
     #previewImageBtn { right: 170px; }
@@ -323,13 +328,13 @@
         <button id="showCloudOverlayBtn">Show Cloud Data</button>
         <button id="showStatsOverlayBtn">Show DXF Statistics</button>
         <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
-        <!-- NEW: New button to show all objects with binary data -->
+        <!-- NEW: Button to show objects with binary data -->
         <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
-        <!-- NEW: New button to show the DXF Handle Map -->
+        <!-- NEW: Button to show the DXF Handle Map -->
         <button id="showHandleMapOverlayBtn">Show Handle Map</button>
       </div>
     </div>
-    <!-- File input row with streaming option -->
+    <!-- File input row -->
     <div class="file-input-row">
       <input type="file" id="fileInput" accept=".dxf" multiple>
       <label>
@@ -416,6 +421,7 @@
   <div id="cloudOverlay">
     <div class="overlay-content">
       <button id="closeCloudOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="cloudOverlay">Back to Tree</button>
       <h2>Cloud Data</h2>
       <h3>Object Cloud</h3>
       <div id="overlayObjectCloud"></div>
@@ -426,6 +432,7 @@
   <div id="statsOverlay">
     <div class="overlay-content">
       <button id="closeStatsOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="statsOverlay">Back to Tree</button>
       <h2>DXF Statistics</h2>
       <div id="overlayStatsContent"></div>
     </div>
@@ -433,11 +440,12 @@
   <div id="depsOverlay">
     <div class="overlay-content">
       <button id="closeDepsOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="depsOverlay">Back to Tree</button>
       <h2>DXF Dependencies</h2>
       <div id="overlayDepsContent"></div>
     </div>
   </div>
-  <!-- New Hex Viewer Overlay with Preview and ZIP Browsing -->
+  <!-- Hex Viewer Overlay -->
   <div id="hexViewerOverlay">
     <div class="overlay-content">
       <button id="closeHexViewerOverlay">Close</button>
@@ -445,25 +453,25 @@
       <button id="previewImageBtn">Preview Image</button>
       <h2>Hex Viewer</h2>
       <div id="headerInfo"></div>
-      <!-- Hex dump area -->
       <pre id="hexContent" style="overflow:auto; height: calc(100% - 160px);"></pre>
-      <!-- Containers for image preview and ZIP contents -->
       <div id="imagePreviewContainer"></div>
       <div id="zipContentsContainer"></div>
     </div>
   </div>
-  <!-- NEW: Overlay for listing Binary Data Objects -->
+  <!-- Binary Objects Overlay -->
   <div id="binaryObjectsOverlay">
     <div class="overlay-content">
       <button id="closeBinaryObjectsOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="binaryObjectsOverlay">Back to Tree</button>
       <h2>Binary Data Objects</h2>
       <div id="binaryObjectsList"></div>
     </div>
   </div>
-  <!-- NEW: New overlay for the DXF Handle Map -->
+  <!-- Handle Map Overlay -->
   <div id="handleMapOverlay">
     <div class="overlay-content">
       <button id="closeHandleMapOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="handleMapOverlay">Back to Tree</button>
       <h2>DXF Handle Map</h2>
       <div id="overlayHandleMapContent"></div>
     </div>
@@ -473,7 +481,6 @@
   <script>
     // Convert a concatenated hex string into a Uint8Array.
     function hexStringToByteArray(hexString) {
-      // Remove any whitespace
       hexString = hexString.replace(/\s+/g, "");
       const byteLength = Math.floor(hexString.length / 2);
       const result = new Uint8Array(byteLength);
@@ -482,7 +489,6 @@
       }
       return result;
     }
-
     // Produce a hex dump from a Uint8Array.
     function hexDump(buffer) {
       const bytesPerLine = 16;
@@ -493,7 +499,6 @@
         const asciiChars = lineBytes.map(byte =>
           byte >= 32 && byte < 127 ? String.fromCharCode(byte) : '.'
         );
-        // Pad the last line if fewer than 16 bytes.
         while (hexBytes.length < bytesPerLine) {
           hexBytes.push("  ");
           asciiChars.push(" ");
@@ -504,32 +509,25 @@
       }
       return result;
     }
-
     // Attempt to detect a common file header from a Uint8Array.
     function detectHeader(buffer) {
-      // BMP: "BM"
       if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4D) return "BMP Image";
-      // PNG: 89 50 4E 47 0D 0A 1A 0A
       if (buffer.length >= 8 &&
           buffer[0] === 0x89 && buffer[1] === 0x50 &&
           buffer[2] === 0x4E && buffer[3] === 0x47 &&
           buffer[4] === 0x0D && buffer[5] === 0x0A &&
           buffer[6] === 0x1A && buffer[7] === 0x0A)
         return "PNG Image";
-      // GIF: "GIF87a" or "GIF89a"
       if (buffer.length >= 6) {
         const header = String.fromCharCode(...buffer.slice(0,6));
         if (header === "GIF87a" || header === "GIF89a") return "GIF Image";
       }
-      // JPEG: FF D8 FF
       if (buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF)
         return "JPEG Image";
-      // PDF: "%PDF"
       if (buffer.length >= 4) {
         const header = String.fromCharCode(...buffer.slice(0,4));
         if (header === "%PDF") return "PDF Document";
       }
-      // ZIP: "PK\x03\x04"
       if (buffer.length >= 4 &&
           buffer[0] === 0x50 && buffer[1] === 0x4B &&
           buffer[2] === 0x03 && buffer[3] === 0x04)
@@ -566,15 +564,12 @@
           const code = parseInt(codeLine, 10);
           if (isNaN(code)) continue;
           let value = "";
-          if (i + 1 < lines.length) {
-            value = lines[i + 1].trim();
-          }
+          if (i + 1 < lines.length) { value = lines[i + 1].trim(); }
           i++;
           tags.push({ line: i, code, value });
         }
         return tags;
       }
-      // New method: parse an array of lines.
       parseDxfLines(lines) {
         const tags = [];
         for (let i = 0; i < lines.length; i++) {
@@ -583,9 +578,7 @@
           const code = parseInt(codeLine, 10);
           if (isNaN(code)) continue;
           let value = "";
-          if (i + 1 < lines.length) {
-            value = lines[i + 1].trim();
-          }
+          if (i + 1 < lines.length) { value = lines[i + 1].trim(); }
           i++;
           tags.push({ line: i, code, value });
         }
@@ -599,10 +592,7 @@
             i++;
             return { objects, nextIndex: i };
           }
-          if (tags[i].code !== 0) {
-            i++;
-            continue;
-          }
+          if (tags[i].code !== 0) { i++; continue; }
           const obj = {
             id: this.nextId++,
             type: tags[i].value,
@@ -648,14 +638,9 @@
           lines.push(prop.value);
         });
         if (node.isContainer && node.children && node.children.length) {
-          node.children.forEach(child => {
-            lines.push(this.serializeNode(child));
-          });
+          node.children.forEach(child => { lines.push(this.serializeNode(child)); });
           const endMarker = this.containerMapping[node.type.toUpperCase()];
-          if (endMarker) {
-            lines.push("0");
-            lines.push(endMarker);
-          }
+          if (endMarker) { lines.push("0"); lines.push(endMarker); }
         }
         return lines.join("\n");
       }
@@ -677,9 +662,7 @@
         this.columnWidths = options.columnWidths || {};
         this.flatData = [];
         this.treeData = [];
-        this.container.addEventListener("scroll", () => {
-          requestAnimationFrame(() => this.updateVisibleNodes());
-        });
+        this.container.addEventListener("scroll", () => { requestAnimationFrame(() => this.updateVisibleNodes()); });
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
             const row = e.target.closest(".tree-row");
@@ -866,7 +849,6 @@
               });
               dataDiv.appendChild(copyButton);
             }
-            // Collect all binary tags (group code 310) and concatenate their values.
             if (!node.isProperty && node.properties) {
               const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
               if (binaryProps.length > 0) {
@@ -918,8 +900,8 @@
         this.treeViewContent = document.getElementById("treeViewContent");
         this.tabs = [];
         this.activeTabId = null;
-        this.currentBinaryData = null; // For saving binary from hex viewer
-        this.currentDetectedType = null; // For previewing and proper extension
+        this.currentBinaryData = null;
+        this.currentDetectedType = null;
         this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -971,14 +953,14 @@
         document.getElementById("closeDepsOverlay").addEventListener("click", () => {
           document.getElementById("depsOverlay").style.display = "none";
         });
-        // NEW: Event listener for Binary Objects overlay button
+        // Binary Objects overlay
         document.getElementById("showBinaryObjectsOverlayBtn").addEventListener("click", () => {
           this.showBinaryObjectsOverlay();
         });
         document.getElementById("closeBinaryObjectsOverlay").addEventListener("click", () => {
           document.getElementById("binaryObjectsOverlay").style.display = "none";
         });
-        // NEW: Event listeners for the Handle Map overlay
+        // Handle Map overlay
         document.getElementById("showHandleMapOverlayBtn").addEventListener("click", () => {
           this.updateHandleMap();
           document.getElementById("handleMapOverlay").style.display = "block";
@@ -1009,13 +991,10 @@
           const scrollLeft = e.target.scrollLeft;
           document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
         });
-        window.addEventListener("resize", () => {
-          this.myTreeView.updateVisibleNodes();
-        });
-        // Hex viewer overlay event listeners
+        window.addEventListener("resize", () => { this.myTreeView.updateVisibleNodes(); });
+        // Hex Viewer overlay event listeners
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
-          // Clear image and ZIP preview when closing hex viewer.
           document.getElementById("imagePreviewContainer").innerHTML = "";
           document.getElementById("zipContentsContainer").innerHTML = "";
         });
@@ -1044,9 +1023,14 @@
             URL.revokeObjectURL(url);
           }
         });
-        // Preview Image button event listener
-        document.getElementById("previewImageBtn").addEventListener("click", () => {
-          this.previewImage();
+        document.getElementById("previewImageBtn").addEventListener("click", () => { this.previewImage(); });
+        // Back-to-Tree buttons in overlays
+        document.querySelectorAll(".backToTreeBtn").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            const overlayId = btn.getAttribute("data-overlay");
+            document.getElementById(overlayId).style.display = "none";
+            this.treeViewContainer.focus();
+          });
         });
       }
       updateEffectiveSearchTerms() {
@@ -1064,10 +1048,8 @@
         if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
           effectiveDataSearchTerms.push(dataText);
         }
-        const minLineInputVal = document.getElementById("minLineInput").value.trim();
-        const maxLineInputVal = document.getElementById("maxLineInput").value.trim();
-        const minLine = minLineInputVal !== "" ? parseInt(minLineInputVal, 10) : null;
-        const maxLine = maxLineInputVal !== "" ? parseInt(maxLineInputVal, 10) : null;
+        const minLine = document.getElementById("minLineInput").value.trim() !== "" ? parseInt(document.getElementById("minLineInput").value.trim(), 10) : null;
+        const maxLine = document.getElementById("maxLineInput").value.trim() !== "" ? parseInt(document.getElementById("maxLineInput").value.trim(), 10) : null;
         activeTab.minLine = minLine;
         activeTab.maxLine = maxLine;
         activeTab.dataExact = document.getElementById("dataExactCheckbox").checked;
@@ -1422,7 +1404,6 @@
           alert("Failed to copy to clipboard.");
         });
       }
-      // New method: stream the file and process it in chunks.
       async parseFileStream(file) {
         const reader = file.stream().getReader();
         const decoder = new TextDecoder("ascii");
@@ -1442,7 +1423,6 @@
         const grouped = this.dxfParser.groupObjects(tags, 0);
         return grouped.objects;
       }
-      // Updated handleParse() that uses streamed parsing if selected.
       handleParse() {
         const fileInput = document.getElementById("fileInput");
         const useStream = document.getElementById("useStreamCheckbox").checked;
@@ -1789,7 +1769,9 @@
             span.className = "cloud-tag";
             span.style.fontSize = fontSize + "px";
             span.textContent = `${key} (${count})`;
+            span.style.cursor = "pointer";
             span.addEventListener("click", () => {
+              document.getElementById("cloudOverlay").style.display = "none";
               this.handleCloudTagClick(cloudType, key);
             });
             element.appendChild(span);
@@ -1800,6 +1782,54 @@
         const overlayCodeCloudElem = document.getElementById("overlayCodeCloud");
         populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
         populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
+      }
+      // NEW: Modified to search using case‑insensitive substring matching for objects.
+      handleCloudTagClick(cloudType, key) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        if (cloudType === "object") {
+          function search(nodes) {
+            for (const node of nodes) {
+              if (node.type && node.type.toLowerCase().includes(key.toLowerCase())) {
+                return node;
+              }
+              if (node.children && node.children.length) {
+                const result = search(node.children);
+                if (result) return result;
+              }
+            }
+            return null;
+          }
+          const found = search(activeTab.originalTreeData);
+          if (found && found.handle) {
+            this.handleLinkToHandle(found.handle);
+          } else {
+            alert("No matching object found for type: " + key);
+          }
+        } else if (cloudType === "code") {
+          function search(nodes) {
+            for (const node of nodes) {
+              if (node.properties && node.properties.length) {
+                for (const prop of node.properties) {
+                  if (String(prop.code) === key) {
+                    return node;
+                  }
+                }
+              }
+              if (node.children && node.children.length) {
+                const result = search(node.children);
+                if (result) return result;
+              }
+            }
+            return null;
+          }
+          const found = search(activeTab.originalTreeData);
+          if (found && found.handle) {
+            this.handleLinkToHandle(found.handle);
+          } else {
+            alert("No matching object found for code: " + key);
+          }
+        }
       }
       updateStats() {
         const activeTab = this.getActiveTab();
@@ -1822,9 +1852,7 @@
               let nodeDataSize = node.type ? node.type.length : 0;
               if (node.properties && node.properties.length) {
                 stats.totalProperties += node.properties.length;
-                node.properties.forEach(prop => {
-                  nodeDataSize += prop.value ? prop.value.length : 0;
-                });
+                node.properties.forEach(prop => { nodeDataSize += prop.value ? prop.value.length : 0; });
               }
               stats.totalDataSize += nodeDataSize;
               if (node.children && node.children.length) {
@@ -1853,13 +1881,21 @@
             <li><strong>Object Type Counts:</strong>
               <ul>
                 ${Object.entries(stats.countByType)
-                  .map(([type, count]) => `<li>${type}: ${count}</li>`)
+                  .map(([type, count]) => `<li><a href="#" class="stats-type" data-type="${type}">${type}: ${count}</a></li>`)
                   .join('')}
               </ul>
             </li>
           </ul>
         `;
         document.getElementById("overlayStatsContent").innerHTML = statsHtml;
+        document.querySelectorAll(".stats-type").forEach(link => {
+          link.addEventListener("click", (e) => {
+            e.preventDefault();
+            const type = link.getAttribute("data-type");
+            document.getElementById("statsOverlay").style.display = "none";
+            this.handleCloudTagClick("object", type);
+          });
+        });
       }
       updateDependencies() {
         const activeTab = this.getActiveTab();
@@ -1890,33 +1926,40 @@
                 const propSummary = dep.properties.map(p => `${p.code}:${p.value}`).join(", ");
                 depInfo += ` [${propSummary}]`;
               }
-              html += `<li>${depInfo}</li>`;
+              if (dep.handle) {
+                html += `<li><a href="#" class="dep-link" data-handle="${dep.handle}">${depInfo}</a></li>`;
+              } else {
+                html += `<li>${depInfo}</li>`;
+              }
             });
             html += "</ul>";
           }
         });
         if (!html) { html = "No external dependency objects found."; }
         document.getElementById("overlayDepsContent").innerHTML = html;
+        const self = this;
+        document.querySelectorAll(".dep-link").forEach(link => {
+          link.addEventListener("click", function(e) {
+            e.preventDefault();
+            document.getElementById("depsOverlay").style.display = "none";
+            const handle = this.getAttribute("data-handle");
+            self.handleLinkToHandle(handle);
+          });
+        });
       }
-      // NEW: Display the hex viewer overlay using combined hex string.
+      // NEW: Show the hex viewer overlay.
       showHexViewer(combinedHexString) {
-        // Convert the concatenated hex string to a binary (byte) array.
         const binaryArray = hexStringToByteArray(combinedHexString);
-        // Generate a hex dump from the binary data.
         const dump = hexDump(binaryArray);
         const hexContentElem = document.getElementById("hexContent");
         const headerInfoElem = document.getElementById("headerInfo");
         hexContentElem.textContent = dump;
-        // Detect a header from the binary data.
         const detectedType = detectHeader(binaryArray);
         headerInfoElem.textContent = detectedType ? "Detected file type: " + detectedType : "Unknown file type";
-        // Store the binary data and detected type for later use.
         this.currentBinaryData = binaryArray;
         this.currentDetectedType = detectedType;
         document.getElementById("hexViewerOverlay").style.display = "block";
-        // Depending on file type, show preview or ZIP contents.
         if (detectedType === "ZIP Archive") {
-          // Clear any image preview.
           document.getElementById("imagePreviewContainer").innerHTML = "";
           this.browseZip(binaryArray);
         } else if (detectedType === "PNG Image" || detectedType === "GIF Image" ||
@@ -1924,17 +1967,13 @@
           this.previewImage();
           document.getElementById("zipContentsContainer").innerHTML = "";
         } else {
-          // Clear both preview containers.
           document.getElementById("imagePreviewContainer").innerHTML = "";
           document.getElementById("zipContentsContainer").innerHTML = "";
         }
       }
-      // NEW: Preview image from binary data (for known image types).
+      // NEW: Preview image from binary data.
       previewImage() {
-        if (!this.currentBinaryData) {
-          alert("No binary data available.");
-          return;
-        }
+        if (!this.currentBinaryData) { alert("No binary data available."); return; }
         const imageTypes = {
           "PNG Image": "image/png",
           "GIF Image": "image/gif",
@@ -1949,7 +1988,7 @@
         const blob = new Blob([this.currentBinaryData], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const container = document.getElementById("imagePreviewContainer");
-        container.innerHTML = ""; // Clear any previous preview.
+        container.innerHTML = "";
         const img = document.createElement("img");
         img.src = url;
         img.style.maxWidth = "100%";
@@ -2021,27 +2060,23 @@
           alert("Failed to load ZIP file: " + err);
         });
       }
-      // NEW: Build the DXF Handle Map (based on the owner relationship from group code 330)
+      // NEW: Build the DXF Handle Map.
       updateHandleMap() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
           document.getElementById("overlayHandleMapContent").innerHTML = "No DXF data loaded.";
           return;
         }
-        // Build a mapping from handle value to a simple node object
         const nodesByHandle = {};
         function traverse(nodes) {
           nodes.forEach(node => {
             if (node.handle) {
               nodesByHandle[node.handle] = { handle: node.handle, type: node.type, line: node.line, children: [] };
             }
-            if (node.children && node.children.length > 0) {
-              traverse(node.children);
-            }
+            if (node.children && node.children.length > 0) { traverse(node.children); }
           });
         }
         traverse(activeTab.originalTreeData);
-        // Now, for each node, if it has an owner property (group code 330), attach it as a child to the owner
         const roots = [];
         function assignOwner(nodes) {
           nodes.forEach(node => {
@@ -2049,31 +2084,33 @@
             const ownerProp = node.properties.find(prop => Number(prop.code) === 330);
             if (ownerProp && ownerProp.value && nodesByHandle[ownerProp.value]) {
               const parent = nodesByHandle[ownerProp.value];
-              if (current) {
-                parent.children.push(current);
-              }
+              if (current) { parent.children.push(current); }
             } else {
-              if (current) {
-                roots.push(current);
-              }
+              if (current) { roots.push(current); }
             }
-            if (node.children && node.children.length > 0) {
-              assignOwner(node.children);
-            }
+            if (node.children && node.children.length > 0) { assignOwner(node.children); }
           });
         }
         assignOwner(activeTab.originalTreeData);
-        // Remove duplicates from roots
         const uniqueRoots = Array.from(new Set(roots));
-        // Build HTML list from the tree
         function buildList(items) {
           const ul = document.createElement("ul");
           items.forEach(item => {
             const li = document.createElement("li");
-            li.textContent = `Handle: ${item.handle} | Type: ${item.type} | Line: ${item.line}`;
-            if (item.children && item.children.length > 0) {
-              li.appendChild(buildList(item.children));
+            if (item.handle) {
+              const a = document.createElement("a");
+              a.href = "#";
+              a.textContent = `Handle: ${item.handle} | Type: ${item.type} | Line: ${item.line}`;
+              a.addEventListener("click", (e) => {
+                e.preventDefault();
+                document.getElementById("handleMapOverlay").style.display = "none";
+                this.handleLinkToHandle(item.handle);
+              });
+              li.appendChild(a);
+            } else {
+              li.textContent = `Type: ${item.type} | Line: ${item.line}`;
             }
+            if (item.children && item.children.length > 0) { li.appendChild(buildList(item.children)); }
             ul.appendChild(li);
           });
           return ul;
@@ -2083,10 +2120,11 @@
         if (uniqueRoots.length === 0) {
           container.textContent = "No owner relationships (code 330) found.";
         } else {
-          container.appendChild(buildList(uniqueRoots));
+          // Use .bind(this) so that "this" inside buildList refers to our App instance.
+          container.appendChild(buildList.call(this, uniqueRoots));
         }
       }
-      // NEW: Show the Binary Objects overlay listing all nodes with binary (group code 310) data.
+      // NEW: Show the Binary Objects overlay.
       showBinaryObjectsOverlay() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("binaryObjectsList");
@@ -2101,13 +2139,9 @@
           nodes.forEach(node => {
             if (!node.isProperty && node.properties) {
               const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
-              if (binaryProps.length > 0) {
-                binaryNodes.push(node);
-              }
+              if (binaryProps.length > 0) { binaryNodes.push(node); }
             }
-            if (node.children && node.children.length > 0) {
-              findBinaryNodes(node.children);
-            }
+            if (node.children && node.children.length > 0) { findBinaryNodes(node.children); }
           });
         }
         findBinaryNodes(activeTab.originalTreeData);
@@ -2119,25 +2153,36 @@
             div.style.borderBottom = "1px solid #ccc";
             div.style.padding = "5px";
             let info = `Type: ${node.type} | Line: ${node.line}`;
-            if (node.handle) {
-              info += ` | Handle: ${node.handle}`;
-            }
-            div.textContent = info + " ";
+            if (node.handle) { info += ` | Handle: ${node.handle}`; }
+            const infoSpan = document.createElement("span");
+            infoSpan.textContent = info + " ";
+            div.appendChild(infoSpan);
             const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
             const combinedData = binaryProps.map(prop => prop.value).join("");
             const hexBtn = document.createElement("button");
             hexBtn.textContent = "Hex Viewer";
-            hexBtn.addEventListener("click", () => {
-              this.showHexViewer(combinedData);
-            });
+            hexBtn.addEventListener("click", () => { this.showHexViewer(combinedData); });
             div.appendChild(hexBtn);
+            if (node.handle) {
+              const showLink = document.createElement("a");
+              showLink.href = "#";
+              showLink.textContent = "Show in Tree";
+              showLink.style.marginLeft = "10px";
+              showLink.addEventListener("click", (e) => {
+                e.preventDefault();
+                document.getElementById("binaryObjectsOverlay").style.display = "none";
+                this.handleLinkToHandle(node.handle);
+              });
+              div.appendChild(showLink);
+            }
             listContainer.appendChild(div);
           });
         }
         document.getElementById("binaryObjectsOverlay").style.display = "block";
       }
     }
-    document.addEventListener("DOMContentLoaded", () => { new App(); });
+    // Make the App globally accessible.
+    document.addEventListener("DOMContentLoaded", () => { window.app = new App(); });
   </script>
 </body>
 </html>
