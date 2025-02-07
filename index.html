@@ -248,7 +248,8 @@
     #closeStatsOverlay,
     #closeDepsOverlay,
     #closeHexViewerOverlay,
-    #saveBinaryBtn {
+    #saveBinaryBtn,
+    #previewImageBtn {
       position: absolute;
       top: 10px;
       cursor: pointer;
@@ -258,6 +259,7 @@
     #closeDepsOverlay,
     #closeHexViewerOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
+    #previewImageBtn { right: 170px; }
     .cloud-tag {
       display: inline-block;
       margin: 4px;
@@ -415,14 +417,17 @@
       <div id="overlayDepsContent"></div>
     </div>
   </div>
-  <!-- New Hex Viewer Overlay -->
+  <!-- New Hex Viewer Overlay with Preview Button -->
   <div id="hexViewerOverlay">
     <div class="overlay-content">
       <button id="closeHexViewerOverlay">Close</button>
       <button id="saveBinaryBtn">Save Binary</button>
+      <button id="previewImageBtn">Preview Image</button>
       <h2>Hex Viewer</h2>
       <div id="headerInfo"></div>
-      <pre id="hexContent" style="overflow:auto; height: calc(100% - 100px);"></pre>
+      <!-- Adjusted height to leave space for image preview -->
+      <pre id="hexContent" style="overflow:auto; height: calc(100% - 160px);"></pre>
+      <div id="imagePreviewContainer" style="margin-top: 10px;"></div>
     </div>
   </div>
 
@@ -887,6 +892,7 @@
         this.tabs = [];
         this.activeTabId = null;
         this.currentBinaryData = null; // For saving binary from hex viewer
+        this.currentDetectedType = null; // For previewing known image formats
         this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -967,6 +973,8 @@
         // Hex viewer overlay event listeners
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
+          // Clear image preview when closing hex viewer.
+          document.getElementById("imagePreviewContainer").innerHTML = "";
         });
         document.getElementById("saveBinaryBtn").addEventListener("click", () => {
           if (this.currentBinaryData) {
@@ -980,6 +988,34 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
           }
+        });
+        // NEW: Preview Image button event listener
+        document.getElementById("previewImageBtn").addEventListener("click", () => {
+          if (!this.currentBinaryData) {
+            alert("No binary data available.");
+            return;
+          }
+          // Map detected file types to MIME types.
+          const imageTypes = {
+            "PNG Image": "image/png",
+            "GIF Image": "image/gif",
+            "JPEG Image": "image/jpeg",
+            "BMP Image": "image/bmp"
+          };
+          if (!this.currentDetectedType || !imageTypes[this.currentDetectedType]) {
+            alert("Preview not available for this file type.");
+            return;
+          }
+          const mimeType = imageTypes[this.currentDetectedType];
+          const blob = new Blob([this.currentBinaryData], { type: mimeType });
+          const url = URL.createObjectURL(blob);
+          const container = document.getElementById("imagePreviewContainer");
+          container.innerHTML = ""; // Clear any previous preview.
+          const img = document.createElement("img");
+          img.src = url;
+          img.style.maxWidth = "100%";
+          img.style.maxHeight = "300px";
+          container.appendChild(img);
         });
       }
       updateEffectiveSearchTerms() {
@@ -1843,8 +1879,9 @@
         // Detect a header from the binary data.
         const detectedType = detectHeader(binaryArray);
         headerInfoElem.textContent = detectedType ? "Detected file type: " + detectedType : "Unknown file type";
-        // Store the binary data for possible saving.
+        // Store the binary data and detected type for later use.
         this.currentBinaryData = binaryArray;
+        this.currentDetectedType = detectedType;
         document.getElementById("hexViewerOverlay").style.display = "block";
       }
     }
