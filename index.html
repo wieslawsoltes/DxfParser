@@ -5,6 +5,8 @@
   <!-- This meta tag makes the app responsive on mobile devices -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DXF Parser</title>
+  <!-- Include JSZip for ZIP file browsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
   <style>
     /* Base Styles */
     html, body { height: 100%; margin: 0; padding: 0; }
@@ -278,6 +280,10 @@
       padding: 0.5em 0;
       border-bottom: 1px solid #eee;
     }
+    /* Additional containers for previews */
+    #imagePreviewContainer, #zipContentsContainer {
+      margin-top: 10px;
+    }
     /* Responsive adjustments for mobile */
     @media (max-width: 600px) {
       .filter-panel .filter-content > * {
@@ -417,7 +423,7 @@
       <div id="overlayDepsContent"></div>
     </div>
   </div>
-  <!-- New Hex Viewer Overlay with Preview Button -->
+  <!-- New Hex Viewer Overlay with Preview and ZIP Browsing -->
   <div id="hexViewerOverlay">
     <div class="overlay-content">
       <button id="closeHexViewerOverlay">Close</button>
@@ -425,9 +431,11 @@
       <button id="previewImageBtn">Preview Image</button>
       <h2>Hex Viewer</h2>
       <div id="headerInfo"></div>
-      <!-- Adjusted height to leave space for image preview -->
+      <!-- Hex dump area -->
       <pre id="hexContent" style="overflow:auto; height: calc(100% - 160px);"></pre>
-      <div id="imagePreviewContainer" style="margin-top: 10px;"></div>
+      <!-- Containers for image preview and ZIP contents -->
+      <div id="imagePreviewContainer"></div>
+      <div id="zipContentsContainer"></div>
     </div>
   </div>
 
@@ -869,17 +877,6 @@
         this.content.appendChild(containerElem);
         this.syncHeaderWidths();
       }
-      computeObjectCount(node) {
-        if (!node.children || node.children.length === 0) return 0;
-        let count = 0;
-        for (let child of node.children) {
-          if (!child.isProperty) {
-            count++;
-            if (child.children && child.children.length) { count += this.computeObjectCount(child); }
-          }
-        }
-        return count;
-      }
     }
   </script>
   <script>
@@ -892,7 +889,7 @@
         this.tabs = [];
         this.activeTabId = null;
         this.currentBinaryData = null; // For saving binary from hex viewer
-        this.currentDetectedType = null; // For previewing known image formats
+        this.currentDetectedType = null; // For previewing and proper extension
         this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -973,49 +970,38 @@
         // Hex viewer overlay event listeners
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
-          // Clear image preview when closing hex viewer.
+          // Clear image and ZIP preview when closing hex viewer.
           document.getElementById("imagePreviewContainer").innerHTML = "";
+          document.getElementById("zipContentsContainer").innerHTML = "";
         });
         document.getElementById("saveBinaryBtn").addEventListener("click", () => {
           if (this.currentBinaryData) {
+            const typeExtensions = {
+              "PNG Image": "png",
+              "GIF Image": "gif",
+              "JPEG Image": "jpg",
+              "BMP Image": "bmp",
+              "PDF Document": "pdf",
+              "ZIP Archive": "zip"
+            };
+            let ext = "bin";
+            if (this.currentDetectedType && typeExtensions[this.currentDetectedType]) {
+              ext = typeExtensions[this.currentDetectedType];
+            }
             const blob = new Blob([this.currentBinaryData], { type: "application/octet-stream" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = "binary_data.bin";
+            a.download = "binary_data." + ext;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
           }
         });
-        // NEW: Preview Image button event listener
+        // Preview Image button event listener
         document.getElementById("previewImageBtn").addEventListener("click", () => {
-          if (!this.currentBinaryData) {
-            alert("No binary data available.");
-            return;
-          }
-          // Map detected file types to MIME types.
-          const imageTypes = {
-            "PNG Image": "image/png",
-            "GIF Image": "image/gif",
-            "JPEG Image": "image/jpeg",
-            "BMP Image": "image/bmp"
-          };
-          if (!this.currentDetectedType || !imageTypes[this.currentDetectedType]) {
-            alert("Preview not available for this file type.");
-            return;
-          }
-          const mimeType = imageTypes[this.currentDetectedType];
-          const blob = new Blob([this.currentBinaryData], { type: mimeType });
-          const url = URL.createObjectURL(blob);
-          const container = document.getElementById("imagePreviewContainer");
-          container.innerHTML = ""; // Clear any previous preview.
-          const img = document.createElement("img");
-          img.src = url;
-          img.style.maxWidth = "100%";
-          img.style.maxHeight = "300px";
-          container.appendChild(img);
+          this.previewImage();
         });
       }
       updateEffectiveSearchTerms() {
@@ -1883,6 +1869,112 @@
         this.currentBinaryData = binaryArray;
         this.currentDetectedType = detectedType;
         document.getElementById("hexViewerOverlay").style.display = "block";
+        // Depending on file type, show preview or ZIP contents.
+        if (detectedType === "ZIP Archive") {
+          // Clear any image preview.
+          document.getElementById("imagePreviewContainer").innerHTML = "";
+          this.browseZip(binaryArray);
+        } else if (detectedType === "PNG Image" || detectedType === "GIF Image" ||
+                   detectedType === "JPEG Image" || detectedType === "BMP Image") {
+          this.previewImage();
+          document.getElementById("zipContentsContainer").innerHTML = "";
+        } else {
+          // Clear both preview containers.
+          document.getElementById("imagePreviewContainer").innerHTML = "";
+          document.getElementById("zipContentsContainer").innerHTML = "";
+        }
+      }
+      // NEW: Preview image from binary data (for known image types).
+      previewImage() {
+        if (!this.currentBinaryData) {
+          alert("No binary data available.");
+          return;
+        }
+        const imageTypes = {
+          "PNG Image": "image/png",
+          "GIF Image": "image/gif",
+          "JPEG Image": "image/jpeg",
+          "BMP Image": "image/bmp"
+        };
+        if (!this.currentDetectedType || !imageTypes[this.currentDetectedType]) {
+          alert("Preview not available for this file type.");
+          return;
+        }
+        const mimeType = imageTypes[this.currentDetectedType];
+        const blob = new Blob([this.currentBinaryData], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const container = document.getElementById("imagePreviewContainer");
+        container.innerHTML = ""; // Clear any previous preview.
+        const img = document.createElement("img");
+        img.src = url;
+        img.style.maxWidth = "100%";
+        img.style.maxHeight = "300px";
+        container.appendChild(img);
+      }
+      // NEW: Browse ZIP file contents using JSZip.
+      browseZip(binaryArray) {
+        const blob = new Blob([binaryArray], { type: "application/zip" });
+        JSZip.loadAsync(blob).then(zip => {
+          const container = document.getElementById("zipContentsContainer");
+          container.innerHTML = "<h3>ZIP Contents</h3>";
+          Object.keys(zip.files).forEach(filename => {
+            const file = zip.files[filename];
+            const fileDiv = document.createElement("div");
+            fileDiv.style.borderBottom = "1px solid #ccc";
+            fileDiv.style.padding = "5px";
+            fileDiv.innerHTML = `<strong>${filename}</strong> (${file._data.uncompressedSize || 0} bytes) `;
+            if (!file.dir) {
+              const previewBtn = document.createElement("button");
+              previewBtn.textContent = "Preview";
+              previewBtn.addEventListener("click", () => {
+                const lowerName = filename.toLowerCase();
+                if (lowerName.endsWith(".png") || lowerName.endsWith(".jpg") ||
+                    lowerName.endsWith(".jpeg") || lowerName.endsWith(".gif") ||
+                    lowerName.endsWith(".bmp")) {
+                  file.async("base64").then(content => {
+                    const img = document.createElement("img");
+                    let mimeType = "image/png";
+                    if(lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) mimeType = "image/jpeg";
+                    else if(lowerName.endsWith(".gif")) mimeType = "image/gif";
+                    else if(lowerName.endsWith(".bmp")) mimeType = "image/bmp";
+                    img.src = `data:${mimeType};base64,${content}`;
+                    const previewContainer = document.createElement("div");
+                    previewContainer.style.marginTop = "10px";
+                    previewContainer.appendChild(img);
+                    fileDiv.appendChild(previewContainer);
+                  });
+                } else {
+                  file.async("string").then(content => {
+                    const pre = document.createElement("pre");
+                    pre.textContent = content;
+                    pre.style.maxHeight = "200px";
+                    pre.style.overflow = "auto";
+                    fileDiv.appendChild(pre);
+                  });
+                }
+              });
+              fileDiv.appendChild(previewBtn);
+              const downloadBtn = document.createElement("button");
+              downloadBtn.textContent = "Download";
+              downloadBtn.addEventListener("click", () => {
+                file.async("blob").then(blobContent => {
+                  const url = URL.createObjectURL(blobContent);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                });
+              });
+              fileDiv.appendChild(downloadBtn);
+            }
+            container.appendChild(fileDiv);
+          });
+        }).catch(err => {
+          alert("Failed to load ZIP file: " + err);
+        });
       }
     }
     document.addEventListener("DOMContentLoaded", () => { new App(); });
