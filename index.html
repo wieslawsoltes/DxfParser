@@ -38,6 +38,7 @@
       gap: 0.5em;
       flex-wrap: wrap;
     }
+    /* NEW: Added button styles remain the same as the other top-right buttons */
     #navHistoryContainer {
       margin-bottom: 1em;
       padding: 0.5em;
@@ -225,7 +226,9 @@
     #cloudOverlay,
     #statsOverlay,
     #depsOverlay,
-    #hexViewerOverlay {
+    #hexViewerOverlay,
+    /* NEW: New overlay for Handle Map */
+    #handleMapOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -250,6 +253,8 @@
     #closeStatsOverlay,
     #closeDepsOverlay,
     #closeHexViewerOverlay,
+    /* NEW: New close button for handle map overlay */
+    #closeHandleMapOverlay,
     #saveBinaryBtn,
     #previewImageBtn {
       position: absolute;
@@ -259,7 +264,9 @@
     #closeCloudOverlay,
     #closeStatsOverlay,
     #closeDepsOverlay,
-    #closeHexViewerOverlay { right: 10px; }
+    #closeHexViewerOverlay,
+    /* NEW: New handle map close button */
+    #closeHandleMapOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
     #previewImageBtn { right: 170px; }
     .cloud-tag {
@@ -313,6 +320,8 @@
         <button id="showCloudOverlayBtn">Show Cloud Data</button>
         <button id="showStatsOverlayBtn">Show DXF Statistics</button>
         <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
+        <!-- NEW: New button to show the DXF Handle Map -->
+        <button id="showHandleMapOverlayBtn">Show Handle Map</button>
       </div>
     </div>
     <!-- File input row with streaming option -->
@@ -436,6 +445,14 @@
       <!-- Containers for image preview and ZIP contents -->
       <div id="imagePreviewContainer"></div>
       <div id="zipContentsContainer"></div>
+    </div>
+  </div>
+  <!-- NEW: New overlay for the DXF Handle Map -->
+  <div id="handleMapOverlay">
+    <div class="overlay-content">
+      <button id="closeHandleMapOverlay">Close</button>
+      <h2>DXF Handle Map</h2>
+      <div id="overlayHandleMapContent"></div>
     </div>
   </div>
 
@@ -940,6 +957,14 @@
         });
         document.getElementById("closeDepsOverlay").addEventListener("click", () => {
           document.getElementById("depsOverlay").style.display = "none";
+        });
+        // NEW: Event listeners for the Handle Map overlay
+        document.getElementById("showHandleMapOverlayBtn").addEventListener("click", () => {
+          this.updateHandleMap();
+          document.getElementById("handleMapOverlay").style.display = "block";
+        });
+        document.getElementById("closeHandleMapOverlay").addEventListener("click", () => {
+          document.getElementById("handleMapOverlay").style.display = "none";
         });
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -1975,6 +2000,71 @@
         }).catch(err => {
           alert("Failed to load ZIP file: " + err);
         });
+      }
+      // NEW: Build the DXF Handle Map (based on the owner relationship from group code 330)
+      updateHandleMap() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          document.getElementById("overlayHandleMapContent").innerHTML = "No DXF data loaded.";
+          return;
+        }
+        // Build a mapping from handle value to a simple node object
+        const nodesByHandle = {};
+        function traverse(nodes) {
+          nodes.forEach(node => {
+            if (node.handle) {
+              nodesByHandle[node.handle] = { handle: node.handle, type: node.type, line: node.line, children: [] };
+            }
+            if (node.children && node.children.length > 0) {
+              traverse(node.children);
+            }
+          });
+        }
+        traverse(activeTab.originalTreeData);
+        // Now, for each node, if it has an owner property (group code 330), attach it as a child to the owner
+        const roots = [];
+        function assignOwner(nodes) {
+          nodes.forEach(node => {
+            const current = node.handle ? nodesByHandle[node.handle] : null;
+            const ownerProp = node.properties.find(prop => Number(prop.code) === 330);
+            if (ownerProp && ownerProp.value && nodesByHandle[ownerProp.value]) {
+              const parent = nodesByHandle[ownerProp.value];
+              if (current) {
+                parent.children.push(current);
+              }
+            } else {
+              if (current) {
+                roots.push(current);
+              }
+            }
+            if (node.children && node.children.length > 0) {
+              assignOwner(node.children);
+            }
+          });
+        }
+        assignOwner(activeTab.originalTreeData);
+        // Remove duplicates from roots
+        const uniqueRoots = Array.from(new Set(roots));
+        // Build HTML list from the tree
+        function buildList(items) {
+          const ul = document.createElement("ul");
+          items.forEach(item => {
+            const li = document.createElement("li");
+            li.textContent = `Handle: ${item.handle} | Type: ${item.type} | Line: ${item.line}`;
+            if (item.children && item.children.length > 0) {
+              li.appendChild(buildList(item.children));
+            }
+            ul.appendChild(li);
+          });
+          return ul;
+        }
+        const container = document.getElementById("overlayHandleMapContent");
+        container.innerHTML = "";
+        if (uniqueRoots.length === 0) {
+          container.textContent = "No owner relationships (code 330) found.";
+        } else {
+          container.appendChild(buildList(uniqueRoots));
+        }
       }
     }
     document.addEventListener("DOMContentLoaded", () => { new App(); });
