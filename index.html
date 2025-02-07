@@ -227,6 +227,7 @@
     #statsOverlay,
     #depsOverlay,
     #hexViewerOverlay,
+    #binaryObjectsOverlay,
     /* NEW: New overlay for Handle Map */
     #handleMapOverlay {
       display: none;
@@ -253,6 +254,7 @@
     #closeStatsOverlay,
     #closeDepsOverlay,
     #closeHexViewerOverlay,
+    #closeBinaryObjectsOverlay,
     /* NEW: New close button for handle map overlay */
     #closeHandleMapOverlay,
     #saveBinaryBtn,
@@ -265,6 +267,7 @@
     #closeStatsOverlay,
     #closeDepsOverlay,
     #closeHexViewerOverlay,
+    #closeBinaryObjectsOverlay,
     /* NEW: New handle map close button */
     #closeHandleMapOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
@@ -320,6 +323,8 @@
         <button id="showCloudOverlayBtn">Show Cloud Data</button>
         <button id="showStatsOverlayBtn">Show DXF Statistics</button>
         <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
+        <!-- NEW: New button to show all objects with binary data -->
+        <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
         <!-- NEW: New button to show the DXF Handle Map -->
         <button id="showHandleMapOverlayBtn">Show Handle Map</button>
       </div>
@@ -445,6 +450,14 @@
       <!-- Containers for image preview and ZIP contents -->
       <div id="imagePreviewContainer"></div>
       <div id="zipContentsContainer"></div>
+    </div>
+  </div>
+  <!-- NEW: Overlay for listing Binary Data Objects -->
+  <div id="binaryObjectsOverlay">
+    <div class="overlay-content">
+      <button id="closeBinaryObjectsOverlay">Close</button>
+      <h2>Binary Data Objects</h2>
+      <div id="binaryObjectsList"></div>
     </div>
   </div>
   <!-- NEW: New overlay for the DXF Handle Map -->
@@ -957,6 +970,13 @@
         });
         document.getElementById("closeDepsOverlay").addEventListener("click", () => {
           document.getElementById("depsOverlay").style.display = "none";
+        });
+        // NEW: Event listener for Binary Objects overlay button
+        document.getElementById("showBinaryObjectsOverlayBtn").addEventListener("click", () => {
+          this.showBinaryObjectsOverlay();
+        });
+        document.getElementById("closeBinaryObjectsOverlay").addEventListener("click", () => {
+          document.getElementById("binaryObjectsOverlay").style.display = "none";
         });
         // NEW: Event listeners for the Handle Map overlay
         document.getElementById("showHandleMapOverlayBtn").addEventListener("click", () => {
@@ -2065,6 +2085,56 @@
         } else {
           container.appendChild(buildList(uniqueRoots));
         }
+      }
+      // NEW: Show the Binary Objects overlay listing all nodes with binary (group code 310) data.
+      showBinaryObjectsOverlay() {
+        const activeTab = this.getActiveTab();
+        const listContainer = document.getElementById("binaryObjectsList");
+        listContainer.innerHTML = "";
+        if (!activeTab) {
+          listContainer.textContent = "No DXF data loaded.";
+          document.getElementById("binaryObjectsOverlay").style.display = "block";
+          return;
+        }
+        let binaryNodes = [];
+        function findBinaryNodes(nodes) {
+          nodes.forEach(node => {
+            if (!node.isProperty && node.properties) {
+              const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
+              if (binaryProps.length > 0) {
+                binaryNodes.push(node);
+              }
+            }
+            if (node.children && node.children.length > 0) {
+              findBinaryNodes(node.children);
+            }
+          });
+        }
+        findBinaryNodes(activeTab.originalTreeData);
+        if (binaryNodes.length === 0) {
+          listContainer.textContent = "No binary data objects found.";
+        } else {
+          binaryNodes.forEach(node => {
+            const div = document.createElement("div");
+            div.style.borderBottom = "1px solid #ccc";
+            div.style.padding = "5px";
+            let info = `Type: ${node.type} | Line: ${node.line}`;
+            if (node.handle) {
+              info += ` | Handle: ${node.handle}`;
+            }
+            div.textContent = info + " ";
+            const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
+            const combinedData = binaryProps.map(prop => prop.value).join("");
+            const hexBtn = document.createElement("button");
+            hexBtn.textContent = "Hex Viewer";
+            hexBtn.addEventListener("click", () => {
+              this.showHexViewer(combinedData);
+            });
+            div.appendChild(hexBtn);
+            listContainer.appendChild(div);
+          });
+        }
+        document.getElementById("binaryObjectsOverlay").style.display = "block";
       }
     }
     document.addEventListener("DOMContentLoaded", () => { new App(); });
