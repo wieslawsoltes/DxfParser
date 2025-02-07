@@ -78,7 +78,8 @@
       padding: 0 4px;
     }
     /* Tree Grid Header */
-    .tree-header {
+    /* --- Modified CSS for header --- */
+    #treeGridHeader {
       display: flex;
       align-items: center;
       height: 24px;
@@ -86,6 +87,11 @@
       border-bottom: 1px solid #ccc;
       background: #eee;
       user-select: none;
+      /* Keep the header in view and allow horizontal transform */
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      will-change: transform;
     }
     .header-cell {
       display: flex;
@@ -149,7 +155,7 @@
     #treeViewContainer {
       position: relative;
       flex: 1;
-      overflow-y: auto;
+      overflow: auto;
       border: 1px solid #ccc;
     }
     #treeViewContent {
@@ -318,7 +324,7 @@
       }
       .top-right-buttons {
         margin-top: 0.5em;  /* add some spacing between logo and buttons */
-     }
+      }
     }
   </style>
 </head>
@@ -436,7 +442,7 @@
     </div>
   </div>
 
-  <!-- DXF Parser, VirtualTreeView, and App classes (unchanged) -->
+  <!-- DXF Parser, VirtualTreeView, and App classes -->
   <script>
     class DxfParser {
       constructor() {
@@ -860,6 +866,15 @@
             icon.textContent = panel.classList.contains('expanded') ? '▲' : '▼';
           });
         }
+        // --- Added scroll listener to sync header horizontal position ---
+        this.treeViewContainer.addEventListener("scroll", (e) => {
+          const scrollLeft = e.target.scrollLeft;
+          document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
+        });
+        // --- Added resize listener to update row layouts on layout changes ---
+        window.addEventListener("resize", () => {
+          this.myTreeView.updateVisibleNodes();
+        });
       }
       updateEffectiveSearchTerms() {
         const activeTab = this.getActiveTab();
@@ -886,8 +901,8 @@
         activeTab.dataCase = document.getElementById("dataCaseCheckbox").checked;
         activeTab.currentTreeData = this.filterTree(
           activeTab.originalTreeData,
-          effectiveCodeSearchTerms,
-          effectiveDataSearchTerms,
+          activeTab.codeSearchTerms,
+          activeTab.dataSearchTerms,
           activeTab.dataExact,
           activeTab.dataCase,
           minLine,
