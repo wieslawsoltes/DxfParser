@@ -27,6 +27,7 @@
     /* Header container for logo and top-right buttons */
     .header-container {
       display: flex;
+      flex-wrap: wrap; /* allow header items to wrap onto new lines */
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1em;
@@ -47,10 +48,6 @@
     .top-right-buttons {
       display: flex;
       gap: 0.5em;
-    }
-    .top-right-buttons button {
-      padding: 0.3em 0.6em;
-      white-space: nowrap;
     }
     /* Tabs */
     #tabContainer {
@@ -315,6 +312,13 @@
       .tree-row .toggle {
         width: 20px;
       }
+      .header-container {
+        flex-direction: column;  /* stack logo and buttons vertically */
+        align-items: flex-start;
+      }
+      .top-right-buttons {
+        margin-top: 0.5em;  /* add some spacing between logo and buttons */
+     }
     }
   </style>
 </head>
