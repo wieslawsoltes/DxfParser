@@ -157,12 +157,13 @@
       user-select: none;
       cursor: pointer;
     }
-    .copy-button {
+    .copy-button, .hex-button {
       margin-left: 8px;
       font-size: 0.8em;
       display: none;
     }
-    .tree-row:hover .copy-button { display: inline; }
+    .tree-row:hover .copy-button,
+    .tree-row:hover .hex-button { display: inline; }
     /* Filter Panel */
     .filter-panel {
       border: 1px solid #ccc;
@@ -221,7 +222,8 @@
     /* Overlays */
     #cloudOverlay,
     #statsOverlay,
-    #depsOverlay {
+    #depsOverlay,
+    #hexViewerOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -244,12 +246,18 @@
     }
     #closeCloudOverlay,
     #closeStatsOverlay,
-    #closeDepsOverlay {
+    #closeDepsOverlay,
+    #closeHexViewerOverlay,
+    #saveBinaryBtn {
       position: absolute;
       top: 10px;
-      right: 10px;
       cursor: pointer;
     }
+    #closeCloudOverlay,
+    #closeStatsOverlay,
+    #closeDepsOverlay,
+    #closeHexViewerOverlay { right: 10px; }
+    #saveBinaryBtn { right: 80px; }
     .cloud-tag {
       display: inline-block;
       margin: 4px;
@@ -407,6 +415,86 @@
       <div id="overlayDepsContent"></div>
     </div>
   </div>
+  <!-- New Hex Viewer Overlay -->
+  <div id="hexViewerOverlay">
+    <div class="overlay-content">
+      <button id="closeHexViewerOverlay">Close</button>
+      <button id="saveBinaryBtn">Save Binary</button>
+      <h2>Hex Viewer</h2>
+      <div id="headerInfo"></div>
+      <pre id="hexContent" style="overflow:auto; height: calc(100% - 100px);"></pre>
+    </div>
+  </div>
+
+  <!-- Utility Functions -->
+  <script>
+    // Convert a concatenated hex string into a Uint8Array.
+    function hexStringToByteArray(hexString) {
+      // Remove any whitespace
+      hexString = hexString.replace(/\s+/g, "");
+      const byteLength = Math.floor(hexString.length / 2);
+      const result = new Uint8Array(byteLength);
+      for (let i = 0; i < byteLength; i++) {
+        result[i] = parseInt(hexString.substr(i * 2, 2), 16);
+      }
+      return result;
+    }
+
+    // Produce a hex dump from a Uint8Array.
+    function hexDump(buffer) {
+      const bytesPerLine = 16;
+      let result = "";
+      for (let i = 0; i < buffer.length; i += bytesPerLine) {
+        const lineBytes = Array.from(buffer.slice(i, i + bytesPerLine));
+        const hexBytes = lineBytes.map(byte => byte.toString(16).padStart(2, '0'));
+        const asciiChars = lineBytes.map(byte =>
+          byte >= 32 && byte < 127 ? String.fromCharCode(byte) : '.'
+        );
+        // Pad the last line if fewer than 16 bytes.
+        while (hexBytes.length < bytesPerLine) {
+          hexBytes.push("  ");
+          asciiChars.push(" ");
+        }
+        result += i.toString(16).padStart(8, '0') + "  " +
+                  hexBytes.join(" ") + "  " +
+                  asciiChars.join("") + "\n";
+      }
+      return result;
+    }
+
+    // Attempt to detect a common file header from a Uint8Array.
+    function detectHeader(buffer) {
+      // BMP: "BM"
+      if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4D) return "BMP Image";
+      // PNG: 89 50 4E 47 0D 0A 1A 0A
+      if (buffer.length >= 8 &&
+          buffer[0] === 0x89 && buffer[1] === 0x50 &&
+          buffer[2] === 0x4E && buffer[3] === 0x47 &&
+          buffer[4] === 0x0D && buffer[5] === 0x0A &&
+          buffer[6] === 0x1A && buffer[7] === 0x0A)
+        return "PNG Image";
+      // GIF: "GIF87a" or "GIF89a"
+      if (buffer.length >= 6) {
+        const header = String.fromCharCode(...buffer.slice(0,6));
+        if (header === "GIF87a" || header === "GIF89a") return "GIF Image";
+      }
+      // JPEG: FF D8 FF
+      if (buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF)
+        return "JPEG Image";
+      // PDF: "%PDF"
+      if (buffer.length >= 4) {
+        const header = String.fromCharCode(...buffer.slice(0,4));
+        if (header === "%PDF") return "PDF Document";
+      }
+      // ZIP: "PK\x03\x04"
+      if (buffer.length >= 4 &&
+          buffer[0] === 0x50 && buffer[1] === 0x4B &&
+          buffer[2] === 0x03 && buffer[3] === 0x04)
+        return "ZIP Archive";
+      return null;
+    }
+  </script>
+
   <!-- JavaScript Classes -->
   <script>
     class DxfParser {
@@ -539,6 +627,7 @@
         this.copyCallback = options.copyCallback || null;
         this.onToggleExpand = options.onToggleExpand || null;
         this.onHandleClick = options.onHandleClick || null;
+        this.hexViewerCallback = options.hexViewerCallback || null;
         this.getLineWidth = options.getLineWidth || (() => 100);
         this.getCodeWidth = options.getCodeWidth || (() => 100);
         this.getDataWidth = options.getDataWidth || (() => null);
@@ -734,6 +823,21 @@
               });
               dataDiv.appendChild(copyButton);
             }
+            // Collect all binary tags (group code 310) and concatenate their values.
+            if (!node.isProperty && node.properties) {
+              const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
+              if (binaryProps.length > 0) {
+                const combinedData = binaryProps.map(prop => prop.value).join("");
+                const hexButton = document.createElement("button");
+                hexButton.textContent = "Hex Viewer";
+                hexButton.className = "hex-button";
+                hexButton.addEventListener("click", (e) => {
+                  e.stopPropagation();
+                  if (this.hexViewerCallback) { this.hexViewerCallback(combinedData); }
+                });
+                dataDiv.appendChild(hexButton);
+              }
+            }
           }
           row.appendChild(dataDiv);
           const objectCountDiv = document.createElement("div");
@@ -760,6 +864,17 @@
         this.content.appendChild(containerElem);
         this.syncHeaderWidths();
       }
+      computeObjectCount(node) {
+        if (!node.children || node.children.length === 0) return 0;
+        let count = 0;
+        for (let child of node.children) {
+          if (!child.isProperty) {
+            count++;
+            if (child.children && child.children.length) { count += this.computeObjectCount(child); }
+          }
+        }
+        return count;
+      }
     }
   </script>
   <script>
@@ -771,6 +886,7 @@
         this.treeViewContent = document.getElementById("treeViewContent");
         this.tabs = [];
         this.activeTabId = null;
+        this.currentBinaryData = null; // For saving binary from hex viewer
         this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -779,7 +895,8 @@
           getLineWidth: () => this.columnWidths.line,
           getCodeWidth: () => this.columnWidths.code,
           getDataWidth: () => this.columnWidths.type,
-          columnWidths: this.columnWidths
+          columnWidths: this.columnWidths,
+          hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
         });
         this.initEventListeners();
       }
@@ -846,6 +963,23 @@
         });
         window.addEventListener("resize", () => {
           this.myTreeView.updateVisibleNodes();
+        });
+        // Hex viewer overlay event listeners
+        document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
+          document.getElementById("hexViewerOverlay").style.display = "none";
+        });
+        document.getElementById("saveBinaryBtn").addEventListener("click", () => {
+          if (this.currentBinaryData) {
+            const blob = new Blob([this.currentBinaryData], { type: "application/octet-stream" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "binary_data.bin";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
         });
       }
       updateEffectiveSearchTerms() {
@@ -1696,6 +1830,22 @@
         });
         if (!html) { html = "No external dependency objects found."; }
         document.getElementById("overlayDepsContent").innerHTML = html;
+      }
+      // NEW: Display the hex viewer overlay using combined hex string.
+      showHexViewer(combinedHexString) {
+        // Convert the concatenated hex string to a binary (byte) array.
+        const binaryArray = hexStringToByteArray(combinedHexString);
+        // Generate a hex dump from the binary data.
+        const dump = hexDump(binaryArray);
+        const hexContentElem = document.getElementById("hexContent");
+        const headerInfoElem = document.getElementById("headerInfo");
+        hexContentElem.textContent = dump;
+        // Detect a header from the binary data.
+        const detectedType = detectHeader(binaryArray);
+        headerInfoElem.textContent = detectedType ? "Detected file type: " + detectedType : "Unknown file type";
+        // Store the binary data for possible saving.
+        this.currentBinaryData = binaryArray;
+        document.getElementById("hexViewerOverlay").style.display = "block";
       }
     }
     document.addEventListener("DOMContentLoaded", () => { new App(); });
