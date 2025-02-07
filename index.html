@@ -841,9 +841,7 @@
           getDataWidth: () => this.columnWidths.type,
           columnWidths: this.columnWidths
         });
-        // Navigation history: an array of handle strings and an index pointer.
-        this.navigationHistory = [];
-        this.currentHistoryIndex = -1;
+        // Removed global navigation history in favor of per‑tab history.
         this.initEventListeners();
       }
       initEventListeners() {
@@ -996,6 +994,9 @@
           tabElem.appendChild(closeBtn);
           tabContainer.appendChild(tabElem);
         });
+        // Update navigation UI based on the active tab.
+        this.updateNavHistoryUI();
+        this.updateNavButtons();
       }
       expandAllNodes(nodes) {
         nodes.forEach(node => {
@@ -1219,7 +1220,6 @@
         });
         return filtered;
       }
- 
       filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
         // 1. Check if the node’s own line number is within bounds.
         let nodeLine = parseInt(obj.line, 10);
@@ -1230,7 +1230,6 @@
         if (maxLine != null && !isNaN(maxLine)) {
           if (isNaN(nodeLine) || nodeLine > maxLine) lineMatches = false;
         }
-
         // 2. Filter the node’s properties.
         const filteredProperties = obj.properties.filter(prop => {
           let propLine = parseInt(prop.line, 10);
@@ -1260,16 +1259,13 @@
           }
           return codeMatch && dataMatch;
         });
-
         // 3. Recursively filter child objects.
         const filteredChildren = obj.children
           .map(child => this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine))
           .filter(child => child !== null);
-
         // 4. Determine which search filters are “active.”
         const codeFilterActive = codeTerms.length > 0;
         const dataFilterActive = dataTerms.length > 0;
-
         // For the node’s own type, check it only if the data filter is active.
         let typeMatchesData = false;
         if (dataFilterActive) {
@@ -1285,9 +1281,7 @@
             );
           }
         }
-
         // 5. Now decide whether to keep the node.
-
         // If no search filters are active, fall back to line-matching:
         if (!codeFilterActive && !dataFilterActive) {
           if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
@@ -1299,22 +1293,18 @@
             children: filteredChildren
           };
         }
-
         // If a code filter is active but no property or descendant matches, drop this node.
         if (codeFilterActive && filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
         }
-
         // If a data filter is active but neither the node’s type nor any property/child matches, drop it.
         if (dataFilterActive && !(typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0)) {
           return null;
         }
-
         // (Optionally, you may still want to drop the node if it fails the line filter and has no matches.)
         if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
         }
-
         // If the node passes all checks, return it with its filtered properties and children.
         return {
           ...obj,
@@ -1322,7 +1312,6 @@
           children: filteredChildren
         };
       }
-
       handleCopy(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1361,7 +1350,10 @@
               minLine: null,
               maxLine: null,
               dataExact: false,
-              dataCase: false
+              dataCase: false,
+              // NEW per‑tab navigation history:
+              navigationHistory: [],
+              currentHistoryIndex: -1
             };
             this.tabs.push(newTab);
             this.activeTabId = newTab.id;
@@ -1522,7 +1514,7 @@
         }
         return null;
       }
-      // NEW: Navigation by handle with history tracking.
+      // Navigation by handle with history tracking.
       navigateToHandle(handle, addHistory = true) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1550,11 +1542,11 @@
         }, 300);
         if (addHistory) {
           // If not at the end of history, remove forward history.
-          if (this.currentHistoryIndex < this.navigationHistory.length - 1) {
-            this.navigationHistory.splice(this.currentHistoryIndex + 1);
+          if (activeTab.currentHistoryIndex < activeTab.navigationHistory.length - 1) {
+            activeTab.navigationHistory.splice(activeTab.currentHistoryIndex + 1);
           }
-          this.navigationHistory.push(handle);
-          this.currentHistoryIndex = this.navigationHistory.length - 1;
+          activeTab.navigationHistory.push(handle);
+          activeTab.currentHistoryIndex = activeTab.navigationHistory.length - 1;
           this.updateNavHistoryUI();
           this.updateNavButtons();
         }
@@ -1572,19 +1564,21 @@
       }
       // Navigation history UI updates.
       updateNavHistoryUI() {
+        const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("navHistoryList");
         listContainer.innerHTML = "";
-        this.navigationHistory.forEach((handle, index) => {
+        if (!activeTab) return;
+        activeTab.navigationHistory.forEach((handle, index) => {
           const span = document.createElement("span");
           span.textContent = handle;
           span.style.cursor = "pointer";
           span.style.marginRight = "8px";
-          if (index === this.currentHistoryIndex) {
+          if (index === activeTab.currentHistoryIndex) {
             span.style.fontWeight = "bold";
             span.style.textDecoration = "underline";
           }
           span.addEventListener("click", () => {
-            this.currentHistoryIndex = index;
+            activeTab.currentHistoryIndex = index;
             this.navigateToHandle(handle, false);
             this.updateNavHistoryUI();
             this.updateNavButtons();
@@ -1593,32 +1587,44 @@
         });
       }
       updateNavButtons() {
+        const activeTab = this.getActiveTab();
         const backBtn = document.getElementById("backBtn");
         const forwardBtn = document.getElementById("forwardBtn");
-        backBtn.disabled = this.currentHistoryIndex <= 0;
-        forwardBtn.disabled = this.currentHistoryIndex >= this.navigationHistory.length - 1;
+        if (!activeTab) {
+          backBtn.disabled = true;
+          forwardBtn.disabled = true;
+          return;
+        }
+        backBtn.disabled = activeTab.currentHistoryIndex <= 0;
+        forwardBtn.disabled = activeTab.currentHistoryIndex >= activeTab.navigationHistory.length - 1;
       }
       navigateBack() {
-        if (this.currentHistoryIndex > 0) {
-          this.currentHistoryIndex--;
-          const handle = this.navigationHistory[this.currentHistoryIndex];
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        if (activeTab.currentHistoryIndex > 0) {
+          activeTab.currentHistoryIndex--;
+          const handle = activeTab.navigationHistory[activeTab.currentHistoryIndex];
           this.navigateToHandle(handle, false);
           this.updateNavHistoryUI();
           this.updateNavButtons();
         }
       }
       navigateForward() {
-        if (this.currentHistoryIndex < this.navigationHistory.length - 1) {
-          this.currentHistoryIndex++;
-          const handle = this.navigationHistory[this.currentHistoryIndex];
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        if (activeTab.currentHistoryIndex < activeTab.navigationHistory.length - 1) {
+          activeTab.currentHistoryIndex++;
+          const handle = activeTab.navigationHistory[activeTab.currentHistoryIndex];
           this.navigateToHandle(handle, false);
           this.updateNavHistoryUI();
           this.updateNavButtons();
         }
       }
       clearNavigationHistory() {
-        this.navigationHistory = [];
-        this.currentHistoryIndex = -1;
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        activeTab.navigationHistory = [];
+        activeTab.currentHistoryIndex = -1;
         this.updateNavHistoryUI();
         this.updateNavButtons();
       }
