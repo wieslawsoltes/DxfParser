@@ -7,72 +7,49 @@
   <title>DXF Parser</title>
   <style>
     /* Base Styles */
-    html, body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-    *, *:before, *:after {
-      box-sizing: border-box;
-    }
-    body {
-      font-family: sans-serif;
-    }
+    html, body { height: 100%; margin: 0; padding: 0; }
+    *, *:before, *:after { box-sizing: border-box; }
+    body { font-family: sans-serif; }
     .main-container {
       display: flex;
       flex-direction: column;
       height: 100vh;
       padding: 1em;
     }
-    /* Header container for logo and top-right buttons */
     .header-container {
       display: flex;
-      flex-wrap: wrap; /* allow header items to wrap onto new lines */
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1em;
     }
-    /* File input row (for file input and parse button on the same line) */
+    /* File input row (for file input, streamed parsing check box, and parse button on the same line) */
     .file-input-row {
       display: inline-flex;
       align-items: center;
       gap: 0.5em;
       margin-bottom: 1em;
     }
-    /* Make the parse button only as wide as its text */
-    #parseBtn {
-      padding: 0.3em 0.6em;
-      white-space: nowrap;
-    }
-    /* Top-right buttons (now inside the header) */
+    #parseBtn { padding: 0.3em 0.6em; white-space: nowrap; }
     .top-right-buttons {
       display: flex;
       gap: 0.5em;
       flex-wrap: wrap;
     }
-    /* Navigation history container with controls */
     #navHistoryContainer {
       margin-bottom: 1em;
       padding: 0.5em;
       border: 1px solid #ccc;
       border-radius: 4px;
     }
-    #navHistoryControls {
-      margin-bottom: 0.5em;
-    }
-    #navHistoryControls button {
-      margin-right: 4px;
-    }
-    #navHistoryList {
-      overflow-x: auto;
-      white-space: nowrap;
-    }
-    /* Tabs */
+    #navHistoryControls { margin-bottom: 0.5em; }
+    #navHistoryControls button { margin-right: 4px; }
+    #navHistoryList { overflow-x: auto; white-space: nowrap; }
     #tabContainer {
       display: flex;
       flex-wrap: wrap;
       border-bottom: 1px solid #ccc;
-      margin: 0.5em 0; /* reduced spacing */
+      margin: 0.5em 0;
     }
     .tab {
       padding: 0.5em 1em;
@@ -84,10 +61,7 @@
       background: #eee;
       position: relative;
     }
-    .tab.active {
-      background: #fff;
-      font-weight: bold;
-    }
+    .tab.active { background: #fff; font-weight: bold; }
     .tab .close-tab {
       position: absolute;
       top: 0;
@@ -96,7 +70,6 @@
       padding: 0 4px;
     }
     /* Tree Grid Header */
-    /* --- Modified CSS for header --- */
     #treeGridHeader {
       display: flex;
       align-items: center;
@@ -105,7 +78,6 @@
       border-bottom: 1px solid #ccc;
       background: #eee;
       user-select: none;
-      /* Keep the header in view and allow horizontal transform */
       position: sticky;
       top: 0;
       z-index: 2;
@@ -120,15 +92,9 @@
       border-right: 1px solid #ccc;
       cursor: pointer;
     }
-    .header-cell.flex-fixed {
-      flex: none;
-    }
-    .header-cell.flex-grow {
-      flex: 1;
-    }
-    .header-cell:last-child {
-      border-right: none;
-    }
+    .header-cell.flex-fixed { flex: none; }
+    .header-cell.flex-grow { flex: 1; }
+    .header-cell:last-child { border-right: none; }
     .header-cell .resizer {
       position: absolute;
       right: 0;
@@ -167,27 +133,22 @@
     .tree-code:last-child,
     .tree-data:last-child,
     .tree-object-count:last-child,
-    .tree-data-size:last-child {
-      border-right: none;
-    }
-    /* --- Updated container and row clipping styles --- */
+    .tree-data-size:last-child { border-right: none; }
+    /* Tree View Container */
     #treeViewContainer {
       position: relative;
       flex: 1;
-      overflow: auto; /* allow scrolling */
+      overflow: auto;
       border: 1px solid #ccc;
       clip-path: inset(0);
     }
-    #treeViewContent {
-      position: relative;
-      overflow: hidden; /* clip any overflowing content */
-    }
+    #treeViewContent { position: relative; overflow: hidden; }
     .tree-row {
       display: flex;
       align-items: center;
       height: 24px;
       border-bottom: 1px solid #eee;
-      overflow: hidden; /* clip row contents when scrolled */
+      overflow: hidden;
     }
     .toggle {
       display: inline-block;
@@ -201,14 +162,12 @@
       font-size: 0.8em;
       display: none;
     }
-    .tree-row:hover .copy-button {
-      display: inline;
-    }
+    .tree-row:hover .copy-button { display: inline; }
     /* Filter Panel */
     .filter-panel {
       border: 1px solid #ccc;
       border-radius: 4px;
-      margin: 0.5em 0;  /* reduced margin between tabs and filter panel */
+      margin: 0.5em 0;
       overflow: hidden;
     }
     .filter-toggle {
@@ -220,18 +179,8 @@
       justify-content: space-between;
       align-items: center;
     }
-    .filter-toggle .toggle-icon {
-      font-size: 1em;
-    }
-    /* The filter content is hidden unless the panel has the "expanded" class.
-       We add the "expanded" class by default in the HTML so the filters are visible on load. */
-    .filter-panel .filter-content {
-      display: none;
-    }
-    .filter-panel.expanded .filter-content {
-      display: block;
-    }
-    /* Each row in the filter content */
+    .filter-panel .filter-content { display: none; }
+    .filter-panel.expanded .filter-content { display: block; }
     .filter-row {
       margin-bottom: 0.5em;
       display: flex;
@@ -241,10 +190,7 @@
     }
     .filter-row label,
     .filter-row input,
-    .filter-row button {
-      margin-right: 0.5em;
-    }
-    /* Tag container */
+    .filter-row button { margin-right: 0.5em; }
     .tag-container {
       display: inline-block;
       border: 1px solid #ccc;
@@ -328,31 +274,21 @@
         margin-bottom: 0.5em;
         width: 100%;
       }
-      .tag-container {
-        min-width: 100%;
-      }
-      #treeGridHeader .header-cell {
-        padding: 0 2px;
-      }
-      .tree-row {
-        height: 32px;
-      }
-      .tree-row .toggle {
-        width: 20px;
-      }
+      .tag-container { min-width: 100%; }
+      #treeGridHeader .header-cell { padding: 0 2px; }
+      .tree-row { height: 32px; }
+      .tree-row .toggle { width: 20px; }
       .header-container {
-        flex-direction: column;  /* stack logo and buttons vertically */
+        flex-direction: column;
         align-items: flex-start;
       }
-      .top-right-buttons {
-        margin-top: 0.5em;  /* add some spacing between logo and buttons */
-      }
+      .top-right-buttons { margin-top: 0.5em; }
     }
   </style>
 </head>
 <body>
   <div class="main-container">
-    <!-- Header container for logo and top-right buttons -->
+    <!-- Header: Logo and top-right buttons -->
     <div class="header-container">
       <h1>DXF Parser</h1>
       <div class="top-right-buttons">
@@ -363,12 +299,16 @@
         <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
       </div>
     </div>
-    <!-- File input and parse button on the same line -->
+    <!-- File input row with streaming option -->
     <div class="file-input-row">
       <input type="file" id="fileInput" accept=".dxf" multiple>
+      <label>
+        <input type="checkbox" id="useStreamCheckbox">
+        Use Streamed Parsing
+      </label>
       <button id="parseBtn">Parse File(s)</button>
     </div>
-    <!-- Navigation history container with controls and list -->
+    <!-- Navigation History -->
     <div id="navHistoryContainer">
       <div id="navHistoryControls">
         <button id="backBtn" disabled>Back</button>
@@ -377,16 +317,15 @@
       </div>
       <div id="navHistoryList"></div>
     </div>
+    <!-- Tabs -->
     <div id="tabContainer"></div>
-
-    <!-- Filter Panel – filtering controls (visible by default via the "expanded" class) -->
+    <!-- Filter Panel -->
     <div class="filter-panel expanded" id="filterPanel">
       <div class="filter-toggle">
         <span>Filters</span>
         <span class="toggle-icon">▲</span>
       </div>
       <div class="filter-content">
-        <!-- First row: tag inputs and checkboxes -->
         <div class="filter-row">
           <div id="codeSearchTags" class="tag-container">
             <input type="text" id="codeSearchInput" placeholder="Search by Code">
@@ -401,7 +340,6 @@
             <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
           </label>
         </div>
-        <!-- Second row: line filters and go-to-handle input/button -->
         <div class="filter-row">
           <label for="minLineInput">Min Line:</label>
           <input type="number" id="minLineInput" style="width:80px;">
@@ -410,7 +348,6 @@
           <input type="text" id="handleSearchInput" placeholder="Go to Handle">
           <button id="goToHandleBtn">Go</button>
         </div>
-        <!-- Third row: search and clear buttons -->
         <div class="filter-row">
           <button id="searchBtn">Search</button>
           <button id="clearSearchBtn">Clear Search</button>
@@ -440,11 +377,11 @@
         <div class="resizer"></div>
       </div>
     </div>
+    <!-- Tree View Container -->
     <div id="treeViewContainer">
       <div id="treeViewContent"></div>
     </div>
   </div>
-
   <!-- Overlays -->
   <div id="cloudOverlay">
     <div class="overlay-content">
@@ -456,7 +393,6 @@
       <div id="overlayCodeCloud"></div>
     </div>
   </div>
-
   <div id="statsOverlay">
     <div class="overlay-content">
       <button id="closeStatsOverlay">Close</button>
@@ -464,7 +400,6 @@
       <div id="overlayStatsContent"></div>
     </div>
   </div>
-
   <div id="depsOverlay">
     <div class="overlay-content">
       <button id="closeDepsOverlay">Close</button>
@@ -472,8 +407,7 @@
       <div id="overlayDepsContent"></div>
     </div>
   </div>
-
-  <!-- DXF Parser, VirtualTreeView, and App classes -->
+  <!-- JavaScript Classes -->
   <script>
     class DxfParser {
       constructor() {
@@ -485,7 +419,6 @@
           "POLYLINE": "SEQEND"
         };
         this.nextId = 1;
-        // List of DXF handle codes we consider.
         this.handleCodes = [5, 105, 330, 350, 360];
       }
       parse(text) {
@@ -495,6 +428,23 @@
       }
       parseDxf(text) {
         const lines = text.split(/\r?\n/);
+        const tags = [];
+        for (let i = 0; i < lines.length; i++) {
+          const codeLine = lines[i].trim();
+          if (!codeLine) continue;
+          const code = parseInt(codeLine, 10);
+          if (isNaN(code)) continue;
+          let value = "";
+          if (i + 1 < lines.length) {
+            value = lines[i + 1].trim();
+          }
+          i++;
+          tags.push({ line: i, code, value });
+        }
+        return tags;
+      }
+      // New method: parse an array of lines.
+      parseDxfLines(lines) {
         const tags = [];
         for (let i = 0; i < lines.length; i++) {
           const codeLine = lines[i].trim();
@@ -537,9 +487,7 @@
             i++;
           }
           const handleProp = obj.properties.find(prop => this.handleCodes.includes(prop.code));
-          if (handleProp) {
-            obj.handle = handleProp.value;
-          }
+          if (handleProp) { obj.handle = handleProp.value; }
           if (obj.isContainer) {
             const marker = this.containerMapping[obj.type.toUpperCase()];
             const result = this.groupObjects(tags, i, marker);
@@ -582,7 +530,6 @@
       }
     }
   </script>
-
   <script>
     class VirtualTreeView {
       constructor(container, content, options = {}) {
@@ -595,7 +542,6 @@
         this.getLineWidth = options.getLineWidth || (() => 100);
         this.getCodeWidth = options.getCodeWidth || (() => 100);
         this.getDataWidth = options.getDataWidth || (() => null);
-        // Save the columnWidths object so it can be used by both header and rows.
         this.columnWidths = options.columnWidths || {};
         this.flatData = [];
         this.treeData = [];
@@ -607,9 +553,7 @@
             const row = e.target.closest(".tree-row");
             if (row) {
               const nodeId = row.dataset.id;
-              if (this.onToggleExpand) {
-                this.onToggleExpand(nodeId);
-              }
+              if (this.onToggleExpand) { this.onToggleExpand(nodeId); }
             }
           }
         });
@@ -655,67 +599,43 @@
         for (let child of node.children) {
           if (!child.isProperty) {
             count++;
-            if (child.children && child.children.length) {
-              count += this.computeObjectCount(child);
-            }
+            if (child.children && child.children.length) { count += this.computeObjectCount(child); }
           }
         }
         return count;
       }
       computeDataSize(node) {
         let size = 0;
-        if (node.isProperty) {
-          size += node.data ? node.data.length : 0;
-        } else {
+        if (node.isProperty) { size += node.data ? node.data.length : 0; }
+        else {
           size += node.type ? node.type.length : 0;
           if (node.properties && node.properties.length) {
-            for (let prop of node.properties) {
-              size += prop.value ? prop.value.length : 0;
-            }
+            for (let prop of node.properties) { size += prop.value ? prop.value.length : 0; }
           }
           if (node.children && node.children.length) {
-            for (let child of node.children) {
-              size += this.computeDataSize(child);
-            }
+            for (let child of node.children) { size += this.computeDataSize(child); }
           }
         }
         return size;
       }
-      // This new method syncs the header cells using the shared columnWidths.
       syncHeaderWidths() {
         const header = document.getElementById("treeGridHeader");
         if (!header) return;
-        // "line" column header
         const lineCell = header.querySelector('.tree-line');
-        if (lineCell && this.columnWidths.line) {
-          lineCell.style.width = this.columnWidths.line + "px";
-        }
-        // "code" column header
+        if (lineCell && this.columnWidths.line) { lineCell.style.width = this.columnWidths.line + "px"; }
         const codeCell = header.querySelector('.tree-code');
-        if (codeCell && this.columnWidths.code) {
-          codeCell.style.width = this.columnWidths.code + "px";
-        }
-        // "data" (or type) column header
+        if (codeCell && this.columnWidths.code) { codeCell.style.width = this.columnWidths.code + "px"; }
         const typeCell = header.querySelector('.tree-data');
         if (typeCell) {
           if (this.columnWidths.type) {
             typeCell.style.width = this.columnWidths.type + "px";
             typeCell.style.flex = "0 0 auto";
-          } else {
-            typeCell.style.width = "";
-            typeCell.style.flex = "1";
-          }
+          } else { typeCell.style.width = ""; typeCell.style.flex = "1"; }
         }
-        // "objectCount" column header
         const objectCountCell = header.querySelector('.tree-object-count');
-        if (objectCountCell && this.columnWidths.objectCount) {
-          objectCountCell.style.width = this.columnWidths.objectCount + "px";
-        }
-        // "dataSize" column header
+        if (objectCountCell && this.columnWidths.objectCount) { objectCountCell.style.width = this.columnWidths.objectCount + "px"; }
         const dataSizeCell = header.querySelector('.tree-data-size');
-        if (dataSizeCell && this.columnWidths.dataSize) {
-          dataSizeCell.style.width = this.columnWidths.dataSize + "px";
-        }
+        if (dataSizeCell && this.columnWidths.dataSize) { dataSizeCell.style.width = this.columnWidths.dataSize + "px"; }
       }
       updateVisibleNodes() {
         const scrollTop = this.container.scrollTop;
@@ -739,12 +659,10 @@
           row.style.position = "relative";
           row.style.height = this.itemHeight + "px";
           row.dataset.id = node.id;
-          
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
           const lineWidth = this.getLineWidth();
           if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
-          // Build line content with indentation for hierarchy
           const lineContent = document.createElement("div");
           lineContent.style.display = "flex";
           lineContent.style.alignItems = "center";
@@ -765,28 +683,19 @@
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
-          
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
           const codeWidth = this.getCodeWidth();
           if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
           codeDiv.style.textAlign = "left";
-          if (node.isProperty) {
-            codeDiv.textContent = node.code;
-          } else {
-            codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
-          }
+          if (node.isProperty) { codeDiv.textContent = node.code; }
+          else { codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; }
           row.appendChild(codeDiv);
-          
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
           const dataWidth = this.getDataWidth();
-          if (dataWidth) {
-            dataDiv.style.width = dataWidth + "px";
-            dataDiv.style.flex = "0 0 auto";
-          } else {
-            dataDiv.style.flex = "1";
-          }
+          if (dataWidth) { dataDiv.style.width = dataWidth + "px"; dataDiv.style.flex = "0 0 auto"; }
+          else { dataDiv.style.flex = "1"; }
           const handleCodes = [5, 105, 330, 350, 360];
           if (node.isProperty) {
             if (handleCodes.includes(Number(node.code))) {
@@ -797,14 +706,10 @@
               a.style.color = "blue";
               a.addEventListener("click", (e) => {
                 e.preventDefault();
-                if (this.onHandleClick) {
-                  this.onHandleClick(node.data);
-                }
+                if (this.onHandleClick) { this.onHandleClick(node.data); }
               });
               dataDiv.appendChild(a);
-            } else {
-              dataDiv.textContent = node.data;
-            }
+            } else { dataDiv.textContent = node.data; }
           } else {
             dataDiv.textContent = node.type || "";
             if (node.handle) {
@@ -815,9 +720,7 @@
               spanHandle.style.cursor = "pointer";
               spanHandle.addEventListener("click", (e) => {
                 e.preventDefault();
-                if (this.onHandleClick) {
-                  this.onHandleClick(node.handle);
-                }
+                if (this.onHandleClick) { this.onHandleClick(node.handle); }
               });
               dataDiv.appendChild(spanHandle);
             }
@@ -833,25 +736,19 @@
             }
           }
           row.appendChild(dataDiv);
-          
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = this.columnWidths.objectCount + "px";
           objectCountDiv.style.textAlign = "right";
-          if (!node.isProperty && node.children && node.children.length) {
-            objectCountDiv.textContent = this.computeObjectCount(node);
-          } else {
-            objectCountDiv.textContent = "";
-          }
+          if (!node.isProperty && node.children && node.children.length) { objectCountDiv.textContent = this.computeObjectCount(node); }
+          else { objectCountDiv.textContent = ""; }
           row.appendChild(objectCountDiv);
-          
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
           dataSizeDiv.style.textAlign = "right";
           dataSizeDiv.textContent = this.computeDataSize(node);
           row.appendChild(dataSizeDiv);
-          
           fragment.appendChild(row);
         }
         containerElem.appendChild(fragment);
@@ -861,13 +758,10 @@
         containerElem.appendChild(bottomSpacer);
         this.content.innerHTML = "";
         this.content.appendChild(containerElem);
-        
-        // Sync header widths after updating rows.
         this.syncHeaderWidths();
       }
     }
   </script>
-
   <script>
     class App {
       constructor() {
@@ -887,7 +781,6 @@
           getDataWidth: () => this.columnWidths.type,
           columnWidths: this.columnWidths
         });
-        // Removed global navigation history in favor of per‑tab history.
         this.initEventListeners();
       }
       initEventListeners() {
@@ -935,7 +828,6 @@
         document.getElementById("minLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("maxLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
-        // Navigation controls from the history area.
         document.getElementById("backBtn").addEventListener("click", () => this.navigateBack());
         document.getElementById("forwardBtn").addEventListener("click", () => this.navigateForward());
         document.getElementById("clearHistoryBtn").addEventListener("click", () => this.clearNavigationHistory());
@@ -948,12 +840,10 @@
             icon.textContent = panel.classList.contains('expanded') ? '▲' : '▼';
           });
         }
-        // --- Sync header horizontal position on scroll ---
         this.treeViewContainer.addEventListener("scroll", (e) => {
           const scrollLeft = e.target.scrollLeft;
           document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
         });
-        // --- Update row layouts on window resize ---
         window.addEventListener("resize", () => {
           this.myTreeView.updateVisibleNodes();
         });
@@ -993,12 +883,8 @@
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
-      handleSearchOptionChange() {
-        this.updateEffectiveSearchTerms();
-      }
-      getActiveTab() {
-        return this.tabs.find(t => t.id === this.activeTabId);
-      }
+      handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
+      getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
       updateTabUI() {
         const tabContainer = document.getElementById("tabContainer");
         tabContainer.innerHTML = "";
@@ -1009,7 +895,6 @@
           tabElem.dataset.tabId = tab.id;
           tabElem.addEventListener("click", () => {
             this.activeTabId = tab.id;
-            // Update global inputs from this tab’s filter state.
             document.getElementById("codeSearchInput").value = "";
             document.getElementById("dataSearchInput").value = "";
             this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
@@ -1027,20 +912,14 @@
           closeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             this.tabs = this.tabs.filter(t => t.id !== tab.id);
-            if (this.activeTabId === tab.id) {
-              this.activeTabId = this.tabs.length ? this.tabs[0].id : null;
-            }
+            if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
             this.updateTabUI();
-            if (this.activeTabId) {
-              this.myTreeView.setData(this.getActiveTab().currentTreeData);
-            } else {
-              this.myTreeView.setData([]);
-            }
+            if (this.activeTabId) { this.myTreeView.setData(this.getActiveTab().currentTreeData); }
+            else { this.myTreeView.setData([]); }
           });
           tabElem.appendChild(closeBtn);
           tabContainer.appendChild(tabElem);
         });
-        // Update navigation UI based on the active tab.
         this.updateNavHistoryUI();
         this.updateNavButtons();
       }
@@ -1118,17 +997,15 @@
         }
       }
       getSortValue(node, field) {
-        if (field === "line") {
-          return node.line ? Number(node.line) : 0;
-        } else if (field === "code") {
+        if (field === "line") { return node.line ? Number(node.line) : 0; }
+        else if (field === "code") {
           if (node.isProperty) {
             const c = parseInt(node.code, 10);
             return isNaN(c) ? Number.MAX_SAFE_INTEGER : c;
           }
           return 0;
-        } else if (field === "type") {
-          return node.isProperty ? (node.data || "") : (node.type || "");
-        } else if (field === "objectCount") {
+        } else if (field === "type") { return node.isProperty ? (node.data || "") : (node.type || ""); }
+        else if (field === "objectCount") {
           if (node.isProperty) return 0;
           function countDescendants(n) {
             if (!n.children || n.children.length === 0) return 0;
@@ -1136,9 +1013,7 @@
             for (let child of n.children) {
               if (!child.isProperty) {
                 count++;
-                if (child.children && child.children.length) {
-                  count += countDescendants(child);
-                }
+                if (child.children && child.children.length) { count += countDescendants(child); }
               }
             }
             return count;
@@ -1146,19 +1021,14 @@
           return countDescendants(node);
         } else if (field === "dataSize") {
           function computeSize(n) {
-            if (n.isProperty) {
-              return n.data ? n.data.length : 0;
-            } else {
+            if (n.isProperty) { return n.data ? n.data.length : 0; }
+            else {
               let size = n.type ? n.type.length : 0;
               if (n.properties && n.properties.length) {
-                for (let prop of n.properties) {
-                  size += prop.value ? prop.value.length : 0;
-                }
+                for (let prop of n.properties) { size += prop.value ? prop.value.length : 0; }
               }
               if (n.children && n.children.length) {
-                for (let child of n.children) {
-                  size += computeSize(child);
-                }
+                for (let child of n.children) { size += computeSize(child); }
               }
               return size;
             }
@@ -1173,9 +1043,7 @@
           const bVal = this.getSortValue(b, field);
           if (field === "code" || field === "line" || field === "objectCount" || field === "dataSize") {
             return (aVal - bVal) * (ascending ? 1 : -1);
-          } else {
-            return aVal.localeCompare(bVal) * (ascending ? 1 : -1);
-          }
+          } else { return aVal.localeCompare(bVal) * (ascending ? 1 : -1); }
         });
         nodes.forEach(node => {
           if (node.properties && node.properties.length) {
@@ -1196,9 +1064,7 @@
               return 0;
             });
           }
-          if (node.children && node.children.length) {
-            this.sortTreeNodes(node.children, field, ascending);
-          }
+          if (node.children && node.children.length) { this.sortTreeNodes(node.children, field, ascending); }
         });
       }
       handleHeaderClick(headerCell) {
@@ -1247,7 +1113,6 @@
           this.columnWidths[field] = newWidth;
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
-          // Refresh the rows – the updateVisibleNodes() call will in turn sync the header.
           this.myTreeView.updateVisibleNodes();
         };
         const onMouseUp = () => {
@@ -1261,14 +1126,11 @@
         const filtered = [];
         objects.forEach(obj => {
           const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine);
-          if (filteredObj !== null) {
-            filtered.push(filteredObj);
-          }
+          if (filteredObj !== null) { filtered.push(filteredObj); }
         });
         return filtered;
       }
       filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
-        // 1. Check if the node’s own line number is within bounds.
         let nodeLine = parseInt(obj.line, 10);
         let lineMatches = true;
         if (minLine != null && !isNaN(minLine)) {
@@ -1277,7 +1139,6 @@
         if (maxLine != null && !isNaN(maxLine)) {
           if (isNaN(nodeLine) || nodeLine > maxLine) lineMatches = false;
         }
-        // 2. Filter the node’s properties.
         const filteredProperties = obj.properties.filter(prop => {
           let propLine = parseInt(prop.line, 10);
           if (minLine != null && !isNaN(minLine)) {
@@ -1286,10 +1147,8 @@
           if (maxLine != null && !isNaN(maxLine)) {
             if (isNaN(propLine) || propLine > maxLine) return false;
           }
-          // Code filter – if active, require a property’s code to match.
           const codeMatch = (codeTerms.length === 0) ||
             codeTerms.some(term => String(prop.code) === term);
-          // Data filter – if active, test the property value.
           let dataMatch = true;
           if (dataTerms.length > 0) {
             if (dataExact) {
@@ -1306,14 +1165,11 @@
           }
           return codeMatch && dataMatch;
         });
-        // 3. Recursively filter child objects.
         const filteredChildren = obj.children
           .map(child => this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine))
           .filter(child => child !== null);
-        // 4. Determine which search filters are “active.”
         const codeFilterActive = codeTerms.length > 0;
         const dataFilterActive = dataTerms.length > 0;
-        // For the node’s own type, check it only if the data filter is active.
         let typeMatchesData = false;
         if (dataFilterActive) {
           if (dataExact) {
@@ -1328,7 +1184,6 @@
             );
           }
         }
-        // 5. Now decide whether to keep the node.
         if (!codeFilterActive && !dataFilterActive) {
           if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
             return null;
@@ -1358,10 +1213,7 @@
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
-        if (!node) {
-          alert("Node not found in original data.");
-          return;
-        }
+        if (!node) { alert("Node not found in original data."); return; }
         const serialized = this.dxfParser.serializeNode(node);
         navigator.clipboard.writeText(serialized).then(() => {
           alert("Copied node to clipboard as valid DXF tags.");
@@ -1369,39 +1221,91 @@
           alert("Failed to copy to clipboard.");
         });
       }
+      // New method: stream the file and process it in chunks.
+      async parseFileStream(file) {
+        const reader = file.stream().getReader();
+        const decoder = new TextDecoder("ascii");
+        let leftover = "";
+        const lines = [];
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunkText = decoder.decode(value, { stream: true });
+          const text = leftover + chunkText;
+          const parts = text.split(/\r?\n/);
+          leftover = parts.pop();
+          lines.push(...parts);
+        }
+        if (leftover) { lines.push(leftover); }
+        const tags = this.dxfParser.parseDxfLines(lines);
+        const grouped = this.dxfParser.groupObjects(tags, 0);
+        return grouped.objects;
+      }
+      // Updated handleParse() that uses streamed parsing if selected.
       handleParse() {
         const fileInput = document.getElementById("fileInput");
+        const useStream = document.getElementById("useStreamCheckbox").checked;
         if (!fileInput.files || fileInput.files.length === 0) {
           alert("Please select at least one DXF file.");
           return;
         }
         Array.from(fileInput.files).forEach(file => {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const text = event.target.result;
-            const objects = this.dxfParser.parse(text);
-            const newTab = {
-              id: Date.now() + Math.random(),
-              name: file.name,
-              originalTreeData: objects,
-              currentTreeData: objects,
-              codeSearchTerms: [],
-              dataSearchTerms: [],
-              currentSortField: "line",
-              currentSortAscending: true,
-              minLine: null,
-              maxLine: null,
-              dataExact: false,
-              dataCase: false,
-              navigationHistory: [],
-              currentHistoryIndex: -1
+          if (useStream && file.stream) {
+            this.parseFileStream(file)
+              .then(objects => {
+                const newTab = {
+                  id: Date.now() + Math.random(),
+                  name: file.name,
+                  originalTreeData: objects,
+                  currentTreeData: objects,
+                  codeSearchTerms: [],
+                  dataSearchTerms: [],
+                  currentSortField: "line",
+                  currentSortAscending: true,
+                  minLine: null,
+                  maxLine: null,
+                  dataExact: false,
+                  dataCase: false,
+                  navigationHistory: [],
+                  currentHistoryIndex: -1
+                };
+                this.tabs.push(newTab);
+                this.activeTabId = newTab.id;
+                this.updateTabUI();
+                this.myTreeView.setData(newTab.currentTreeData);
+              })
+              .catch(err => {
+                console.error("Error during streamed parsing:", err);
+                alert("Error during streamed parsing.");
+              });
+          } else {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const text = event.target.result;
+              const objects = this.dxfParser.parse(text);
+              const newTab = {
+                id: Date.now() + Math.random(),
+                name: file.name,
+                originalTreeData: objects,
+                currentTreeData: objects,
+                codeSearchTerms: [],
+                dataSearchTerms: [],
+                currentSortField: "line",
+                currentSortAscending: true,
+                minLine: null,
+                maxLine: null,
+                dataExact: false,
+                dataCase: false,
+                navigationHistory: [],
+                currentHistoryIndex: -1
+              };
+              this.tabs.push(newTab);
+              this.activeTabId = newTab.id;
+              this.updateTabUI();
+              this.myTreeView.setData(newTab.currentTreeData);
             };
-            this.tabs.push(newTab);
-            this.activeTabId = newTab.id;
-            this.updateTabUI();
-            this.myTreeView.setData(newTab.currentTreeData);
-          };
-          reader.readAsText(file, "ascii");
+            reader.readAsText(file, "ascii");
+          }
         });
       }
       createTagElement(text, type) {
@@ -1548,9 +1452,7 @@
           }
           if (node.children && node.children.length) {
             const subPath = this.findPathByHandle(node.children, handle);
-            if (subPath) {
-              return [node, ...subPath];
-            }
+            if (subPath) { return [node, ...subPath]; }
           }
         }
         return null;
@@ -1559,10 +1461,7 @@
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const path = this.findPathByHandle(activeTab.originalTreeData, handle);
-        if (!path) {
-          alert("Definition not found for handle: " + handle);
-          return;
-        }
+        if (!path) { alert("Definition not found for handle: " + handle); return; }
         path.forEach(node => node.expanded = true);
         activeTab.currentTreeData = activeTab.originalTreeData;
         this.myTreeView.setData(activeTab.currentTreeData);
@@ -1596,9 +1495,7 @@
         if (!handleValue) return;
         this.navigateToHandle(handleValue, true);
       }
-      handleLinkToHandle(handle) {
-        this.navigateToHandle(handle, true);
-      }
+      handleLinkToHandle(handle) { this.navigateToHandle(handle, true); }
       updateNavHistoryUI() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("navHistoryList");
@@ -1626,11 +1523,7 @@
         const activeTab = this.getActiveTab();
         const backBtn = document.getElementById("backBtn");
         const forwardBtn = document.getElementById("forwardBtn");
-        if (!activeTab) {
-          backBtn.disabled = true;
-          forwardBtn.disabled = true;
-          return;
-        }
+        if (!activeTab) { backBtn.disabled = true; forwardBtn.disabled = true; return; }
         backBtn.disabled = activeTab.currentHistoryIndex <= 0;
         forwardBtn.disabled = activeTab.currentHistoryIndex >= activeTab.navigationHistory.length - 1;
       }
@@ -1680,9 +1573,7 @@
               node.properties.forEach(prop => {
                 codeCounts[prop.code] = (codeCounts[prop.code] || 0) + 1;
               });
-              if (node.children && node.children.length > 0) {
-                traverse(node.children);
-              }
+              if (node.children && node.children.length > 0) { traverse(node.children); }
             }
           });
         }
@@ -1743,9 +1634,7 @@
                 for (let type in childStats.countByType) {
                   stats.countByType[type] = (stats.countByType[type] || 0) + childStats.countByType[type];
                 }
-                if (childStats.maxDepth > stats.maxDepth) {
-                  stats.maxDepth = childStats.maxDepth;
-                }
+                if (childStats.maxDepth > stats.maxDepth) { stats.maxDepth = childStats.maxDepth; }
               }
             }
           });
@@ -1784,12 +1673,8 @@
           nodes.forEach(node => {
             if (!node.isProperty) {
               const type = node.type.toUpperCase();
-              if (dependencyTypes.includes(type)) {
-                dependencies[type].push(node);
-              }
-              if (node.children && node.children.length) {
-                traverse(node.children);
-              }
+              if (dependencyTypes.includes(type)) { dependencies[type].push(node); }
+              if (node.children && node.children.length) { traverse(node.children); }
             }
           });
         }
@@ -1809,15 +1694,11 @@
             html += "</ul>";
           }
         });
-        if (!html) {
-          html = "No external dependency objects found.";
-        }
+        if (!html) { html = "No external dependency objects found."; }
         document.getElementById("overlayDepsContent").innerHTML = html;
       }
     }
-    document.addEventListener("DOMContentLoaded", () => {
-      new App();
-    });
+    document.addEventListener("DOMContentLoaded", () => { new App(); });
   </script>
 </body>
 </html>
