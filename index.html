@@ -18,7 +18,6 @@
       height: 100vh;
       padding: 1em;
     }
-    /* Remove top header – the logo now lives in the sidebar */
     /* Layout for two‐column main content with fixed sidebar */
     .content-wrapper {
       display: flex;
@@ -199,12 +198,17 @@
       clip-path: inset(0);
     }
     #treeViewContent { position: relative; overflow: hidden; }
+    /* Tree row styling – added row selection support */
     .tree-row {
       display: flex;
       align-items: center;
       height: 24px;
       border-bottom: 1px solid #eee;
       overflow: hidden;
+      cursor: pointer;
+    }
+    .tree-row.selected {
+      background-color: #bde4ff;
     }
     .toggle {
       display: inline-block;
@@ -516,7 +520,6 @@
       <div id="overlayDepsContent"></div>
     </div>
   </div>
-  <!-- Hex Viewer Overlay -->
   <div id="hexViewerOverlay">
     <div class="overlay-content">
       <button id="closeHexViewerOverlay">Close</button>
@@ -529,7 +532,6 @@
       <div id="zipContentsContainer"></div>
     </div>
   </div>
-  <!-- Binary Objects Overlay -->
   <div id="binaryObjectsOverlay">
     <div class="overlay-content">
       <button id="closeBinaryObjectsOverlay">Close</button>
@@ -538,7 +540,6 @@
       <div id="binaryObjectsList"></div>
     </div>
   </div>
-  <!-- Handle Map Overlay -->
   <div id="handleMapOverlay">
     <div class="overlay-content">
       <button id="closeHandleMapOverlay">Close</button>
@@ -547,7 +548,6 @@
       <div id="overlayHandleMapContent"></div>
     </div>
   </div>
-
   <!-- Utility Functions -->
   <script>
     // Convert a concatenated hex string into a Uint8Array.
@@ -606,7 +606,6 @@
       return null;
     }
   </script>
-
   <!-- JavaScript Classes -->
   <script>
     class DxfParser {
@@ -727,6 +726,7 @@
         this.onToggleExpand = options.onToggleExpand || null;
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
+        this.onRowSelect = options.onRowSelect || null; // new row selection callback
         this.getLineWidth = options.getLineWidth || (() => 100);
         this.getCodeWidth = options.getCodeWidth || (() => 100);
         this.getDataWidth = options.getDataWidth || (() => null);
@@ -734,9 +734,12 @@
         this.flatData = [];
         this.treeData = [];
         this.computedDataWidth = null;
+        this.selectedRowId = null; // holds the id of the currently selected row
         this.container.addEventListener("scroll", () => { requestAnimationFrame(() => this.updateVisibleNodes()); });
+        // Ensure toggles stop propagation so the row itself is not selected.
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
+            e.stopPropagation();
             const row = e.target.closest(".tree-row");
             if (row) {
               const nodeId = row.dataset.id;
@@ -865,6 +868,17 @@
           row.style.position = "relative";
           row.style.height = this.itemHeight + "px";
           row.dataset.id = node.id;
+          // Apply selection style if this row is selected.
+          if (String(node.id) === String(this.selectedRowId)) {
+            row.classList.add("selected");
+          }
+          // Add click listener to select the row.
+          row.addEventListener("click", (e) => {
+            this.selectedRowId = node.id;
+            this.updateVisibleNodes();
+            if (this.onRowSelect) { this.onRowSelect(node.id); }
+          });
+          // Create the Line column
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
           if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
@@ -876,6 +890,10 @@
             const toggleSpan = document.createElement("span");
             toggleSpan.className = "toggle";
             toggleSpan.textContent = node.expanded ? "▼" : "►";
+            toggleSpan.addEventListener("click", (e) => {
+              e.stopPropagation();
+              if (this.onToggleExpand) { this.onToggleExpand(node.id); }
+            });
             lineContent.appendChild(toggleSpan);
           } else {
             const spacer = document.createElement("span");
@@ -888,6 +906,7 @@
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
+          // Create the Code column
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
           if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
@@ -895,6 +914,7 @@
           if (node.isProperty) { codeDiv.textContent = node.code; }
           else { codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; }
           row.appendChild(codeDiv);
+          // Create the Data column
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
           dataDiv.style.width = dataWidth + "px";
@@ -953,6 +973,7 @@
             }
           }
           row.appendChild(dataDiv);
+          // Create the Object Count column
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = objectCountWidth + "px";
@@ -960,6 +981,7 @@
           if (!node.isProperty && node.children && node.children.length) { objectCountDiv.textContent = this.computeObjectCount(node); }
           else { objectCountDiv.textContent = ""; }
           row.appendChild(objectCountDiv);
+          // Create the Data Size column
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = dataSizeWidth + "px";
@@ -995,6 +1017,7 @@
           copyCallback: (nodeId) => this.handleCopy(nodeId),
           onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
+          onRowSelect: (nodeId) => console.log("Row selected:", nodeId),
           getLineWidth: () => this.columnWidths.line,
           getCodeWidth: () => this.columnWidths.code,
           getDataWidth: () => this.columnWidths.type,
