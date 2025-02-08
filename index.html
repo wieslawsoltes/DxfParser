@@ -18,26 +18,23 @@
       height: 100vh;
       padding: 1em;
     }
-    .header-container {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: 1em;
-    }
-    /* In this update only the logo remains in the top header */
-    .header-container h1 { margin: 0; }
-    /* Layout for two‐column main content with resizable sidebar */
+    /* Remove top header – the logo now lives in the sidebar */
+    /* Layout for two‐column main content with fixed sidebar */
     .content-wrapper {
       display: flex;
       flex: 1;
       overflow: hidden;
     }
     .sidebar {
-      width: 300px;
-      padding-right: 1em;
+      width: 300px; /* Fixed width */
+      padding: 1em;
       border-right: 1px solid #ccc;
       overflow-y: auto;
-      /* Allow the sidebar width to be changed via inline style */
+    }
+    /* Sidebar Logo */
+    .sidebar-logo h1 {
+      margin: 0 0 1em 0;
+      font-size: 1.5em;
     }
     .pane-resizer {
       width: 5px;
@@ -66,7 +63,7 @@
     /* File input row */
     .file-input-row {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
       align-items: center;
       margin-bottom: 1em;
     }
@@ -75,22 +72,35 @@
       align-items: center;
       gap: 0.5em;
     }
-    .file-input-row .handle-navigation {
+    /* Navigation Controls – a single row combining Go to Handle and navigation history */
+    #navControls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1em;
+    }
+    /* Left part: Handle Navigation */
+    #handleNavBar {
       display: flex;
       align-items: center;
-      gap: 0.5em;
+    }
+    #handleNavBar input {
+      margin-right: 0.5em;
+    }
+    /* Right part: Navigation History */
+    #navHistoryContainer {
+      display: flex;
+      align-items: center;
+    }
+    #navHistoryControls button {
+      margin-right: 4px;
+    }
+    #navHistoryList {
+      margin-left: 8px;
+      overflow-x: auto;
+      white-space: nowrap;
     }
     #parseBtn { padding: 0.3em 0.6em; white-space: nowrap; }
-    /* Navigation History */
-    #navHistoryContainer {
-      margin-bottom: 1em;
-      padding: 0.5em;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-    #navHistoryControls { margin-bottom: 0.5em; }
-    #navHistoryControls button { margin-right: 4px; }
-    #navHistoryList { overflow-x: auto; white-space: nowrap; }
     /* Tabs */
     #tabContainer {
       display: flex;
@@ -168,7 +178,6 @@
       height: 100%;
     }
     .tree-data {
-      flex: 1;
       padding: 0 4px;
       white-space: nowrap;
       overflow: hidden;
@@ -342,10 +351,7 @@
       #treeGridHeader .header-cell { padding: 0 2px; }
       .tree-row { height: 32px; }
       .tree-row .toggle { width: 20px; }
-      .header-container {
-        flex-direction: column;
-        align-items: flex-start;
-      }
+      .sidebar-logo h1 { font-size: 1.3em; }
       .content-wrapper {
         flex-direction: column;
       }
@@ -358,26 +364,21 @@
       }
       .pane-resizer { display: none; }
       .main-content { padding-left: 0; }
-      .file-input-row {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .file-input-row .handle-navigation {
-        margin-top: 0.5em;
-      }
+      #navControls { flex-direction: column; align-items: flex-start; }
+      #handleNavBar, #navHistoryContainer { margin-bottom: 0.5em; }
     }
   </style>
 </head>
 <body>
   <div class="main-container">
-    <!-- Top header: Only the logo now -->
-    <div class="header-container">
-      <h1>DXF Parser</h1>
-    </div>
     <!-- Main content wrapper with sidebar and main content -->
     <div class="content-wrapper">
-      <!-- Sidebar: Contains header buttons and filter panel -->
+      <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
+        <!-- Sidebar logo -->
+        <div class="sidebar-logo">
+          <h1>DXF Parser</h1>
+        </div>
         <div class="sidebar-buttons">
           <button id="expandAllBtn">Expand All</button>
           <button id="collapseAllBtn">Collapse All</button>
@@ -429,7 +430,7 @@
       <div class="pane-resizer"></div>
       <!-- Main Content Area -->
       <div class="main-content">
-        <!-- File input row with handle navigation on the right -->
+        <!-- File input row -->
         <div class="file-input-row">
           <div class="left-part">
             <input type="file" id="fileInput" accept=".dxf" multiple>
@@ -439,19 +440,21 @@
             </label>
             <button id="parseBtn">Parse File(s)</button>
           </div>
-          <div class="handle-navigation">
+        </div>
+        <!-- Combined Navigation Row -->
+        <div id="navControls">
+          <div id="handleNavBar">
             <input type="text" id="handleSearchInput" placeholder="Go to Handle">
             <button id="goToHandleBtn">Go</button>
           </div>
-        </div>
-        <!-- Navigation History -->
-        <div id="navHistoryContainer">
-          <div id="navHistoryControls">
-            <button id="backBtn" disabled>Back</button>
-            <button id="forwardBtn" disabled>Forward</button>
-            <button id="clearHistoryBtn">Clear</button>
+          <div id="navHistoryContainer">
+            <div id="navHistoryControls">
+              <button id="backBtn" disabled>Back</button>
+              <button id="forwardBtn" disabled>Forward</button>
+              <button id="clearHistoryBtn">Clear</button>
+            </div>
+            <div id="navHistoryList"></div>
           </div>
-          <div id="navHistoryList"></div>
         </div>
         <!-- Tabs -->
         <div id="tabContainer"></div>
@@ -730,6 +733,7 @@
         this.columnWidths = options.columnWidths || {};
         this.flatData = [];
         this.treeData = [];
+        this.computedDataWidth = null;
         this.container.addEventListener("scroll", () => { requestAnimationFrame(() => this.updateVisibleNodes()); });
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
@@ -809,9 +813,12 @@
         const codeCell = header.querySelector('.tree-code');
         if (codeCell && this.columnWidths.code) { codeCell.style.width = this.columnWidths.code + "px"; }
         const typeCell = header.querySelector('.tree-data');
-        if (typeCell) {
-          if (this.columnWidths.type) {
-            typeCell.style.width = this.columnWidths.type + "px";
+        if (this.columnWidths.type) {
+          typeCell.style.width = this.columnWidths.type + "px";
+          typeCell.style.flex = "0 0 auto";
+        } else {
+          if (this.computedDataWidth) {
+            typeCell.style.width = this.computedDataWidth + "px";
             typeCell.style.flex = "0 0 auto";
           } else { typeCell.style.width = ""; typeCell.style.flex = "1"; }
         }
@@ -826,10 +833,26 @@
         const totalRows = this.flatData.length;
         const fullHeight = totalRows * this.itemHeight;
         this.content.style.height = fullHeight + "px";
+        const lineWidth = this.getLineWidth() || 0;
+        const codeWidth = this.getCodeWidth() || 0;
+        const objectCountWidth = this.columnWidths.objectCount || 0;
+        const dataSizeWidth = this.columnWidths.dataSize || 0;
+        const fixedWidth = lineWidth + codeWidth + objectCountWidth + dataSizeWidth;
+        let dataWidth = this.getDataWidth();
+        if (dataWidth == null) {
+          dataWidth = Math.max(this.container.clientWidth - fixedWidth, 200);
+        }
+        this.computedDataWidth = dataWidth;
+        const totalWidth = fixedWidth + dataWidth;
+        const containerElem = document.createElement("div");
+        containerElem.style.width = totalWidth + "px";
+        const header = document.getElementById("treeGridHeader");
+        if (header) {
+          header.style.width = totalWidth + "px";
+        }
         const startIndex = Math.floor(scrollTop / this.itemHeight);
         const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
         const endIndex = Math.min(startIndex + visibleCount, totalRows);
-        const containerElem = document.createElement("div");
         const topSpacer = document.createElement("div");
         topSpacer.style.height = (startIndex * this.itemHeight) + "px";
         containerElem.appendChild(topSpacer);
@@ -844,7 +867,6 @@
           row.dataset.id = node.id;
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
-          const lineWidth = this.getLineWidth();
           if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
           const lineContent = document.createElement("div");
           lineContent.style.display = "flex";
@@ -868,7 +890,6 @@
           row.appendChild(lineDiv);
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
-          const codeWidth = this.getCodeWidth();
           if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
           codeDiv.style.textAlign = "left";
           if (node.isProperty) { codeDiv.textContent = node.code; }
@@ -876,9 +897,8 @@
           row.appendChild(codeDiv);
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
-          const dataWidth = this.getDataWidth();
-          if (dataWidth) { dataDiv.style.width = dataWidth + "px"; dataDiv.style.flex = "0 0 auto"; }
-          else { dataDiv.style.flex = "1"; }
+          dataDiv.style.width = dataWidth + "px";
+          dataDiv.style.flex = "0 0 auto";
           const handleCodes = [5, 105, 330, 350, 360];
           if (node.isProperty) {
             if (handleCodes.includes(Number(node.code))) {
@@ -935,14 +955,14 @@
           row.appendChild(dataDiv);
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
-          objectCountDiv.style.width = this.columnWidths.objectCount + "px";
+          objectCountDiv.style.width = objectCountWidth + "px";
           objectCountDiv.style.textAlign = "right";
           if (!node.isProperty && node.children && node.children.length) { objectCountDiv.textContent = this.computeObjectCount(node); }
           else { objectCountDiv.textContent = ""; }
           row.appendChild(objectCountDiv);
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
-          dataSizeDiv.style.width = this.columnWidths.dataSize + "px";
+          dataSizeDiv.style.width = dataSizeWidth + "px";
           dataSizeDiv.style.textAlign = "right";
           dataSizeDiv.textContent = this.computeDataSize(node);
           row.appendChild(dataSizeDiv);
@@ -985,7 +1005,6 @@
       }
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
-        // The header buttons are now in the sidebar so their listeners remain unchanged.
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
         document.querySelectorAll('.header-cell').forEach(headerCell => {
@@ -1022,14 +1041,12 @@
         document.getElementById("closeDepsOverlay").addEventListener("click", () => {
           document.getElementById("depsOverlay").style.display = "none";
         });
-        // Binary Objects overlay
         document.getElementById("showBinaryObjectsOverlayBtn").addEventListener("click", () => {
           this.showBinaryObjectsOverlay();
         });
         document.getElementById("closeBinaryObjectsOverlay").addEventListener("click", () => {
           document.getElementById("binaryObjectsOverlay").style.display = "none";
         });
-        // Handle Map overlay
         document.getElementById("showHandleMapOverlayBtn").addEventListener("click", () => {
           this.updateHandleMap();
           document.getElementById("handleMapOverlay").style.display = "block";
@@ -1052,7 +1069,6 @@
           document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
         });
         window.addEventListener("resize", () => { this.myTreeView.updateVisibleNodes(); });
-        // Hex Viewer overlay event listeners
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
           document.getElementById("imagePreviewContainer").innerHTML = "";
@@ -1084,7 +1100,6 @@
           }
         });
         document.getElementById("previewImageBtn").addEventListener("click", () => { this.previewImage(); });
-        // Back-to-Tree buttons in overlays
         document.querySelectorAll(".backToTreeBtn").forEach(btn => {
           btn.addEventListener("click", (e) => {
             const overlayId = btn.getAttribute("data-overlay");
@@ -1092,7 +1107,6 @@
             this.treeViewContainer.focus();
           });
         });
-        // Add resizer events for the left pane
         const resizer = document.querySelector('.pane-resizer');
         const sidebar = document.querySelector('.sidebar');
         const contentWrapper = document.querySelector('.content-wrapper');
@@ -1139,8 +1153,8 @@
           activeTab.dataSearchTerms,
           activeTab.dataExact,
           activeTab.dataCase,
-          minLine,
-          maxLine
+          activeTab.minLine,
+          activeTab.maxLine
         );
         this.myTreeView.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
@@ -1862,7 +1876,6 @@
         populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
         populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
       }
-      // NEW: Modified to search using case‑insensitive substring matching for objects.
       handleCloudTagClick(cloudType, key) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2026,7 +2039,6 @@
           });
         });
       }
-      // NEW: Show the hex viewer overlay.
       showHexViewer(combinedHexString) {
         const binaryArray = hexStringToByteArray(combinedHexString);
         const dump = hexDump(binaryArray);
@@ -2050,7 +2062,6 @@
           document.getElementById("zipContentsContainer").innerHTML = "";
         }
       }
-      // NEW: Preview image from binary data.
       previewImage() {
         if (!this.currentBinaryData) { alert("No binary data available."); return; }
         const imageTypes = {
@@ -2074,7 +2085,6 @@
         img.style.maxHeight = "300px";
         container.appendChild(img);
       }
-      // NEW: Browse ZIP file contents using JSZip.
       browseZip(binaryArray) {
         const blob = new Blob([binaryArray], { type: "application/zip" });
         JSZip.loadAsync(blob).then(zip => {
@@ -2139,7 +2149,6 @@
           alert("Failed to load ZIP file: " + err);
         });
       }
-      // NEW: Build the DXF Handle Map.
       updateHandleMap() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -2190,7 +2199,6 @@
               li.textContent = `Type: ${item.type} | Line: ${item.line}`;
             }
             if (item.children && item.children.length > 0) {
-              // Bind `this` for the recursive call
               li.appendChild(buildList.call(this, item.children));
             }
             ul.appendChild(li);
@@ -2205,7 +2213,6 @@
           container.appendChild(buildList.call(this, uniqueRoots));
         }
       }
-      // NEW: Show the Binary Objects overlay.
       showBinaryObjectsOverlay() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("binaryObjectsList");
@@ -2262,7 +2269,6 @@
         document.getElementById("binaryObjectsOverlay").style.display = "block";
       }
     }
-    // Make the App globally accessible.
     document.addEventListener("DOMContentLoaded", () => { window.app = new App(); });
   </script>
 </body>
