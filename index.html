@@ -716,8 +716,9 @@
       }
     }
   </script>
+  <!-- TreeDataGrid Control (refactored from VirtualTreeView) -->
   <script>
-    class VirtualTreeView {
+    class TreeDataGrid {
       constructor(container, content, options = {}) {
         this.container = container;
         this.content = content;
@@ -726,17 +727,26 @@
         this.onToggleExpand = options.onToggleExpand || null;
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
-        this.onRowSelect = options.onRowSelect || null; // new row selection callback
-        this.getLineWidth = options.getLineWidth || (() => 100);
-        this.getCodeWidth = options.getCodeWidth || (() => 100);
-        this.getDataWidth = options.getDataWidth || (() => null);
-        this.columnWidths = options.columnWidths || {};
+        this.onRowSelect = options.onRowSelect || null;
+        // columnWidths is passed in via the constructor options.
+        // Each value may be a number (pixels), "Auto" or a star string (e.g. "*" or "2*").
+        this.columnWidths = options.columnWidths || {
+          line: 100,
+          code: 100,
+          type: "*",
+          objectCount: 100,
+          dataSize: 100
+        };
         this.flatData = [];
         this.treeData = [];
-        this.computedDataWidth = null;
-        this.selectedRowId = null; // holds the id of the currently selected row
-        this.container.addEventListener("scroll", () => { requestAnimationFrame(() => this.updateVisibleNodes()); });
-        // Ensure toggles stop propagation so the row itself is not selected.
+        this.selectedRowId = null;
+        // Re-render visible nodes on container scroll.
+        this.container.addEventListener("scroll", () => { 
+          requestAnimationFrame(() => this.updateVisibleNodes());
+        });
+        // Attach header resizer events (assumes header element exists with id "treeGridHeader")
+        this.attachHeaderResizerEvents();
+        // Ensure toggle clicks inside the tree rows are handled.
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
             e.stopPropagation();
@@ -748,15 +758,115 @@
           }
         });
       }
+      
+      attachHeaderResizerEvents() {
+        const headerResizers = document.querySelectorAll('#treeGridHeader .header-cell .resizer');
+        headerResizers.forEach(resizer => {
+          resizer.addEventListener("mousedown", (e) => this.handleResizerMouseDown(e));
+        });
+      }
+      
+      handleResizerMouseDown(e) {
+        e.stopPropagation();
+        const headerCell = e.target.parentElement;
+        const field = headerCell.getAttribute('data-field');
+        const startX = e.clientX;
+        const startWidth = headerCell.offsetWidth;
+        const onMouseMove = (eMove) => {
+          const newWidth = startWidth + (eMove.clientX - startX);
+          // Update the columnWidths object for this field to a fixed pixel value.
+          this.columnWidths[field] = newWidth;
+          headerCell.style.width = newWidth + "px";
+          headerCell.style.flex = "none";
+          this.updateVisibleNodes();
+        };
+        const onMouseUp = () => {
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onMouseUp);
+        };
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      }
+      
+      computeColumnFinalWidths() {
+        const containerWidth = this.container.clientWidth;
+        const columns = ["line", "code", "type", "objectCount", "dataSize"];
+        let fixedTotal = 0;
+        let starTotal = 0;
+        let finalWidths = {};
+        columns.forEach(col => {
+          let def = this.columnWidths[col];
+          if (typeof def === "number") {
+            finalWidths[col] = def;
+            fixedTotal += def;
+          } else if (typeof def === "string") {
+            if (def.toLowerCase() === "auto") {
+              const headerCell = document.querySelector(`#treeGridHeader .tree-${col}`);
+              let autoWidth = headerCell ? headerCell.scrollWidth : 100;
+              finalWidths[col] = autoWidth;
+              fixedTotal += autoWidth;
+            } else if (def.trim().endsWith("*")) {
+              let multiplier = parseFloat(def.trim().slice(0, -1));
+              if (isNaN(multiplier)) multiplier = 1;
+              starTotal += multiplier;
+              finalWidths[col] = { star: multiplier };
+            } else {
+              let pixels = parseFloat(def);
+              if (!isNaN(pixels)) {
+                finalWidths[col] = pixels;
+                fixedTotal += pixels;
+              } else {
+                finalWidths[col] = 100;
+                fixedTotal += 100;
+              }
+            }
+          } else {
+            starTotal += 1;
+            finalWidths[col] = { star: 1 };
+          }
+        });
+        let remaining = containerWidth - fixedTotal;
+        if (remaining < 0) remaining = 0;
+        columns.forEach(col => {
+          if (typeof finalWidths[col] === "object" && finalWidths[col].star) {
+            let multiplier = finalWidths[col].star;
+            let width = (multiplier / starTotal) * remaining;
+            finalWidths[col] = width;
+          }
+        });
+        return finalWidths;
+      }
+      
+      syncHeaderWidths() {
+        const header = document.getElementById("treeGridHeader");
+        if (!header) return;
+        const colWidths = this.computeColumnFinalWidths();
+        const lineCell = header.querySelector('.tree-line');
+        if (lineCell) lineCell.style.width = colWidths.line + "px";
+        const codeCell = header.querySelector('.tree-code');
+        if (codeCell) codeCell.style.width = colWidths.code + "px";
+        const typeCell = header.querySelector('.tree-data');
+        if (typeCell) {
+          typeCell.style.width = colWidths.type + "px";
+          typeCell.style.flex = "0 0 auto";
+        }
+        const objectCountCell = header.querySelector('.tree-object-count');
+        if (objectCountCell) objectCountCell.style.width = colWidths.objectCount + "px";
+        const dataSizeCell = header.querySelector('.tree-data-size');
+        if (dataSizeCell) dataSizeCell.style.width = colWidths.dataSize + "px";
+      }
+      
       setData(treeData) {
         this.treeData = treeData || [];
         this.refresh();
       }
+      
       refresh() {
         this.flatData = this.flattenTree(this.treeData);
         console.log("Total rows:", this.flatData.length);
         this.updateVisibleNodes();
       }
+      
       flattenTree(nodes, level = 0) {
         let flat = [];
         for (let node of nodes) {
@@ -783,17 +893,21 @@
         }
         return flat;
       }
+      
       computeObjectCount(node) {
         if (!node.children || node.children.length === 0) return 0;
         let count = 0;
         for (let child of node.children) {
           if (!child.isProperty) {
             count++;
-            if (child.children && child.children.length) { count += this.computeObjectCount(child); }
+            if (child.children && child.children.length) { 
+              count += this.computeObjectCount(child);
+            }
           }
         }
         return count;
       }
+      
       computeDataSize(node) {
         let size = 0;
         if (node.isProperty) { size += node.data ? node.data.length : 0; }
@@ -808,65 +922,33 @@
         }
         return size;
       }
-      syncHeaderWidths() {
-        const header = document.getElementById("treeGridHeader");
-        if (!header) return;
-        const lineCell = header.querySelector('.tree-line');
-        if (lineCell && this.columnWidths.line) { lineCell.style.width = this.columnWidths.line + "px"; }
-        const codeCell = header.querySelector('.tree-code');
-        if (codeCell && this.columnWidths.code) { codeCell.style.width = this.columnWidths.code + "px"; }
-        const typeCell = header.querySelector('.tree-data');
-        if (this.columnWidths.type != null) {
-          typeCell.style.width = this.columnWidths.type + "px";
-          typeCell.style.flex = "0 0 auto";
-        } else {
-          typeCell.style.width = "";
-          typeCell.style.flex = "1 1 auto";
-        }
-        const objectCountCell = header.querySelector('.tree-object-count');
-        if (objectCountCell && this.columnWidths.objectCount) { objectCountCell.style.width = this.columnWidths.objectCount + "px"; }
-        const dataSizeCell = header.querySelector('.tree-data-size');
-        if (dataSizeCell && this.columnWidths.dataSize) { dataSizeCell.style.width = this.columnWidths.dataSize + "px"; }
-      }
+      
       updateVisibleNodes() {
         const scrollTop = this.container.scrollTop;
         const containerHeight = this.container.clientHeight;
         const totalRows = this.flatData.length;
         const fullHeight = totalRows * this.itemHeight;
         this.content.style.height = fullHeight + "px";
-        const lineWidth = this.getLineWidth() || 0;
-        const codeWidth = this.getCodeWidth() || 0;
-        const objectCountWidth = this.columnWidths.objectCount || 0;
-        const dataSizeWidth = this.columnWidths.dataSize || 0;
-        const fixedWidth = lineWidth + codeWidth + objectCountWidth + dataSizeWidth;
-        let dataWidth;
-        if (this.columnWidths.type != null) {
-          dataWidth = this.getDataWidth();
-          if (dataWidth == null) {
-            dataWidth = Math.max(this.container.clientWidth - fixedWidth, 200);
-          }
-          this.computedDataWidth = dataWidth;
-        }
+        
+        const colWidths = this.computeColumnFinalWidths();
+        const lineWidth = colWidths.line;
+        const codeWidth = colWidths.code;
+        const dataWidth = colWidths.type;
+        const objectCountWidth = colWidths.objectCount;
+        const dataSizeWidth = colWidths.dataSize;
+        const totalWidth = lineWidth + codeWidth + dataWidth + objectCountWidth + dataSizeWidth;
+        
         const containerElem = document.createElement("div");
-        if (this.columnWidths.type != null) {
-          containerElem.style.width = (fixedWidth + dataWidth) + "px";
-        } else {
-          containerElem.style.width = "100%";
-        }
-        const header = document.getElementById("treeGridHeader");
-        if (header) {
-          if (this.columnWidths.type != null) {
-            header.style.width = (fixedWidth + dataWidth) + "px";
-          } else {
-            header.style.width = "100%";
-          }
-        }
+        containerElem.style.width = totalWidth + "px";
+        
         const startIndex = Math.floor(scrollTop / this.itemHeight);
         const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
         const endIndex = Math.min(startIndex + visibleCount, totalRows);
+        
         const topSpacer = document.createElement("div");
         topSpacer.style.height = (startIndex * this.itemHeight) + "px";
         containerElem.appendChild(topSpacer);
+        
         const fragment = document.createDocumentFragment();
         for (let i = startIndex; i < endIndex; i++) {
           const { node, level } = this.flatData[i];
@@ -884,9 +966,11 @@
             this.updateVisibleNodes();
             if (this.onRowSelect) { this.onRowSelect(node.id); }
           });
+          
+          // Line Column.
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
-          if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
+          lineDiv.style.width = lineWidth + "px";
           const lineContent = document.createElement("div");
           lineContent.style.display = "flex";
           lineContent.style.alignItems = "center";
@@ -911,22 +995,24 @@
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
+          
+          // Code Column.
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
-          if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
+          codeDiv.style.width = codeWidth + "px";
           codeDiv.style.textAlign = "left";
-          if (node.isProperty) { codeDiv.textContent = node.code; }
-          else { codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; }
+          if (node.isProperty) { 
+            codeDiv.textContent = node.code; 
+          } else { 
+            codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; 
+          }
           row.appendChild(codeDiv);
+          
+          // Data Column.
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
-          if (this.columnWidths.type != null) {
-            dataDiv.style.width = dataWidth + "px";
-            dataDiv.style.flex = "0 0 auto";
-          } else {
-            dataDiv.style.width = "";
-            dataDiv.style.flex = "1 1 auto";
-          }
+          dataDiv.style.width = dataWidth + "px";
+          dataDiv.style.flex = "0 0 auto";
           const handleCodes = [5, 105, 330, 350, 360];
           if (node.isProperty) {
             if (handleCodes.includes(Number(node.code))) {
@@ -940,7 +1026,9 @@
                 if (this.onHandleClick) { this.onHandleClick(node.data); }
               });
               dataDiv.appendChild(a);
-            } else { dataDiv.textContent = node.data; }
+            } else { 
+              dataDiv.textContent = node.data; 
+            }
           } else {
             dataDiv.textContent = node.type || "";
             if (node.handle) {
@@ -981,19 +1069,27 @@
             }
           }
           row.appendChild(dataDiv);
+          
+          // Object Count Column.
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = objectCountWidth + "px";
           objectCountDiv.style.textAlign = "right";
-          if (!node.isProperty && node.children && node.children.length) { objectCountDiv.textContent = this.computeObjectCount(node); }
-          else { objectCountDiv.textContent = ""; }
+          if (!node.isProperty && node.children && node.children.length) { 
+            objectCountDiv.textContent = this.computeObjectCount(node); 
+          } else { 
+            objectCountDiv.textContent = ""; 
+          }
           row.appendChild(objectCountDiv);
+          
+          // Data Size Column.
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = dataSizeWidth + "px";
           dataSizeDiv.style.textAlign = "right";
           dataSizeDiv.textContent = this.computeDataSize(node);
           row.appendChild(dataSizeDiv);
+          
           fragment.appendChild(row);
         }
         containerElem.appendChild(fragment);
@@ -1007,11 +1103,18 @@
       }
     }
   </script>
+  <!-- Application Code -->
   <script>
     class App {
       constructor() {
-        // Set columnWidths.type to null to use star sizing.
-        this.columnWidths = { line: 100, code: 100, type: null, objectCount: 100, dataSize: 100 };
+        // Define column widths: fixed numbers, "Auto", or star sizing.
+        this.columnWidths = {
+          line: 100,
+          code: 100,
+          type: "*", // star sizing: takes all remaining space
+          objectCount: 100,
+          dataSize: 100
+        };
         this.dxfParser = new DxfParser();
         this.treeViewContainer = document.getElementById("treeViewContainer");
         this.treeViewContent = document.getElementById("treeViewContent");
@@ -1019,15 +1122,13 @@
         this.activeTabId = null;
         this.currentBinaryData = null;
         this.currentDetectedType = null;
-        this.myTreeView = new VirtualTreeView(this.treeViewContainer, this.treeViewContent, {
+        // Create the TreeDataGrid instance.
+        this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
           onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => console.log("Row selected:", nodeId),
-          getLineWidth: () => this.columnWidths.line,
-          getCodeWidth: () => this.columnWidths.code,
-          getDataWidth: () => this.columnWidths.type,
           columnWidths: this.columnWidths,
           hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
         });
@@ -1098,7 +1199,7 @@
           const scrollLeft = e.target.scrollLeft;
           document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
         });
-        window.addEventListener("resize", () => { this.myTreeView.updateVisibleNodes(); });
+        window.addEventListener("resize", () => { this.myTreeGrid.updateVisibleNodes(); });
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
           document.getElementById("imagePreviewContainer").innerHTML = "";
@@ -1186,7 +1287,7 @@
           activeTab.minLine,
           activeTab.maxLine
         );
-        this.myTreeView.setData(activeTab.currentTreeData);
+        this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
       handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
@@ -1209,7 +1310,7 @@
             document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
             document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
             document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
-            this.myTreeView.setData(tab.currentTreeData);
+            this.myTreeGrid.setData(tab.currentTreeData);
             this.updateTabUI();
           });
           const closeBtn = document.createElement("span");
@@ -1220,8 +1321,8 @@
             this.tabs = this.tabs.filter(t => t.id !== tab.id);
             if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
             this.updateTabUI();
-            if (this.activeTabId) { this.myTreeView.setData(this.getActiveTab().currentTreeData); }
-            else { this.myTreeView.setData([]); }
+            if (this.activeTabId) { this.myTreeGrid.setData(this.getActiveTab().currentTreeData); }
+            else { this.myTreeGrid.setData([]); }
           });
           tabElem.appendChild(closeBtn);
           tabContainer.appendChild(tabElem);
@@ -1259,7 +1360,7 @@
           activeTab.minLine,
           activeTab.maxLine
         );
-        this.myTreeView.setData(activeTab.currentTreeData);
+        this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
       handleCollapseAll() {
@@ -1278,7 +1379,7 @@
           activeTab.minLine,
           activeTab.maxLine
         );
-        this.myTreeView.setData(activeTab.currentTreeData);
+        this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
       handleToggleExpand(nodeId) {
@@ -1299,7 +1400,7 @@
             activeTab.minLine,
             activeTab.maxLine
           );
-          this.myTreeView.setData(activeTab.currentTreeData);
+          this.myTreeGrid.setData(activeTab.currentTreeData);
         }
       }
       getSortValue(node, field) {
@@ -1406,7 +1507,7 @@
           activeTab.minLine,
           activeTab.maxLine
         );
-        this.myTreeView.setData(activeTab.currentTreeData);
+        this.myTreeGrid.setData(activeTab.currentTreeData);
       }
       handleResizerMouseDown(e) {
         e.stopPropagation();
@@ -1419,7 +1520,7 @@
           this.columnWidths[field] = newWidth;
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
-          this.myTreeView.updateVisibleNodes();
+          this.myTreeGrid.updateVisibleNodes();
         };
         const onMouseUp = () => {
           document.removeEventListener("mousemove", onMouseMove);
@@ -1576,7 +1677,7 @@
                 this.tabs.push(newTab);
                 this.activeTabId = newTab.id;
                 this.updateTabUI();
-                this.myTreeView.setData(newTab.currentTreeData);
+                this.myTreeGrid.setData(newTab.currentTreeData);
               })
               .catch(err => {
                 console.error("Error during streamed parsing:", err);
@@ -1606,7 +1707,7 @@
               this.tabs.push(newTab);
               this.activeTabId = newTab.id;
               this.updateTabUI();
-              this.myTreeView.setData(newTab.currentTreeData);
+              this.myTreeGrid.setData(newTab.currentTreeData);
             };
             reader.readAsText(file, "ascii");
           }
@@ -1639,7 +1740,7 @@
             activeTab.minLine,
             activeTab.maxLine
           );
-          this.myTreeView.setData(activeTab.currentTreeData);
+          this.myTreeGrid.setData(activeTab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
         });
         tag.appendChild(removeBtn);
@@ -1746,7 +1847,7 @@
           null,
           null
         );
-        this.myTreeView.setData(activeTab.currentTreeData);
+        this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
       findPathByHandle(nodes, handle) {
@@ -1768,13 +1869,13 @@
         if (!path) { alert("Definition not found for handle: " + handle); return; }
         path.forEach(node => node.expanded = true);
         activeTab.currentTreeData = activeTab.originalTreeData;
-        this.myTreeView.setData(activeTab.currentTreeData);
+        this.myTreeGrid.setData(activeTab.currentTreeData);
         setTimeout(() => {
           const targetNodeId = path[path.length - 1].id;
-          const flatData = this.myTreeView.flatData;
+          const flatData = this.myTreeGrid.flatData;
           const targetIndex = flatData.findIndex(item => String(item.node.id) === String(targetNodeId));
           if (targetIndex >= 0) {
-            this.treeViewContainer.scrollTop = targetIndex * this.myTreeView.itemHeight;
+            this.treeViewContainer.scrollTop = targetIndex * this.myTreeGrid.itemHeight;
             const element = this.treeViewContent.querySelector(`[data-id="${targetNodeId}"]`);
             if (element) {
               element.style.backgroundColor = "yellow";
