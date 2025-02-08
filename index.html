@@ -716,7 +716,7 @@
       }
     }
   </script>
-  <!-- TreeDataGrid Control (refactored from VirtualTreeView) -->
+  <!-- TreeDataGrid Control -->
   <script>
     class TreeDataGrid {
       constructor(container, content, options = {}) {
@@ -728,8 +728,8 @@
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
         this.onRowSelect = options.onRowSelect || null;
-        // columnWidths is passed in via the constructor options.
-        // Each value may be a number (pixels), "Auto" or a star string (e.g. "*" or "2*").
+        // Column widths are passed via the constructor options.
+        // Each value may be a fixed pixel number, "Auto", or a star value (e.g. "*" or "2*").
         this.columnWidths = options.columnWidths || {
           line: 100,
           code: 100,
@@ -740,13 +740,13 @@
         this.flatData = [];
         this.treeData = [];
         this.selectedRowId = null;
-        // Re-render visible nodes on container scroll.
+        // Re-render on scroll.
         this.container.addEventListener("scroll", () => { 
           requestAnimationFrame(() => this.updateVisibleNodes());
         });
-        // Attach header resizer events (assumes header element exists with id "treeGridHeader")
+        // Attach header resizer events (assumes header element exists with id "treeGridHeader").
         this.attachHeaderResizerEvents();
-        // Ensure toggle clicks inside the tree rows are handled.
+        // Handle toggle clicks inside the content.
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
             e.stopPropagation();
@@ -774,7 +774,7 @@
         const startWidth = headerCell.offsetWidth;
         const onMouseMove = (eMove) => {
           const newWidth = startWidth + (eMove.clientX - startX);
-          // Update the columnWidths object for this field to a fixed pixel value.
+          // Update the columnWidths for this field to a fixed pixel value.
           this.columnWidths[field] = newWidth;
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
@@ -910,14 +910,19 @@
       
       computeDataSize(node) {
         let size = 0;
-        if (node.isProperty) { size += node.data ? node.data.length : 0; }
-        else {
+        if (node.isProperty) {
+          size += node.data ? node.data.length : 0;
+        } else {
           size += node.type ? node.type.length : 0;
           if (node.properties && node.properties.length) {
-            for (let prop of node.properties) { size += prop.value ? prop.value.length : 0; }
+            for (let prop of node.properties) {
+              size += prop.value ? prop.value.length : 0;
+            }
           }
           if (node.children && node.children.length) {
-            for (let child of node.children) { size += this.computeDataSize(child); }
+            for (let child of node.children) {
+              size += this.computeDataSize(child);
+            }
           }
         }
         return size;
@@ -967,7 +972,7 @@
             if (this.onRowSelect) { this.onRowSelect(node.id); }
           });
           
-          // Line Column.
+          // Line column.
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
           lineDiv.style.width = lineWidth + "px";
@@ -996,7 +1001,7 @@
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
           
-          // Code Column.
+          // Code column.
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
           codeDiv.style.width = codeWidth + "px";
@@ -1008,7 +1013,7 @@
           }
           row.appendChild(codeDiv);
           
-          // Data Column.
+          // Data column.
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
           dataDiv.style.width = dataWidth + "px";
@@ -1070,7 +1075,7 @@
           }
           row.appendChild(dataDiv);
           
-          // Object Count Column.
+          // Object Count column.
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = objectCountWidth + "px";
@@ -1082,7 +1087,7 @@
           }
           row.appendChild(objectCountDiv);
           
-          // Data Size Column.
+          // Data Size column.
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = dataSizeWidth + "px";
@@ -1107,11 +1112,11 @@
   <script>
     class App {
       constructor() {
-        // Define column widths: fixed numbers, "Auto", or star sizing.
+        // Define column widths – these will be passed into the TreeDataGrid constructor.
         this.columnWidths = {
           line: 100,
           code: 100,
-          type: "*", // star sizing: takes all remaining space
+          type: "*", // Star sizing: takes up remaining space.
           objectCount: 100,
           dataSize: 100
         };
@@ -1122,7 +1127,7 @@
         this.activeTabId = null;
         this.currentBinaryData = null;
         this.currentDetectedType = null;
-        // Create the TreeDataGrid instance.
+        // Create the TreeDataGrid instance and pass columnWidths via the constructor.
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
