@@ -21,23 +21,66 @@
     .header-container {
       display: flex;
       flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 1em;
+    }
+    /* In this update only the logo remains in the top header */
+    .header-container h1 { margin: 0; }
+    /* Layout for two‐column main content with resizable sidebar */
+    .content-wrapper {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 300px;
+      padding-right: 1em;
+      border-right: 1px solid #ccc;
+      overflow-y: auto;
+      /* Allow the sidebar width to be changed via inline style */
+    }
+    .pane-resizer {
+      width: 5px;
+      cursor: ew-resize;
+      background-color: #ccc;
+    }
+    .main-content {
+      flex: 1;
+      padding-left: 1em;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    /* Sidebar header buttons – stacked vertically and fill width */
+    .sidebar-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
+      margin-bottom: 1em;
+    }
+    .sidebar-buttons button {
+      width: 100%;
+      padding: 0.5em;
+      box-sizing: border-box;
+    }
+    /* File input row */
+    .file-input-row {
+      display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1em;
     }
-    /* File input row */
-    .file-input-row {
-      display: inline-flex;
+    .file-input-row .left-part {
+      display: flex;
       align-items: center;
       gap: 0.5em;
-      margin-bottom: 1em;
+    }
+    .file-input-row .handle-navigation {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
     }
     #parseBtn { padding: 0.3em 0.6em; white-space: nowrap; }
-    .top-right-buttons {
-      display: flex;
-      gap: 0.5em;
-      flex-wrap: wrap;
-    }
     /* Navigation History */
     #navHistoryContainer {
       margin-bottom: 1em;
@@ -168,47 +211,38 @@
     }
     .tree-row:hover .copy-button,
     .tree-row:hover .hex-button { display: inline; }
-    /* Filter Panel */
+    /* Filter Panel – controls now stacked vertically */
     .filter-panel {
       border: 1px solid #ccc;
       border-radius: 4px;
-      margin: 0.5em 0;
-      overflow: hidden;
-    }
-    .filter-toggle {
-      background: #eee;
+      margin-bottom: 1em;
       padding: 0.5em;
-      cursor: pointer;
-      user-select: none;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
-    .filter-panel .filter-content { display: none; }
-    .filter-panel.expanded .filter-content { display: block; }
-    .filter-row {
-      margin-bottom: 0.5em;
+    .filter-panel h2 {
+      margin: 0 0 0.5em 0;
+      font-size: 1.2em;
+    }
+    .filter-content .filter-row {
       display: flex;
-      align-items: center;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 0.5em;
+      margin-bottom: 0.5em;
     }
     .filter-row label,
     .filter-row input,
-    .filter-row button { margin-right: 0.5em; }
+    .filter-row button { margin-right: 0; }
     .tag-container {
-      display: inline-block;
+      display: block;
       border: 1px solid #ccc;
       padding: 2px;
-      min-width: 200px;
-      margin-right: 8px;
+      margin-bottom: 0.5em;
       border-radius: 4px;
-      vertical-align: middle;
     }
     .tag-container input {
       border: none;
       outline: none;
       font-family: inherit;
+      width: 100%;
     }
     .tag {
       display: inline-block;
@@ -301,11 +335,10 @@
     }
     /* Responsive adjustments for mobile */
     @media (max-width: 600px) {
-      .filter-panel .filter-content > * {
-        margin-bottom: 0.5em;
-        width: 100%;
+      .filter-content .filter-row {
+        flex-direction: column;
       }
-      .tag-container { min-width: 100%; }
+      .tag-container { width: 100%; }
       #treeGridHeader .header-cell { padding: 0 2px; }
       .tree-row { height: 32px; }
       .tree-row .toggle { width: 20px; }
@@ -313,108 +346,143 @@
         flex-direction: column;
         align-items: flex-start;
       }
-      .top-right-buttons { margin-top: 0.5em; }
+      .content-wrapper {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 1em;
+        margin-bottom: 1em;
+      }
+      .pane-resizer { display: none; }
+      .main-content { padding-left: 0; }
+      .file-input-row {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .file-input-row .handle-navigation {
+        margin-top: 0.5em;
+      }
     }
   </style>
 </head>
 <body>
   <div class="main-container">
-    <!-- Header: Logo and top-right buttons -->
+    <!-- Top header: Only the logo now -->
     <div class="header-container">
       <h1>DXF Parser</h1>
-      <div class="top-right-buttons">
-        <button id="expandAllBtn">Expand All</button>
-        <button id="collapseAllBtn">Collapse All</button>
-        <button id="showCloudOverlayBtn">Show Cloud Data</button>
-        <button id="showStatsOverlayBtn">Show DXF Statistics</button>
-        <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
-        <!-- NEW: Button to show objects with binary data -->
-        <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
-        <!-- NEW: Button to show the DXF Handle Map -->
-        <button id="showHandleMapOverlayBtn">Show Handle Map</button>
-      </div>
     </div>
-    <!-- File input row -->
-    <div class="file-input-row">
-      <input type="file" id="fileInput" accept=".dxf" multiple>
-      <label>
-        <input type="checkbox" id="useStreamCheckbox">
-        Use Streamed Parsing
-      </label>
-      <button id="parseBtn">Parse File(s)</button>
-    </div>
-    <!-- Navigation History -->
-    <div id="navHistoryContainer">
-      <div id="navHistoryControls">
-        <button id="backBtn" disabled>Back</button>
-        <button id="forwardBtn" disabled>Forward</button>
-        <button id="clearHistoryBtn">Clear</button>
-      </div>
-      <div id="navHistoryList"></div>
-    </div>
-    <!-- Tabs -->
-    <div id="tabContainer"></div>
-    <!-- Filter Panel -->
-    <div class="filter-panel expanded" id="filterPanel">
-      <div class="filter-toggle">
-        <span>Filters</span>
-        <span class="toggle-icon">▲</span>
-      </div>
-      <div class="filter-content">
-        <div class="filter-row">
-          <div id="codeSearchTags" class="tag-container">
-            <input type="text" id="codeSearchInput" placeholder="Search by Code">
+    <!-- Main content wrapper with sidebar and main content -->
+    <div class="content-wrapper">
+      <!-- Sidebar: Contains header buttons and filter panel -->
+      <div class="sidebar">
+        <div class="sidebar-buttons">
+          <button id="expandAllBtn">Expand All</button>
+          <button id="collapseAllBtn">Collapse All</button>
+          <button id="showCloudOverlayBtn">Show Cloud Data</button>
+          <button id="showStatsOverlayBtn">Show DXF Statistics</button>
+          <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
+          <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
+          <button id="showHandleMapOverlayBtn">Show Handle Map</button>
+        </div>
+        <div class="filter-panel" id="filterPanel">
+          <h2>Filters</h2>
+          <div class="filter-content">
+            <div class="filter-row">
+              <div id="codeSearchTags" class="tag-container">
+                <input type="text" id="codeSearchInput" placeholder="Search by Code">
+              </div>
+            </div>
+            <div class="filter-row">
+              <div id="dataSearchTags" class="tag-container">
+                <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+              </div>
+            </div>
+            <div class="filter-row">
+              <label>
+                <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
+              </label>
+            </div>
+            <div class="filter-row">
+              <label>
+                <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
+              </label>
+            </div>
+            <div class="filter-row">
+              <label for="minLineInput">Min Line:</label>
+              <input type="number" id="minLineInput" style="width:80px;">
+            </div>
+            <div class="filter-row">
+              <label for="maxLineInput">Max Line:</label>
+              <input type="number" id="maxLineInput" style="width:80px;">
+            </div>
+            <div class="filter-row">
+              <button id="searchBtn">Search</button>
+              <button id="clearSearchBtn">Clear Search</button>
+            </div>
           </div>
-          <div id="dataSearchTags" class="tag-container">
-            <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+        </div>
+      </div>
+      <!-- Resizer between sidebar and main content -->
+      <div class="pane-resizer"></div>
+      <!-- Main Content Area -->
+      <div class="main-content">
+        <!-- File input row with handle navigation on the right -->
+        <div class="file-input-row">
+          <div class="left-part">
+            <input type="file" id="fileInput" accept=".dxf" multiple>
+            <label>
+              <input type="checkbox" id="useStreamCheckbox">
+              Use Streamed Parsing
+            </label>
+            <button id="parseBtn">Parse File(s)</button>
           </div>
-          <label>
-            <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
-          </label>
-          <label>
-            <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
-          </label>
+          <div class="handle-navigation">
+            <input type="text" id="handleSearchInput" placeholder="Go to Handle">
+            <button id="goToHandleBtn">Go</button>
+          </div>
         </div>
-        <div class="filter-row">
-          <label for="minLineInput">Min Line:</label>
-          <input type="number" id="minLineInput" style="width:80px;">
-          <label for="maxLineInput">Max Line:</label>
-          <input type="number" id="maxLineInput" style="width:80px;">
-          <input type="text" id="handleSearchInput" placeholder="Go to Handle">
-          <button id="goToHandleBtn">Go</button>
+        <!-- Navigation History -->
+        <div id="navHistoryContainer">
+          <div id="navHistoryControls">
+            <button id="backBtn" disabled>Back</button>
+            <button id="forwardBtn" disabled>Forward</button>
+            <button id="clearHistoryBtn">Clear</button>
+          </div>
+          <div id="navHistoryList"></div>
         </div>
-        <div class="filter-row">
-          <button id="searchBtn">Search</button>
-          <button id="clearSearchBtn">Clear Search</button>
+        <!-- Tabs -->
+        <div id="tabContainer"></div>
+        <!-- Tree Grid Header -->
+        <div id="treeGridHeader" class="tree-header">
+          <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
+            Line <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+          </div>
+          <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+            Code <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+          </div>
+          <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+            Data <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+          </div>
+          <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 100px; text-align: right;">
+            Object Count <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+          </div>
+          <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 100px; text-align: right;">
+            Data Size <span class="sort-indicator"></span>
+            <div class="resizer"></div>
+          </div>
+        </div>
+        <!-- Tree View Container -->
+        <div id="treeViewContainer">
+          <div id="treeViewContent"></div>
         </div>
       </div>
-    </div>
-    <!-- Tree Grid Header -->
-    <div id="treeGridHeader" class="tree-header">
-      <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
-        Line <span class="sort-indicator"></span>
-        <div class="resizer"></div>
-      </div>
-      <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
-        Code <span class="sort-indicator"></span>
-        <div class="resizer"></div>
-      </div>
-      <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
-        Data <span class="sort-indicator"></span>
-        <div class="resizer"></div>
-      </div>
-      <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 100px; text-align: right;">
-        Object Count <span class="sort-indicator"></span>
-        <div class="resizer"></div>
-      </div>
-      <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 100px; text-align: right;">
-        Data Size <span class="sort-indicator"></span>
-        <div class="resizer"></div>
-      </div>
-    </div>
-    <!-- Tree View Container -->
-    <div id="treeViewContainer">
-      <div id="treeViewContent"></div>
     </div>
   </div>
   <!-- Overlays -->
@@ -917,6 +985,7 @@
       }
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
+        // The header buttons are now in the sidebar so their listeners remain unchanged.
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
         document.querySelectorAll('.header-cell').forEach(headerCell => {
@@ -978,15 +1047,6 @@
         document.getElementById("backBtn").addEventListener("click", () => this.navigateBack());
         document.getElementById("forwardBtn").addEventListener("click", () => this.navigateForward());
         document.getElementById("clearHistoryBtn").addEventListener("click", () => this.clearNavigationHistory());
-        const filterToggle = document.querySelector('.filter-toggle');
-        if(filterToggle) {
-          filterToggle.addEventListener('click', () => {
-            const panel = filterToggle.parentElement;
-            panel.classList.toggle('expanded');
-            const icon = filterToggle.querySelector('.toggle-icon');
-            icon.textContent = panel.classList.contains('expanded') ? '▲' : '▼';
-          });
-        }
         this.treeViewContainer.addEventListener("scroll", (e) => {
           const scrollLeft = e.target.scrollLeft;
           document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
@@ -1031,6 +1091,25 @@
             document.getElementById(overlayId).style.display = "none";
             this.treeViewContainer.focus();
           });
+        });
+        // Add resizer events for the left pane
+        const resizer = document.querySelector('.pane-resizer');
+        const sidebar = document.querySelector('.sidebar');
+        const contentWrapper = document.querySelector('.content-wrapper');
+        resizer.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+          function onMouseMove(e) {
+            const newWidth = e.clientX - contentWrapper.getBoundingClientRect().left;
+            if(newWidth > 150 && newWidth < contentWrapper.clientWidth - 100) {
+              sidebar.style.width = newWidth + 'px';
+            }
+          }
+          function onMouseUp() {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+          }
         });
       }
       updateEffectiveSearchTerms() {
@@ -2120,7 +2199,6 @@
         if (uniqueRoots.length === 0) {
           container.textContent = "No owner relationships (code 330) found.";
         } else {
-          // Use .bind(this) so that "this" inside buildList refers to our App instance.
           container.appendChild(buildList.call(this, uniqueRoots));
         }
       }
