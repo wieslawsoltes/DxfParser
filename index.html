@@ -198,7 +198,7 @@
       clip-path: inset(0);
     }
     #treeViewContent { position: relative; overflow: hidden; }
-    /* Tree row styling – added row selection support */
+    /* Tree row styling – with row selection support */
     .tree-row {
       display: flex;
       align-items: center;
@@ -816,14 +816,12 @@
         const codeCell = header.querySelector('.tree-code');
         if (codeCell && this.columnWidths.code) { codeCell.style.width = this.columnWidths.code + "px"; }
         const typeCell = header.querySelector('.tree-data');
-        if (this.columnWidths.type) {
+        if (this.columnWidths.type != null) {
           typeCell.style.width = this.columnWidths.type + "px";
           typeCell.style.flex = "0 0 auto";
         } else {
-          if (this.computedDataWidth) {
-            typeCell.style.width = this.computedDataWidth + "px";
-            typeCell.style.flex = "0 0 auto";
-          } else { typeCell.style.width = ""; typeCell.style.flex = "1"; }
+          typeCell.style.width = "";
+          typeCell.style.flex = "1 1 auto";
         }
         const objectCountCell = header.querySelector('.tree-object-count');
         if (objectCountCell && this.columnWidths.objectCount) { objectCountCell.style.width = this.columnWidths.objectCount + "px"; }
@@ -841,17 +839,27 @@
         const objectCountWidth = this.columnWidths.objectCount || 0;
         const dataSizeWidth = this.columnWidths.dataSize || 0;
         const fixedWidth = lineWidth + codeWidth + objectCountWidth + dataSizeWidth;
-        let dataWidth = this.getDataWidth();
-        if (dataWidth == null) {
-          dataWidth = Math.max(this.container.clientWidth - fixedWidth, 200);
+        let dataWidth;
+        if (this.columnWidths.type != null) {
+          dataWidth = this.getDataWidth();
+          if (dataWidth == null) {
+            dataWidth = Math.max(this.container.clientWidth - fixedWidth, 200);
+          }
+          this.computedDataWidth = dataWidth;
         }
-        this.computedDataWidth = dataWidth;
-        const totalWidth = fixedWidth + dataWidth;
         const containerElem = document.createElement("div");
-        containerElem.style.width = totalWidth + "px";
+        if (this.columnWidths.type != null) {
+          containerElem.style.width = (fixedWidth + dataWidth) + "px";
+        } else {
+          containerElem.style.width = "100%";
+        }
         const header = document.getElementById("treeGridHeader");
         if (header) {
-          header.style.width = totalWidth + "px";
+          if (this.columnWidths.type != null) {
+            header.style.width = (fixedWidth + dataWidth) + "px";
+          } else {
+            header.style.width = "100%";
+          }
         }
         const startIndex = Math.floor(scrollTop / this.itemHeight);
         const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
@@ -868,17 +876,14 @@
           row.style.position = "relative";
           row.style.height = this.itemHeight + "px";
           row.dataset.id = node.id;
-          // Apply selection style if this row is selected.
           if (String(node.id) === String(this.selectedRowId)) {
             row.classList.add("selected");
           }
-          // Add click listener to select the row.
           row.addEventListener("click", (e) => {
             this.selectedRowId = node.id;
             this.updateVisibleNodes();
             if (this.onRowSelect) { this.onRowSelect(node.id); }
           });
-          // Create the Line column
           const lineDiv = document.createElement("div");
           lineDiv.className = "tree-line";
           if (lineWidth) { lineDiv.style.width = lineWidth + "px"; }
@@ -906,7 +911,6 @@
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
-          // Create the Code column
           const codeDiv = document.createElement("div");
           codeDiv.className = "tree-code";
           if (codeWidth) { codeDiv.style.width = codeWidth + "px"; }
@@ -914,11 +918,15 @@
           if (node.isProperty) { codeDiv.textContent = node.code; }
           else { codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; }
           row.appendChild(codeDiv);
-          // Create the Data column
           const dataDiv = document.createElement("div");
           dataDiv.className = "tree-data";
-          dataDiv.style.width = dataWidth + "px";
-          dataDiv.style.flex = "0 0 auto";
+          if (this.columnWidths.type != null) {
+            dataDiv.style.width = dataWidth + "px";
+            dataDiv.style.flex = "0 0 auto";
+          } else {
+            dataDiv.style.width = "";
+            dataDiv.style.flex = "1 1 auto";
+          }
           const handleCodes = [5, 105, 330, 350, 360];
           if (node.isProperty) {
             if (handleCodes.includes(Number(node.code))) {
@@ -973,7 +981,6 @@
             }
           }
           row.appendChild(dataDiv);
-          // Create the Object Count column
           const objectCountDiv = document.createElement("div");
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = objectCountWidth + "px";
@@ -981,7 +988,6 @@
           if (!node.isProperty && node.children && node.children.length) { objectCountDiv.textContent = this.computeObjectCount(node); }
           else { objectCountDiv.textContent = ""; }
           row.appendChild(objectCountDiv);
-          // Create the Data Size column
           const dataSizeDiv = document.createElement("div");
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = dataSizeWidth + "px";
@@ -1004,6 +1010,7 @@
   <script>
     class App {
       constructor() {
+        // Set columnWidths.type to null to use star sizing.
         this.columnWidths = { line: 100, code: 100, type: null, objectCount: 100, dataSize: 100 };
         this.dxfParser = new DxfParser();
         this.treeViewContainer = document.getElementById("treeViewContainer");
