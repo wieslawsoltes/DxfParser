@@ -219,6 +219,15 @@
     }
     .tree-row:hover .copy-button,
     .tree-row:hover .hex-button { display: inline; }
+    /* Use monospace font for the tree grid display */
+    .tree-row,
+    .tree-line,
+    .tree-code,
+    .tree-object-count,
+    .tree-data-size,
+    .tree-data {
+      font-family: monospace;
+    }
     /* Filter Panel – controls now stacked vertically */
     .filter-panel {
       border: 1px solid #ccc;
@@ -472,7 +481,7 @@
         <div id="tabContainer"></div>
         <!-- Tree Grid Header -->
         <div id="treeGridHeader" class="tree-header">
-          <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 100px; text-align: left;">
+          <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
             Line <span class="sort-indicator"></span>
             <div class="resizer"></div>
           </div>
@@ -484,11 +493,11 @@
             Data <span class="sort-indicator"></span>
             <div class="resizer"></div>
           </div>
-          <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 100px; text-align: right;">
+          <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
             Object Count <span class="sort-indicator"></span>
             <div class="resizer"></div>
           </div>
-          <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 100px; text-align: right;">
+          <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
             Data Size <span class="sort-indicator"></span>
             <div class="resizer"></div>
           </div>
@@ -1131,11 +1140,11 @@
       constructor() {
         // Define column widths – these will be passed into the TreeDataGrid constructor.
         this.columnWidths = {
-          line: 100,
+          line: 130,
           code: 100,
           type: "*", // Star sizing: takes up remaining space.
-          objectCount: 100,
-          dataSize: 100
+          objectCount: 130,
+          dataSize: 130
         };
         this.dxfParser = new DxfParser();
         this.treeViewContainer = document.getElementById("treeViewContainer");
