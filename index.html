@@ -276,7 +276,8 @@
     #depsOverlay,
     #binaryObjectsOverlay,
     #handleMapOverlay,
-    #hexViewerOverlay {
+    #hexViewerOverlay,
+    #proxyObjectsOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -292,7 +293,8 @@
     #statsOverlay,
     #depsOverlay,
     #binaryObjectsOverlay,
-    #handleMapOverlay { z-index: 1000; }
+    #handleMapOverlay,
+    #proxyObjectsOverlay { z-index: 1000; }
     .overlay-content {
       background: #fff;
       margin: 20px;
@@ -310,6 +312,7 @@
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
     #closeHandleMapOverlay,
+    #closeProxyObjectsOverlay,
     #saveBinaryBtn,
     #previewImageBtn {
       position: absolute;
@@ -321,7 +324,8 @@
     #closeDepsOverlay,
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
-    #closeHandleMapOverlay { right: 10px; }
+    #closeHandleMapOverlay,
+    #closeProxyObjectsOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
     #previewImageBtn { right: 170px; }
     .cloud-tag {
@@ -391,6 +395,7 @@
           <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
           <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
           <button id="showHandleMapOverlayBtn">Show Handle Map</button>
+          <button id="showProxyObjectsOverlayBtn">Show Proxy Objects</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -546,6 +551,15 @@
       <button class="backToTreeBtn" data-overlay="handleMapOverlay">Back to Tree</button>
       <h2>DXF Handle Map</h2>
       <div id="overlayHandleMapContent"></div>
+    </div>
+  </div>
+  <!-- New Proxy Objects Overlay -->
+  <div id="proxyObjectsOverlay">
+    <div class="overlay-content">
+      <button id="closeProxyObjectsOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="proxyObjectsOverlay">Back to Tree</button>
+      <h2>Proxy Objects</h2>
+      <div id="proxyObjectsList"></div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -1189,6 +1203,13 @@
         });
         document.getElementById("closeHandleMapOverlay").addEventListener("click", () => {
           document.getElementById("handleMapOverlay").style.display = "none";
+        });
+        // New event listeners for Proxy Objects overlay
+        document.getElementById("showProxyObjectsOverlayBtn").addEventListener("click", () => {
+          this.showProxyObjectsOverlay();
+        });
+        document.getElementById("closeProxyObjectsOverlay").addEventListener("click", () => {
+          document.getElementById("proxyObjectsOverlay").style.display = "none";
         });
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -2403,6 +2424,87 @@
           });
         }
         document.getElementById("binaryObjectsOverlay").style.display = "block";
+      }
+      // New method: showProxyObjectsOverlay
+      showProxyObjectsOverlay() {
+        const activeTab = this.getActiveTab();
+        const listContainer = document.getElementById("proxyObjectsList");
+        listContainer.innerHTML = "";
+        if (!activeTab) {
+          listContainer.textContent = "No DXF data loaded.";
+          document.getElementById("proxyObjectsOverlay").style.display = "block";
+          return;
+        }
+        let proxyNodes = [];
+        function findProxyNodes(nodes) {
+          nodes.forEach(node => {
+            if (!node.isProperty && node.type && node.type.toUpperCase() === "ACAD_PROXY_OBJECT") {
+              proxyNodes.push(node);
+            }
+            if (node.children && node.children.length > 0) { findProxyNodes(node.children); }
+          });
+        }
+        findProxyNodes(activeTab.originalTreeData);
+        if (proxyNodes.length === 0) {
+          listContainer.textContent = "No proxy objects found.";
+        } else {
+          proxyNodes.forEach(node => {
+            const div = document.createElement("div");
+            div.style.borderBottom = "1px solid #ccc";
+            div.style.padding = "5px";
+            let info = `Type: ${node.type} | Line: ${node.line}`;
+            if (node.handle) { info += ` | Handle: ${node.handle}`; }
+            const infoSpan = document.createElement("span");
+            infoSpan.textContent = info + " ";
+            div.appendChild(infoSpan);
+            // Copy button
+            const copyBtn = document.createElement("button");
+            copyBtn.textContent = "Copy DXF";
+            copyBtn.addEventListener("click", () => {
+              const serialized = this.dxfParser.serializeNode(node);
+              navigator.clipboard.writeText(serialized).then(() => {
+                alert("Copied proxy object to clipboard as valid DXF tags.");
+              }, () => {
+                alert("Failed to copy to clipboard.");
+              });
+            });
+            div.appendChild(copyBtn);
+            // Details toggle button
+            const detailsBtn = document.createElement("button");
+            detailsBtn.textContent = "Show Details";
+            const detailsDiv = document.createElement("pre");
+            detailsDiv.style.display = "none";
+            detailsDiv.style.background = "#f9f9f9";
+            detailsDiv.style.padding = "5px";
+            detailsDiv.textContent = this.dxfParser.serializeNode(node);
+            detailsBtn.addEventListener("click", () => {
+              if (detailsDiv.style.display === "none") {
+                detailsDiv.style.display = "block";
+                detailsBtn.textContent = "Hide Details";
+              } else {
+                detailsDiv.style.display = "none";
+                detailsBtn.textContent = "Show Details";
+              }
+            });
+            div.appendChild(detailsBtn);
+            div.appendChild(detailsDiv);
+            // "Show in Tree" link if a handle exists
+            if (node.handle) {
+              const showLink = document.createElement("a");
+              showLink.href = "#";
+              showLink.textContent = "Show in Tree";
+              showLink.style.marginLeft = "10px";
+              showLink.addEventListener("click", (e) => {
+                e.preventDefault();
+                document.getElementById("proxyObjectsOverlay").style.display = "none";
+                this.handleLinkToHandle(node.handle);
+              });
+              div.appendChild(showLink);
+            }
+            listContainer.appendChild(div);
+          });
+        }
+        document.getElementById("proxyObjectsOverlay").style.display = "block";
       }
     }
     document.addEventListener("DOMContentLoaded", () => { window.app = new App(); });
