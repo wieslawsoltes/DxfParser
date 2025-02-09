@@ -25,7 +25,7 @@
       overflow: hidden;
     }
     .sidebar {
-      width: 300px; /* Fixed width */
+      width: 270px; /* Fixed width */
       padding: 1em;
       border-right: 1px solid #ccc;
       overflow-y: auto;
@@ -49,10 +49,10 @@
     }
     /* Sidebar header buttons – stacked vertically and fill width */
     .sidebar-buttons {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5em;
-      margin-bottom: 1em;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.3em;
+      margin-bottom: 0.5em;
     }
     .sidebar-buttons button {
       width: 100%;
@@ -409,14 +409,14 @@
         <div class="sidebar-buttons">
           <button id="expandAllBtn">Expand All</button>
           <button id="collapseAllBtn">Collapse All</button>
-          <button id="showCloudOverlayBtn">Show Cloud Data</button>
-          <button id="showStatsOverlayBtn">Show DXF Statistics</button>
-          <button id="showDepsOverlayBtn">Show DXF Dependencies</button>
-          <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
-          <button id="showHandleMapOverlayBtn">Show Handle Map</button>
-          <button id="showProxyObjectsOverlayBtn">Show Proxy Objects</button>
+          <button id="showCloudOverlayBtn">Cloud Data</button>
+          <button id="showStatsOverlayBtn">Statistics</button>
+          <button id="showDepsOverlayBtn">Dependencies</button>
+          <button id="showBinaryObjectsOverlayBtn">Binary Objects</button>
+          <button id="showHandleMapOverlayBtn">Handle Map</button>
+          <button id="showProxyObjectsOverlayBtn">Proxy Objects</button>
           <!-- NEW: Button for Fonts overlay -->
-          <button id="showFontsOverlayBtn">Show Fonts Used</button>
+          <button id="showFontsOverlayBtn">Fonts Used</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
