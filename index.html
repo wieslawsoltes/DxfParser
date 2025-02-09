@@ -66,11 +66,6 @@
       align-items: center;
       margin-bottom: 1em;
     }
-    .file-input-row .left-part {
-      display: flex;
-      align-items: center;
-      gap: 0.5em;
-    }
     /* Navigation Controls – a single row combining Go to Handle and navigation history */
     #navControls {
       display: flex;
@@ -277,7 +272,9 @@
     #binaryObjectsOverlay,
     #handleMapOverlay,
     #hexViewerOverlay,
-    #proxyObjectsOverlay {
+    #proxyObjectsOverlay,
+    /* NEW Fonts Overlay */
+    #fontsOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -294,7 +291,8 @@
     #depsOverlay,
     #binaryObjectsOverlay,
     #handleMapOverlay,
-    #proxyObjectsOverlay { z-index: 1000; }
+    #proxyObjectsOverlay,
+    #fontsOverlay { z-index: 1000; }
     .overlay-content {
       background: #fff;
       margin: 20px;
@@ -313,6 +311,8 @@
     #closeBinaryObjectsOverlay,
     #closeHandleMapOverlay,
     #closeProxyObjectsOverlay,
+    /* NEW Fonts Overlay close button */
+    #closeFontsOverlay,
     #saveBinaryBtn,
     #previewImageBtn {
       position: absolute;
@@ -325,7 +325,8 @@
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
     #closeHandleMapOverlay,
-    #closeProxyObjectsOverlay { right: 10px; }
+    #closeProxyObjectsOverlay,
+    #closeFontsOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
     #previewImageBtn { right: 170px; }
     .cloud-tag {
@@ -396,6 +397,8 @@
           <button id="showBinaryObjectsOverlayBtn">Show Binary Objects</button>
           <button id="showHandleMapOverlayBtn">Show Handle Map</button>
           <button id="showProxyObjectsOverlayBtn">Show Proxy Objects</button>
+          <!-- NEW: Button for Fonts overlay -->
+          <button id="showFontsOverlayBtn">Show Fonts Used</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -553,13 +556,21 @@
       <div id="overlayHandleMapContent"></div>
     </div>
   </div>
-  <!-- New Proxy Objects Overlay -->
   <div id="proxyObjectsOverlay">
     <div class="overlay-content">
       <button id="closeProxyObjectsOverlay">Close</button>
       <button class="backToTreeBtn" data-overlay="proxyObjectsOverlay">Back to Tree</button>
       <h2>Proxy Objects</h2>
       <div id="proxyObjectsList"></div>
+    </div>
+  </div>
+  <!-- NEW: Fonts Overlay -->
+  <div id="fontsOverlay">
+    <div class="overlay-content">
+      <button id="closeFontsOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="fontsOverlay">Back to Tree</button>
+      <h2>Fonts Used in DXF</h2>
+      <div id="overlayFontsContent"></div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -742,8 +753,6 @@
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
         this.onRowSelect = options.onRowSelect || null;
-        // Column widths are passed via the constructor options.
-        // Each value may be a fixed pixel number, "Auto", or a star value (e.g. "*" or "2*").
         this.columnWidths = options.columnWidths || {
           line: 100,
           code: 100,
@@ -754,13 +763,10 @@
         this.flatData = [];
         this.treeData = [];
         this.selectedRowId = null;
-        // Re-render on scroll.
         this.container.addEventListener("scroll", () => { 
           requestAnimationFrame(() => this.updateVisibleNodes());
         });
-        // Attach header resizer events (assumes header element exists with id "treeGridHeader").
         this.attachHeaderResizerEvents();
-        // Handle toggle clicks inside the content.
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
             e.stopPropagation();
@@ -788,7 +794,6 @@
         const startWidth = headerCell.offsetWidth;
         const onMouseMove = (eMove) => {
           const newWidth = startWidth + (eMove.clientX - startX);
-          // Update the columnWidths for this field to a fixed pixel value.
           this.columnWidths[field] = newWidth;
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
@@ -934,9 +939,7 @@
             }
           }
           if (node.children && node.children.length) {
-            for (let child of node.children) {
-              size += this.computeDataSize(child);
-            }
+            for (let child of node.children) { size += this.computeDataSize(child); }
           }
         }
         return size;
@@ -1210,6 +1213,14 @@
         });
         document.getElementById("closeProxyObjectsOverlay").addEventListener("click", () => {
           document.getElementById("proxyObjectsOverlay").style.display = "none";
+        });
+        // NEW: Event listeners for Fonts Overlay
+        document.getElementById("showFontsOverlayBtn").addEventListener("click", () => {
+          this.updateFonts();
+          document.getElementById("fontsOverlay").style.display = "block";
+        });
+        document.getElementById("closeFontsOverlay").addEventListener("click", () => {
+          document.getElementById("fontsOverlay").style.display = "none";
         });
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -2425,7 +2436,6 @@
         }
         document.getElementById("binaryObjectsOverlay").style.display = "block";
       }
-      // New method to analyze proxy objects in detail.
       analyzeProxyObject(node) {
         let html = `<h3>Proxy Object Analysis</h3>`;
         html += `<p><strong>Total Properties:</strong> ${node.properties.length}. `;
@@ -2442,13 +2452,11 @@
           }
         });
         html += `</table>`;
-        // If there are any binary segments (code 310), show combined information.
         const binaryProps = node.properties.filter(p => Number(p.code) === 310);
         if (binaryProps.length > 0) {
           const combinedData = binaryProps.map(p => p.value).join("");
           html += `<p><strong>Combined Binary Data:</strong> ${combinedData.length} characters. <a href="#" onclick="window.app.showHexViewer('${combinedData}'); return false;">View Hex</a></p>`;
         }
-        // If there are child objects, list them recursively.
         if (node.children && node.children.length > 0) {
           html += `<h4>Child Objects:</h4>`;
           html += `<ul>`;
@@ -2459,7 +2467,6 @@
               html += `, Handle: <a href="#" onclick="window.app.handleLinkToHandle('${child.handle}'); return false;">${child.handle}</a>`;
             }
             html += `)`;
-            // Recursively include analysis for child objects.
             html += window.app.analyzeProxyObject(child);
             html += `</li>`;
           });
@@ -2467,7 +2474,6 @@
         }
         return html;
       }
-      // Updated method for Proxy Objects overlay.
       showProxyObjectsOverlay() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("proxyObjectsList");
@@ -2499,7 +2505,6 @@
             const infoSpan = document.createElement("span");
             infoSpan.textContent = info + " ";
             div.appendChild(infoSpan);
-            // Copy button
             const copyBtn = document.createElement("button");
             copyBtn.textContent = "Copy DXF";
             copyBtn.addEventListener("click", () => {
@@ -2511,7 +2516,6 @@
               });
             });
             div.appendChild(copyBtn);
-            // Existing "Show Details" toggle button (raw DXF text)
             const detailsBtn = document.createElement("button");
             detailsBtn.textContent = "Show Details";
             const detailsDiv = document.createElement("pre");
@@ -2530,7 +2534,6 @@
             });
             div.appendChild(detailsBtn);
             div.appendChild(detailsDiv);
-            // New "Analyze" button for structured analysis
             const analyzeBtn = document.createElement("button");
             analyzeBtn.textContent = "Analyze";
             const analyzeDiv = document.createElement("div");
@@ -2549,7 +2552,6 @@
             });
             div.appendChild(analyzeBtn);
             div.appendChild(analyzeDiv);
-            // "Show in Tree" link if a handle exists
             if (node.handle) {
               const showLink = document.createElement("a");
               showLink.href = "#";
@@ -2566,6 +2568,65 @@
           });
         }
         document.getElementById("proxyObjectsOverlay").style.display = "block";
+      }
+      // NEW: Method to update the Fonts overlay.
+      updateFonts() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          document.getElementById("overlayFontsContent").innerHTML = "<p>No DXF data loaded.</p>";
+          return;
+        }
+        // Map: font identifier => array of reference strings.
+        let fonts = {};
+        function traverse(node) {
+          // For STYLE entities, group code 2 is style name, group code 3 is font file name.
+          if (node.type.toUpperCase() === "STYLE") {
+            let styleName = "";
+            let fontFile = "";
+            node.properties.forEach(prop => {
+              if (prop.code == 2) { styleName = prop.value; }
+              if (prop.code == 3) { fontFile = prop.value; }
+            });
+            if (fontFile) {
+              if (!fonts[fontFile]) {
+                fonts[fontFile] = [];
+              }
+              fonts[fontFile].push(`STYLE: ${styleName} (Line: ${node.line}${node.handle ? ", Handle: " + node.handle : ""})`);
+            }
+          }
+          // For TEXT or MTEXT entities, group code 7 is the text style name.
+          if (node.type.toUpperCase() === "TEXT" || node.type.toUpperCase() === "MTEXT") {
+            let textStyle = "";
+            node.properties.forEach(prop => {
+              if (prop.code == 7) { textStyle = prop.value; }
+            });
+            if (textStyle) {
+              if (!fonts[textStyle]) {
+                fonts[textStyle] = [];
+              }
+              fonts[textStyle].push(`${node.type} (Line: ${node.line}${node.handle ? ", Handle: " + node.handle : ""})`);
+            }
+          }
+          if (node.children && node.children.length > 0) {
+            node.children.forEach(child => traverse(child));
+          }
+        }
+        activeTab.originalTreeData.forEach(node => traverse(node));
+        let html = "";
+        if (Object.keys(fonts).length === 0) {
+          html = "<p>No fonts found in the DXF data.</p>";
+        } else {
+          html = "<ul>";
+          for (let font in fonts) {
+            html += `<li><strong>${font}</strong><ul>`;
+            fonts[font].forEach(ref => {
+              html += `<li>${ref}</li>`;
+            });
+            html += "</ul></li>";
+          }
+          html += "</ul>";
+        }
+        document.getElementById("overlayFontsContent").innerHTML = html;
       }
     }
     document.addEventListener("DOMContentLoaded", () => { window.app = new App(); });
