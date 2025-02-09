@@ -2569,17 +2569,17 @@
         }
         document.getElementById("proxyObjectsOverlay").style.display = "block";
       }
-      // NEW: Method to update the Fonts overlay.
+      // NEW: updateFonts() method with "Show in Tree" link that always closes the dialog.
       updateFonts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
           document.getElementById("overlayFontsContent").innerHTML = "<p>No DXF data loaded.</p>";
           return;
         }
-        // Map: font identifier => array of reference strings.
+        // Create a mapping: font identifier => array of reference objects { desc, handle }
         let fonts = {};
         function traverse(node) {
-          // For STYLE entities, group code 2 is style name, group code 3 is font file name.
+          // For STYLE entities, check for a font file (group code 3) and style name (group code 2)
           if (node.type.toUpperCase() === "STYLE") {
             let styleName = "";
             let fontFile = "";
@@ -2591,10 +2591,13 @@
               if (!fonts[fontFile]) {
                 fonts[fontFile] = [];
               }
-              fonts[fontFile].push(`STYLE: ${styleName} (Line: ${node.line}${node.handle ? ", Handle: " + node.handle : ""})`);
+              fonts[fontFile].push({
+                desc: `STYLE: ${styleName} (Line: ${node.line}${node.handle ? ", Handle: " + node.handle : ""})`,
+                handle: node.handle
+              });
             }
           }
-          // For TEXT or MTEXT entities, group code 7 is the text style name.
+          // For TEXT or MTEXT entities, check for text style (group code 7)
           if (node.type.toUpperCase() === "TEXT" || node.type.toUpperCase() === "MTEXT") {
             let textStyle = "";
             node.properties.forEach(prop => {
@@ -2604,14 +2607,20 @@
               if (!fonts[textStyle]) {
                 fonts[textStyle] = [];
               }
-              fonts[textStyle].push(`${node.type} (Line: ${node.line}${node.handle ? ", Handle: " + node.handle : ""})`);
+              fonts[textStyle].push({
+                desc: `${node.type} (Line: ${node.line}${node.handle ? ", Handle: " + node.handle : ""})`,
+                handle: node.handle
+              });
             }
           }
+          // Recurse through children
           if (node.children && node.children.length > 0) {
             node.children.forEach(child => traverse(child));
           }
         }
         activeTab.originalTreeData.forEach(node => traverse(node));
+  
+        // Build the HTML list from the fonts mapping.
         let html = "";
         if (Object.keys(fonts).length === 0) {
           html = "<p>No fonts found in the DXF data.</p>";
@@ -2619,8 +2628,12 @@
           html = "<ul>";
           for (let font in fonts) {
             html += `<li><strong>${font}</strong><ul>`;
-            fonts[font].forEach(ref => {
-              html += `<li>${ref}</li>`;
+            fonts[font].forEach(entry => {
+              html += `<li>${entry.desc}`;
+              if (entry.handle) {
+                html += ` <a href="#" onclick="window.app.handleLinkToHandle('${entry.handle}'); document.getElementById('fontsOverlay').style.display = 'none'; return false;">Show in Tree</a>`;
+              }
+              html += `</li>`;
             });
             html += "</ul></li>";
           }
