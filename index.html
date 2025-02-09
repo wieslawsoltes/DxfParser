@@ -2425,7 +2425,49 @@
         }
         document.getElementById("binaryObjectsOverlay").style.display = "block";
       }
-      // New method: showProxyObjectsOverlay
+      // New method to analyze proxy objects in detail.
+      analyzeProxyObject(node) {
+        let html = `<h3>Proxy Object Analysis</h3>`;
+        html += `<p><strong>Total Properties:</strong> ${node.properties.length}. `;
+        html += `<strong>Total Child Objects:</strong> ${node.children ? node.children.length : 0}.</p>`;
+        html += `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse; width: 100%;">`;
+        html += `<tr><th>DXF Code</th><th>Value</th></tr>`;
+        node.properties.forEach(prop => {
+          if (Number(prop.code) === 330) {
+            html += `<tr><td>${prop.code}</td><td><a href="#" onclick="window.app.handleLinkToHandle('${prop.value}'); return false;">${prop.value}</a></td></tr>`;
+          } else if (Number(prop.code) === 310) {
+            html += `<tr><td>${prop.code}</td><td>Binary Data (length: ${prop.value.length})</td></tr>`;
+          } else {
+            html += `<tr><td>${prop.code}</td><td>${prop.value}</td></tr>`;
+          }
+        });
+        html += `</table>`;
+        // If there are any binary segments (code 310), show combined information.
+        const binaryProps = node.properties.filter(p => Number(p.code) === 310);
+        if (binaryProps.length > 0) {
+          const combinedData = binaryProps.map(p => p.value).join("");
+          html += `<p><strong>Combined Binary Data:</strong> ${combinedData.length} characters. <a href="#" onclick="window.app.showHexViewer('${combinedData}'); return false;">View Hex</a></p>`;
+        }
+        // If there are child objects, list them recursively.
+        if (node.children && node.children.length > 0) {
+          html += `<h4>Child Objects:</h4>`;
+          html += `<ul>`;
+          node.children.forEach(child => {
+            html += `<li>`;
+            html += `Type: ${child.type} (Line: ${child.line}`;
+            if (child.handle) {
+              html += `, Handle: <a href="#" onclick="window.app.handleLinkToHandle('${child.handle}'); return false;">${child.handle}</a>`;
+            }
+            html += `)`;
+            // Recursively include analysis for child objects.
+            html += window.app.analyzeProxyObject(child);
+            html += `</li>`;
+          });
+          html += `</ul>`;
+        }
+        return html;
+      }
+      // Updated method for Proxy Objects overlay.
       showProxyObjectsOverlay() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("proxyObjectsList");
@@ -2469,7 +2511,7 @@
               });
             });
             div.appendChild(copyBtn);
-            // Details toggle button
+            // Existing "Show Details" toggle button (raw DXF text)
             const detailsBtn = document.createElement("button");
             detailsBtn.textContent = "Show Details";
             const detailsDiv = document.createElement("pre");
@@ -2488,6 +2530,25 @@
             });
             div.appendChild(detailsBtn);
             div.appendChild(detailsDiv);
+            // New "Analyze" button for structured analysis
+            const analyzeBtn = document.createElement("button");
+            analyzeBtn.textContent = "Analyze";
+            const analyzeDiv = document.createElement("div");
+            analyzeDiv.style.display = "none";
+            analyzeDiv.style.background = "#eef";
+            analyzeDiv.style.padding = "5px";
+            analyzeBtn.addEventListener("click", () => {
+              if (analyzeDiv.style.display === "none") {
+                analyzeDiv.innerHTML = window.app.analyzeProxyObject(node);
+                analyzeDiv.style.display = "block";
+                analyzeBtn.textContent = "Hide Analysis";
+              } else {
+                analyzeDiv.style.display = "none";
+                analyzeBtn.textContent = "Analyze";
+              }
+            });
+            div.appendChild(analyzeBtn);
+            div.appendChild(analyzeDiv);
             // "Show in Tree" link if a handle exists
             if (node.handle) {
               const showLink = document.createElement("a");
