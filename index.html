@@ -752,141 +752,142 @@
         }
         return tags;
       }
-groupObjects(tags, startIndex, endMarker = null, containerStartLine = null) {
-  const objects = [];
-  let i = startIndex;
-  // Track the highest non‑empty line number seen so far in this grouping.
-  let lastNonEmptyLine = containerStartLine !== null ? containerStartLine : 0;
 
-  while (i < tags.length) {
-    // If we encounter the expected end marker…
-    if (
-      endMarker &&
-      tags[i].code === 0 &&
-      tags[i].value.toUpperCase() === endMarker
-    ) {
-      if (tags[i].value.trim() !== "") {
-        lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
-      }
-      const endNode = {
-        id: this.nextId++,
-        type: tags[i].value,
-        line: tags[i].line,
-        code: tags[i].code, // typically 0
-        properties: [],
-        children: [],
-        isEndMarker: true,
-        expanded: false
-      };
-      lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
-      i++;
-      while (i < tags.length && tags[i].code !== 0) {
-        if (tags[i].value.trim() !== "") {
-          lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+      groupObjects(tags, startIndex, endMarker = null, containerStartLine = null) {
+        const objects = [];
+        let i = startIndex;
+        // Track the highest non‑empty line number seen so far in this grouping.
+        let lastNonEmptyLine = containerStartLine !== null ? containerStartLine : 0;
+
+        while (i < tags.length) {
+          // If we encounter the expected end marker…
+          if (
+            endMarker &&
+            tags[i].code === 0 &&
+            tags[i].value.toUpperCase() === endMarker
+          ) {
+            if (tags[i].value.trim() !== "") {
+              lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+            }
+            const endNode = {
+              id: this.nextId++,
+              type: tags[i].value,
+              line: tags[i].line,
+              code: tags[i].code, // typically 0
+              properties: [],
+              children: [],
+              isEndMarker: true,
+              expanded: false
+            };
+            lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+            i++;
+            while (i < tags.length && tags[i].code !== 0) {
+              if (tags[i].value.trim() !== "") {
+                lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+              }
+              endNode.properties.push(tags[i]);
+              i++;
+            }
+            objects.push(endNode);
+            return { objects, nextIndex: i };
+          }
+
+          // Skip any tag that is not the start of an entity.
+          if (tags[i].code !== 0) {
+            if (tags[i].value.trim() !== "") {
+              lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+            }
+            i++;
+            continue;
+          }
+
+          // ★ Check for the EOF marker.
+          if (tags[i].code === 0 && tags[i].value.toUpperCase() === "EOF") {
+            const eofNode = {
+              id: this.nextId++,
+              type: "EOF",
+              line: tags[i].line,
+              code: tags[i].code,
+              properties: [],
+              children: [],
+              isEOF: true,    // flag this node as an EOF marker
+              expanded: false
+            };
+            objects.push(eofNode);
+            i++;
+            continue;
+          }
+
+          // Process a new entity (a tag with code 0)
+          const entity = {
+            id: this.nextId++,
+            type: tags[i].value,
+            line: tags[i].line,
+            code: tags[i].code,
+            properties: [],
+            children: [],
+            isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
+            expanded: false
+          };
+          if (tags[i].value.trim() !== "") {
+            lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+          }
+          i++;
+
+          // Collect subsequent property tags (all tags with code !== 0)
+          while (i < tags.length && tags[i].code !== 0) {
+            if (tags[i].value.trim() !== "") {
+              lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+            }
+            entity.properties.push(tags[i]);
+            i++;
+          }
+
+          // Check for a handle property.
+          const handleProp = entity.properties.find(prop =>
+            this.handleCodes.includes(prop.code)
+          );
+          if (handleProp) {
+            entity.handle = handleProp.value;
+          }
+
+          // If the entity is a container, process its children recursively.
+          if (entity.isContainer) {
+            const expectedEndMarker = this.containerMapping[entity.type.toUpperCase()];
+            const result = this.groupObjects(tags, i, expectedEndMarker, entity.line);
+            entity.children = result.objects;
+            i = result.nextIndex;
+            while (i < tags.length && tags[i].code !== 0) {
+              if (tags[i].value.trim() !== "") {
+                lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+              }
+              entity.properties.push(tags[i]);
+              i++;
+            }
+          }
+
+          objects.push(entity);
         }
-        endNode.properties.push(tags[i]);
-        i++;
-      }
-      objects.push(endNode);
-      return { objects, nextIndex: i };
-    }
 
-    // Skip any tag that is not the start of an entity.
-    if (tags[i].code !== 0) {
-      if (tags[i].value.trim() !== "") {
-        lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
-      }
-      i++;
-      continue;
-    }
-
-    // ★ Check for the EOF marker.
-    if (tags[i].code === 0 && tags[i].value.toUpperCase() === "EOF") {
-      const eofNode = {
-        id: this.nextId++,
-        type: "EOF",
-        line: tags[i].line,
-        code: tags[i].code,
-        properties: [],
-        children: [],
-        isEOF: true,    // flag this node as an EOF marker
-        expanded: false
-      };
-      objects.push(eofNode);
-      i++;
-      continue;
-    }
-
-    // Process a new entity (a tag with code 0)
-    const entity = {
-      id: this.nextId++,
-      type: tags[i].value,
-      line: tags[i].line,
-      code: tags[i].code,
-      properties: [],
-      children: [],
-      isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
-      expanded: false
-    };
-    if (tags[i].value.trim() !== "") {
-      lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
-    }
-    i++;
-
-    // Collect subsequent property tags (all tags with code !== 0)
-    while (i < tags.length && tags[i].code !== 0) {
-      if (tags[i].value.trim() !== "") {
-        lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
-      }
-      entity.properties.push(tags[i]);
-      i++;
-    }
-
-    // Check for a handle property.
-    const handleProp = entity.properties.find(prop =>
-      this.handleCodes.includes(prop.code)
-    );
-    if (handleProp) {
-      entity.handle = handleProp.value;
-    }
-
-    // If the entity is a container, process its children recursively.
-    if (entity.isContainer) {
-      const expectedEndMarker = this.containerMapping[entity.type.toUpperCase()];
-      const result = this.groupObjects(tags, i, expectedEndMarker, entity.line);
-      entity.children = result.objects;
-      i = result.nextIndex;
-      while (i < tags.length && tags[i].code !== 0) {
-        if (tags[i].value.trim() !== "") {
-          lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+        // If an expected end marker was not found, create a synthetic one.
+        if (endMarker) {
+          const syntheticLine = lastNonEmptyLine + 1;
+          const syntheticEndNode = {
+            id: this.nextId++,
+            type: endMarker,
+            line: syntheticLine,
+            code: 0,
+            properties: [],
+            children: [],
+            isEndMarker: true,
+            expanded: false,
+            synthetic: true
+          };
+          objects.push(syntheticEndNode);
         }
-        entity.properties.push(tags[i]);
-        i++;
+
+        return { objects, nextIndex: i };
       }
-    }
-
-    objects.push(entity);
-  }
-
-  // If an expected end marker was not found, create a synthetic one.
-  if (endMarker) {
-    const syntheticLine = lastNonEmptyLine + 1;
-    const syntheticEndNode = {
-      id: this.nextId++,
-      type: endMarker,
-      line: syntheticLine,
-      code: 0,
-      properties: [],
-      children: [],
-      isEndMarker: true,
-      expanded: false,
-      synthetic: true
-    };
-    objects.push(syntheticEndNode);
-  }
-
-  return { objects, nextIndex: i };
-}
 
       findNodeById(tree, id) {
         for (const obj of tree) {
@@ -898,30 +899,31 @@ groupObjects(tags, startIndex, endMarker = null, containerStartLine = null) {
         }
         return null;
       }
-serializeNode(node) {
-  let lines = [];
-  lines.push("0");
-  lines.push(node.type);
-  node.properties.forEach(prop => {
-    lines.push(prop.code.toString());
-    lines.push(prop.value);
-  });
-  if (node.isContainer && node.children && node.children.length) {
-    node.children.forEach(child => {
-      lines.push(this.serializeNode(child));
-    });
-    // Only add an extra end marker if the last child isn’t one already.
-    const lastChild = node.children[node.children.length - 1];
-    if (!lastChild.isEndMarker) {
-      const endMarker = this.containerMapping[node.type.toUpperCase()];
-      if (endMarker) { 
-        lines.push("0"); 
-        lines.push(endMarker); 
+
+      serializeNode(node) {
+        let lines = [];
+        lines.push("0");
+        lines.push(node.type);
+        node.properties.forEach(prop => {
+          lines.push(prop.code.toString());
+          lines.push(prop.value);
+        });
+        if (node.isContainer && node.children && node.children.length) {
+          node.children.forEach(child => {
+            lines.push(this.serializeNode(child));
+          });
+          // Only add an extra end marker if the last child isn’t one already.
+          const lastChild = node.children[node.children.length - 1];
+          if (!lastChild.isEndMarker) {
+            const endMarker = this.containerMapping[node.type.toUpperCase()];
+            if (endMarker) { 
+              lines.push("0"); 
+              lines.push(endMarker); 
+            }
+          }
+        }
+        return lines.join("\n");
       }
-    }
-  }
-  return lines.join("\n");
-}
 
     }
   </script>
@@ -1128,188 +1130,188 @@ serializeNode(node) {
         }
         return size;
       }
-      
-updateVisibleNodes() {
-  const scrollTop = this.container.scrollTop;
-  const containerHeight = this.container.clientHeight;
-  const totalRows = this.flatData.length;
-  const fullHeight = totalRows * this.itemHeight;
-  this.content.style.height = fullHeight + "px";
-  
-  const colWidths = this.computeColumnFinalWidths();
-  const lineWidth = colWidths.line;
-  const codeWidth = colWidths.code;
-  const dataWidth = colWidths.type;
-  const objectCountWidth = colWidths.objectCount;
-  const dataSizeWidth = colWidths.dataSize;
-  const totalWidth = lineWidth + codeWidth + dataWidth + objectCountWidth + dataSizeWidth;
-  
-  const containerElem = document.createElement("div");
-  containerElem.style.width = totalWidth + "px";
-  
-  const startIndex = Math.floor(scrollTop / this.itemHeight);
-  const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
-  const endIndex = Math.min(startIndex + visibleCount, totalRows);
-  
-  const topSpacer = document.createElement("div");
-  topSpacer.style.height = (startIndex * this.itemHeight) + "px";
-  containerElem.appendChild(topSpacer);
-  
-  const fragment = document.createDocumentFragment();
-  for (let i = startIndex; i < endIndex; i++) {
-    const { node, level } = this.flatData[i];
-    const row = document.createElement("div");
-    row.className = "tree-row tree-node";
-    row.style.display = "flex";
-    row.style.position = "relative";
-    row.style.height = this.itemHeight + "px";
-    row.dataset.id = node.id;
-    if (String(node.id) === String(this.selectedRowId)) {
-      row.classList.add("selected");
-    }
-    row.addEventListener("click", (e) => {
-      this.selectedRowId = node.id;
-      this.updateVisibleNodes();
-      if (this.onRowSelect) { this.onRowSelect(node.id); }
-    });
-    
-    // Line column.
-    const lineDiv = document.createElement("div");
-    lineDiv.className = "tree-line";
-    lineDiv.style.width = lineWidth + "px";
-    const lineContent = document.createElement("div");
-    lineContent.style.display = "flex";
-    lineContent.style.alignItems = "center";
-    lineContent.style.marginLeft = (level * 20) + "px";
-    if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
-      const toggleSpan = document.createElement("span");
-      toggleSpan.className = "toggle";
-      toggleSpan.textContent = node.expanded ? "▼" : "►";
-      toggleSpan.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (this.onToggleExpand) { this.onToggleExpand(node.id); }
-      });
-      lineContent.appendChild(toggleSpan);
-    } else {
-      const spacer = document.createElement("span");
-      spacer.style.width = "16px";
-      spacer.style.display = "inline-block";
-      lineContent.appendChild(spacer);
-    }
-    const lineNumberSpan = document.createElement("span");
-    lineNumberSpan.textContent = node.line || "";
-    lineContent.appendChild(lineNumberSpan);
-    lineDiv.appendChild(lineContent);
-    row.appendChild(lineDiv);
-    
-    // Code column.
-    const codeDiv = document.createElement("div");
-    codeDiv.className = "tree-code";
-    codeDiv.style.width = codeWidth + "px";
-    codeDiv.style.textAlign = "left";
-    // For properties or end markers we normally display the code.
-    if (node.isProperty || node.isEndMarker) {
-      codeDiv.textContent = node.code;
-    } else {
-      codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
-    }
-    row.appendChild(codeDiv);
-    
-    // Data column.
-    const dataDiv = document.createElement("div");
-    dataDiv.className = "tree-data";
-    dataDiv.style.width = dataWidth + "px";
-    dataDiv.style.flex = "0 0 auto";
-    if (node.isProperty) {
-      dataDiv.textContent = node.data;
-    } else {
-      dataDiv.textContent = node.type || "";
-      if (node.handle) {
-        const spanHandle = document.createElement("span");
-        spanHandle.textContent = " (" + node.handle + ")";
-        spanHandle.style.textDecoration = "underline";
-        spanHandle.style.color = "blue";
-        spanHandle.style.cursor = "pointer";
-        spanHandle.addEventListener("click", (e) => {
-          e.preventDefault();
-          if (this.onHandleClick) { this.onHandleClick(node.handle); }
-        });
-        dataDiv.appendChild(spanHandle);
-      }
-      if (this.copyCallback && !node.isProperty) {
-        const copyButton = document.createElement("button");
-        copyButton.textContent = "Copy";
-        copyButton.className = "copy-button";
-        copyButton.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.copyCallback(node.id);
-        });
-        dataDiv.appendChild(copyButton);
-      }
-      if (!node.isProperty) {
-        const openButton = document.createElement("button");
-        openButton.textContent = "Open";
-        openButton.className = "open-button";
-        openButton.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (this.openCallback) { this.openCallback(node.id); }
-        });
-        dataDiv.appendChild(openButton);
-      }
-      if (!node.isProperty && node.properties) {
-        const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
-        if (binaryProps.length > 0) {
-          const combinedData = binaryProps.map(prop => prop.value).join("");
-          const hexButton = document.createElement("button");
-          hexButton.textContent = "Hex Viewer";
-          hexButton.className = "hex-button";
-          hexButton.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (this.hexViewerCallback) { this.hexViewerCallback(combinedData); }
+
+      updateVisibleNodes() {
+        const scrollTop = this.container.scrollTop;
+        const containerHeight = this.container.clientHeight;
+        const totalRows = this.flatData.length;
+        const fullHeight = totalRows * this.itemHeight;
+        this.content.style.height = fullHeight + "px";
+
+        const colWidths = this.computeColumnFinalWidths();
+        const lineWidth = colWidths.line;
+        const codeWidth = colWidths.code;
+        const dataWidth = colWidths.type;
+        const objectCountWidth = colWidths.objectCount;
+        const dataSizeWidth = colWidths.dataSize;
+        const totalWidth = lineWidth + codeWidth + dataWidth + objectCountWidth + dataSizeWidth;
+
+        const containerElem = document.createElement("div");
+        containerElem.style.width = totalWidth + "px";
+
+        const startIndex = Math.floor(scrollTop / this.itemHeight);
+        const visibleCount = Math.ceil(containerHeight / this.itemHeight) + 1;
+        const endIndex = Math.min(startIndex + visibleCount, totalRows);
+
+        const topSpacer = document.createElement("div");
+        topSpacer.style.height = (startIndex * this.itemHeight) + "px";
+        containerElem.appendChild(topSpacer);
+
+        const fragment = document.createDocumentFragment();
+        for (let i = startIndex; i < endIndex; i++) {
+          const { node, level } = this.flatData[i];
+          const row = document.createElement("div");
+          row.className = "tree-row tree-node";
+          row.style.display = "flex";
+          row.style.position = "relative";
+          row.style.height = this.itemHeight + "px";
+          row.dataset.id = node.id;
+          if (String(node.id) === String(this.selectedRowId)) {
+            row.classList.add("selected");
+          }
+          row.addEventListener("click", (e) => {
+            this.selectedRowId = node.id;
+            this.updateVisibleNodes();
+            if (this.onRowSelect) { this.onRowSelect(node.id); }
           });
-          dataDiv.appendChild(hexButton);
+
+          // Line column.
+          const lineDiv = document.createElement("div");
+          lineDiv.className = "tree-line";
+          lineDiv.style.width = lineWidth + "px";
+          const lineContent = document.createElement("div");
+          lineContent.style.display = "flex";
+          lineContent.style.alignItems = "center";
+          lineContent.style.marginLeft = (level * 20) + "px";
+          if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
+            const toggleSpan = document.createElement("span");
+            toggleSpan.className = "toggle";
+            toggleSpan.textContent = node.expanded ? "▼" : "►";
+            toggleSpan.addEventListener("click", (e) => {
+              e.stopPropagation();
+              if (this.onToggleExpand) { this.onToggleExpand(node.id); }
+            });
+            lineContent.appendChild(toggleSpan);
+          } else {
+            const spacer = document.createElement("span");
+            spacer.style.width = "16px";
+            spacer.style.display = "inline-block";
+            lineContent.appendChild(spacer);
+          }
+          const lineNumberSpan = document.createElement("span");
+          lineNumberSpan.textContent = node.line || "";
+          lineContent.appendChild(lineNumberSpan);
+          lineDiv.appendChild(lineContent);
+          row.appendChild(lineDiv);
+
+          // Code column.
+          const codeDiv = document.createElement("div");
+          codeDiv.className = "tree-code";
+          codeDiv.style.width = codeWidth + "px";
+          codeDiv.style.textAlign = "left";
+          // For properties or end markers we normally display the code.
+          if (node.isProperty || node.isEndMarker) {
+            codeDiv.textContent = node.code;
+          } else {
+            codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
+          }
+          row.appendChild(codeDiv);
+
+          // Data column.
+          const dataDiv = document.createElement("div");
+          dataDiv.className = "tree-data";
+          dataDiv.style.width = dataWidth + "px";
+          dataDiv.style.flex = "0 0 auto";
+          if (node.isProperty) {
+            dataDiv.textContent = node.data;
+          } else {
+            dataDiv.textContent = node.type || "";
+            if (node.handle) {
+              const spanHandle = document.createElement("span");
+              spanHandle.textContent = " (" + node.handle + ")";
+              spanHandle.style.textDecoration = "underline";
+              spanHandle.style.color = "blue";
+              spanHandle.style.cursor = "pointer";
+              spanHandle.addEventListener("click", (e) => {
+                e.preventDefault();
+                if (this.onHandleClick) { this.onHandleClick(node.handle); }
+              });
+              dataDiv.appendChild(spanHandle);
+            }
+            if (this.copyCallback && !node.isProperty) {
+              const copyButton = document.createElement("button");
+              copyButton.textContent = "Copy";
+              copyButton.className = "copy-button";
+              copyButton.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.copyCallback(node.id);
+              });
+              dataDiv.appendChild(copyButton);
+            }
+            if (!node.isProperty) {
+              const openButton = document.createElement("button");
+              openButton.textContent = "Open";
+              openButton.className = "open-button";
+              openButton.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (this.openCallback) { this.openCallback(node.id); }
+              });
+              dataDiv.appendChild(openButton);
+            }
+            if (!node.isProperty && node.properties) {
+              const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
+              if (binaryProps.length > 0) {
+                const combinedData = binaryProps.map(prop => prop.value).join("");
+                const hexButton = document.createElement("button");
+                hexButton.textContent = "Hex Viewer";
+                hexButton.className = "hex-button";
+                hexButton.addEventListener("click", (e) => {
+                  e.stopPropagation();
+                  if (this.hexViewerCallback) { this.hexViewerCallback(combinedData); }
+                });
+                dataDiv.appendChild(hexButton);
+              }
+            }
+          }
+          row.appendChild(dataDiv);
+
+          // Object Count column.
+          const objectCountDiv = document.createElement("div");
+          objectCountDiv.className = "tree-object-count";
+          objectCountDiv.style.width = objectCountWidth + "px";
+          objectCountDiv.style.textAlign = "right";
+          if (!node.isProperty && node.children && node.children.length) {
+            objectCountDiv.textContent = this.computeObjectCount(node);
+          } else {
+            objectCountDiv.textContent = "";
+          }
+          row.appendChild(objectCountDiv);
+
+          // Data Size column.
+          const dataSizeDiv = document.createElement("div");
+          dataSizeDiv.className = "tree-data-size";
+          dataSizeDiv.style.width = dataSizeWidth + "px";
+          dataSizeDiv.style.textAlign = "right";
+          dataSizeDiv.textContent = this.computeDataSize(node);
+          row.appendChild(dataSizeDiv);
+
+          // ★ If this node represents an EOF marker, adjust its display.
+          if (node.isEOF) {
+            codeDiv.textContent = node.code;      // Should show "0"
+            dataDiv.textContent = node.type;        // Will show "EOF"
+          }
+
+          fragment.appendChild(row);
         }
+        containerElem.appendChild(fragment);
+        const bottomSpacer = document.createElement("div");
+        const bottomHeight = Math.max(0, fullHeight - (startIndex + visibleCount) * this.itemHeight);
+        bottomSpacer.style.height = bottomHeight + "px";
+        containerElem.appendChild(bottomSpacer);
+        this.content.innerHTML = "";
+        this.content.appendChild(containerElem);
+        this.syncHeaderWidths();
       }
-    }
-    row.appendChild(dataDiv);
-    
-    // Object Count column.
-    const objectCountDiv = document.createElement("div");
-    objectCountDiv.className = "tree-object-count";
-    objectCountDiv.style.width = objectCountWidth + "px";
-    objectCountDiv.style.textAlign = "right";
-    if (!node.isProperty && node.children && node.children.length) {
-      objectCountDiv.textContent = this.computeObjectCount(node);
-    } else {
-      objectCountDiv.textContent = "";
-    }
-    row.appendChild(objectCountDiv);
-    
-    // Data Size column.
-    const dataSizeDiv = document.createElement("div");
-    dataSizeDiv.className = "tree-data-size";
-    dataSizeDiv.style.width = dataSizeWidth + "px";
-    dataSizeDiv.style.textAlign = "right";
-    dataSizeDiv.textContent = this.computeDataSize(node);
-    row.appendChild(dataSizeDiv);
-    
-    // ★ If this node represents an EOF marker, adjust its display.
-    if (node.isEOF) {
-      codeDiv.textContent = node.code;      // Should show "0"
-      dataDiv.textContent = node.type;        // Will show "EOF"
-    }
-    
-    fragment.appendChild(row);
-  }
-  containerElem.appendChild(fragment);
-  const bottomSpacer = document.createElement("div");
-  const bottomHeight = Math.max(0, fullHeight - (startIndex + visibleCount) * this.itemHeight);
-  bottomSpacer.style.height = bottomHeight + "px";
-  containerElem.appendChild(bottomSpacer);
-  this.content.innerHTML = "";
-  this.content.appendChild(containerElem);
-  this.syncHeaderWidths();
-}
 
     }
   </script>
