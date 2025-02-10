@@ -311,6 +311,14 @@
     #handleMapOverlay,
     #proxyObjectsOverlay,
     #fontsOverlay { z-index: 1000; }
+        #classesOverlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1000;
+    }
     .overlay-content {
       background: #fff;
       margin: 20px;
@@ -417,6 +425,7 @@
           <button id="showProxyObjectsOverlayBtn">Proxy Objects</button>
           <!-- NEW: Button for Fonts overlay -->
           <button id="showFontsOverlayBtn">Fonts Used</button>
+          <button id="showClassesOverlayBtn">Classes</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -582,13 +591,20 @@
       <div id="proxyObjectsList"></div>
     </div>
   </div>
-  <!-- NEW: Fonts Overlay -->
   <div id="fontsOverlay">
     <div class="overlay-content">
       <button id="closeFontsOverlay">Close</button>
       <button class="backToTreeBtn" data-overlay="fontsOverlay">Back to Tree</button>
       <h2>Fonts Used in DXF</h2>
       <div id="overlayFontsContent"></div>
+    </div>
+  </div>
+  <div id="classesOverlay">
+    <div class="overlay-content">
+      <button id="closeClassesOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="classesOverlay">Back to Tree</button>
+      <h2>DXF Classes</h2>
+      <div id="overlayClassesContent"></div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -1249,20 +1265,25 @@
         document.getElementById("closeHandleMapOverlay").addEventListener("click", () => {
           document.getElementById("handleMapOverlay").style.display = "none";
         });
-        // New event listeners for Proxy Objects overlay
         document.getElementById("showProxyObjectsOverlayBtn").addEventListener("click", () => {
           this.showProxyObjectsOverlay();
         });
         document.getElementById("closeProxyObjectsOverlay").addEventListener("click", () => {
           document.getElementById("proxyObjectsOverlay").style.display = "none";
         });
-        // NEW: Event listeners for Fonts Overlay
         document.getElementById("showFontsOverlayBtn").addEventListener("click", () => {
           this.updateFonts();
           document.getElementById("fontsOverlay").style.display = "block";
         });
         document.getElementById("closeFontsOverlay").addEventListener("click", () => {
           document.getElementById("fontsOverlay").style.display = "none";
+        });
+                document.getElementById("showClassesOverlayBtn").addEventListener("click", () => {
+          this.updateClasses();
+          document.getElementById("classesOverlay").style.display = "block";
+        });
+        document.getElementById("closeClassesOverlay").addEventListener("click", () => {
+          document.getElementById("classesOverlay").style.display = "none";
         });
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -2696,7 +2717,6 @@
         }
         document.getElementById("proxyObjectsOverlay").style.display = "block";
       }
-      // NEW: updateFonts() method with "Show in Tree" link that always closes the dialog.
       updateFonts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -2768,6 +2788,69 @@
         }
         document.getElementById("overlayFontsContent").innerHTML = html;
       }
+updateClasses() {
+  const activeTab = this.getActiveTab();
+  if (!activeTab) {
+    document.getElementById("overlayClassesContent").innerHTML = "<p>No DXF data loaded.</p>";
+    return;
+  }
+
+  // Traverse the original tree data to collect CLASS nodes.
+  let classes = [];
+  function traverse(node) {
+    if (!node.isProperty && node.type && node.type.toUpperCase() === "CLASS") {
+      classes.push(node);
+    }
+    if (node.children && node.children.length > 0) {
+      node.children.forEach(child => traverse(child));
+    }
+  }
+  activeTab.originalTreeData.forEach(node => traverse(node));
+
+  let html = "";
+  if (classes.length === 0) {
+    html = "<p>No classes found in the DXF data.</p>";
+  } else {
+    classes.forEach(cls => {
+      // Extract only the desired properties.
+      let recordName = "", cppClass = "", appName = "";
+      if (cls.properties && cls.properties.length) {
+        cls.properties.forEach(prop => {
+          switch (Number(prop.code)) {
+            case 1:
+              recordName = prop.value;
+              break;
+            case 2:
+              cppClass = prop.value;
+              break;
+            case 3:
+              appName = prop.value;
+              break;
+            default:
+              break;
+          }
+        });
+      }
+
+      html += `<div style="border-bottom:1px solid #ccc; padding:5px;">`;
+      html += `<strong>Class: ${recordName}</strong><br/>`;
+      html += `C++ Class: ${cppClass}<br/>`;
+      html += `Application Name: ${appName}<br/>`;
+      
+      // Add the "Show in Tree" link (if a handle is present).
+      if (cls.handle) {
+        html += ` <a href="#" onclick="window.app.handleLinkToHandle('${cls.handle}'); document.getElementById('classesOverlay').style.display = 'none'; return false;">Show in Tree</a>`;
+      }
+      
+      // Add a "Show Details" button to toggle the serialized node.
+      html += ` <button onclick="var details=this.nextElementSibling; if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } else { details.style.display='none'; this.textContent='Show Details'; }">Show Details</button>`;
+      html += `<pre style="display:none; background:#f9f9f9; padding:5px;">${window.app.dxfParser.serializeNode(cls)}</pre>`;
+      html += `</div>`;
+    });
+  }
+  document.getElementById("overlayClassesContent").innerHTML = html;
+}
+
     }
     document.addEventListener("DOMContentLoaded", () => { window.app = new App(); });
   </script>
