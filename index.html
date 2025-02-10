@@ -709,20 +709,35 @@
         return grouped.objects;
       }
       parseDxf(text) {
+        // Split on CR/LF without discarding blank lines in the value portion.
         const lines = text.split(/\r?\n/);
         const tags = [];
         for (let i = 0; i < lines.length; i++) {
-          const codeLine = lines[i].trim();
-          if (!codeLine) continue;
-          const code = parseInt(codeLine, 10);
+          // Read the code line. (A DXF tag always begins with a numeric code.)
+          // We trim the code line to remove extraneous whitespace.
+          let codeLine = lines[i].trim();
+          // If the code line is empty then it is not valid – skip it.
+          if (codeLine === "") continue;
+          let code = parseInt(codeLine, 10);
           if (isNaN(code)) continue;
+          // For the value line, do not force a non‑empty string.
+          // If the line is empty it still counts as valid data.
           let value = "";
-          if (i + 1 < lines.length) { value = lines[i + 1].trim(); }
+          if (i + 1 < lines.length) {
+            // If you want to preserve leading/trailing whitespace from the value, omit .trim()
+            value = lines[i + 1];
+            // Alternatively, if you want to remove extra whitespace, you can use .trim():
+            // value = lines[i + 1].trim();
+          }
+          // Advance one extra line to skip the value that was just processed.
           i++;
+          // Record the tag. Note: the "line" property is set to the line number (i.e. the index of the value line)
+          // so that it corresponds to the original file numbering.
           tags.push({ line: i, code, value });
         }
         return tags;
       }
+
       parseDxfLines(lines) {
         const tags = [];
         for (let i = 0; i < lines.length; i++) {
@@ -737,41 +752,131 @@
         }
         return tags;
       }
-      groupObjects(tags, startIndex, endMarker = null) {
-        const objects = [];
-        let i = startIndex;
-        while (i < tags.length) {
-          if (endMarker && tags[i].code === 0 && tags[i].value.toUpperCase() === endMarker) {
-            i++;
-            return { objects, nextIndex: i };
-          }
-          if (tags[i].code !== 0) { i++; continue; }
-          const obj = {
-            id: this.nextId++,
-            type: tags[i].value,
-            line: tags[i].line,
-            properties: [],
-            children: [],
-            isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
-            expanded: false
-          };
-          i++;
-          while (i < tags.length && tags[i].code !== 0) {
-            obj.properties.push(tags[i]);
-            i++;
-          }
-          const handleProp = obj.properties.find(prop => this.handleCodes.includes(prop.code));
-          if (handleProp) { obj.handle = handleProp.value; }
-          if (obj.isContainer) {
-            const marker = this.containerMapping[obj.type.toUpperCase()];
-            const result = this.groupObjects(tags, i, marker);
-            obj.children = result.objects;
-            i = result.nextIndex;
-          }
-          objects.push(obj);
-        }
-        return { objects, nextIndex: i };
+groupObjects(tags, startIndex, endMarker = null, containerStartLine = null) {
+  const objects = [];
+  let i = startIndex;
+  // Track the highest non‑empty line number seen so far in this grouping.
+  let lastNonEmptyLine = containerStartLine !== null ? containerStartLine : 0;
+
+  while (i < tags.length) {
+    // If we encounter the expected end marker…
+    if (
+      endMarker &&
+      tags[i].code === 0 &&
+      tags[i].value.toUpperCase() === endMarker
+    ) {
+      // Update lastNonEmptyLine if this tag’s value is non‑empty.
+      if (tags[i].value.trim() !== "") {
+        lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
       }
+      // Create the end marker node.
+      const endNode = {
+        id: this.nextId++,
+        type: tags[i].value,
+        line: tags[i].line,
+        code: tags[i].code, // typically 0
+        properties: [],
+        children: [],
+        isEndMarker: true,
+        expanded: false
+      };
+      // Consume the end marker tag.
+      lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+      i++;
+      // Now, if there are additional tags (non‑entity tags with code != 0)
+      // immediately following the end marker, group them as properties of the end marker.
+      while (i < tags.length && tags[i].code !== 0) {
+        if (tags[i].value.trim() !== "") {
+          lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+        }
+        endNode.properties.push(tags[i]);
+        i++;
+      }
+      objects.push(endNode);
+      return { objects, nextIndex: i };
+    }
+
+    // Skip any tag that is not the start of an entity.
+    if (tags[i].code !== 0) {
+      if (tags[i].value.trim() !== "") {
+        lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+      }
+      i++;
+      continue;
+    }
+
+    // Process a new entity (a tag with code 0)
+    const entity = {
+      id: this.nextId++,
+      type: tags[i].value,
+      line: tags[i].line,
+      code: tags[i].code,
+      properties: [],
+      children: [],
+      isContainer: this.containerMapping.hasOwnProperty(tags[i].value.toUpperCase()),
+      expanded: false
+    };
+    if (tags[i].value.trim() !== "") {
+      lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+    }
+    i++;
+
+    // Collect subsequent property tags (all tags with code !== 0)
+    while (i < tags.length && tags[i].code !== 0) {
+      if (tags[i].value.trim() !== "") {
+        lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+      }
+      entity.properties.push(tags[i]);
+      i++;
+    }
+
+    // Check for a handle property.
+    const handleProp = entity.properties.find(prop =>
+      this.handleCodes.includes(prop.code)
+    );
+    if (handleProp) {
+      entity.handle = handleProp.value;
+    }
+
+    // If the entity is a container, process its children recursively.
+    if (entity.isContainer) {
+      const expectedEndMarker = this.containerMapping[entity.type.toUpperCase()];
+      const result = this.groupObjects(tags, i, expectedEndMarker, entity.line);
+      entity.children = result.objects;
+      i = result.nextIndex;
+      // If any stray non‑entity tags occur after the children, add them as properties.
+      while (i < tags.length && tags[i].code !== 0) {
+        if (tags[i].value.trim() !== "") {
+          lastNonEmptyLine = Math.max(lastNonEmptyLine, tags[i].line);
+        }
+        entity.properties.push(tags[i]);
+        i++;
+      }
+    }
+
+    objects.push(entity);
+  }
+
+  // If an expected end marker was not found, create a synthetic one.
+  if (endMarker) {
+    // Use the highest non‑empty line number seen plus one.
+    const syntheticLine = lastNonEmptyLine + 1;
+    const syntheticEndNode = {
+      id: this.nextId++,
+      type: endMarker,
+      line: syntheticLine,
+      code: 0, // explicitly assign a code
+      properties: [],
+      children: [],
+      isEndMarker: true,
+      expanded: false,
+      synthetic: true
+    };
+    objects.push(syntheticEndNode);
+  }
+
+  return { objects, nextIndex: i };
+}
       findNodeById(tree, id) {
         for (const obj of tree) {
           if (String(obj.id) === String(id)) return obj;
@@ -782,21 +887,31 @@
         }
         return null;
       }
-      serializeNode(node) {
-        let lines = [];
-        lines.push("0");
-        lines.push(node.type);
-        node.properties.forEach(prop => {
-          lines.push(prop.code.toString());
-          lines.push(prop.value);
-        });
-        if (node.isContainer && node.children && node.children.length) {
-          node.children.forEach(child => { lines.push(this.serializeNode(child)); });
-          const endMarker = this.containerMapping[node.type.toUpperCase()];
-          if (endMarker) { lines.push("0"); lines.push(endMarker); }
-        }
-        return lines.join("\n");
+serializeNode(node) {
+  let lines = [];
+  lines.push("0");
+  lines.push(node.type);
+  node.properties.forEach(prop => {
+    lines.push(prop.code.toString());
+    lines.push(prop.value);
+  });
+  if (node.isContainer && node.children && node.children.length) {
+    node.children.forEach(child => {
+      lines.push(this.serializeNode(child));
+    });
+    // Only add an extra end marker if the last child isn’t one already.
+    const lastChild = node.children[node.children.length - 1];
+    if (!lastChild.isEndMarker) {
+      const endMarker = this.containerMapping[node.type.toUpperCase()];
+      if (endMarker) { 
+        lines.push("0"); 
+        lines.push(endMarker); 
       }
+    }
+  }
+  return lines.join("\n");
+}
+
     }
   </script>
   <!-- TreeDataGrid Control -->
@@ -1081,11 +1196,11 @@
           codeDiv.className = "tree-code";
           codeDiv.style.width = codeWidth + "px";
           codeDiv.style.textAlign = "left";
-          if (node.isProperty) { 
-            codeDiv.textContent = node.code; 
-          } else { 
-            codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; 
-          }
+if (node.isProperty || node.isEndMarker) { 
+  codeDiv.textContent = node.code; 
+} else { 
+  codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : ""; 
+}
           row.appendChild(codeDiv);
           
           // Data column.
