@@ -923,7 +923,6 @@
       
       refresh() {
         this.flatData = this.flattenTree(this.treeData);
-        console.log("Total rows:", this.flatData.length);
         this.updateVisibleNodes();
       }
       
@@ -1185,6 +1184,8 @@
         this.activeTabId = null;
         this.currentBinaryData = null;
         this.currentDetectedType = null;
+            // We'll cache the measured hex line height here.
+    this.hexLineHeight = null;
         // Create the TreeDataGrid instance and pass columnWidths via the constructor.
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
@@ -2248,29 +2249,114 @@
           });
         });
       }
-      showHexViewer(combinedHexString) {
-        const binaryArray = hexStringToByteArray(combinedHexString);
-        const dump = hexDump(binaryArray);
-        const hexContentElem = document.getElementById("hexContent");
-        const headerInfoElem = document.getElementById("headerInfo");
-        hexContentElem.textContent = dump;
-        const detectedType = detectHeader(binaryArray);
-        headerInfoElem.textContent = detectedType ? "Detected file type: " + detectedType : "Unknown file type";
-        this.currentBinaryData = binaryArray;
-        this.currentDetectedType = detectedType;
-        document.getElementById("hexViewerOverlay").style.display = "block";
-        if (detectedType === "ZIP Archive") {
-          document.getElementById("imagePreviewContainer").innerHTML = "";
-          this.browseZip(binaryArray);
-        } else if (detectedType === "PNG Image" || detectedType === "GIF Image" ||
-                   detectedType === "JPEG Image" || detectedType === "BMP Image") {
-          this.previewImage();
-          document.getElementById("zipContentsContainer").innerHTML = "";
-        } else {
-          document.getElementById("imagePreviewContainer").innerHTML = "";
-          document.getElementById("zipContentsContainer").innerHTML = "";
-        }
+      renderHexLine(lineNumber, binaryArray) {
+  const bytesPerLine = 16;
+  const offset = lineNumber * bytesPerLine;
+  const lineBytes = binaryArray.slice(offset, offset + bytesPerLine);
+  let hex = '';
+  let ascii = '';
+  for (let i = 0; i < lineBytes.length; i++) {
+    const byte = lineBytes[i];
+    // Convert the byte to a two-digit hexadecimal value.
+    hex += byte.toString(16).padStart(2, '0') + ' ';
+    // Build the ASCII representation.
+    ascii += (byte >= 32 && byte < 127) ? String.fromCharCode(byte) : '.';
+  }
+  // Pad the hex section if the last line is shorter than bytesPerLine.
+  hex = hex.padEnd(bytesPerLine * 3, ' ');
+  // Return a string that shows the offset, the hex values, and the ASCII characters.
+  return offset.toString(16).padStart(8, '0') + '  ' + hex + '  ' + ascii;
+}
+  virtualizeHexViewer(binaryArray) {
+    const container = document.getElementById("hexContent");
+
+    // Check that we have data to display.
+    if (!binaryArray || binaryArray.length === 0) {
+      container.textContent = "No data to display.";
+      return;
+    }
+
+    // Measure one hex line’s height (only once).
+    if (!this.hexLineHeight) {
+      const tempDiv = document.createElement("div");
+      tempDiv.style.position = "absolute";
+      tempDiv.style.visibility = "hidden";
+      tempDiv.style.whiteSpace = "pre";
+      tempDiv.textContent = this.renderHexLine(0, binaryArray);
+      container.appendChild(tempDiv);
+      this.hexLineHeight = tempDiv.offsetHeight || 18; // Fallback if measurement fails.
+      container.removeChild(tempDiv);
+
+    }
+    const lineHeight = this.hexLineHeight;
+    const bytesPerLine = 16;
+    const totalLines = Math.ceil(binaryArray.length / bytesPerLine);
+
+    // This function renders only the visible lines.
+    const updateView = () => {
+      const scrollTop = container.scrollTop;
+      const containerHeight = container.clientHeight;
+      const startLine = Math.floor(scrollTop / lineHeight);
+      const visibleLines = Math.ceil(containerHeight / lineHeight) + 1;
+      const endLine = Math.min(startLine + visibleLines, totalLines);
+
+      // Create an outer div with the full height of all lines.
+      const contentDiv = document.createElement("div");
+      contentDiv.style.position = "relative";
+      contentDiv.style.height = (totalLines * lineHeight) + "px";
+
+      // Create an inner container positioned at the correct offset.
+      const visibleContainer = document.createElement("div");
+      visibleContainer.style.position = "absolute";
+      visibleContainer.style.top = (startLine * lineHeight) + "px";
+      visibleContainer.style.left = "0";
+      visibleContainer.style.right = "0";
+      visibleContainer.style.whiteSpace = "pre"; // Preserve formatting
+      
+      // Render each visible line.
+      for (let i = startLine; i < endLine; i++) {
+        const lineDiv = document.createElement("div");
+        lineDiv.style.height = lineHeight + "px";
+        lineDiv.textContent = this.renderHexLine(i, binaryArray);
+        visibleContainer.appendChild(lineDiv);
       }
+      
+      contentDiv.appendChild(visibleContainer);
+      container.innerHTML = "";
+      container.appendChild(contentDiv);
+    };
+
+    // Attach the scroll event.
+    container.onscroll = updateView;
+    // Render the initial view.
+    updateView();
+  }
+  // Modify the showHexViewer method to use virtualization.
+  showHexViewer(combinedHexString) {
+    const binaryArray = hexStringToByteArray(combinedHexString);
+    const detectedType = detectHeader(binaryArray);
+    document.getElementById("headerInfo").textContent =
+      detectedType ? "Detected file type: " + detectedType : "Unknown file type";
+    this.currentBinaryData = binaryArray;
+    this.currentDetectedType = detectedType;
+    document.getElementById("hexViewerOverlay").style.display = "block";
+    
+    // Use virtualization instead of rendering the full dump at once.
+    this.virtualizeHexViewer(binaryArray);
+    
+    // (Optional) Continue handling ZIP/image previews as before.
+    if (detectedType === "ZIP Archive") {
+      document.getElementById("imagePreviewContainer").innerHTML = "";
+      this.browseZip(binaryArray);
+    } else if (detectedType === "PNG Image" || detectedType === "GIF Image" ||
+               detectedType === "JPEG Image" || detectedType === "BMP Image") {
+      this.previewImage();
+      document.getElementById("zipContentsContainer").innerHTML = "";
+    } else {
+      document.getElementById("imagePreviewContainer").innerHTML = "";
+      document.getElementById("zipContentsContainer").innerHTML = "";
+    }
+  }
       previewImage() {
         if (!this.currentBinaryData) { alert("No binary data available."); return; }
         const imageTypes = {
