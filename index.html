@@ -625,27 +625,50 @@
     }
     // Attempt to detect a common file header from a Uint8Array.
     function detectHeader(buffer) {
-      if (buffer.length >= 2 && buffer[0] === 0x42 && buffer[1] === 0x4D) return "BMP Image";
-      if (buffer.length >= 8 &&
-          buffer[0] === 0x89 && buffer[1] === 0x50 &&
-          buffer[2] === 0x4E && buffer[3] === 0x47 &&
-          buffer[4] === 0x0D && buffer[5] === 0x0A &&
-          buffer[6] === 0x1A && buffer[7] === 0x0A)
-        return "PNG Image";
-      if (buffer.length >= 6) {
-        const header = String.fromCharCode(...buffer.slice(0,6));
-        if (header === "GIF87a" || header === "GIF89a") return "GIF Image";
+      // Define a list of known file signatures.
+      // Each signature can be defined as an array of byte values or as a string.
+      // (You can add an "offset" property if the signature does not start at 0.)
+      const signatures = [
+        { type: "BMP Image",    signature: [0x42, 0x4D] },
+        { type: "PNG Image",    signature: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] },
+        { type: "GIF Image",    signature: "GIF87a" },
+        { type: "GIF Image",    signature: "GIF89a" },
+        { type: "JPEG Image",   signature: [0xFF, 0xD8, 0xFF] },
+        { type: "PDF Document", signature: "%PDF" },
+        { type: "ZIP Archive",  signature: [0x50, 0x4B, 0x03, 0x04] },
+        // Additional formats:
+        { type: "RAR Archive",  signature: [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00] },
+        { type: "RAR Archive",  signature: [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00] },
+        { type: "7z Archive",   signature: [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C] },
+        { type: "ELF Executable", signature: [0x7F, 0x45, 0x4C, 0x46] }
+      ];
+
+      // Iterate over the signature definitions.
+      for (const sig of signatures) {
+        // Determine the starting offset (default is 0)
+        const offset = sig.offset || 0;
+        // Ensure the buffer is long enough to check this signature.
+        const sigLength = (typeof sig.signature === "string")
+          ? sig.signature.length
+          : sig.signature.length;
+        if (buffer.length < offset + sigLength) continue;
+
+        if (typeof sig.signature === "string") {
+          // Compare the signature as a text string.
+          const header = String.fromCharCode(...buffer.slice(offset, offset + sigLength));
+          if (header === sig.signature) return sig.type;
+        } else if (Array.isArray(sig.signature)) {
+          // Compare the signature byte by byte.
+          let match = true;
+          for (let i = 0; i < sig.signature.length; i++) {
+            if (buffer[offset + i] !== sig.signature[i]) {
+              match = false;
+              break;
+            }
+          }
+          if (match) return sig.type;
+        }
       }
-      if (buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF)
-        return "JPEG Image";
-      if (buffer.length >= 4) {
-        const header = String.fromCharCode(...buffer.slice(0,4));
-        if (header === "%PDF") return "PDF Document";
-      }
-      if (buffer.length >= 4 &&
-          buffer[0] === 0x50 && buffer[1] === 0x4B &&
-          buffer[2] === 0x03 && buffer[3] === 0x04)
-        return "ZIP Archive";
       return null;
     }
   </script>
