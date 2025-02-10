@@ -2791,7 +2791,8 @@
 updateClasses() {
   const activeTab = this.getActiveTab();
   if (!activeTab) {
-    document.getElementById("overlayClassesContent").innerHTML = "<p>No DXF data loaded.</p>";
+    document.getElementById("overlayClassesContent").innerHTML =
+      "<p>No DXF data loaded.</p>";
     return;
   }
 
@@ -2832,24 +2833,23 @@ updateClasses() {
         });
       }
 
-      html += `<div style="border-bottom:1px solid #ccc; padding:5px;">`;
-      html += `<strong>Class: ${recordName}</strong><br/>`;
-      html += `C++ Class: ${cppClass}<br/>`;
-      html += `Application Name: ${appName}<br/>`;
-      
-      // Add the "Show in Tree" link (if a handle is present).
+      // Build a card-style layout for the class record.
+      html += `<div class="class-record" style="border: 1px solid #ddd; border-radius: 4px; margin: 8px; padding: 8px;">`;
+      html += `<h3 style="margin-top: 0;">${recordName || "Unnamed Class"}</h3>`;
+      html += `<p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>`;
+      html += `<p><strong>Application Name:</strong> ${appName || "N/A"}</p>`;
       if (cls.handle) {
-        html += ` <a href="#" onclick="window.app.handleLinkToHandle('${cls.handle}'); document.getElementById('classesOverlay').style.display = 'none'; return false;">Show in Tree</a>`;
+        html += `<p><a class="show-in-tree" href="#" onclick="window.app.handleLinkToHandle('${cls.handle}'); document.getElementById('classesOverlay').style.display = 'none'; return false;">Show in Tree</a></p>`;
       }
-      
-      // Add a "Show Details" button to toggle the serialized node.
-      html += ` <button onclick="var details=this.nextElementSibling; if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } else { details.style.display='none'; this.textContent='Show Details'; }">Show Details</button>`;
-      html += `<pre style="display:none; background:#f9f9f9; padding:5px;">${window.app.dxfParser.serializeNode(cls)}</pre>`;
+      // Add a button to toggle the details (serialized DXF data)
+      html += `<button class="toggle-details" style="margin-bottom: 8px;" onclick="var details=this.nextElementSibling; if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } else { details.style.display='none'; this.textContent='Show Details'; }">Show Details</button>`;
+      html += `<pre class="class-details" style="display:none; background:#f8f8f8; border: 1px solid #eee; padding: 8px; overflow:auto;">${window.app.dxfParser.serializeNode(cls)}</pre>`;
       html += `</div>`;
     });
   }
   document.getElementById("overlayClassesContent").innerHTML = html;
 }
+
 
     }
     document.addEventListener("DOMContentLoaded", () => { window.app = new App(); });
