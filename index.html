@@ -2788,7 +2788,7 @@
         }
         document.getElementById("overlayFontsContent").innerHTML = html;
       }
-      updateClasses() {
+updateClasses() {
   const activeTab = this.getActiveTab();
   if (!activeTab) {
     document.getElementById("overlayClassesContent").innerHTML =
@@ -2810,7 +2810,7 @@
 
   let html = "";
 
-  // Build a cloud of Application Names (from group code 3)
+  // Build a cloud of Application Names (group code 3) styled like the Code and Data clouds.
   let appNameCounts = {};
   classes.forEach(cls => {
     let appName = "";
@@ -2835,7 +2835,7 @@
       let count = appNameCounts[app];
       // Compute font size between 12 and 24 pixels.
       let fontSize = 12 + ((count / maxCount) * 12);
-      html += `<span style="font-size:${fontSize}px; margin-right:8px; cursor:pointer;"
+      html += `<span class="cloud-tag" style="font-size:${fontSize}px; cursor:pointer;"
                       onclick="window.app.filterClassesByAppName('${app.replace(/'/g, "\\'")}')">
                       ${app} (${count})
                </span>`;
@@ -2892,6 +2892,79 @@ ${window.app.dxfParser.serializeNode(cls)}</pre>
 }
 
 // Helper: Filter CLASS nodes by a given Application Name.
+filterClassesByAppName(appName) {
+  const activeTab = this.getActiveTab();
+  if (!activeTab) return;
+  
+  // Traverse CLASS nodes and select those whose Application Name matches.
+  let filteredClasses = [];
+  function traverse(node) {
+    if (!node.isProperty && node.type && node.type.toUpperCase() === "CLASS") {
+      let foundApp = "";
+      if (node.properties && node.properties.length) {
+        node.properties.forEach(prop => {
+          if (Number(prop.code) === 3) {
+            foundApp = prop.value;
+          }
+        });
+      }
+      if (foundApp === appName) {
+        filteredClasses.push(node);
+      }
+    }
+    if (node.children && node.children.length > 0) {
+      node.children.forEach(child => traverse(child));
+    }
+  }
+  activeTab.originalTreeData.forEach(node => traverse(node));
+
+  let html = `<h4>Classes with Application Name: ${appName}</h4>`;
+  if (filteredClasses.length === 0) {
+    html += `<p>No classes found with this Application Name.</p>`;
+  } else {
+    filteredClasses.forEach(cls => {
+      let recordName = "", cppClass = "", appNameVal = "";
+      if (cls.properties && cls.properties.length) {
+        cls.properties.forEach(prop => {
+          switch (Number(prop.code)) {
+            case 1:
+              recordName = prop.value;
+              break;
+            case 2:
+              cppClass = prop.value;
+              break;
+            case 3:
+              appNameVal = prop.value;
+              break;
+            default:
+              break;
+          }
+        });
+      }
+      html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
+                <h3 style="margin-top:0;">${recordName || "Unnamed Class"}</h3>
+                <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
+                <p><strong>Application Name:</strong> ${appNameVal || "N/A"}</p>`;
+      if (cls.handle) {
+        html += `<p><a class="show-in-tree" href="#"
+                        onclick="window.app.handleLinkToHandle('${cls.handle}'); 
+                                 document.getElementById('classesOverlay').style.display='none'; return false;">
+                        Show in Tree</a></p>`;
+      }
+      html += `<button class="toggle-details" style="margin-bottom:8px;" 
+                      onclick="var details=this.nextElementSibling; 
+                               if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
+                               else { details.style.display='none'; this.textContent='Show Details'; }">
+                      Show Details</button>
+               <pre class="class-details" style="display:none; background:#f8f8f8; border:1px solid #eee; padding:8px; overflow:auto;">
+${window.app.dxfParser.serializeNode(cls)}</pre>
+              </div>`;
+    });
+  }
+  // Provide a back button to return to the full view.
+  html += `<button onclick="window.app.updateClasses();" style="margin:8px;">Show All Classes</button>`;
+  document.getElementById("overlayClassesContent").innerHTML = html;
+}
 filterClassesByAppName(appName) {
   const activeTab = this.getActiveTab();
   if (!activeTab) return;
