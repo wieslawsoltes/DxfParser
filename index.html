@@ -212,12 +212,13 @@
       user-select: none;
       cursor: pointer;
     }
-    .copy-button, .hex-button {
+    .copy-button, .open-button, .hex-button {
       margin-left: 8px;
       font-size: 0.8em;
       display: none;
     }
     .tree-row:hover .copy-button,
+    .tree-row:hover .open-button,
     .tree-row:hover .hex-button { display: inline; }
     /* Use monospace font for the tree grid display */
     .tree-row,
@@ -806,6 +807,7 @@
         this.content = content;
         this.itemHeight = options.itemHeight || 24;
         this.copyCallback = options.copyCallback || null;
+        this.openCallback = options.openCallback || null;
         this.onToggleExpand = options.onToggleExpand || null;
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
@@ -1131,6 +1133,18 @@
               });
               dataDiv.appendChild(copyButton);
             }
+            if (!node.isProperty) {
+              const openButton = document.createElement("button");
+              openButton.textContent = "Open";
+              openButton.className = "open-button";
+              openButton.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (this.openCallback) {
+                  this.openCallback(node.id);
+                }
+              });
+              dataDiv.appendChild(openButton);
+            }
             if (!node.isProperty && node.properties) {
               const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
               if (binaryProps.length > 0) {
@@ -1206,6 +1220,7 @@
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
+          openCallback: (nodeId) => this.handleOpen(nodeId),  // <-- new callback for "Open" button
           onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => console.log("Row selected:", nodeId),
@@ -1727,6 +1742,37 @@
         }, () => {
           alert("Failed to copy to clipboard.");
         });
+      }
+      handleOpen(nodeId) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        // Find the node in the current (original) tree data.
+        const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
+        if (!node) {
+          alert("Node not found.");
+          return;
+        }
+        // Create a new tab object that displays only this node.
+        const newTab = {
+          id: Date.now() + Math.random(),
+          name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
+          originalTreeData: [node],    // only this node will be shown in the tree
+          currentTreeData: [node],
+          codeSearchTerms: [],
+          dataSearchTerms: [],
+          currentSortField: "line",
+          currentSortAscending: true,
+          minLine: null,
+          maxLine: null,
+          dataExact: false,
+          dataCase: false,
+          navigationHistory: [],
+          currentHistoryIndex: -1
+        };
+        this.tabs.push(newTab);
+        this.activeTabId = newTab.id;
+        this.updateTabUI();
+        this.myTreeGrid.setData(newTab.currentTreeData);
       }
       async parseFileStream(file) {
         const reader = file.stream().getReader();
