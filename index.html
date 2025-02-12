@@ -239,6 +239,10 @@
       height: 100%;
     }
     /* Filter Panel – controls now stacked vertically */
+    .tree-row,
+    .tree-row * {
+      user-select: text;
+    }
     .filter-panel {
       border: 1px solid #ccc;
       border-radius: 4px;
@@ -1188,11 +1192,18 @@
           if (String(node.id) === String(this.selectedRowId)) {
             row.classList.add("selected");
           }
-          row.addEventListener("click", (e) => {
-            this.selectedRowId = node.id;
-            this.updateVisibleNodes();
-            if (this.onRowSelect) { this.onRowSelect(node.id); }
-          });
+         row.addEventListener("click", (e) => {
+          // If the user is in the middle of selecting text, do nothing.
+          if (window.getSelection().toString().length > 0) {
+            return;
+          }
+          // Otherwise, proceed with row selection.
+          this.selectedRowId = node.id;
+          this.updateVisibleNodes();
+          if (this.onRowSelect) {
+            this.onRowSelect(node.id);
+          }
+        });
 
           // Line column.
           const lineDiv = document.createElement("div");
