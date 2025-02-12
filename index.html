@@ -426,9 +426,9 @@
           <button id="showBinaryObjectsOverlayBtn">Binary Objects</button>
           <button id="showHandleMapOverlayBtn">Handle Map</button>
           <button id="showProxyObjectsOverlayBtn">Proxy Objects</button>
-          <!-- NEW: Button for Fonts overlay -->
           <button id="showFontsOverlayBtn">Fonts Used</button>
           <button id="showClassesOverlayBtn">Classes</button>
+          <button id="showObjectSizeOverlayBtn">Object Sizes</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -608,6 +608,14 @@
       <button class="backToTreeBtn" data-overlay="classesOverlay">Back to Tree</button>
       <h2>DXF Classes</h2>
       <div id="overlayClassesContent"></div>
+    </div>
+  </div>
+  <div id="objectSizeOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); z-index:1000;">
+    <div class="overlay-content">
+      <button id="closeObjectSizeOverlay" style="position:absolute; top:10px; right:10px; cursor:pointer;">Close</button>
+      <h2>Object Sizes</h2>
+      <!-- The container that will be virtualized -->
+      <div id="objectSizeList" style="overflow-y:auto; height: calc(100% - 60px); border:1px solid #ccc; margin-top:40px;"></div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -1415,12 +1423,18 @@
         document.getElementById("closeFontsOverlay").addEventListener("click", () => {
           document.getElementById("fontsOverlay").style.display = "none";
         });
-                document.getElementById("showClassesOverlayBtn").addEventListener("click", () => {
+        document.getElementById("showClassesOverlayBtn").addEventListener("click", () => {
           this.updateClasses();
           document.getElementById("classesOverlay").style.display = "block";
         });
         document.getElementById("closeClassesOverlay").addEventListener("click", () => {
           document.getElementById("classesOverlay").style.display = "none";
+        });
+        document.getElementById("showObjectSizeOverlayBtn").addEventListener("click", () => {
+          this.showObjectSizeDialog();
+        });
+        document.getElementById("closeObjectSizeOverlay").addEventListener("click", () => {
+          document.getElementById("objectSizeOverlay").style.display = "none";
         });
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -3136,6 +3150,151 @@
         // Provide a back button to return to the full view.
         html += `<button onclick="window.app.updateClasses();" style="margin:8px;">Show All Classes</button>`;
         document.getElementById("overlayClassesContent").innerHTML = html;
+      }
+      showObjectSizeDialog() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          alert("No DXF data loaded.");
+          return;
+        }
+        // Collect all non‑property objects from the original tree.
+        const nodes = [];
+        function collectNodes(nodelist) {
+          nodelist.forEach(node => {
+            if (!node.isProperty) {
+              nodes.push(node);
+            }
+            if (node.children && node.children.length > 0) {
+              collectNodes(node.children);
+            }
+          });
+        }
+        collectNodes(activeTab.originalTreeData);
+        // Sort by data size (largest first). (Uses the same computeDataSize method from the TreeDataGrid.)
+        nodes.sort((a, b) => {
+          return this.myTreeGrid.computeDataSize(b) - this.myTreeGrid.computeDataSize(a);
+        });
+        // Save sorted nodes so the virtualized renderer can use them.
+        this.sortedNodesByDataSize = nodes;
+        // Open the overlay and render the list.
+        document.getElementById("objectSizeOverlay").style.display = "block";
+        this.renderObjectSizeList();
+      }
+
+      // NEW: Render the virtualized list of objects.
+      renderObjectSizeList() {
+        const container = document.getElementById("objectSizeList");
+        const nodes = this.sortedNodesByDataSize || [];
+        const rowHeight = 30; // fixed row height for each item
+        const totalRows = nodes.length;
+        container.innerHTML = ""; // clear previous content
+
+        // Create an outer container with the full height
+        const outerDiv = document.createElement("div");
+        outerDiv.style.position = "relative";
+        outerDiv.style.height = (totalRows * rowHeight) + "px";
+        container.appendChild(outerDiv);
+
+        // Function to render only the visible rows.
+        const updateView = () => {
+          const scrollTop = container.scrollTop;
+          const containerHeight = container.clientHeight;
+          const startIndex = Math.floor(scrollTop / rowHeight);
+          const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
+          const endIndex = Math.min(startIndex + visibleCount, totalRows);
+
+          // Use an inner container for visible rows.
+          let visibleContainer = outerDiv.querySelector(".visible-container");
+          if (!visibleContainer) {
+            visibleContainer = document.createElement("div");
+            visibleContainer.className = "visible-container";
+            visibleContainer.style.position = "absolute";
+            visibleContainer.style.left = "0";
+            visibleContainer.style.right = "0";
+            outerDiv.appendChild(visibleContainer);
+          }
+          visibleContainer.style.top = (startIndex * rowHeight) + "px";
+          visibleContainer.innerHTML = ""; // clear current content
+
+          // Render each visible row.
+          for (let i = startIndex; i < endIndex; i++) {
+            const node = nodes[i];
+            const row = document.createElement("div");
+            row.style.height = rowHeight + "px";
+            row.style.display = "flex";
+            row.style.alignItems = "center";
+            row.style.borderBottom = "1px solid #ccc";
+            row.style.padding = "0 8px";
+
+            // Object tag (e.g. BLOCK, LINE, SECTION etc.)
+            const typeSpan = document.createElement("span");
+            typeSpan.textContent = node.type || "";
+            typeSpan.style.flex = "1";
+
+            // Data size (computed via computeDataSize)
+            const dataSizeSpan = document.createElement("span");
+            dataSizeSpan.textContent = this.myTreeGrid.computeDataSize(node);
+            dataSizeSpan.style.width = "80px";
+            dataSizeSpan.style.textAlign = "right";
+            dataSizeSpan.style.marginRight = "8px";
+
+            // "Show In Tree" button
+            const showButton = document.createElement("button");
+            showButton.textContent = "Show In Tree";
+            showButton.addEventListener("click", () => {
+              // Close the Object Size dialog.
+              document.getElementById("objectSizeOverlay").style.display = "none";
+
+              if (node.handle) {
+                // Navigate using the handle if available.
+                this.handleLinkToHandle(node.handle);
+              } else {
+                // Use the starting line number to locate the item.
+                const targetLine = node.line;
+                const flatData = this.myTreeGrid.flatData;
+                const targetItem = flatData.find(item => Number(item.node.line) === Number(targetLine));
+
+                if (targetItem) {
+                  // Determine the row index.
+                  const targetIndex = flatData.indexOf(targetItem);
+                  const itemHeight = this.myTreeGrid.itemHeight;
+
+                  // Calculate the row's top and bottom positions.
+                  const rowTop = targetIndex * itemHeight;
+                  const rowBottom = rowTop + itemHeight;
+
+                  // Get current scroll position and container height.
+                  const containerScrollTop = this.treeViewContainer.scrollTop;
+                  const containerHeight = this.treeViewContainer.clientHeight;
+
+                  // If the target row is not completely visible, adjust the scroll position.
+                  if (rowTop < containerScrollTop || rowBottom > containerScrollTop + containerHeight) {
+                    this.treeViewContainer.scrollTop = rowTop;
+                  }
+
+                  // Optionally, highlight the row.
+                  const element = this.treeViewContent.querySelector(`[data-id="${targetItem.node.id}"]`);
+                  if (element) {
+                    element.style.backgroundColor = "yellow";
+                    setTimeout(() => { element.style.backgroundColor = ""; }, 2000);
+                  }
+                } else {
+                  alert("Could not locate an object starting at line " + targetLine);
+                }
+              }
+            });
+
+
+            row.appendChild(typeSpan);
+            row.appendChild(dataSizeSpan);
+            row.appendChild(showButton);
+            visibleContainer.appendChild(row);
+          }
+        };
+
+        // Attach scroll event for virtualization.
+        container.onscroll = updateView;
+        updateView();
       }
     }
     document.addEventListener("DOMContentLoaded", () => { 
