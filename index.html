@@ -434,6 +434,8 @@
           <button id="showClassesOverlayBtn">Classes</button>
           <button id="showObjectSizeOverlayBtn">Object Sizes</button>
           <button id="showBlocksOverlayBtn">Blocks & Inserts</button>
+          <button id="showLineTypesOverlayBtn">Line Types</button>
+          <button id="showTextsOverlayBtn">Texts</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -629,6 +631,22 @@
       <button class="backToTreeBtn" data-overlay="blocksOverlay">Back to Tree</button>
       <h2>Block &amp; Insert Relations</h2>
       <div id="overlayBlocksContent"></div>
+    </div>
+  </div>
+  <div id="lineTypesOverlay" style="display:none; position: fixed; top:0; left:0; width:100%; height:100%; background-color: rgba(0,0,0,0.5); z-index:1000;">
+    <div class="overlay-content">
+      <button id="closeLineTypesOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="lineTypesOverlay">Back to Tree</button>
+      <h2>DXF Line Types</h2>
+      <div id="overlayLineTypesContent"></div>
+    </div>
+  </div>
+  <div id="textsOverlay" style="display:none; position: fixed; top:0; left:0; width:100%; height:100%; background-color: rgba(0,0,0,0.5); z-index:1000;">
+    <div class="overlay-content">
+      <button id="closeTextsOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="textsOverlay">Back to Tree</button>
+      <h2>DXF Texts</h2>
+      <div id="overlayTextsContent"></div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -1462,6 +1480,20 @@
         });
         document.getElementById("closeBlocksOverlay").addEventListener("click", () => {
           document.getElementById("blocksOverlay").style.display = "none";
+        });
+        document.getElementById("showLineTypesOverlayBtn").addEventListener("click", () => {
+          this.updateLineTypes();
+          document.getElementById("lineTypesOverlay").style.display = "block";
+        });
+        document.getElementById("closeLineTypesOverlay").addEventListener("click", () => {
+          document.getElementById("lineTypesOverlay").style.display = "none";
+        });
+        document.getElementById("showTextsOverlayBtn").addEventListener("click", () => {
+          this.updateTexts();
+          document.getElementById("textsOverlay").style.display = "block";
+        });
+        document.getElementById("closeTextsOverlay").addEventListener("click", () => {
+          document.getElementById("textsOverlay").style.display = "none";
         });
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
@@ -3321,127 +3353,277 @@
         container.onscroll = updateView;
         updateView();
       }
-updateBlocksOverlay() {
-  const activeTab = this.getActiveTab();
-  if (!activeTab) {
-    document.getElementById("overlayBlocksContent").innerHTML = "No DXF data loaded.";
-    return;
-  }
-  
-  // Build a dictionary of block definitions using BLOCK nodes (group code 2 for block name)
-  let blocksDict = {};
-  function traverseForBlocks(nodes) {
-    nodes.forEach(node => {
-      if (!node.isProperty && node.type && node.type.toUpperCase() === "BLOCK") {
-        let blockName = "";
-        if (node.properties && node.properties.length) {
-          node.properties.forEach(prop => {
-            if (Number(prop.code) === 2) {
-              blockName = prop.value;
-            }
-          });
+      updateBlocksOverlay() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          document.getElementById("overlayBlocksContent").innerHTML = "No DXF data loaded.";
+          return;
         }
-        if (blockName) {
-          blocksDict[blockName] = { block: node, inserts: [] };
-        }
-      }
-      if (node.children && node.children.length > 0) {
-        traverseForBlocks(node.children);
-      }
-    });
-  }
-  activeTab.originalTreeData.forEach(node => traverseForBlocks([node]));
 
-  // Traverse the tree to collect all INSERT nodes
-  function traverseForInserts(nodes) {
-    nodes.forEach(node => {
-      if (!node.isProperty && node.type && node.type.toUpperCase() === "INSERT") {
-        let insertBlockName = "";
-        let layer = "";
-        if (node.properties && node.properties.length) {
-          node.properties.forEach(prop => {
-            if (Number(prop.code) === 2) {
-              insertBlockName = prop.value;
-            }
-            if (Number(prop.code) === 8) {
-              layer = prop.value;
-            }
-          });
-        }
-        if (insertBlockName) {
-          if (!blocksDict[insertBlockName]) {
-            blocksDict[insertBlockName] = { block: null, inserts: [] };
-          }
-          blocksDict[insertBlockName].inserts.push({ insert: node, layer: layer });
-        }
-      }
-      if (node.children && node.children.length > 0) {
-        traverseForInserts(node.children);
-      }
-    });
-  }
-  activeTab.originalTreeData.forEach(node => traverseForInserts([node]));
-
-  // Helper function to render nested INSERTs (if an INSERT node contains its own INSERT children)
-  function renderNestedInserts(node) {
-    let nestedHtml = "";
-    if (node.children && node.children.length > 0) {
-      let childInserts = node.children.filter(child => child.type && child.type.toUpperCase() === "INSERT");
-      if (childInserts.length > 0) {
-        nestedHtml += `<ul>`;
-        childInserts.forEach(child => {
-          let childLayer = "";
-          if (child.properties && child.properties.length) {
-            child.properties.forEach(prop => {
-              if (Number(prop.code) === 8) {
-                childLayer = prop.value;
+        // Build a dictionary of block definitions using BLOCK nodes (group code 2 for block name)
+        let blocksDict = {};
+        function traverseForBlocks(nodes) {
+          nodes.forEach(node => {
+            if (!node.isProperty && node.type && node.type.toUpperCase() === "BLOCK") {
+              let blockName = "";
+              if (node.properties && node.properties.length) {
+                node.properties.forEach(prop => {
+                  if (Number(prop.code) === 2) {
+                    blockName = prop.value;
+                  }
+                });
               }
-            });
-          }
-          nestedHtml += `<li>Nested Insert at line: ${child.line} on layer: ${childLayer}`;
-          if (child.handle) {
-            nestedHtml += ` <a href="#" onclick="window.app.handleLinkToHandle('${child.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
-          }
-          nestedHtml += renderNestedInserts(child);
-          nestedHtml += `</li>`;
-        });
-        nestedHtml += `</ul>`;
-      }
-    }
-    return nestedHtml;
-  }
-
-  // Build the HTML output
-  let html = "";
-  for (let blockName in blocksDict) {
-    let entry = blocksDict[blockName];
-    html += `<h3>Block: ${blockName}</h3>`;
-    if (entry.block) {
-      html += `<p>Defined at line: ${entry.block.line}`;
-      if (entry.block.handle) {
-        html += ` <a href="#" onclick="window.app.handleLinkToHandle('${entry.block.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
-      }
-      html += `</p>`;
-    } else {
-      html += `<p>Block definition not found.</p>`;
-    }
-    if (entry.inserts.length > 0) {
-      html += `<ul>`;
-      entry.inserts.forEach(ins => {
-        html += `<li>Insert at line: ${ins.insert.line} on layer: ${ins.layer}`;
-        if (ins.insert.handle) {
-          html += ` <a href="#" onclick="window.app.handleLinkToHandle('${ins.insert.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
+              if (blockName) {
+                blocksDict[blockName] = { block: node, inserts: [] };
+              }
+            }
+            if (node.children && node.children.length > 0) {
+              traverseForBlocks(node.children);
+            }
+          });
         }
-        html += renderNestedInserts(ins.insert);
-        html += `</li>`;
-      });
-      html += `</ul>`;
-    } else {
-      html += `<p>No inserts found for this block.</p>`;
-    }
-  }
-  document.getElementById("overlayBlocksContent").innerHTML = html;
-}
+        activeTab.originalTreeData.forEach(node => traverseForBlocks([node]));
+
+        // Traverse the tree to collect all INSERT nodes
+        function traverseForInserts(nodes) {
+          nodes.forEach(node => {
+            if (!node.isProperty && node.type && node.type.toUpperCase() === "INSERT") {
+              let insertBlockName = "";
+              let layer = "";
+              if (node.properties && node.properties.length) {
+                node.properties.forEach(prop => {
+                  if (Number(prop.code) === 2) {
+                    insertBlockName = prop.value;
+                  }
+                  if (Number(prop.code) === 8) {
+                    layer = prop.value;
+                  }
+                });
+              }
+              if (insertBlockName) {
+                if (!blocksDict[insertBlockName]) {
+                  blocksDict[insertBlockName] = { block: null, inserts: [] };
+                }
+                blocksDict[insertBlockName].inserts.push({ insert: node, layer: layer });
+              }
+            }
+            if (node.children && node.children.length > 0) {
+              traverseForInserts(node.children);
+            }
+          });
+        }
+        activeTab.originalTreeData.forEach(node => traverseForInserts([node]));
+
+        // Helper function to render nested INSERTs (if an INSERT node contains its own INSERT children)
+        function renderNestedInserts(node) {
+          let nestedHtml = "";
+          if (node.children && node.children.length > 0) {
+            let childInserts = node.children.filter(child => child.type && child.type.toUpperCase() === "INSERT");
+            if (childInserts.length > 0) {
+              nestedHtml += `<ul>`;
+              childInserts.forEach(child => {
+                let childLayer = "";
+                if (child.properties && child.properties.length) {
+                  child.properties.forEach(prop => {
+                    if (Number(prop.code) === 8) {
+                      childLayer = prop.value;
+                    }
+                  });
+                }
+                nestedHtml += `<li>Nested Insert at line: ${child.line} on layer: ${childLayer}`;
+                if (child.handle) {
+                  nestedHtml += ` <a href="#" onclick="window.app.handleLinkToHandle('${child.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
+                }
+                nestedHtml += renderNestedInserts(child);
+                nestedHtml += `</li>`;
+              });
+              nestedHtml += `</ul>`;
+            }
+          }
+          return nestedHtml;
+        }
+
+        // Build the HTML output
+        let html = "";
+        for (let blockName in blocksDict) {
+          let entry = blocksDict[blockName];
+          html += `<h3>Block: ${blockName}</h3>`;
+          if (entry.block) {
+            html += `<p>Defined at line: ${entry.block.line}`;
+            if (entry.block.handle) {
+              html += ` <a href="#" onclick="window.app.handleLinkToHandle('${entry.block.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
+            }
+            html += `</p>`;
+          } else {
+            html += `<p>Block definition not found.</p>`;
+          }
+          if (entry.inserts.length > 0) {
+            html += `<ul>`;
+            entry.inserts.forEach(ins => {
+              html += `<li>Insert at line: ${ins.insert.line} on layer: ${ins.layer}`;
+              if (ins.insert.handle) {
+                html += ` <a href="#" onclick="window.app.handleLinkToHandle('${ins.insert.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
+              }
+              html += renderNestedInserts(ins.insert);
+              html += `</li>`;
+            });
+            html += `</ul>`;
+          } else {
+            html += `<p>No inserts found for this block.</p>`;
+          }
+        }
+        document.getElementById("overlayBlocksContent").innerHTML = html;
+      }
+      showInTree(node) {
+        if (node.handle) {
+          // Navigate using the handle if available.
+          this.handleLinkToHandle(node.handle);
+        } else {
+          // Use the starting line number to locate the item.
+          const targetLine = node.line;
+          const flatData = this.myTreeGrid.flatData;
+          const targetItem = flatData.find(item => Number(item.node.line) === Number(targetLine));
+          if (targetItem) {
+            // Determine the row index.
+            const targetIndex = flatData.indexOf(targetItem);
+            const itemHeight = this.myTreeGrid.itemHeight;
+            // Calculate the row's top and bottom positions.
+            const rowTop = targetIndex * itemHeight;
+            const rowBottom = rowTop + itemHeight;
+            // Get current scroll position and container height.
+            const containerScrollTop = this.treeViewContainer.scrollTop;
+            const containerHeight = this.treeViewContainer.clientHeight;
+            // If the target row is not completely visible, adjust the scroll position.
+            if (rowTop < containerScrollTop || rowBottom > containerScrollTop + containerHeight) {
+              this.treeViewContainer.scrollTop = rowTop;
+            }
+            // Highlight the row.
+            const element = this.treeViewContent.querySelector(`[data-id="${targetItem.node.id}"]`);
+            if (element) {
+              element.style.backgroundColor = "yellow";
+              setTimeout(() => { element.style.backgroundColor = ""; }, 2000);
+            }
+          } else {
+            alert("Could not locate an object starting at line " + targetLine);
+          }
+        }
+      }
+      showInTreeById(nodeId, nodeLine) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
+        if (node) {
+          // Close the overlays that initiated this action.
+          document.getElementById("lineTypesOverlay").style.display = "none";
+          document.getElementById("textsOverlay").style.display = "none";
+          // Navigate to and highlight the node.
+          this.showInTree(node);
+        } else {
+          alert("Node not found");
+        }
+      }
+      updateLineTypes() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          document.getElementById("overlayLineTypesContent").innerHTML = "<p>No DXF data loaded.</p>";
+          return;
+        }
+        let defined = {};
+        let used = {};
+
+        function traverse(nodes) {
+          nodes.forEach(node => {
+            if (node.type && node.type.toUpperCase() === "LTYPE") {
+              let ltName = "";
+              if (node.properties) {
+                node.properties.forEach(prop => {
+                  if (Number(prop.code) === 2) {
+                    ltName = prop.value;
+                  }
+                });
+              }
+              if (ltName) {
+                if (!defined[ltName]) {
+                  defined[ltName] = node;
+                }
+              }
+            } else {
+              if (node.properties) {
+                node.properties.forEach(prop => {
+                  if (Number(prop.code) === 6) {
+                    let lt = prop.value;
+                    if (lt && !used[lt]) {
+                      used[lt] = node;
+                    }
+                  }
+                });
+              }
+            }
+            if (node.children && node.children.length > 0) {
+              traverse(node.children);
+            }
+          });
+        }
+        traverse(activeTab.originalTreeData);
+
+        let allTypes = new Set([...Object.keys(defined), ...Object.keys(used)]);
+        let html = "";
+        if (allTypes.size === 0) {
+          html = "<p>No linetypes found.</p>";
+        } else {
+          html += "<ul>";
+          allTypes.forEach(lt => {
+            let node = defined[lt] ? defined[lt] : used[lt];
+            let origin = defined[lt] ? "Defined" : "Used Only";
+            html += `<li>${lt} (${origin}) - 
+                     <button onclick="window.app.showInTreeById('${node.id}', ${node.line})">Show In Tree</button>
+                     </li>`;
+          });
+          html += "</ul>";
+        }
+        document.getElementById("overlayLineTypesContent").innerHTML = html;
+      }
+      updateTexts() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          document.getElementById("overlayTextsContent").innerHTML = "<p>No DXF data loaded.</p>";
+          return;
+        }
+        let texts = [];
+        function traverse(nodes) {
+          nodes.forEach(node => {
+            if (node.type && (node.type.toUpperCase() === "TEXT" || node.type.toUpperCase() === "MTEXT")) {
+              texts.push(node);
+            }
+            if (node.children && node.children.length > 0) {
+              traverse(node.children);
+            }
+          });
+        }
+        traverse(activeTab.originalTreeData);
+
+        let html = "";
+        if (texts.length === 0) {
+          html = "<p>No text objects found.</p>";
+        } else {
+          html += "<ul>";
+          texts.forEach(node => {
+            let txt = "";
+            if (node.properties) {
+              node.properties.forEach(prop => {
+                if (Number(prop.code) === 1) {
+                  txt = prop.value;
+                }
+              });
+            }
+            html += `<li>${node.type} (Line ${node.line}) - Text: ${txt} 
+                     <button onclick="window.app.showInTreeById('${node.id}', ${node.line})">Show In Tree</button>
+                     </li>`;
+          });
+          html += "</ul>";
+        }
+        document.getElementById("overlayTextsContent").innerHTML = html;
+      }
     }
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
