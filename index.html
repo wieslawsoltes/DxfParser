@@ -3583,6 +3583,44 @@
         }
         document.getElementById("overlayLineTypesContent").innerHTML = html;
       }
+      decipherMTextFormatting(mtext) {
+        let result = mtext;
+        result = result.replace(/\\P/g, "\n"); // New paragraph
+        result = result.replace(/\\L/g, "[Start Underline]");
+        result = result.replace(/\\l/g, "[End Underline]");
+        result = result.replace(/\\O/g, "[Start Overline]");
+        result = result.replace(/\\o/g, "[End Overline]");
+        result = result.replace(/\\T/g, "[Text Style Change]");
+        // Add additional replacements as needed...
+        return result;
+      }
+      decipherMText(nodeId) {
+  const activeTab = this.getActiveTab();
+  if (!activeTab) return;
+  const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
+  if (!node) {
+    alert("MTEXT node not found");
+    return;
+  }
+  // Assume that group code 1 holds the raw MTEXT string.
+  let rawText = "";
+  node.properties.forEach(prop => {
+    if (Number(prop.code) === 1) {
+      rawText = prop.value;
+    }
+  });
+  // Call the helper function to decipher the MTEXT formatting.
+  const deciphered = decipherMTextFormatting(rawText);
+  // You might want to show the deciphered details in a dialog.
+  // For simplicity, we use alert here.
+  alert("Deciphered MTEXT:\n\n" + deciphered);
+}
+      toggleDecipherDetails(nodeId) {
+        const detailsElem = document.getElementById(`deciphered-${nodeId}`);
+        if (detailsElem) {
+          detailsElem.style.display = (detailsElem.style.display === "none") ? "block" : "none";
+        }
+      }
       updateTexts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -3617,8 +3655,17 @@
               });
             }
             html += `<li>${node.type} (Line ${node.line}) - Text: ${txt} 
-                     <button onclick="window.app.showInTreeById('${node.id}', ${node.line})">Show In Tree</button>
-                     </li>`;
+                     <button onclick="window.app.showInTreeById('${node.id}', ${node.line})">Show In Tree</button>`;
+            // For MTEXT entities, add a toggle button and hidden details area.
+            if (node.type.toUpperCase() === "MTEXT") {
+              html += ` <button class="toggle-details" onclick="window.app.toggleDecipherDetails('${node.id}')">
+                            Show Deciphered Details
+                        </button>
+                        <pre id="deciphered-${node.id}" style="display:none; background:#f9f9f9; border:1px solid #eee; padding:8px;">
+      ${window.app.decipherMTextFormatting(txt)}
+                        </pre>`;
+            }
+            html += `</li>`;
           });
           html += "</ul>";
         }
