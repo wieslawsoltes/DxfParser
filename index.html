@@ -3583,38 +3583,196 @@
         }
         document.getElementById("overlayLineTypesContent").innerHTML = html;
       }
+      /**
+       * Deciphers an MTEXT string by replacing DXF formatting codes with HTML
+       * and also returns a detailed breakdown of each code encountered.
+       *
+       * Supported MTEXT codes in this example:
+       *   • \P  : Paragraph break (inserts a new paragraph)
+       *   • \~  : Non‑breaking space
+       *   • \\  : Literal backslash (protected)
+       *   • \L  : Begin underline
+       *   • \l  : End underline
+       *   • \O  : Begin overline
+       *   • \o  : End overline
+       *   • \T  : Text style toggle (ignored)
+       *   • \H<number>x : Set text height (e.g. \H12.5x means height 12.5)
+       *   • \W<number>x : Set width factor (e.g. \W0.8x means width factor 0.8)
+       *   • \A<number>; : Set text angle in degrees (e.g. \A45; means 45° rotation)
+       *   • \S<numerator>;<denom>; : Fraction formatting (replaced with a fraction display)
+       *
+       * @param {string} mtext - The raw MTEXT string from the DXF.
+       * @returns {string} A combined string that shows the deciphered (HTML-formatted)
+       *                   text and a breakdown of each formatting code.
+       */
       decipherMTextFormatting(mtext) {
-        let result = mtext;
-        result = result.replace(/\\P/g, "\n"); // New paragraph
-        result = result.replace(/\\L/g, "[Start Underline]");
-        result = result.replace(/\\l/g, "[End Underline]");
-        result = result.replace(/\\O/g, "[Start Overline]");
-        result = result.replace(/\\o/g, "[End Overline]");
-        result = result.replace(/\\T/g, "[Text Style Change]");
-        // Add additional replacements as needed...
+        if (!mtext) return "";
+
+        // Save the original text for reference.
+        const originalText = mtext;
+
+        // Protect any literal backslashes (i.e. "\\" becomes a placeholder).
+        mtext = mtext.replace(/\\\\/g, "%%BACKSLASH%%");
+
+        // Array to collect breakdown info for each formatting code encountered.
+        let breakdown = [];
+
+        // Replace paragraph breaks (\P) with two <br/> tags.
+        mtext = mtext.replace(/\\P/g, function(match) {
+          breakdown.push({
+            code: "\\P",
+            description: "Paragraph break – starts a new paragraph",
+            replacement: "<br/><br/>",
+            original: match
+          });
+          return "<br/><br/>";
+        });
+
+        // Replace non-breaking space (\~) with HTML non‑breaking space.
+        mtext = mtext.replace(/\\~/g, function(match) {
+          breakdown.push({
+            code: "\\~",
+            description: "Non‑breaking space",
+            replacement: "&nbsp;",
+            original: match
+          });
+          return "&nbsp;";
+        });
+
+        // Underline on (\L) and off (\l)
+        mtext = mtext.replace(/\\L/g, function(match) {
+          breakdown.push({
+            code: "\\L",
+            description: "Turn on underline formatting",
+            replacement: "<u>",
+            original: match
+          });
+          return "<u>";
+        });
+        mtext = mtext.replace(/\\l/g, function(match) {
+          breakdown.push({
+            code: "\\l",
+            description: "Turn off underline formatting",
+            replacement: "</u>",
+            original: match
+          });
+          return "</u>";
+        });
+
+        // Overline on (\O) and off (\o)
+        mtext = mtext.replace(/\\O/g, function(match) {
+          breakdown.push({
+            code: "\\O",
+            description: "Turn on overline formatting",
+            replacement: "<span style='text-decoration: overline;'>",
+            original: match
+          });
+          return "<span style='text-decoration: overline;'>";
+        });
+        mtext = mtext.replace(/\\o/g, function(match) {
+          breakdown.push({
+            code: "\\o",
+            description: "Turn off overline formatting",
+            replacement: "</span>",
+            original: match
+          });
+          return "</span>";
+        });
+
+        // Text style toggle (\T) is not rendered (ignored).
+        mtext = mtext.replace(/\\T/g, function(match) {
+          breakdown.push({
+            code: "\\T",
+            description: "Text style toggle (ignored in this implementation)",
+            replacement: "",
+            original: match
+          });
+          return "";
+        });
+
+        // Text height (\H<number>x) – the numeric value sets the text height.
+        mtext = mtext.replace(/\\H([\d\.]+)x?/g, function(match, p1) {
+          breakdown.push({
+            code: "\\H" + p1 + "x",
+            description: "Set text height to " + p1,
+            replacement: "",
+            original: match
+          });
+          // In the formatted text output we simply remove the height command.
+          return "";
+        });
+
+        // Width factor (\W<number>x) – the numeric value sets the width factor.
+        mtext = mtext.replace(/\\W([\d\.]+)x?/g, function(match, p1) {
+          breakdown.push({
+            code: "\\W" + p1 + "x",
+            description: "Set width factor to " + p1,
+            replacement: "",
+            original: match
+          });
+          return "";
+        });
+
+        // Text angle (\A<number>;) – sets the rotation angle in degrees.
+        mtext = mtext.replace(/\\A(-?[\d\.]+);/g, function(match, p1) {
+          breakdown.push({
+            code: "\\A" + p1 + ";",
+            description: "Set text angle to " + p1 + " degrees",
+            replacement: "",
+            original: match
+          });
+          return "";
+        });
+
+        // Fraction formatting (\S<numerator>;<denom>;) – display as a fraction.
+        mtext = mtext.replace(/\\S([^;]+);([^;]+);/g, function(match, num, den) {
+          breakdown.push({
+            code: "\\S" + num + ";" + den + ";",
+            description: "Fraction formatting – numerator: " + num + ", denominator: " + den,
+            replacement: "<sup>" + num + "</sup>&frasl;<sub>" + den + "</sub>",
+            original: match
+          });
+          return "<sup>" + num + "</sup>&frasl;<sub>" + den + "</sub>";
+        });
+
+        // Restore literal backslashes.
+        mtext = mtext.replace(/%%BACKSLASH%%/g, "\\");
+
+        // Build a formatted breakdown string.
+        let breakdownText = "MTEXT Formatting Breakdown:\n";
+        breakdown.forEach(item => {
+          breakdownText += `${item.code} : ${item.description}\n`;
+        });
+
+        // Combine the deciphered (formatted) text with the breakdown.
+        let result =
+          "Original MTEXT Value:\n" + originalText + "\n\n" +
+          "Deciphered Text (HTML):\n" + mtext + "\n\n" +
+          breakdownText;
+
         return result;
       }
       decipherMText(nodeId) {
-  const activeTab = this.getActiveTab();
-  if (!activeTab) return;
-  const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
-  if (!node) {
-    alert("MTEXT node not found");
-    return;
-  }
-  // Assume that group code 1 holds the raw MTEXT string.
-  let rawText = "";
-  node.properties.forEach(prop => {
-    if (Number(prop.code) === 1) {
-      rawText = prop.value;
-    }
-  });
-  // Call the helper function to decipher the MTEXT formatting.
-  const deciphered = decipherMTextFormatting(rawText);
-  // You might want to show the deciphered details in a dialog.
-  // For simplicity, we use alert here.
-  alert("Deciphered MTEXT:\n\n" + deciphered);
-}
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        const node = this.dxfParser.findNodeById(activeTab.originalTreeData, nodeId);
+        if (!node) {
+          alert("MTEXT node not found");
+          return;
+        }
+        // Assume that group code 1 holds the raw MTEXT string.
+        let rawText = "";
+        node.properties.forEach(prop => {
+          if (Number(prop.code) === 1) {
+            rawText = prop.value;
+          }
+        });
+        // Call the helper function to decipher the MTEXT formatting.
+        const deciphered = decipherMTextFormatting(rawText);
+        // You might want to show the deciphered details in a dialog.
+        // For simplicity, we use alert here.
+        alert("Deciphered MTEXT:\n\n" + deciphered);
+      }
       toggleDecipherDetails(nodeId) {
         const detailsElem = document.getElementById(`deciphered-${nodeId}`);
         if (detailsElem) {
@@ -3659,10 +3817,11 @@
             // For MTEXT entities, add a toggle button and hidden details area.
             if (node.type.toUpperCase() === "MTEXT") {
               html += ` <button class="toggle-details" onclick="window.app.toggleDecipherDetails('${node.id}')">
-                            Show Deciphered Details
+                          Show Deciphered Details
                         </button>
                         <pre id="deciphered-${node.id}" style="display:none; background:#f9f9f9; border:1px solid #eee; padding:8px;">
-      ${window.app.decipherMTextFormatting(txt)}
+            Deciphered Text:
+            ${window.app.decipherMTextFormatting(txt)}
                         </pre>`;
             }
             html += `</li>`;
