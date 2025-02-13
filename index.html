@@ -1270,10 +1270,34 @@
           dataDiv.className = "tree-data";
           dataDiv.style.width = dataWidth + "px";
           dataDiv.style.flex = "0 0 auto";
+          // When rendering a row…
           if (node.isProperty) {
-            dataDiv.textContent = node.data;
+            // Define the list of DXF group codes that represent handles.
+            const handleCodes = [5, 105, 330, 350, 360];
+
+            // If this property’s code is one of the handle codes,
+            // create a clickable span instead of plain text.
+            if (handleCodes.includes(Number(node.code))) {
+              const spanHandle = document.createElement("span");
+              spanHandle.textContent = node.data;
+              spanHandle.style.textDecoration = "underline";
+              spanHandle.style.color = "blue";
+              spanHandle.style.cursor = "pointer";
+              spanHandle.addEventListener("click", (e) => {
+                e.preventDefault();
+                if (this.onHandleClick) { 
+                  this.onHandleClick(node.data);
+                }
+              });
+              dataDiv.appendChild(spanHandle);
+            } else {
+              // Otherwise, simply display the property data.
+              dataDiv.textContent = node.data;
+            }
           } else {
+            // For non‑property nodes, keep all your original functionality.
             dataDiv.textContent = node.type || "";
+            // Append the handle (if any) as a clickable link.
             if (node.handle) {
               const spanHandle = document.createElement("span");
               spanHandle.textContent = " (" + node.handle + ")";
@@ -1282,10 +1306,13 @@
               spanHandle.style.cursor = "pointer";
               spanHandle.addEventListener("click", (e) => {
                 e.preventDefault();
-                if (this.onHandleClick) { this.onHandleClick(node.handle); }
+                if (this.onHandleClick) { 
+                  this.onHandleClick(node.handle);
+                }
               });
               dataDiv.appendChild(spanHandle);
             }
+            // Retain the copy, open, and hex viewer buttons as before.
             if (this.copyCallback && !node.isProperty) {
               const copyButton = document.createElement("button");
               copyButton.textContent = "Copy";
@@ -1302,7 +1329,9 @@
               openButton.className = "open-button";
               openButton.addEventListener("click", (e) => {
                 e.stopPropagation();
-                if (this.openCallback) { this.openCallback(node.id); }
+                if (this.openCallback) { 
+                  this.openCallback(node.id);
+                }
               });
               dataDiv.appendChild(openButton);
             }
@@ -1315,12 +1344,15 @@
                 hexButton.className = "hex-button";
                 hexButton.addEventListener("click", (e) => {
                   e.stopPropagation();
-                  if (this.hexViewerCallback) { this.hexViewerCallback(combinedData); }
+                  if (this.hexViewerCallback) { 
+                    this.hexViewerCallback(combinedData);
+                  }
                 });
                 dataDiv.appendChild(hexButton);
               }
             }
           }
+
           row.appendChild(dataDiv);
 
           // Object Count column.
