@@ -4619,34 +4619,46 @@ handleBatchProcess() {
 }
 
 downloadBatchResultsAsExcel() {
-  const tabHeaders = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
-  if (tabHeaders.length === 0) {
+  // Get all batch tab IDs from the data store.
+  const tabIds = Object.keys(this.batchResultsData);
+  if (tabIds.length === 0) {
     alert("No batch results to download.");
     return;
   }
   let csv = "";
-  tabHeaders.forEach(header => {
-    const tabId = header.dataset.tabId;
-    // Remove the close button’s text from the header text
-    const fileName = header.textContent.replace('×', '').trim();
+
+  tabIds.forEach((tabId) => {
+    const tabData = this.batchResultsData[tabId];
+    // Optionally, get the tab's name from the header or from stored data.
+    // Here we retrieve it from the header element:
+    const headerElem = document.querySelector(
+      `#batchResultsTabHeaders .batch-tab-header[data-tab-id="${tabId}"]`
+    );
+    const fileName = headerElem
+      ? headerElem.textContent.replace("×", "").trim()
+      : tabId;
     csv += `"Results for ${fileName}"\n`;
-    csv += `"#","File","Line","Data"\n`;
-    const tbody = document.querySelector(`#batchResultsTabContents .batch-tab-content[data-tab-id="${tabId}"] table tbody`);
-    if (tbody) {
-      Array.from(tbody.rows).forEach(row => {
-        let rowData = [];
-        Array.from(row.cells).forEach(cell => {
-          let cellText = cell.textContent.trim();
-          // Escape any quotes in the cell text.
-          cellText = cellText.replace(/"/g, '""');
-          rowData.push('"' + cellText + '"');
-        });
-        csv += rowData.join(",") + "\n";
-      });
-      csv += "\n"; // blank line between tabs
-    }
+    csv += `"#","File (Relative Path)","Line","Data"\n`;
+
+    // Loop through the complete rows stored in the data array.
+    tabData.rows.forEach((row, index) => {
+      let rowData = [
+        index + 1,
+        row.file,   // file name or relative path
+        row.line,
+        row.data
+      ];
+      // Escape any quotes in each cell
+      rowData = rowData.map(cell =>
+        '"' + cell.toString().replace(/"/g, '""') + '"'
+      );
+      csv += rowData.join(",") + "\n";
+    });
+    csv += "\n"; // blank line between tabs
   });
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+  // Create a Blob from the CSV data and trigger the download.
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.setAttribute("href", url);
@@ -4656,6 +4668,7 @@ downloadBatchResultsAsExcel() {
   link.click();
   document.body.removeChild(link);
 }
+
 
     }
     document.addEventListener("DOMContentLoaded", () => { 
