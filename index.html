@@ -4325,7 +4325,7 @@ addBatchResultTab(fileName) {
   const tabHeaders = document.getElementById('batchResultsTabHeaders');
   const tabContents = document.getElementById('batchResultsTabContents');
 
-  // Create tab header
+  // Create the tab header (for selecting this tab)
   const header = document.createElement('div');
   header.className = 'batch-tab-header';
   header.dataset.tabId = tabId;
@@ -4349,40 +4349,36 @@ addBatchResultTab(fileName) {
   header.addEventListener('click', () => {
     this.switchBatchResultTab(tabId);
   });
-
   tabHeaders.appendChild(header);
 
-  // Create the virtualized tab content container.
+  // Create an overall content container for this tab.
+  // We enable horizontal scrolling here.
   const content = document.createElement('div');
   content.className = 'batch-tab-content';
   content.dataset.tabId = tabId;
   content.style.display = 'none';
   content.style.height = '100%';
+  content.style.overflowX = 'auto'; // allow horizontal scroll
 
-  // Create header table with explicit colgroup to sync widths.
+  // --- Header Table (static) ---
+  // Use auto layout so that columns size to content.
   const headerTable = document.createElement('table');
   headerTable.border = "1";
   headerTable.cellSpacing = "0";
   headerTable.cellPadding = "4";
   headerTable.style.width = "100%";
-  headerTable.style.tableLayout = "fixed";
+  headerTable.style.tableLayout = "auto";
 
-  // Create colgroup for header table.
+  // Create a colgroup for the header.
+  // Fix only the first column (#) to 40px; let the others auto-size.
   const headerColGroup = document.createElement('colgroup');
-  const col1 = document.createElement('col');
-  col1.style.width = '40px'; // Fixed width for row number
-  headerColGroup.appendChild(col1);
-  const col2 = document.createElement('col');
-  // File column uses remaining width; assuming total fixed widths are 40px and 80px (for # and Line),
-  // we subtract 40+80 = 120px from 100%.
-  col2.style.width = 'calc(100% - 120px)';
-  headerColGroup.appendChild(col2);
-  const col3 = document.createElement('col');
-  col3.style.width = '80px'; // Fixed width for "Line"
-  headerColGroup.appendChild(col3);
-  const col4 = document.createElement('col');
-  col4.style.width = 'auto'; // "Data" column gets the rest
-  headerColGroup.appendChild(col4);
+  const col0 = document.createElement('col');
+  col0.style.width = '40px';
+  headerColGroup.appendChild(col0);
+  // Append one <col> per remaining column (they have no width set so they auto-size)
+  headerColGroup.appendChild(document.createElement('col'));
+  headerColGroup.appendChild(document.createElement('col'));
+  headerColGroup.appendChild(document.createElement('col'));
   headerTable.appendChild(headerColGroup);
 
   const thead = document.createElement('thead');
@@ -4395,16 +4391,18 @@ addBatchResultTab(fileName) {
   headerTable.appendChild(thead);
   content.appendChild(headerTable);
 
-  // Create container for virtualized rows.
+  // --- Virtualized Container for the Rows ---
   const virtualizedContainer = document.createElement('div');
   virtualizedContainer.className = 'virtualized-results';
-  // Reserve space for the header (assumed to be 40px high)
+  // Reserve space below the header; assume header height is ~40px.
   virtualizedContainer.style.height = 'calc(100% - 40px)';
   virtualizedContainer.style.position = 'relative';
+  // Enable both vertical and horizontal scrolling in the body container.
   virtualizedContainer.style.overflowY = 'auto';
+  virtualizedContainer.style.overflowX = 'auto';
   content.appendChild(virtualizedContainer);
 
-  // Create the inner container for the virtualized rows.
+  // Create the inner container where virtualized rows will be rendered.
   const virtualizedContent = document.createElement('div');
   virtualizedContent.className = 'virtualized-content';
   virtualizedContent.style.position = 'absolute';
@@ -4412,19 +4410,23 @@ addBatchResultTab(fileName) {
   virtualizedContent.style.right = '0';
   virtualizedContainer.appendChild(virtualizedContent);
 
-  // Attach scroll event so that visible rows update on scroll.
-  virtualizedContainer.addEventListener('scroll', () => {
-    this.updateVirtualizedBatchResults(tabId);
+  // When the body container scrolls horizontally, shift the header.
+  virtualizedContainer.addEventListener('scroll', function() {
+    // Sync horizontal scroll: move the header table in the opposite direction.
+    headerTable.style.transform = `translateX(-${this.scrollLeft}px)`;
+    // Also update visible rows (vertical scroll)
+    window.app.updateVirtualizedBatchResults(tabId);
   });
 
   tabContents.appendChild(content);
 
-  // Initialize an empty array for the rows in this tab.
+  // Save references needed to keep header and rows in sync.
   this.batchResultsData[tabId] = {
     rows: [],
-    rowHeight: 30, // fixed height (in pixels) for each row; adjust as needed
+    rowHeight: 30, // fixed row height (in pixels)
     virtualizedContainer: virtualizedContainer,
-    virtualizedContent: virtualizedContent
+    virtualizedContent: virtualizedContent,
+    headerTable: headerTable
   };
 
   // Switch to the new tab.
@@ -4435,9 +4437,9 @@ addBatchResultTab(fileName) {
 updateVirtualizedBatchResults(tabId) {
   const tabData = this.batchResultsData[tabId];
   if (!tabData) return;
-  const { rows, rowHeight, virtualizedContainer, virtualizedContent } = tabData;
+  const { rows, rowHeight, virtualizedContainer, virtualizedContent, headerTable } = tabData;
   const totalRows = rows.length;
-  // Set the inner content div’s total height.
+  // Set the inner container height to simulate all rows.
   virtualizedContent.style.height = (totalRows * rowHeight) + "px";
 
   const scrollTop = virtualizedContainer.scrollTop;
@@ -4449,7 +4451,21 @@ updateVirtualizedBatchResults(tabId) {
   // Clear current visible rows.
   virtualizedContent.innerHTML = "";
 
-  // Create a table for the visible rows with matching colgroup.
+  // --- Measure header cell widths (as rendered) ---
+  const headerCells = headerTable.querySelectorAll('th');
+  const colWidths = [];
+  headerCells.forEach(cell => {
+    // Use getBoundingClientRect() to get the actual rendered width.
+    colWidths.push(cell.getBoundingClientRect().width);
+  });
+
+  // (Optional enhancement:)
+  // If you wish, you could loop through the visible rows' cells here
+  // and use the maximum of header and cell widths for each column.
+  // For simplicity, we’ll use the header widths.
+
+  // Create a table for the visible rows.
+  // Use fixed layout so that we can force column widths via colgroup.
   const table = document.createElement('table');
   table.border = "1";
   table.cellSpacing = "0";
@@ -4457,32 +4473,26 @@ updateVirtualizedBatchResults(tabId) {
   table.style.width = "100%";
   table.style.tableLayout = "fixed";
 
-  // Create colgroup for the body table.
+  // Build a colgroup for the body table using the measured widths.
   const bodyColGroup = document.createElement('colgroup');
-  const bcol1 = document.createElement('col');
-  bcol1.style.width = '40px';
-  bodyColGroup.appendChild(bcol1);
-  const bcol2 = document.createElement('col');
-  bcol2.style.width = 'calc(100% - 120px)';
-  bodyColGroup.appendChild(bcol2);
-  const bcol3 = document.createElement('col');
-  bcol3.style.width = '80px';
-  bodyColGroup.appendChild(bcol3);
-  const bcol4 = document.createElement('col');
-  bcol4.style.width = 'auto';
-  bodyColGroup.appendChild(bcol4);
+  colWidths.forEach(width => {
+    const col = document.createElement('col');
+    col.style.width = width + "px";
+    bodyColGroup.appendChild(col);
+  });
   table.appendChild(bodyColGroup);
 
   const tbody = document.createElement('tbody');
-
   for (let i = startIndex; i < endIndex; i++) {
     const rowData = rows[i];
     const tr = document.createElement('tr');
 
+    // Column 0: Row number
     const tdNum = document.createElement('td');
     tdNum.textContent = (i + 1);
     tr.appendChild(tdNum);
 
+    // Column 1: File (with a clickable link)
     const tdFile = document.createElement('td');
     const link = document.createElement('a');
     link.textContent = rowData.file;
@@ -4494,10 +4504,12 @@ updateVirtualizedBatchResults(tabId) {
     tdFile.appendChild(link);
     tr.appendChild(tdFile);
 
+    // Column 2: Line
     const tdLine = document.createElement('td');
     tdLine.textContent = rowData.line;
     tr.appendChild(tdLine);
 
+    // Column 3: Data
     const tdData = document.createElement('td');
     tdData.textContent = rowData.data;
     tr.appendChild(tdData);
@@ -4506,10 +4518,14 @@ updateVirtualizedBatchResults(tabId) {
   }
   table.appendChild(tbody);
 
-  // Position the table so that it appears at the proper offset.
+  // Position the table vertically based on the startIndex.
   table.style.position = "absolute";
   table.style.top = (startIndex * rowHeight) + "px";
   virtualizedContent.appendChild(table);
+
+  // --- Adjust header table for vertical scrollbar width ---
+  const scrollbarWidth = virtualizedContainer.offsetWidth - virtualizedContainer.clientWidth;
+  headerTable.style.marginRight = scrollbarWidth + "px";
 }
 
 switchBatchResultTab(tabId) {
