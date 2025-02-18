@@ -4358,7 +4358,7 @@ addBatchResultTab(fileName) {
   content.dataset.tabId = tabId;
   content.style.display = 'none';
   content.style.height = '100%';
-  content.style.overflowX = 'auto'; // allow horizontal scroll
+  content.style.overflowX = 'hidden';
 
   // --- Header Table (static) ---
   // Use auto layout so that columns size to content.
@@ -4373,7 +4373,7 @@ addBatchResultTab(fileName) {
   // Fix only the first column (#) to 40px; let the others auto-size.
   const headerColGroup = document.createElement('colgroup');
   const col0 = document.createElement('col');
-  col0.style.width = '40px';
+  col0.style.minWidth = '40px';
   headerColGroup.appendChild(col0);
   // Append one <col> per remaining column (they have no width set so they auto-size)
   headerColGroup.appendChild(document.createElement('col'));
