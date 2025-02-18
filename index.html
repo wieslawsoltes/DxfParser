@@ -436,6 +436,7 @@
           <button id="showBlocksOverlayBtn">Blocks & Inserts</button>
           <button id="showLineTypesOverlayBtn">Line Types</button>
           <button id="showTextsOverlayBtn">Texts</button>
+          <button id="showBatchProcessOverlayBtn">Batch Process</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -647,6 +648,55 @@
       <button class="backToTreeBtn" data-overlay="textsOverlay">Back to Tree</button>
       <h2>DXF Texts</h2>
       <div id="overlayTextsContent"></div>
+    </div>
+  </div>
+  <div id="batchProcessingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); z-index:1000;">
+    <div class="overlay-content" style="overflow:auto;">
+      <button id="closeBatchOverlay" style="position:absolute; top:10px; right:10px; cursor:pointer;">Close</button>
+      <h2>Batch Process DXF Files</h2>
+      <div style="margin-bottom:1em;">
+        <label>Select Root Directory:
+          <!-- The "webkitdirectory" (and "directory") attribute allows directory selection -->
+          <input type="file" id="directoryInput" webkitdirectory directory multiple>
+        </label>
+      </div>
+      <div style="margin-bottom:1em;">
+        <label>Object Type:
+          <input type="text" id="batchObjectType" placeholder="e.g. LINE, CIRCLE">
+        </label>
+      </div>
+      <div style="margin-bottom:1em;">
+        <label>Search Data:
+          <input type="text" id="batchSearchText" placeholder="Enter search text">
+        </label>
+      </div>
+      <div style="margin-bottom:1em;">
+        <label>
+          <input type="radio" name="batchSearchMode" value="contains" checked> Contains
+        </label>
+        <label>
+          <input type="radio" name="batchSearchMode" value="exact"> Exact
+        </label>
+      </div>
+      <div style="margin-bottom:1em;">
+        <button id="startBatchProcess">Start Batch Process</button>
+      </div>
+      <hr>
+      <h3>Results</h3>
+      <div style="overflow:auto; max-height:300px;">
+        <table id="batchResultsTable" border="1" cellspacing="0" cellpadding="4" style="width:100%;">
+          <thead>
+            <tr>
+              <th>File (Relative Path)</th>
+              <th>Line</th>
+              <th>Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Matches will be appended here -->
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -1527,6 +1577,13 @@
         document.getElementById("closeTextsOverlay").addEventListener("click", () => {
           document.getElementById("textsOverlay").style.display = "none";
         });
+        document.getElementById("showBatchProcessOverlayBtn").addEventListener("click", () => {
+        document.getElementById("batchProcessingOverlay").style.display = "block";
+        });
+        document.getElementById("closeBatchOverlay").addEventListener("click", () => {
+          document.getElementById("batchProcessingOverlay").style.display = "none";
+        });
+        document.getElementById("startBatchProcess").addEventListener("click", () => this.handleBatchProcess());
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
@@ -3861,6 +3918,88 @@
           html += "</ul>";
         }
         document.getElementById("overlayTextsContent").innerHTML = html;
+      }
+      searchDxfTree(nodes, objectType, searchText, exact) {
+        let results = [];
+        nodes.forEach(node => {
+          if (node.type && node.type.toLowerCase() === objectType.toLowerCase()) {
+            if (node.properties && node.properties.length > 0) {
+              node.properties.forEach(prop => {
+                if (prop.value) {
+                  let isMatch = false;
+                  if (exact) {
+                    isMatch = (prop.value === searchText);
+                  } else {
+                    isMatch = prop.value.toLowerCase().includes(searchText.toLowerCase());
+                  }
+                  if (isMatch) {
+                    results.push({ line: prop.line, data: prop.value });
+                  }
+                }
+              });
+            }
+          }
+          if (node.children && node.children.length > 0) {
+            results = results.concat(this.searchDxfTree(node.children, objectType, searchText, exact));
+          }
+        });
+        return results;
+      }
+      handleBatchProcess() {
+        const directoryInput = document.getElementById("directoryInput");
+        const files = directoryInput.files;
+        if (!files || files.length === 0) {
+          alert("Please select a directory containing DXF files.");
+          return;
+        }
+        const objectType = document.getElementById("batchObjectType").value.trim();
+        const searchText = document.getElementById("batchSearchText").value.trim();
+        const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
+        const exact = (searchMode === "exact");
+        if (!objectType || !searchText) {
+          alert("Please enter both object type and search text.");
+          return;
+        }
+        const resultsTbody = document.getElementById("batchResultsTable").querySelector("tbody");
+        resultsTbody.innerHTML = ""; // Clear any previous results
+
+        // Process the files sequentially to help keep memory usage low.
+        const filesArray = Array.from(files);
+        const processFile = async (file) => {
+
+        console.log("Processing file:", file.name);
+          // Only process DXF files.
+          if (!file.name.toLowerCase().endsWith(".dxf")) return;
+          try {
+            // Use the existing streamed parser (which uses file.stream()).
+            const dxfObjects = await this.parseFileStream(file);
+            const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact);
+            matches.forEach(match => {
+              const row = document.createElement("tr");
+              const cellFile = document.createElement("td");
+              cellFile.textContent = file.webkitRelativePath || file.name;
+              const cellLine = document.createElement("td");
+              cellLine.textContent = match.line;
+              const cellData = document.createElement("td");
+              cellData.textContent = match.data;
+              row.appendChild(cellFile);
+              row.appendChild(cellLine);
+              row.appendChild(cellData);
+              resultsTbody.appendChild(row);
+            });
+          } catch (err) {
+            console.error("Error processing file: " + file.name, err);
+          }
+        };
+
+        // Process each file sequentially.
+        const processAllFiles = async () => {
+          for (const file of filesArray) {
+            await processFile(file);
+          }
+        };
+
+        processAllFiles();
       }
     }
     document.addEventListener("DOMContentLoaded", () => { 
