@@ -288,7 +288,8 @@
       cursor: pointer;
       font-weight: bold;
     }
-    /* Overlays – all dialogs are hidden by default and appear above the tree view */
+    /* Overlays – all dialogs are hidden by default and appear above the tree view */ 
+    #batchProcessingOverlay,
     #cloudOverlay,
     #statsOverlay,
     #depsOverlay,
@@ -309,6 +310,7 @@
     /* Raise the hex viewer above the other overlays */
     #hexViewerOverlay { z-index: 1100; }
     /* The other overlays get z-index: 1000 */
+    #batchProcessingOverlay,
     #cloudOverlay,
     #statsOverlay,
     #depsOverlay,
@@ -650,27 +652,31 @@
       <div id="overlayTextsContent"></div>
     </div>
   </div>
-  <div id="batchProcessingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); z-index:1000;">
-    <div class="overlay-content" style="overflow:auto;">
-      <button id="closeBatchOverlay" style="position:absolute; top:10px; right:10px; cursor:pointer;">Close</button>
+  <div id="batchProcessingOverlay">
+    <div class="overlay-content" style="display: flex; flex-direction: column;">
+      <!-- Close Button -->
+      <button id="closeBatchOverlay" style="position: absolute; top: 10px; right: 10px; cursor: pointer;">Close</button>
+
+      <!-- Title -->
       <h2>Batch Process DXF Files</h2>
-      <div style="margin-bottom:1em;">
+
+      <!-- Input Controls -->
+      <div style="margin: 1em 0;">
         <label>Select Root Directory:
-          <!-- The "webkitdirectory" (and "directory") attribute allows directory selection -->
           <input type="file" id="directoryInput" webkitdirectory directory multiple>
         </label>
       </div>
-      <div style="margin-bottom:1em;">
+      <div style="margin: 1em 0;">
         <label>Object Type:
           <input type="text" id="batchObjectType" placeholder="e.g. LINE, CIRCLE">
         </label>
       </div>
-      <div style="margin-bottom:1em;">
+      <div style="margin: 1em 0;">
         <label>Search Data:
           <input type="text" id="batchSearchText" placeholder="Enter search text">
         </label>
       </div>
-      <div style="margin-bottom:1em;">
+      <div style="margin: 1em 0;">
         <label>
           <input type="radio" name="batchSearchMode" value="contains" checked> Contains
         </label>
@@ -678,31 +684,25 @@
           <input type="radio" name="batchSearchMode" value="exact"> Exact
         </label>
       </div>
-      <div style="margin-bottom:1em;">
+      <div style="margin: 1em 0;">
         <button id="startBatchProcess">Start Batch Process</button>
-        <progress id="batchProgress" value="0" max="100" style="width:100%; display:none;"></progress>
+        <progress id="batchProgress" value="0" max="100" style="width: 100%; display: none;"></progress>
       </div>
+
       <hr>
+
+      <!-- Results Section (Fills Remaining Space) -->
       <h3>Results</h3>
-      <!-- New download button added -->
-      <button id="downloadExcelBtn" style="margin-bottom:1em;">Download as Excel</button>
-      <div style="overflow:auto; max-height:300px;">
-        <table id="batchResultsTable" border="1" cellspacing="0" cellpadding="4" style="width:100%;">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>File (Relative Path)</th>
-              <th>Line</th>
-              <th>Data</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Matches will be appended here -->
-          </tbody>
-        </table>
+      <div id="batchResultsTabs" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+        <div id="batchResultsTabHeaders" style="display: flex; border-bottom: 1px solid #ccc;"></div>
+        <div id="batchResultsTabContents" style="flex: 1; overflow: auto;"></div>
+      </div>
+
+      <!-- Download Button -->
+      <div style="margin-top: 1em; text-align: center;">
+        <button id="downloadExcelBtn">Download as Excel</button>
       </div>
     </div>
-  </div>
   <!-- Utility Functions -->
   <script>
     // Convert a concatenated hex string into a Uint8Array.
@@ -4318,115 +4318,227 @@
           reader.readAsText(file, "ascii");
         }
       }
-      handleBatchProcess() {
-        const directoryInput = document.getElementById("directoryInput");
-        const files = directoryInput.files;
-        if (!files || files.length === 0) {
-          alert("Please select a directory containing DXF files.");
-          return;
-        }
-        const objectType = document.getElementById("batchObjectType").value.trim();
-        const searchText = document.getElementById("batchSearchText").value.trim();
-        const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
-        const exact = (searchMode === "exact");
-        if (!searchText) {
-          alert("Please enter search text.");
-          return;
-        }
-        const resultsTbody = document.getElementById("batchResultsTable").querySelector("tbody");
-        resultsTbody.innerHTML = ""; // Clear any previous results
-        let rowCounter = 1; // Counter for numbering rows
 
-        // Process the files sequentially to help keep memory usage low.
-        const filesArray = Array.from(files);
-        const processFile = async (file) => {
-          console.log("Processing file:", file.name);
-          // Only process DXF files.
-          if (!file.name.toLowerCase().endsWith(".dxf")) return;
-          try {
-            // Use the existing streamed parser (which uses file.stream()).
-            const dxfObjects = await this.parseFileStream(file);
-            const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact);
-            matches.forEach(match => {
-              const row = document.createElement("tr");
-              // Add numbering cell as the first column.
-              const cellNum = document.createElement("td");
-              cellNum.textContent = rowCounter++;
-              row.appendChild(cellNum);
+addBatchResultTab(fileName) {
+  const tabId = 'batch-tab-' + Date.now() + Math.random();
+  const tabHeaders = document.getElementById('batchResultsTabHeaders');
+  const tabContents = document.getElementById('batchResultsTabContents');
+  
+  // Create tab header element
+  const header = document.createElement('div');
+  header.className = 'batch-tab-header';
+  header.dataset.tabId = tabId;
+  header.style.padding = '0.5em 1em';
+  header.style.cursor = 'pointer';
+  header.style.border = '1px solid #ccc';
+  header.style.borderBottom = 'none';
+  header.style.backgroundColor = '#eee';
+  header.textContent = fileName;
+  
+  // Add close button for this tab
+  const closeBtn = document.createElement('span');
+  closeBtn.textContent = '×';
+  closeBtn.style.marginLeft = '0.5em';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    this.removeBatchResultTab(tabId);
+  });
+  header.appendChild(closeBtn);
+  
+  header.addEventListener('click', () => {
+    this.switchBatchResultTab(tabId);
+  });
+  
+  tabHeaders.appendChild(header);
+  
+  // Create tab content container (initially hidden)
+  const content = document.createElement('div');
+  content.className = 'batch-tab-content';
+  content.dataset.tabId = tabId;
+  content.style.display = 'none';
+  
+  // Create a table inside the tab content
+  const table = document.createElement('table');
+  table.border = "1";
+  table.cellSpacing = "0";
+  table.cellPadding = "4";
+  table.style.width = "100%";
+  const thead = document.createElement('thead');
+  thead.innerHTML = `<tr>
+    <th>#</th>
+    <th>File (Relative Path)</th>
+    <th>Line</th>
+    <th>Data</th>
+  </tr>`;
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  table.appendChild(tbody);
+  
+  content.appendChild(table);
+  tabContents.appendChild(content);
+  
+  // Switch to the new tab
+  this.switchBatchResultTab(tabId);
+  
+  return { tabId, tbody };
+}
 
-              const cellFile = document.createElement("td");
-              const link = document.createElement("a");
-              link.textContent = file.webkitRelativePath || file.name;
-              link.href = "#";
-              link.addEventListener("click", function(e) {
-                e.preventDefault();
-                window.app.openFileTab(file, match.line);
-              });
-              cellFile.appendChild(link);
-              row.appendChild(cellFile);
+switchBatchResultTab(tabId) {
+  const headers = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
+  const contents = document.querySelectorAll('#batchResultsTabContents .batch-tab-content');
+  headers.forEach(header => {
+    if (header.dataset.tabId === tabId) {
+      header.style.backgroundColor = '#fff';
+      header.style.fontWeight = 'bold';
+    } else {
+      header.style.backgroundColor = '#eee';
+      header.style.fontWeight = 'normal';
+    }
+  });
+  contents.forEach(content => {
+    content.style.display = (content.dataset.tabId === tabId) ? 'block' : 'none';
+  });
+}
 
-              const cellLine = document.createElement("td");
-              cellLine.textContent = match.line;
-              row.appendChild(cellLine);
+removeBatchResultTab(tabId) {
+  const header = document.querySelector(`#batchResultsTabHeaders .batch-tab-header[data-tab-id="${tabId}"]`);
+  const content = document.querySelector(`#batchResultsTabContents .batch-tab-content[data-tab-id="${tabId}"]`);
+  if (header) header.remove();
+  if (content) content.remove();
+  
+  // If any tab remains, switch to the first one.
+  const remaining = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
+  if (remaining.length > 0) {
+    this.switchBatchResultTab(remaining[0].dataset.tabId);
+  }
+}
 
-              const cellData = document.createElement("td");
-              cellData.textContent = match.data;
-              row.appendChild(cellData);
-
-              resultsTbody.appendChild(row);
-            });
-          } catch (err) {
-            console.error("Error processing file: " + file.name, err);
-            console.error("Stack:", err.stack);
-          }
-        };
-
-        // Process each file sequentially.
-        const progressBar = document.getElementById("batchProgress");
-        // Show progress bar when processing starts
-        progressBar.style.display = "block";
-
-        const processAllFiles = async () => {
-          for (let i = 0; i < filesArray.length; i++) {
-            await processFile(filesArray[i]);
-            // Update progress bar (percentage complete)
-            progressBar.value = ((i + 1) / filesArray.length) * 100;
-          }
-          // When finished, reset progress and hide the progress bar
-          progressBar.value = 0;
-          progressBar.style.display = "none";
-        };
-
-        processAllFiles();
-      }
-      downloadBatchResultsAsExcel() {
-        const table = document.getElementById("batchResultsTable");
-        if (!table) {
-          alert("No batch results table found.");
-          return;
-        }
-        let csv = "";
-        // Loop over all rows in the table.
-        for (let row of table.rows) {
-          let rowData = [];
-          for (let cell of row.cells) {
-            let cellText = cell.textContent.trim();
-            // Escape any quotes in the cell text.
-            cellText = cellText.replace(/"/g, '""');
-            rowData.push('"' + cellText + '"');
-          }
-          csv += rowData.join(",") + "\n";
-        }
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
+      
+      
+      
+      
+handleBatchProcess() {
+  const directoryInput = document.getElementById("directoryInput");
+  const files = directoryInput.files;
+  if (!files || files.length === 0) {
+    alert("Please select a directory containing DXF files.");
+    return;
+  }
+  const objectType = document.getElementById("batchObjectType").value.trim();
+  const searchText = document.getElementById("batchSearchText").value.trim();
+  const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
+  const exact = (searchMode === "exact");
+  if (!searchText) {
+    alert("Please enter search text.");
+    return;
+  }
+  
+  // Create one new tab for this entire search
+  const now = new Date();
+  const tabTitle = "Search " + now.toLocaleTimeString();
+  const { tabId, tbody } = this.addBatchResultTab(tabTitle);
+  
+  // Process all files and append results to the same table
+  const filesArray = Array.from(files);
+  const progressBar = document.getElementById("batchProgress");
+  progressBar.style.display = "block";
+  
+  const processFile = async (file) => {
+    if (!file.name.toLowerCase().endsWith(".dxf")) return;
+    try {
+      const dxfObjects = await this.parseFileStream(file);
+      const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact);
+      matches.forEach(match => {
+        const row = document.createElement("tr");
+        
+        // Number column (you could compute a running count if desired)
+        const cellNum = document.createElement("td");
+        cellNum.textContent = tbody.rows.length + 1; 
+        row.appendChild(cellNum);
+        
+        // File (relative path) column
+        const cellFile = document.createElement("td");
         const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", "batch_results.csv");
-        link.style.visibility = "hidden";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+        link.textContent = file.webkitRelativePath || file.name;
+        link.href = "#";
+        link.addEventListener("click", function(e) {
+          e.preventDefault();
+          window.app.openFileTab(file, match.line);
+        });
+        cellFile.appendChild(link);
+        row.appendChild(cellFile);
+        
+        // Line column
+        const cellLine = document.createElement("td");
+        cellLine.textContent = match.line;
+        row.appendChild(cellLine);
+        
+        // Data column
+        const cellData = document.createElement("td");
+        cellData.textContent = match.data;
+        row.appendChild(cellData);
+        
+        tbody.appendChild(row);
+      });
+    } catch (err) {
+      console.error("Error processing file: " + file.name, err);
+    }
+  };
+  
+  const processAllFiles = async () => {
+    for (let i = 0; i < filesArray.length; i++) {
+      await processFile(filesArray[i]);
+      progressBar.value = ((i + 1) / filesArray.length) * 100;
+    }
+    progressBar.value = 0;
+    progressBar.style.display = "none";
+  };
+  
+  processAllFiles();
+}
+
+      
+      
+downloadBatchResultsAsExcel() {
+  const tabHeaders = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
+  if (tabHeaders.length === 0) {
+    alert("No batch results to download.");
+    return;
+  }
+  let csv = "";
+  tabHeaders.forEach(header => {
+    const tabId = header.dataset.tabId;
+    // Remove the close button’s text from the header text
+    const fileName = header.textContent.replace('×', '').trim();
+    csv += `"Results for ${fileName}"\n`;
+    csv += `"#","File","Line","Data"\n`;
+    const tbody = document.querySelector(`#batchResultsTabContents .batch-tab-content[data-tab-id="${tabId}"] table tbody`);
+    if (tbody) {
+      Array.from(tbody.rows).forEach(row => {
+        let rowData = [];
+        Array.from(row.cells).forEach(cell => {
+          let cellText = cell.textContent.trim();
+          // Escape any quotes in the cell text.
+          cellText = cellText.replace(/"/g, '""');
+          rowData.push('"' + cellText + '"');
+        });
+        csv += rowData.join(",") + "\n";
+      });
+      csv += "\n"; // blank line between tabs
+    }
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "batch_results.csv");
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
     }
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
