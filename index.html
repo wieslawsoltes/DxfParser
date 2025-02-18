@@ -1721,6 +1721,7 @@
           columnWidths: this.columnWidths,
           hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
         });
+      this.batchResultsData = {}; // keys will be tabIds, each with { rows: [...], rowHeight, virtualizedContainer, virtualizedContent }
         this.initEventListeners();
       }
       initEventListeners() {
@@ -4324,7 +4325,7 @@ addBatchResultTab(fileName) {
   const tabHeaders = document.getElementById('batchResultsTabHeaders');
   const tabContents = document.getElementById('batchResultsTabContents');
   
-  // Create tab header element
+  // Create tab header (same as before)
   const header = document.createElement('div');
   header.className = 'batch-tab-header';
   header.dataset.tabId = tabId;
@@ -4335,7 +4336,6 @@ addBatchResultTab(fileName) {
   header.style.backgroundColor = '#eee';
   header.textContent = fileName;
   
-  // Add close button for this tab
   const closeBtn = document.createElement('span');
   closeBtn.textContent = '×';
   closeBtn.style.marginLeft = '0.5em';
@@ -4352,36 +4352,132 @@ addBatchResultTab(fileName) {
   
   tabHeaders.appendChild(header);
   
-  // Create tab content container (initially hidden)
+  // Create the virtualized table container.
+  // Instead of a single table with a <thead> and <tbody>,
+  // we create a header table (static) plus a scrollable container for the body.
   const content = document.createElement('div');
   content.className = 'batch-tab-content';
   content.dataset.tabId = tabId;
   content.style.display = 'none';
+  content.style.height = '100%';
   
-  // Create a table inside the tab content
+  // Create header table – retains your look.
+  const headerTable = document.createElement('table');
+  headerTable.border = "1";
+  headerTable.cellSpacing = "0";
+  headerTable.cellPadding = "4";
+  headerTable.style.width = "100%";
+  headerTable.style.tableLayout = "fixed";
+  const thead = document.createElement('thead');
+  thead.innerHTML = `<tr>
+    <th style="width: 40px;">#</th>
+    <th>File (Relative Path)</th>
+    <th style="width: 80px;">Line</th>
+    <th>Data</th>
+  </tr>`;
+  headerTable.appendChild(thead);
+  content.appendChild(headerTable);
+  
+  // Create container for virtualized rows.
+  const virtualizedContainer = document.createElement('div');
+  virtualizedContainer.className = 'virtualized-results';
+  // Let it fill the remaining space.
+  virtualizedContainer.style.height = 'calc(100% - 40px)'; // adjust 40px if needed based on header height
+  virtualizedContainer.style.position = 'relative';
+  virtualizedContainer.style.overflowY = 'auto';
+  content.appendChild(virtualizedContainer);
+  
+  // The inner content div holds all rows (its height simulates the full number of rows).
+  const virtualizedContent = document.createElement('div');
+  virtualizedContent.className = 'virtualized-content';
+  virtualizedContent.style.position = 'absolute';
+  virtualizedContent.style.left = '0';
+  virtualizedContent.style.right = '0';
+  virtualizedContainer.appendChild(virtualizedContent);
+  
+  // Attach scroll event so that visible rows update on scroll.
+  virtualizedContainer.addEventListener('scroll', () => {
+    this.updateVirtualizedBatchResults(tabId);
+  });
+  
+  tabContents.appendChild(content);
+  
+  // Initialize an empty array for the rows in this tab.
+  this.batchResultsData[tabId] = {
+    rows: [],
+    rowHeight: 30, // fixed height (in pixels) for each row; adjust as needed
+    virtualizedContainer: virtualizedContainer,
+    virtualizedContent: virtualizedContent
+  };
+  
+  // Switch to the new tab.
+  this.switchBatchResultTab(tabId);
+  return { tabId };
+}
+    
+updateVirtualizedBatchResults(tabId) {
+  const tabData = this.batchResultsData[tabId];
+  if (!tabData) return;
+  const { rows, rowHeight, virtualizedContainer, virtualizedContent } = tabData;
+  const totalRows = rows.length;
+  // Set the inner content div’s total height.
+  virtualizedContent.style.height = (totalRows * rowHeight) + "px";
+  
+  const scrollTop = virtualizedContainer.scrollTop;
+  const containerHeight = virtualizedContainer.clientHeight;
+  const startIndex = Math.floor(scrollTop / rowHeight);
+  const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
+  const endIndex = Math.min(startIndex + visibleCount, totalRows);
+  
+  // Clear current visible rows.
+  virtualizedContent.innerHTML = "";
+  
+  // Create a table to hold only the visible rows.
   const table = document.createElement('table');
   table.border = "1";
   table.cellSpacing = "0";
   table.cellPadding = "4";
   table.style.width = "100%";
-  const thead = document.createElement('thead');
-  thead.innerHTML = `<tr>
-    <th>#</th>
-    <th>File (Relative Path)</th>
-    <th>Line</th>
-    <th>Data</th>
-  </tr>`;
-  table.appendChild(thead);
+  table.style.tableLayout = "fixed";
   const tbody = document.createElement('tbody');
+  
+  for (let i = startIndex; i < endIndex; i++) {
+    const rowData = rows[i];
+    const tr = document.createElement('tr');
+    
+    const tdNum = document.createElement('td');
+    tdNum.style.width = "40px";
+    tdNum.textContent = (i + 1);
+    tr.appendChild(tdNum);
+    
+    const tdFile = document.createElement('td');
+    const link = document.createElement('a');
+    link.textContent = rowData.file;
+    link.href = "#";
+    // (You may wish to adjust the openFileTab function to work with your stored file info.)
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      window.app.openFileTab(rowData.fileObject, rowData.line);
+    });
+    tdFile.appendChild(link);
+    tr.appendChild(tdFile);
+    
+    const tdLine = document.createElement('td');
+    tdLine.style.width = "80px";
+    tdLine.textContent = rowData.line;
+    tr.appendChild(tdLine);
+    
+    const tdData = document.createElement('td');
+    tdData.textContent = rowData.data;
+    tr.appendChild(tdData);
+    
+    tbody.appendChild(tr);
+  }
   table.appendChild(tbody);
-  
-  content.appendChild(table);
-  tabContents.appendChild(content);
-  
-  // Switch to the new tab
-  this.switchBatchResultTab(tabId);
-  
-  return { tabId, tbody };
+  // Position the table so that it appears at the proper offset.
+  table.style.position = "absolute";
+  table.style.top = (startIndex * rowHeight) + "px";
+  virtualizedContent.appendChild(table);
 }
 
 switchBatchResultTab(tabId) {
@@ -4414,10 +4510,6 @@ removeBatchResultTab(tabId) {
   }
 }
 
-      
-      
-      
-      
 handleBatchProcess() {
   const directoryInput = document.getElementById("directoryInput");
   const files = directoryInput.files;
@@ -4434,12 +4526,12 @@ handleBatchProcess() {
     return;
   }
   
-  // Create one new tab for this entire search
+  // Create one new virtualized tab for this search
   const now = new Date();
   const tabTitle = "Search " + now.toLocaleTimeString();
-  const { tabId, tbody } = this.addBatchResultTab(tabTitle);
+  const { tabId } = this.addBatchResultTab(tabTitle);
   
-  // Process all files and append results to the same table
+  // Process all files and add results to the same virtualized data array
   const filesArray = Array.from(files);
   const progressBar = document.getElementById("batchProgress");
   progressBar.style.display = "block";
@@ -4449,38 +4541,18 @@ handleBatchProcess() {
     try {
       const dxfObjects = await this.parseFileStream(file);
       const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact);
+      // For each match, push an object into the rows array for this tab.
+      const tabData = this.batchResultsData[tabId];
       matches.forEach(match => {
-        const row = document.createElement("tr");
-        
-        // Number column (you could compute a running count if desired)
-        const cellNum = document.createElement("td");
-        cellNum.textContent = tbody.rows.length + 1; 
-        row.appendChild(cellNum);
-        
-        // File (relative path) column
-        const cellFile = document.createElement("td");
-        const link = document.createElement("a");
-        link.textContent = file.webkitRelativePath || file.name;
-        link.href = "#";
-        link.addEventListener("click", function(e) {
-          e.preventDefault();
-          window.app.openFileTab(file, match.line);
-        });
-        cellFile.appendChild(link);
-        row.appendChild(cellFile);
-        
-        // Line column
-        const cellLine = document.createElement("td");
-        cellLine.textContent = match.line;
-        row.appendChild(cellLine);
-        
-        // Data column
-        const cellData = document.createElement("td");
-        cellData.textContent = match.data;
-        row.appendChild(cellData);
-        
-        tbody.appendChild(row);
+      tabData.rows.push({
+        file: file.webkitRelativePath || file.name, // display name
+        fileObject: file, // keep the original File object
+        line: match.line,
+        data: match.data
       });
+      });
+      // Update the visible virtualized rows.
+      this.updateVirtualizedBatchResults(tabId);
     } catch (err) {
       console.error("Error processing file: " + file.name, err);
     }
@@ -4498,8 +4570,6 @@ handleBatchProcess() {
   processAllFiles();
 }
 
-      
-      
 downloadBatchResultsAsExcel() {
   const tabHeaders = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
   if (tabHeaders.length === 0) {
