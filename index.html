@@ -6,7 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DXF Parser</title>
   <!-- Include JSZip for ZIP file browsing -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js">
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <style>
     /* Base Styles */
     html, body { height: 100%; margin: 0; padding: 0; }
@@ -4619,55 +4621,36 @@ handleBatchProcess() {
 }
 
 downloadBatchResultsAsExcel() {
-  // Get all batch tab IDs from the data store.
-  const tabIds = Object.keys(this.batchResultsData);
-  if (tabIds.length === 0) {
-    alert("No batch results to download.");
-    return;
-  }
-  let csv = "";
+  // Create a new workbook
+  const workbook = XLSX.utils.book_new();
 
-  tabIds.forEach((tabId) => {
+  // Loop through your batch result tabs (stored in this.batchResultsData)
+  Object.keys(this.batchResultsData).forEach((tabId, idx) => {
     const tabData = this.batchResultsData[tabId];
-    // Optionally, get the tab's name from the header or from stored data.
-    // Here we retrieve it from the header element:
-    const headerElem = document.querySelector(
-      `#batchResultsTabHeaders .batch-tab-header[data-tab-id="${tabId}"]`
-    );
-    const fileName = headerElem
-      ? headerElem.textContent.replace("×", "").trim()
-      : tabId;
-    csv += `"Results for ${fileName}"\n`;
-    csv += `"#","File (Relative Path)","Line","Data"\n`;
 
-    // Loop through the complete rows stored in the data array.
+    // Prepare data array for the sheet (including header row)
+    const ws_data = [
+      ["#", "File (Relative Path)", "Line", "Data"]
+    ];
+
     tabData.rows.forEach((row, index) => {
-      let rowData = [
-        index + 1,
-        row.file,   // file name or relative path
-        row.line,
-        row.data
-      ];
-      // Escape any quotes in each cell
-      rowData = rowData.map(cell =>
-        '"' + cell.toString().replace(/"/g, '""') + '"'
-      );
-      csv += rowData.join(",") + "\n";
+      ws_data.push([index + 1, row.file, row.line, row.data]);
     });
-    csv += "\n"; // blank line between tabs
+
+    // Convert the array of arrays into a worksheet
+    const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
+
+    // Optional: create a sheet name (you can use a file name or any other identifier)
+    const sheetName = `Results ${idx + 1}`;
+
+    // Append the worksheet to the workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   });
 
-  // Create a Blob from the CSV data and trigger the download.
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", "batch_results.csv");
-  link.style.visibility = "hidden";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  // Write the workbook to a file and trigger a download
+  XLSX.writeFile(workbook, "batch_results.xlsx");
 }
+
 
 
     }
