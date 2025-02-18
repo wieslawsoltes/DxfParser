@@ -4324,8 +4324,8 @@ addBatchResultTab(fileName) {
   const tabId = 'batch-tab-' + Date.now() + Math.random();
   const tabHeaders = document.getElementById('batchResultsTabHeaders');
   const tabContents = document.getElementById('batchResultsTabContents');
-  
-  // Create tab header (same as before)
+
+  // Create tab header
   const header = document.createElement('div');
   header.className = 'batch-tab-header';
   header.dataset.tabId = tabId;
@@ -4335,7 +4335,7 @@ addBatchResultTab(fileName) {
   header.style.borderBottom = 'none';
   header.style.backgroundColor = '#eee';
   header.textContent = fileName;
-  
+
   const closeBtn = document.createElement('span');
   closeBtn.textContent = '×';
   closeBtn.style.marginLeft = '0.5em';
@@ -4345,63 +4345,80 @@ addBatchResultTab(fileName) {
     this.removeBatchResultTab(tabId);
   });
   header.appendChild(closeBtn);
-  
+
   header.addEventListener('click', () => {
     this.switchBatchResultTab(tabId);
   });
-  
+
   tabHeaders.appendChild(header);
-  
-  // Create the virtualized table container.
-  // Instead of a single table with a <thead> and <tbody>,
-  // we create a header table (static) plus a scrollable container for the body.
+
+  // Create the virtualized tab content container.
   const content = document.createElement('div');
   content.className = 'batch-tab-content';
   content.dataset.tabId = tabId;
   content.style.display = 'none';
   content.style.height = '100%';
-  
-  // Create header table – retains your look.
+
+  // Create header table with explicit colgroup to sync widths.
   const headerTable = document.createElement('table');
   headerTable.border = "1";
   headerTable.cellSpacing = "0";
   headerTable.cellPadding = "4";
   headerTable.style.width = "100%";
   headerTable.style.tableLayout = "fixed";
+
+  // Create colgroup for header table.
+  const headerColGroup = document.createElement('colgroup');
+  const col1 = document.createElement('col');
+  col1.style.width = '40px'; // Fixed width for row number
+  headerColGroup.appendChild(col1);
+  const col2 = document.createElement('col');
+  // File column uses remaining width; assuming total fixed widths are 40px and 80px (for # and Line),
+  // we subtract 40+80 = 120px from 100%.
+  col2.style.width = 'calc(100% - 120px)';
+  headerColGroup.appendChild(col2);
+  const col3 = document.createElement('col');
+  col3.style.width = '80px'; // Fixed width for "Line"
+  headerColGroup.appendChild(col3);
+  const col4 = document.createElement('col');
+  col4.style.width = 'auto'; // "Data" column gets the rest
+  headerColGroup.appendChild(col4);
+  headerTable.appendChild(headerColGroup);
+
   const thead = document.createElement('thead');
   thead.innerHTML = `<tr>
-    <th style="width: 40px;">#</th>
+    <th>#</th>
     <th>File (Relative Path)</th>
-    <th style="width: 80px;">Line</th>
+    <th>Line</th>
     <th>Data</th>
   </tr>`;
   headerTable.appendChild(thead);
   content.appendChild(headerTable);
-  
+
   // Create container for virtualized rows.
   const virtualizedContainer = document.createElement('div');
   virtualizedContainer.className = 'virtualized-results';
-  // Let it fill the remaining space.
-  virtualizedContainer.style.height = 'calc(100% - 40px)'; // adjust 40px if needed based on header height
+  // Reserve space for the header (assumed to be 40px high)
+  virtualizedContainer.style.height = 'calc(100% - 40px)';
   virtualizedContainer.style.position = 'relative';
   virtualizedContainer.style.overflowY = 'auto';
   content.appendChild(virtualizedContainer);
-  
-  // The inner content div holds all rows (its height simulates the full number of rows).
+
+  // Create the inner container for the virtualized rows.
   const virtualizedContent = document.createElement('div');
   virtualizedContent.className = 'virtualized-content';
   virtualizedContent.style.position = 'absolute';
   virtualizedContent.style.left = '0';
   virtualizedContent.style.right = '0';
   virtualizedContainer.appendChild(virtualizedContent);
-  
+
   // Attach scroll event so that visible rows update on scroll.
   virtualizedContainer.addEventListener('scroll', () => {
     this.updateVirtualizedBatchResults(tabId);
   });
-  
+
   tabContents.appendChild(content);
-  
+
   // Initialize an empty array for the rows in this tab.
   this.batchResultsData[tabId] = {
     rows: [],
@@ -4409,12 +4426,12 @@ addBatchResultTab(fileName) {
     virtualizedContainer: virtualizedContainer,
     virtualizedContent: virtualizedContent
   };
-  
+
   // Switch to the new tab.
   this.switchBatchResultTab(tabId);
   return { tabId };
 }
-    
+
 updateVirtualizedBatchResults(tabId) {
   const tabData = this.batchResultsData[tabId];
   if (!tabData) return;
@@ -4422,58 +4439,73 @@ updateVirtualizedBatchResults(tabId) {
   const totalRows = rows.length;
   // Set the inner content div’s total height.
   virtualizedContent.style.height = (totalRows * rowHeight) + "px";
-  
+
   const scrollTop = virtualizedContainer.scrollTop;
   const containerHeight = virtualizedContainer.clientHeight;
   const startIndex = Math.floor(scrollTop / rowHeight);
   const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
   const endIndex = Math.min(startIndex + visibleCount, totalRows);
-  
+
   // Clear current visible rows.
   virtualizedContent.innerHTML = "";
-  
-  // Create a table to hold only the visible rows.
+
+  // Create a table for the visible rows with matching colgroup.
   const table = document.createElement('table');
   table.border = "1";
   table.cellSpacing = "0";
   table.cellPadding = "4";
   table.style.width = "100%";
   table.style.tableLayout = "fixed";
+
+  // Create colgroup for the body table.
+  const bodyColGroup = document.createElement('colgroup');
+  const bcol1 = document.createElement('col');
+  bcol1.style.width = '40px';
+  bodyColGroup.appendChild(bcol1);
+  const bcol2 = document.createElement('col');
+  bcol2.style.width = 'calc(100% - 120px)';
+  bodyColGroup.appendChild(bcol2);
+  const bcol3 = document.createElement('col');
+  bcol3.style.width = '80px';
+  bodyColGroup.appendChild(bcol3);
+  const bcol4 = document.createElement('col');
+  bcol4.style.width = 'auto';
+  bodyColGroup.appendChild(bcol4);
+  table.appendChild(bodyColGroup);
+
   const tbody = document.createElement('tbody');
-  
+
   for (let i = startIndex; i < endIndex; i++) {
     const rowData = rows[i];
     const tr = document.createElement('tr');
-    
+
     const tdNum = document.createElement('td');
-    tdNum.style.width = "40px";
     tdNum.textContent = (i + 1);
     tr.appendChild(tdNum);
-    
+
     const tdFile = document.createElement('td');
     const link = document.createElement('a');
     link.textContent = rowData.file;
     link.href = "#";
-    // (You may wish to adjust the openFileTab function to work with your stored file info.)
     link.addEventListener("click", (e) => {
       e.preventDefault();
       window.app.openFileTab(rowData.fileObject, rowData.line);
     });
     tdFile.appendChild(link);
     tr.appendChild(tdFile);
-    
+
     const tdLine = document.createElement('td');
-    tdLine.style.width = "80px";
     tdLine.textContent = rowData.line;
     tr.appendChild(tdLine);
-    
+
     const tdData = document.createElement('td');
     tdData.textContent = rowData.data;
     tr.appendChild(tdData);
-    
+
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
+
   // Position the table so that it appears at the proper offset.
   table.style.position = "absolute";
   table.style.top = (startIndex * rowHeight) + "px";
