@@ -710,6 +710,7 @@
         <button id="downloadExcelBtn">Download as Excel</button>
       </div>
     </div>
+  </div>
   <!-- Utility Functions -->
   <script>
     // Convert a concatenated hex string into a Uint8Array.
@@ -722,6 +723,7 @@
       }
       return result;
     }
+    
     // Produce a hex dump from a Uint8Array.
     function hexDump(buffer) {
       const bytesPerLine = 16;
@@ -742,6 +744,7 @@
       }
       return result;
     }
+    
     // Attempt to detect a common file header from a Uint8Array.
     function detectHeader(buffer) {
       // Define a list of known file signatures.
@@ -805,11 +808,13 @@
         this.nextId = 1;
         this.handleCodes = [5, 105, 330, 350, 360];
       }
+      
       parse(text) {
         const tags = this.parseDxf(text);
         const grouped = this.groupObjectsIterative(tags, 0);
         return grouped.objects;
       }
+      
       parseDxf(text) {
         // Split on CR/LF without discarding blank lines in the value portion.
         const lines = text.split(/\r?\n/);
@@ -1221,7 +1226,6 @@
         }
         return lines.join("\n");
       }
-
     }
   </script>
   <!-- TreeDataGrid Control -->
@@ -1368,7 +1372,7 @@
         this.flatData = this.flattenTree(this.treeData);
         this.updateVisibleNodes();
       }
-      
+
       /*
       flattenTree(nodes, level = 0) {
         let flat = [];
@@ -1731,6 +1735,7 @@
       this.batchResultsData = {}; // keys will be tabIds, each with { rows: [...], rowHeight, virtualizedContainer, virtualizedContent }
         this.initEventListeners();
       }
+      
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
@@ -1909,6 +1914,7 @@
           }
         });
       }
+      
       updateEffectiveSearchTerms() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1942,8 +1948,11 @@
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
+      
       handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
+      
       getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
+      
       updateTabUI() {
         const tabContainer = document.getElementById("tabContainer");
         tabContainer.innerHTML = "";
@@ -1982,6 +1991,7 @@
         this.updateNavHistoryUI();
         this.updateNavButtons();
       }
+      
       expandAllNodes(nodes) {
         nodes.forEach(node => {
           if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
@@ -1990,12 +2000,14 @@
           }
         });
       }
+      
       collapseAllNodes(nodes) {
         nodes.forEach(node => {
           node.expanded = false;
           this.collapseAllNodes(node.children);
         });
       }
+      
       handleExpandAll() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2015,6 +2027,7 @@
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
+      
       handleCollapseAll() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2034,6 +2047,7 @@
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
+      
       handleToggleExpand(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2055,6 +2069,7 @@
           this.myTreeGrid.setData(activeTab.currentTreeData);
         }
       }
+      
       getSortValue(node, field) {
         if (field === "line") { return node.line ? Number(node.line) : 0; }
         else if (field === "code") {
@@ -2096,6 +2111,7 @@
         }
         return "";
       }
+      
       sortTreeNodes(nodes, field, ascending) {
         nodes.sort((a, b) => {
           const aVal = this.getSortValue(a, field);
@@ -2126,6 +2142,7 @@
           if (node.children && node.children.length) { this.sortTreeNodes(node.children, field, ascending); }
         });
       }
+      
       handleHeaderClick(headerCell) {
         const field = headerCell.getAttribute('data-field');
         const activeTab = this.getActiveTab();
@@ -2161,6 +2178,7 @@
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
       }
+      
       handleResizerMouseDown(e) {
         e.stopPropagation();
         const headerCell = e.target.parentElement;
@@ -2181,6 +2199,7 @@
         document.addEventListener("mousemove", onMouseMove);
         document.addEventListener("mouseup", onMouseUp);
       }
+      
       filterTree(objects, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
         const filtered = [];
         objects.forEach(obj => {
@@ -2189,6 +2208,7 @@
         });
         return filtered;
       }
+      
       filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
         let nodeLine = parseInt(obj.line, 10);
         let lineMatches = true;
@@ -2268,6 +2288,7 @@
           children: filteredChildren
         };
       }
+      
       handleCopy(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2280,6 +2301,7 @@
           alert("Failed to copy to clipboard.");
         });
       }
+      
       handleOpen(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2311,7 +2333,7 @@
         this.updateTabUI();
         this.myTreeGrid.setData(newTab.currentTreeData);
       }
-
+      
       async parseFileStream(file) {
         const reader = file.stream().getReader();
         const decoder = new TextDecoder("ascii");
@@ -2334,7 +2356,7 @@
         const grouped = this.dxfParser.groupObjectsIterative(tags, 0);
         return grouped.objects;
       }
-
+      
       handleFiles(files) {
         const useStream = document.getElementById("useStreamCheckbox").checked;
         if (!files || files.length === 0) {
@@ -2404,10 +2426,12 @@
           }
         });
       }
+      
       handleParse() {
         const fileInput = document.getElementById("fileInput");
         this.handleFiles(fileInput.files);
       }
+      
       createTagElement(text, type) {
         const tag = document.createElement("span");
         tag.className = "tag";
@@ -2441,6 +2465,7 @@
         tag.appendChild(removeBtn);
         return tag;
       }
+      
       updateTagContainer(containerId, termsArray, type) {
         const container = document.getElementById(containerId);
         Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
@@ -2449,6 +2474,7 @@
           container.insertBefore(tagElem, container.querySelector("input"));
         });
       }
+      
       setupTagInput(inputId, type) {
         const input = document.getElementById(inputId);
         input.addEventListener("keydown", (e) => {
@@ -2495,6 +2521,7 @@
           }
         });
       }
+      
       handleSearch() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2518,6 +2545,7 @@
         }
         this.updateEffectiveSearchTerms();
       }
+      
       handleClearSearch() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2545,6 +2573,7 @@
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
       }
+      
       findPathByHandle(nodes, handle) {
         for (const node of nodes) {
           if (node.handle && node.handle.toUpperCase() === handle.toUpperCase()) {
@@ -2557,6 +2586,7 @@
         }
         return null;
       }
+      
       findPathByLine(nodes, targetLine) {
         for (const node of nodes) {
           // First check the node itself
@@ -2631,6 +2661,7 @@
           }
         }, 300);
       }
+      
       navigateToHandle(handle, addHistory = true) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2662,6 +2693,7 @@
           this.updateNavButtons();
         }
       }
+      
       handleGoToHandle() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2669,7 +2701,9 @@
         if (!handleValue) return;
         this.navigateToHandle(handleValue, true);
       }
+      
       handleLinkToHandle(handle) { this.navigateToHandle(handle, true); }
+      
       updateNavHistoryUI() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("navHistoryList");
@@ -2693,6 +2727,7 @@
           listContainer.appendChild(span);
         });
       }
+      
       updateNavButtons() {
         const activeTab = this.getActiveTab();
         const backBtn = document.getElementById("backBtn");
@@ -2701,6 +2736,7 @@
         backBtn.disabled = activeTab.currentHistoryIndex <= 0;
         forwardBtn.disabled = activeTab.currentHistoryIndex >= activeTab.navigationHistory.length - 1;
       }
+      
       navigateBack() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2712,6 +2748,7 @@
           this.updateNavButtons();
         }
       }
+      
       navigateForward() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2723,6 +2760,7 @@
           this.updateNavButtons();
         }
       }
+      
       clearNavigationHistory() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2731,6 +2769,7 @@
         this.updateNavHistoryUI();
         this.updateNavButtons();
       }
+      
       updateClouds() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -2776,6 +2815,7 @@
         populateCloud(overlayObjectCloudElem, objectCounts, minFont, maxFont, "object");
         populateCloud(overlayCodeCloudElem, codeCounts, minFont, maxFont, "code");
       }
+      
       handleCloudTagClick(cloudType, key) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2823,6 +2863,7 @@
           }
         }
       }
+      
       updateStats() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -2889,6 +2930,7 @@
           });
         });
       }
+      
       updateDependencies() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -2939,6 +2981,7 @@
           });
         });
       }
+      
       renderHexLine(lineNumber, binaryArray) {
   const bytesPerLine = 16;
   const offset = lineNumber * bytesPerLine;
@@ -2957,6 +3000,7 @@
   // Return a string that shows the offset, the hex values, and the ASCII characters.
   return offset.toString(16).padStart(8, '0') + '  ' + hex + '  ' + ascii;
 }
+      
       virtualizeHexViewer(binaryArray) {
         const container = document.getElementById("hexContent");
 
@@ -3021,6 +3065,7 @@
         // Render the initial view.
         updateView();
       }
+      
       showHexViewer(combinedHexString) {
         const binaryArray = hexStringToByteArray(combinedHexString);
         const detectedType = detectHeader(binaryArray);
@@ -3046,6 +3091,7 @@
           document.getElementById("zipContentsContainer").innerHTML = "";
         }
       }
+      
       previewImage() {
         if (!this.currentBinaryData) { alert("No binary data available."); return; }
         const imageTypes = {
@@ -3069,6 +3115,7 @@
         img.style.maxHeight = "300px";
         container.appendChild(img);
       }
+      
       browseZip(binaryArray) {
         const blob = new Blob([binaryArray], { type: "application/zip" });
         JSZip.loadAsync(blob).then(zip => {
@@ -3133,6 +3180,7 @@
           alert("Failed to load ZIP file: " + err);
         });
       }
+      
       updateHandleMap() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -3197,6 +3245,7 @@
           container.appendChild(buildList.call(this, uniqueRoots));
         }
       }
+      
       showBinaryObjectsOverlay() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("binaryObjectsList");
@@ -3252,6 +3301,7 @@
         }
         document.getElementById("binaryObjectsOverlay").style.display = "block";
       }
+      
       analyzeProxyObject(node) {
         let html = `<h3>Proxy Object Analysis</h3>`;
         html += `<p><strong>Total Properties:</strong> ${node.properties.length}. `;
@@ -3290,6 +3340,7 @@
         }
         return html;
       }
+      
       showProxyObjectsOverlay() {
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("proxyObjectsList");
@@ -3385,6 +3436,7 @@
         }
         document.getElementById("proxyObjectsOverlay").style.display = "block";
       }
+      
       updateFonts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -3456,6 +3508,7 @@
         }
         document.getElementById("overlayFontsContent").innerHTML = html;
       }
+      
       updateClasses() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -3558,6 +3611,7 @@
         }
         document.getElementById("overlayClassesContent").innerHTML = html;
       }
+      
       filterClassesByAppName(appName) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -3631,6 +3685,7 @@
         html += `<button onclick="window.app.updateClasses();" style="margin:8px;">Show All Classes</button>`;
         document.getElementById("overlayClassesContent").innerHTML = html;
       }
+      
       showObjectSizeDialog() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -3660,6 +3715,7 @@
         document.getElementById("objectSizeOverlay").style.display = "block";
         this.renderObjectSizeList();
       }
+      
       renderObjectSizeList() {
         const container = document.getElementById("objectSizeList");
         const nodes = this.sortedNodesByDataSize || [];
@@ -3774,6 +3830,7 @@
         container.onscroll = updateView;
         updateView();
       }
+      
       updateBlocksOverlay() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -3895,6 +3952,7 @@
         }
         document.getElementById("overlayBlocksContent").innerHTML = html;
       }
+      
       showInTree(node) {
         if (node.handle) {
           // Navigate using the handle if available.
@@ -3929,6 +3987,7 @@
           }
         }
       }
+      
       showInTreeById(nodeId, nodeLine) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -3943,6 +4002,7 @@
           alert("Node not found");
         }
       }
+      
       updateLineTypes() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -4004,6 +4064,7 @@
         }
         document.getElementById("overlayLineTypesContent").innerHTML = html;
       }
+      
       /**
        * Deciphers an MTEXT string by replacing DXF formatting codes with HTML
        * and also returns a detailed breakdown of each code encountered.
@@ -4173,6 +4234,7 @@
 
         return result;
       }
+      
       decipherMText(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -4194,12 +4256,14 @@
         // For simplicity, we use alert here.
         alert("Deciphered MTEXT:\n\n" + deciphered);
       }
+      
       toggleDecipherDetails(nodeId) {
         const detailsElem = document.getElementById(`deciphered-${nodeId}`);
         if (detailsElem) {
           detailsElem.style.display = (detailsElem.style.display === "none") ? "block" : "none";
         }
       }
+      
       updateTexts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -4251,43 +4315,42 @@
         }
         document.getElementById("overlayTextsContent").innerHTML = html;
       }
-
-searchDxfTree(nodes, objectType, searchText, exact, searchCode) {
-  let results = [];
-  nodes.forEach(node => {
-    if (!objectType || (node.type && node.type.toLowerCase() === objectType.toLowerCase())) {
-      if (node.properties && node.properties.length > 0) {
-        node.properties.forEach(prop => {
-          // If a search code is provided, skip properties that don’t match.
-          if (searchCode && String(prop.code) !== searchCode) {
-            return;
+      
+      searchDxfTree(nodes, objectType, searchText, exact, searchCode) {
+        let results = [];
+        nodes.forEach(node => {
+          if (!objectType || (node.type && node.type.toLowerCase() === objectType.toLowerCase())) {
+            if (node.properties && node.properties.length > 0) {
+              node.properties.forEach(prop => {
+                // If a search code is provided, skip properties that don’t match.
+                if (searchCode && String(prop.code) !== searchCode) {
+                  return;
+                }
+                // If searchText is provided (non‑empty), check it against the property value.
+                if (searchText) {
+                  let isMatch = false;
+                  if (exact) {
+                    isMatch = (prop.value === searchText);
+                  } else {
+                    isMatch = prop.value.toLowerCase().includes(searchText.toLowerCase());
+                  }
+                  if (isMatch) {
+                    results.push({ line: prop.line, data: prop.value });
+                  }
+                } else {
+                  // If no search text is provided, we skip data matching.
+                  results.push({ line: prop.line, data: prop.value });
+                }
+              });
+            }
           }
-          // If searchText is provided (non‑empty), check it against the property value.
-          if (searchText) {
-            let isMatch = false;
-            if (exact) {
-              isMatch = (prop.value === searchText);
-            } else {
-              isMatch = prop.value.toLowerCase().includes(searchText.toLowerCase());
-            }
-            if (isMatch) {
-              results.push({ line: prop.line, data: prop.value });
-            }
-          } else {
-            // If no search text is provided, we skip data matching.
-            results.push({ line: prop.line, data: prop.value });
+          if (node.children && node.children.length > 0) {
+            results = results.concat(this.searchDxfTree(node.children, objectType, searchText, exact, searchCode));
           }
         });
+        return results;
       }
-    }
-    if (node.children && node.children.length > 0) {
-      results = results.concat(this.searchDxfTree(node.children, objectType, searchText, exact, searchCode));
-    }
-  });
-  return results;
-}
-
-
+      
       openFileTab(file, targetLine) {
         // Close the batch results overlay.
         document.getElementById("batchProcessingOverlay").style.display = "none";
@@ -4337,347 +4400,341 @@ searchDxfTree(nodes, objectType, searchText, exact, searchCode) {
           reader.readAsText(file, "ascii");
         }
       }
+      
+      addBatchResultTab(fileName) {
+        const tabId = 'batch-tab-' + Date.now() + Math.random();
+        const tabHeaders = document.getElementById('batchResultsTabHeaders');
+        const tabContents = document.getElementById('batchResultsTabContents');
 
-addBatchResultTab(fileName) {
-  const tabId = 'batch-tab-' + Date.now() + Math.random();
-  const tabHeaders = document.getElementById('batchResultsTabHeaders');
-  const tabContents = document.getElementById('batchResultsTabContents');
+        // Create the tab header (for selecting this tab)
+        const header = document.createElement('div');
+        header.className = 'batch-tab-header';
+        header.dataset.tabId = tabId;
+        header.style.padding = '0.5em 1em';
+        header.style.cursor = 'pointer';
+        header.style.border = '1px solid #ccc';
+        header.style.borderBottom = 'none';
+        header.style.backgroundColor = '#eee';
+        header.textContent = fileName;
 
-  // Create the tab header (for selecting this tab)
-  const header = document.createElement('div');
-  header.className = 'batch-tab-header';
-  header.dataset.tabId = tabId;
-  header.style.padding = '0.5em 1em';
-  header.style.cursor = 'pointer';
-  header.style.border = '1px solid #ccc';
-  header.style.borderBottom = 'none';
-  header.style.backgroundColor = '#eee';
-  header.textContent = fileName;
-
-  const closeBtn = document.createElement('span');
-  closeBtn.textContent = '×';
-  closeBtn.style.marginLeft = '0.5em';
-  closeBtn.style.cursor = 'pointer';
-  closeBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    this.removeBatchResultTab(tabId);
-  });
-  header.appendChild(closeBtn);
-
-  header.addEventListener('click', () => {
-    this.switchBatchResultTab(tabId);
-  });
-  tabHeaders.appendChild(header);
-
-  // Create an overall content container for this tab.
-  // We enable horizontal scrolling here.
-  const content = document.createElement('div');
-  content.className = 'batch-tab-content';
-  content.dataset.tabId = tabId;
-  content.style.display = 'none';
-  content.style.height = '100%';
-  content.style.overflowX = 'hidden';
-
-  // --- Header Table (static) ---
-  // Use auto layout so that columns size to content.
-  const headerTable = document.createElement('table');
-  headerTable.border = "1";
-  headerTable.cellSpacing = "0";
-  headerTable.cellPadding = "4";
-  headerTable.style.width = "100%";
-  headerTable.style.tableLayout = "auto";
-
-  // Create a colgroup for the header.
-  // Fix only the first column (#) to 40px; let the others auto-size.
-  const headerColGroup = document.createElement('colgroup');
-  const col0 = document.createElement('col');
-  col0.style.minWidth = '40px';
-  headerColGroup.appendChild(col0);
-  // Append one <col> per remaining column (they have no width set so they auto-size)
-  headerColGroup.appendChild(document.createElement('col'));
-  headerColGroup.appendChild(document.createElement('col'));
-  headerColGroup.appendChild(document.createElement('col'));
-  headerTable.appendChild(headerColGroup);
-
-  const thead = document.createElement('thead');
-  thead.innerHTML = `<tr>
-    <th>#</th>
-    <th>File (Relative Path)</th>
-    <th>Line</th>
-    <th>Data</th>
-  </tr>`;
-  headerTable.appendChild(thead);
-  content.appendChild(headerTable);
-
-  // --- Virtualized Container for the Rows ---
-  const virtualizedContainer = document.createElement('div');
-  virtualizedContainer.className = 'virtualized-results';
-  // Reserve space below the header; assume header height is ~40px.
-  virtualizedContainer.style.height = 'calc(100% - 40px)';
-  virtualizedContainer.style.position = 'relative';
-  // Enable both vertical and horizontal scrolling in the body container.
-  virtualizedContainer.style.overflowY = 'auto';
-  virtualizedContainer.style.overflowX = 'auto';
-  content.appendChild(virtualizedContainer);
-
-  // Create the inner container where virtualized rows will be rendered.
-  const virtualizedContent = document.createElement('div');
-  virtualizedContent.className = 'virtualized-content';
-  virtualizedContent.style.position = 'absolute';
-  virtualizedContent.style.left = '0';
-  virtualizedContent.style.right = '0';
-  virtualizedContainer.appendChild(virtualizedContent);
-
-  // When the body container scrolls horizontally, shift the header.
-  virtualizedContainer.addEventListener('scroll', function() {
-    // Sync horizontal scroll: move the header table in the opposite direction.
-    headerTable.style.transform = `translateX(-${this.scrollLeft}px)`;
-    // Also update visible rows (vertical scroll)
-    window.app.updateVirtualizedBatchResults(tabId);
-  });
-
-  tabContents.appendChild(content);
-
-  // Save references needed to keep header and rows in sync.
-  this.batchResultsData[tabId] = {
-    rows: [],
-    rowHeight: 30, // fixed row height (in pixels)
-    virtualizedContainer: virtualizedContainer,
-    virtualizedContent: virtualizedContent,
-    headerTable: headerTable
-  };
-
-  // Switch to the new tab.
-  this.switchBatchResultTab(tabId);
-  return { tabId };
-}
-
-updateVirtualizedBatchResults(tabId) {
-  const tabData = this.batchResultsData[tabId];
-  if (!tabData) return;
-  const { rows, rowHeight, virtualizedContainer, virtualizedContent, headerTable } = tabData;
-  const totalRows = rows.length;
-  // Set the inner container height to simulate all rows.
-  virtualizedContent.style.height = (totalRows * rowHeight) + "px";
-
-  const scrollTop = virtualizedContainer.scrollTop;
-  const containerHeight = virtualizedContainer.clientHeight;
-  const startIndex = Math.floor(scrollTop / rowHeight);
-  const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
-  const endIndex = Math.min(startIndex + visibleCount, totalRows);
-
-  // Clear current visible rows.
-  virtualizedContent.innerHTML = "";
-
-  // --- Measure header cell widths (as rendered) ---
-  const headerCells = headerTable.querySelectorAll('th');
-  const colWidths = [];
-  headerCells.forEach(cell => {
-    // Use getBoundingClientRect() to get the actual rendered width.
-    colWidths.push(cell.getBoundingClientRect().width);
-  });
-
-  // (Optional enhancement:)
-  // If you wish, you could loop through the visible rows' cells here
-  // and use the maximum of header and cell widths for each column.
-  // For simplicity, we’ll use the header widths.
-
-  // Create a table for the visible rows.
-  // Use fixed layout so that we can force column widths via colgroup.
-  const table = document.createElement('table');
-  table.border = "1";
-  table.cellSpacing = "0";
-  table.cellPadding = "4";
-  table.style.width = "100%";
-  table.style.tableLayout = "fixed";
-
-  // Build a colgroup for the body table using the measured widths.
-  const bodyColGroup = document.createElement('colgroup');
-  colWidths.forEach(width => {
-    const col = document.createElement('col');
-    col.style.width = width + "px";
-    bodyColGroup.appendChild(col);
-  });
-  table.appendChild(bodyColGroup);
-
-  const tbody = document.createElement('tbody');
-  for (let i = startIndex; i < endIndex; i++) {
-    const rowData = rows[i];
-    const tr = document.createElement('tr');
-
-    // Column 0: Row number
-    const tdNum = document.createElement('td');
-    tdNum.textContent = (i + 1);
-    tr.appendChild(tdNum);
-
-    // Column 1: File (with a clickable link)
-    const tdFile = document.createElement('td');
-    const link = document.createElement('a');
-    link.textContent = rowData.file;
-    link.href = "#";
-    link.addEventListener("click", (e) => {
-      e.preventDefault();
-      window.app.openFileTab(rowData.fileObject, rowData.line);
-    });
-    tdFile.appendChild(link);
-    tr.appendChild(tdFile);
-
-    // Column 2: Line
-    const tdLine = document.createElement('td');
-    tdLine.textContent = rowData.line;
-    tr.appendChild(tdLine);
-
-    // Column 3: Data
-    const tdData = document.createElement('td');
-    tdData.textContent = rowData.data;
-    tr.appendChild(tdData);
-
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-
-  // Position the table vertically based on the startIndex.
-  table.style.position = "absolute";
-  table.style.top = (startIndex * rowHeight) + "px";
-  virtualizedContent.appendChild(table);
-
-  // --- Adjust header table for vertical scrollbar width ---
-  const scrollbarWidth = virtualizedContainer.offsetWidth - virtualizedContainer.clientWidth;
-  headerTable.style.marginRight = scrollbarWidth + "px";
-}
-
-switchBatchResultTab(tabId) {
-  const headers = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
-  const contents = document.querySelectorAll('#batchResultsTabContents .batch-tab-content');
-  headers.forEach(header => {
-    if (header.dataset.tabId === tabId) {
-      header.style.backgroundColor = '#fff';
-      header.style.fontWeight = 'bold';
-    } else {
-      header.style.backgroundColor = '#eee';
-      header.style.fontWeight = 'normal';
-    }
-  });
-  contents.forEach(content => {
-    content.style.display = (content.dataset.tabId === tabId) ? 'block' : 'none';
-  });
-}
-
-removeBatchResultTab(tabId) {
-  const header = document.querySelector(`#batchResultsTabHeaders .batch-tab-header[data-tab-id="${tabId}"]`);
-  const content = document.querySelector(`#batchResultsTabContents .batch-tab-content[data-tab-id="${tabId}"]`);
-  if (header) header.remove();
-  if (content) content.remove();
-  
-  // If any tab remains, switch to the first one.
-  const remaining = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
-  if (remaining.length > 0) {
-    this.switchBatchResultTab(remaining[0].dataset.tabId);
-  }
-}
-
-handleBatchProcess() {
-  const directoryInput = document.getElementById("directoryInput");
-  const files = directoryInput.files;
-  if (!files || files.length === 0) {
-    alert("Please select a directory containing DXF files.");
-    return;
-  }
-  const objectType = document.getElementById("batchObjectType").value.trim();
-  const searchText = document.getElementById("batchSearchText").value.trim();
-  const searchCode = document.getElementById("batchSearchCode").value.trim(); // new input
-  const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
-  const exact = (searchMode === "exact");
-  
-  // Require at least one of searchText or searchCode
-  if (!searchText && !searchCode) {
-    alert("Please enter search text or a DXF code.");
-    return;
-  }
-  
-  // Create one new virtualized tab for this search
-  const now = new Date();
-  const tabTitle = "Search " + now.toLocaleTimeString();
-  const { tabId } = this.addBatchResultTab(tabTitle);
-  
-  // Process all files and add results to the same virtualized data array
-  const filesArray = Array.from(files);
-  const progressBar = document.getElementById("batchProgress");
-  progressBar.style.display = "block";
-  
-  const processFile = async (file) => {
-    if (!file.name.toLowerCase().endsWith(".dxf")) return;
-    try {
-      const dxfObjects = await this.parseFileStream(file);
-      // Pass the searchCode parameter to the search function
-      const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
-      const tabData = this.batchResultsData[tabId];
-      matches.forEach(match => {
-        tabData.rows.push({
-          file: file.webkitRelativePath || file.name,
-          fileObject: file,
-          line: match.line,
-          data: match.data
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '×';
+        closeBtn.style.marginLeft = '0.5em';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.removeBatchResultTab(tabId);
         });
-      });
-      this.updateVirtualizedBatchResults(tabId);
-    } catch (err) {
-      console.error("Error processing file: " + file.name, err);
-    }
-  };
-  
-  const processAllFiles = async () => {
-    for (let i = 0; i < filesArray.length; i++) {
-      await processFile(filesArray[i]);
-      progressBar.value = ((i + 1) / filesArray.length) * 100;
-    }
-    progressBar.value = 0;
-    progressBar.style.display = "none";
-  };
-  
-  processAllFiles();
-}
+        header.appendChild(closeBtn);
 
+        header.addEventListener('click', () => {
+          this.switchBatchResultTab(tabId);
+        });
+        tabHeaders.appendChild(header);
 
+        // Create an overall content container for this tab.
+        // We enable horizontal scrolling here.
+        const content = document.createElement('div');
+        content.className = 'batch-tab-content';
+        content.dataset.tabId = tabId;
+        content.style.display = 'none';
+        content.style.height = '100%';
+        content.style.overflowX = 'hidden';
 
-downloadBatchResultsAsExcel() {
-  // Create a new workbook
-  const workbook = XLSX.utils.book_new();
+        // --- Header Table (static) ---
+        // Use auto layout so that columns size to content.
+        const headerTable = document.createElement('table');
+        headerTable.border = "1";
+        headerTable.cellSpacing = "0";
+        headerTable.cellPadding = "4";
+        headerTable.style.width = "100%";
+        headerTable.style.tableLayout = "auto";
 
-  // Loop through your batch result tabs (stored in this.batchResultsData)
-  Object.keys(this.batchResultsData).forEach((tabId, idx) => {
-    const tabData = this.batchResultsData[tabId];
+        // Create a colgroup for the header.
+        // Fix only the first column (#) to 40px; let the others auto-size.
+        const headerColGroup = document.createElement('colgroup');
+        const col0 = document.createElement('col');
+        col0.style.minWidth = '40px';
+        headerColGroup.appendChild(col0);
+        // Append one <col> per remaining column (they have no width set so they auto-size)
+        headerColGroup.appendChild(document.createElement('col'));
+        headerColGroup.appendChild(document.createElement('col'));
+        headerColGroup.appendChild(document.createElement('col'));
+        headerTable.appendChild(headerColGroup);
 
-    // Prepare data array for the sheet (including header row)
-    const ws_data = [
-      ["#", "File (Relative Path)", "Line", "Data"]
-    ];
+        const thead = document.createElement('thead');
+        thead.innerHTML = `<tr>
+          <th>#</th>
+          <th>File (Relative Path)</th>
+          <th>Line</th>
+          <th>Data</th>
+        </tr>`;
+        headerTable.appendChild(thead);
+        content.appendChild(headerTable);
 
-    tabData.rows.forEach((row, index) => {
-      ws_data.push([index + 1, row.file, row.line, row.data]);
-    });
+        // --- Virtualized Container for the Rows ---
+        const virtualizedContainer = document.createElement('div');
+        virtualizedContainer.className = 'virtualized-results';
+        // Reserve space below the header; assume header height is ~40px.
+        virtualizedContainer.style.height = 'calc(100% - 40px)';
+        virtualizedContainer.style.position = 'relative';
+        // Enable both vertical and horizontal scrolling in the body container.
+        virtualizedContainer.style.overflowY = 'auto';
+        virtualizedContainer.style.overflowX = 'auto';
+        content.appendChild(virtualizedContainer);
 
-    // Convert the array of arrays into a worksheet
-    const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
+        // Create the inner container where virtualized rows will be rendered.
+        const virtualizedContent = document.createElement('div');
+        virtualizedContent.className = 'virtualized-content';
+        virtualizedContent.style.position = 'absolute';
+        virtualizedContent.style.left = '0';
+        virtualizedContent.style.right = '0';
+        virtualizedContainer.appendChild(virtualizedContent);
 
-    // Apply an auto-filter to all columns.
-    // Dynamically determine the range based on the number of columns and rows.
-    const numCols = ws_data[0].length;
-    const range = "A1:" + XLSX.utils.encode_col(numCols - 1) + ws_data.length;
-    worksheet["!autofilter"] = { ref: range };
+        // When the body container scrolls horizontally, shift the header.
+        virtualizedContainer.addEventListener('scroll', function() {
+          // Sync horizontal scroll: move the header table in the opposite direction.
+          headerTable.style.transform = `translateX(-${this.scrollLeft}px)`;
+          // Also update visible rows (vertical scroll)
+          window.app.updateVirtualizedBatchResults(tabId);
+        });
 
-    // Create a sheet name (for example, "Results 1", "Results 2", etc.)
-    const sheetName = `Results ${idx + 1}`;
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  });
+        tabContents.appendChild(content);
 
-  // Write the workbook to a file and trigger the download
-  XLSX.writeFile(workbook, "batch_results.xlsx");
-}
+        // Save references needed to keep header and rows in sync.
+        this.batchResultsData[tabId] = {
+          rows: [],
+          rowHeight: 30, // fixed row height (in pixels)
+          virtualizedContainer: virtualizedContainer,
+          virtualizedContent: virtualizedContent,
+          headerTable: headerTable
+        };
 
+        // Switch to the new tab.
+        this.switchBatchResultTab(tabId);
+        return { tabId };
+      }
+      
+      updateVirtualizedBatchResults(tabId) {
+        const tabData = this.batchResultsData[tabId];
+        if (!tabData) return;
+        const { rows, rowHeight, virtualizedContainer, virtualizedContent, headerTable } = tabData;
+        const totalRows = rows.length;
+        // Set the inner container height to simulate all rows.
+        virtualizedContent.style.height = (totalRows * rowHeight) + "px";
 
+        const scrollTop = virtualizedContainer.scrollTop;
+        const containerHeight = virtualizedContainer.clientHeight;
+        const startIndex = Math.floor(scrollTop / rowHeight);
+        const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
+        const endIndex = Math.min(startIndex + visibleCount, totalRows);
 
+        // Clear current visible rows.
+        virtualizedContent.innerHTML = "";
 
+        // --- Measure header cell widths (as rendered) ---
+        const headerCells = headerTable.querySelectorAll('th');
+        const colWidths = [];
+        headerCells.forEach(cell => {
+          // Use getBoundingClientRect() to get the actual rendered width.
+          colWidths.push(cell.getBoundingClientRect().width);
+        });
+
+        // (Optional enhancement:)
+        // If you wish, you could loop through the visible rows' cells here
+        // and use the maximum of header and cell widths for each column.
+        // For simplicity, we’ll use the header widths.
+
+        // Create a table for the visible rows.
+        // Use fixed layout so that we can force column widths via colgroup.
+        const table = document.createElement('table');
+        table.border = "1";
+        table.cellSpacing = "0";
+        table.cellPadding = "4";
+        table.style.width = "100%";
+        table.style.tableLayout = "fixed";
+
+        // Build a colgroup for the body table using the measured widths.
+        const bodyColGroup = document.createElement('colgroup');
+        colWidths.forEach(width => {
+          const col = document.createElement('col');
+          col.style.width = width + "px";
+          bodyColGroup.appendChild(col);
+        });
+        table.appendChild(bodyColGroup);
+
+        const tbody = document.createElement('tbody');
+        for (let i = startIndex; i < endIndex; i++) {
+          const rowData = rows[i];
+          const tr = document.createElement('tr');
+
+          // Column 0: Row number
+          const tdNum = document.createElement('td');
+          tdNum.textContent = (i + 1);
+          tr.appendChild(tdNum);
+
+          // Column 1: File (with a clickable link)
+          const tdFile = document.createElement('td');
+          const link = document.createElement('a');
+          link.textContent = rowData.file;
+          link.href = "#";
+          link.addEventListener("click", (e) => {
+            e.preventDefault();
+            window.app.openFileTab(rowData.fileObject, rowData.line);
+          });
+          tdFile.appendChild(link);
+          tr.appendChild(tdFile);
+
+          // Column 2: Line
+          const tdLine = document.createElement('td');
+          tdLine.textContent = rowData.line;
+          tr.appendChild(tdLine);
+
+          // Column 3: Data
+          const tdData = document.createElement('td');
+          tdData.textContent = rowData.data;
+          tr.appendChild(tdData);
+
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+
+        // Position the table vertically based on the startIndex.
+        table.style.position = "absolute";
+        table.style.top = (startIndex * rowHeight) + "px";
+        virtualizedContent.appendChild(table);
+
+        // --- Adjust header table for vertical scrollbar width ---
+        const scrollbarWidth = virtualizedContainer.offsetWidth - virtualizedContainer.clientWidth;
+        headerTable.style.marginRight = scrollbarWidth + "px";
+      }
+      
+      switchBatchResultTab(tabId) {
+        const headers = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
+        const contents = document.querySelectorAll('#batchResultsTabContents .batch-tab-content');
+        headers.forEach(header => {
+          if (header.dataset.tabId === tabId) {
+            header.style.backgroundColor = '#fff';
+            header.style.fontWeight = 'bold';
+          } else {
+            header.style.backgroundColor = '#eee';
+            header.style.fontWeight = 'normal';
+          }
+        });
+        contents.forEach(content => {
+          content.style.display = (content.dataset.tabId === tabId) ? 'block' : 'none';
+        });
+      }
+      
+      removeBatchResultTab(tabId) {
+        const header = document.querySelector(`#batchResultsTabHeaders .batch-tab-header[data-tab-id="${tabId}"]`);
+        const content = document.querySelector(`#batchResultsTabContents .batch-tab-content[data-tab-id="${tabId}"]`);
+        if (header) header.remove();
+        if (content) content.remove();
+
+        // If any tab remains, switch to the first one.
+        const remaining = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
+        if (remaining.length > 0) {
+          this.switchBatchResultTab(remaining[0].dataset.tabId);
+        }
+      }
+      
+      handleBatchProcess() {
+        const directoryInput = document.getElementById("directoryInput");
+        const files = directoryInput.files;
+        if (!files || files.length === 0) {
+          alert("Please select a directory containing DXF files.");
+          return;
+        }
+        const objectType = document.getElementById("batchObjectType").value.trim();
+        const searchText = document.getElementById("batchSearchText").value.trim();
+        const searchCode = document.getElementById("batchSearchCode").value.trim(); // new input
+        const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
+        const exact = (searchMode === "exact");
+
+        // Require at least one of searchText or searchCode
+        if (!searchText && !searchCode) {
+          alert("Please enter search text or a DXF code.");
+          return;
+        }
+
+        // Create one new virtualized tab for this search
+        const now = new Date();
+        const tabTitle = "Search " + now.toLocaleTimeString();
+        const { tabId } = this.addBatchResultTab(tabTitle);
+
+        // Process all files and add results to the same virtualized data array
+        const filesArray = Array.from(files);
+        const progressBar = document.getElementById("batchProgress");
+        progressBar.style.display = "block";
+
+        const processFile = async (file) => {
+          if (!file.name.toLowerCase().endsWith(".dxf")) return;
+          try {
+            const dxfObjects = await this.parseFileStream(file);
+            // Pass the searchCode parameter to the search function
+            const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
+            const tabData = this.batchResultsData[tabId];
+            matches.forEach(match => {
+              tabData.rows.push({
+                file: file.webkitRelativePath || file.name,
+                fileObject: file,
+                line: match.line,
+                data: match.data
+              });
+            });
+            this.updateVirtualizedBatchResults(tabId);
+          } catch (err) {
+            console.error("Error processing file: " + file.name, err);
+          }
+        };
+
+        const processAllFiles = async () => {
+          for (let i = 0; i < filesArray.length; i++) {
+            await processFile(filesArray[i]);
+            progressBar.value = ((i + 1) / filesArray.length) * 100;
+          }
+          progressBar.value = 0;
+          progressBar.style.display = "none";
+        };
+
+        processAllFiles();
+      }
+      
+      downloadBatchResultsAsExcel() {
+        // Create a new workbook
+        const workbook = XLSX.utils.book_new();
+
+        // Loop through your batch result tabs (stored in this.batchResultsData)
+        Object.keys(this.batchResultsData).forEach((tabId, idx) => {
+          const tabData = this.batchResultsData[tabId];
+
+          // Prepare data array for the sheet (including header row)
+          const ws_data = [
+            ["#", "File (Relative Path)", "Line", "Data"]
+          ];
+
+          tabData.rows.forEach((row, index) => {
+            ws_data.push([index + 1, row.file, row.line, row.data]);
+          });
+
+          // Convert the array of arrays into a worksheet
+          const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
+
+          // Apply an auto-filter to all columns.
+          // Dynamically determine the range based on the number of columns and rows.
+          const numCols = ws_data[0].length;
+          const range = "A1:" + XLSX.utils.encode_col(numCols - 1) + ws_data.length;
+          worksheet["!autofilter"] = { ref: range };
+
+          // Create a sheet name (for example, "Results 1", "Results 2", etc.)
+          const sheetName = `Results ${idx + 1}`;
+          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        });
+
+        // Write the workbook to a file and trigger the download
+        XLSX.writeFile(workbook, "batch_results.xlsx");
+      }
     }
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
