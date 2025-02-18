@@ -674,6 +674,11 @@
         </label>
       </div>
       <div style="margin: 1em 0;">
+        <label>Search Code:
+          <input type="text" id="batchSearchCode" placeholder="Enter DXF code (optional)">
+        </label>
+      </div>
+      <div style="margin: 1em 0;">
         <label>Search Data:
           <input type="text" id="batchSearchText" placeholder="Enter search text">
         </label>
@@ -4246,32 +4251,43 @@
         }
         document.getElementById("overlayTextsContent").innerHTML = html;
       }
-      searchDxfTree(nodes, objectType, searchText, exact) {
-        let results = [];
-        nodes.forEach(node => {
-          if (!objectType || (node.type && node.type.toLowerCase() === objectType.toLowerCase())) {
-            if (node.properties && node.properties.length > 0) {
-              node.properties.forEach(prop => {
-                if (prop.value) {
-                  let isMatch = false;
-                  if (exact) {
-                    isMatch = (prop.value === searchText);
-                  } else {
-                    isMatch = prop.value.toLowerCase().includes(searchText.toLowerCase());
-                  }
-                  if (isMatch) {
-                    results.push({ line: prop.line, data: prop.value });
-                  }
-                }
-              });
-            }
+
+searchDxfTree(nodes, objectType, searchText, exact, searchCode) {
+  let results = [];
+  nodes.forEach(node => {
+    if (!objectType || (node.type && node.type.toLowerCase() === objectType.toLowerCase())) {
+      if (node.properties && node.properties.length > 0) {
+        node.properties.forEach(prop => {
+          // If a search code is provided, skip properties that don’t match.
+          if (searchCode && String(prop.code) !== searchCode) {
+            return;
           }
-          if (node.children && node.children.length > 0) {
-            results = results.concat(this.searchDxfTree(node.children, objectType, searchText, exact));
+          // If searchText is provided (non‑empty), check it against the property value.
+          if (searchText) {
+            let isMatch = false;
+            if (exact) {
+              isMatch = (prop.value === searchText);
+            } else {
+              isMatch = prop.value.toLowerCase().includes(searchText.toLowerCase());
+            }
+            if (isMatch) {
+              results.push({ line: prop.line, data: prop.value });
+            }
+          } else {
+            // If no search text is provided, we skip data matching.
+            results.push({ line: prop.line, data: prop.value });
           }
         });
-        return results;
       }
+    }
+    if (node.children && node.children.length > 0) {
+      results = results.concat(this.searchDxfTree(node.children, objectType, searchText, exact, searchCode));
+    }
+  });
+  return results;
+}
+
+
       openFileTab(file, targetLine) {
         // Close the batch results overlay.
         document.getElementById("batchProcessingOverlay").style.display = "none";
@@ -4569,10 +4585,13 @@ handleBatchProcess() {
   }
   const objectType = document.getElementById("batchObjectType").value.trim();
   const searchText = document.getElementById("batchSearchText").value.trim();
+  const searchCode = document.getElementById("batchSearchCode").value.trim(); // new input
   const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
   const exact = (searchMode === "exact");
-  if (!searchText) {
-    alert("Please enter search text.");
+  
+  // Require at least one of searchText or searchCode
+  if (!searchText && !searchCode) {
+    alert("Please enter search text or a DXF code.");
     return;
   }
   
@@ -4590,18 +4609,17 @@ handleBatchProcess() {
     if (!file.name.toLowerCase().endsWith(".dxf")) return;
     try {
       const dxfObjects = await this.parseFileStream(file);
-      const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact);
-      // For each match, push an object into the rows array for this tab.
+      // Pass the searchCode parameter to the search function
+      const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
       const tabData = this.batchResultsData[tabId];
       matches.forEach(match => {
-      tabData.rows.push({
-        file: file.webkitRelativePath || file.name, // display name
-        fileObject: file, // keep the original File object
-        line: match.line,
-        data: match.data
+        tabData.rows.push({
+          file: file.webkitRelativePath || file.name,
+          fileObject: file,
+          line: match.line,
+          data: match.data
+        });
       });
-      });
-      // Update the visible virtualized rows.
       this.updateVirtualizedBatchResults(tabId);
     } catch (err) {
       console.error("Error processing file: " + file.name, err);
@@ -4619,6 +4637,8 @@ handleBatchProcess() {
   
   processAllFiles();
 }
+
+
 
 downloadBatchResultsAsExcel() {
   // Create a new workbook
