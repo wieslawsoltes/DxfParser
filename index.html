@@ -4640,16 +4640,21 @@ downloadBatchResultsAsExcel() {
     // Convert the array of arrays into a worksheet
     const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
 
-    // Optional: create a sheet name (you can use a file name or any other identifier)
-    const sheetName = `Results ${idx + 1}`;
+    // Apply an auto-filter to all columns.
+    // Dynamically determine the range based on the number of columns and rows.
+    const numCols = ws_data[0].length;
+    const range = "A1:" + XLSX.utils.encode_col(numCols - 1) + ws_data.length;
+    worksheet["!autofilter"] = { ref: range };
 
-    // Append the worksheet to the workbook
+    // Create a sheet name (for example, "Results 1", "Results 2", etc.)
+    const sheetName = `Results ${idx + 1}`;
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   });
 
-  // Write the workbook to a file and trigger a download
+  // Write the workbook to a file and trigger the download
   XLSX.writeFile(workbook, "batch_results.xlsx");
 }
+
 
 
 
