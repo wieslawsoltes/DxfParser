@@ -680,6 +680,7 @@
       </div>
       <div style="margin-bottom:1em;">
         <button id="startBatchProcess">Start Batch Process</button>
+        <progress id="batchProgress" value="0" max="100" style="width:100%;"></progress>
       </div>
       <hr>
       <h3>Results</h3>
@@ -1390,49 +1391,49 @@
       }
       */
 
-flattenTree(nodes, initialLevel = 0) {
-  const flat = [];
-  const stack = [];
-  // Push the initial nodes in reverse order so that the first node is processed first.
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    stack.push({ node: nodes[i], level: initialLevel });
-  }
-  
-  while (stack.length > 0) {
-    const { node, level } = stack.pop();
-    flat.push({ node, level });
-    
-    if (node.expanded) {
-      // We want properties to appear immediately after the node.
-      // To achieve that with a LIFO stack, we push the children first...
-      if (node.children && node.children.length > 0) {
-        for (let i = node.children.length - 1; i >= 0; i--) {
-          stack.push({ node: node.children[i], level: level + 1 });
+      flattenTree(nodes, initialLevel = 0) {
+        const flat = [];
+        const stack = [];
+        // Push the initial nodes in reverse order so that the first node is processed first.
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          stack.push({ node: nodes[i], level: initialLevel });
         }
-      }
-      // ...and then push the properties so they come off the stack before the children.
-      if (node.properties && node.properties.length > 0) {
-        // Push properties in reverse order so that when popped, they appear in the original order.
-        for (let i = node.properties.length - 1; i >= 0; i--) {
-          const prop = node.properties[i];
-          stack.push({
-            node: {
-              id: `prop-${node.id}-${prop.line}-${prop.code}`,
-              isProperty: true,
-              line: prop.line,
-              code: prop.code,
-              data: prop.value
-            },
-            level: level + 1
-          });
+
+        while (stack.length > 0) {
+          const { node, level } = stack.pop();
+          flat.push({ node, level });
+
+          if (node.expanded) {
+            // We want properties to appear immediately after the node.
+            // To achieve that with a LIFO stack, we push the children first...
+            if (node.children && node.children.length > 0) {
+              for (let i = node.children.length - 1; i >= 0; i--) {
+                stack.push({ node: node.children[i], level: level + 1 });
+              }
+            }
+            // ...and then push the properties so they come off the stack before the children.
+            if (node.properties && node.properties.length > 0) {
+              // Push properties in reverse order so that when popped, they appear in the original order.
+              for (let i = node.properties.length - 1; i >= 0; i--) {
+                const prop = node.properties[i];
+                stack.push({
+                  node: {
+                    id: `prop-${node.id}-${prop.line}-${prop.code}`,
+                    isProperty: true,
+                    line: prop.line,
+                    code: prop.code,
+                    data: prop.value
+                  },
+                  level: level + 1
+                });
+              }
+            }
+          }
         }
+
+        return flat;
       }
-    }
-  }
-  
-  return flat;
-}
-      
+
       computeObjectCount(node) {
         if (!node.children || node.children.length === 0) return 0;
         let count = 0;
@@ -2547,6 +2548,80 @@ flattenTree(nodes, initialLevel = 0) {
           }
         }
         return null;
+      }
+      findPathByLine(nodes, targetLine) {
+        for (const node of nodes) {
+          // First check the node itself
+          if (Number(node.line) === Number(targetLine)) {
+            return [node];
+          }
+          // Check if any property has the matching line.
+          if (node.properties && node.properties.length) {
+            for (const prop of node.properties) {
+              if (Number(prop.line) === Number(targetLine)) {
+                // Create a pseudo-node for the property.
+                // (Make sure the id matches how your flattenTree renders property nodes.)
+                const pseudoNode = {
+                  id: "prop-" + node.id + "-" + prop.line + "-" + prop.code,
+                  line: prop.line,
+                  isProperty: true,
+                  code: prop.code,
+                  data: prop.value
+                };
+                return [node, pseudoNode];
+              }
+            }
+          }
+          // Otherwise, check the children.
+          if (node.children && node.children.length) {
+            const subPath = this.findPathByLine(node.children, targetLine);
+            if (subPath) {
+              return [node, ...subPath];
+            }
+          }
+        }
+        return null;
+      }
+      scrollToLineAfterTabOpen(targetLine, attempt = 1) {
+        const activeTab = this.getActiveTab();
+        const path = this.findPathByLine(activeTab.originalTreeData, targetLine);
+        if (!path) {
+          // If not found yet, try again a few times.
+          if (attempt < 5) {
+            setTimeout(() => {
+              this.scrollToLineAfterTabOpen(targetLine, attempt + 1);
+            }, 200);
+          } else {
+            console.warn("Could not locate a node with line " + targetLine);
+          }
+          return;
+        }
+        // Expand all nodes in the path (ignore the last pseudo node if present).
+        // We only need to expand real entity nodes.
+        for (let i = 0; i < path.length; i++) {
+          if (!path[i].isProperty) {
+            path[i].expanded = true;
+          }
+        }
+        // Update the current tree data so that the expanded state takes effect.
+        activeTab.currentTreeData = activeTab.originalTreeData;
+        this.myTreeGrid.setData(activeTab.currentTreeData);
+
+        // Allow the tree view to re-render, then scroll.
+        setTimeout(() => {
+          // Use the id of the last node in the path.
+          const targetNodeId = path[path.length - 1].id;
+          const flatData = this.myTreeGrid.flatData;
+          const targetIndex = flatData.findIndex(item => String(item.node.id) === String(targetNodeId));
+          if (targetIndex >= 0) {
+            this.treeViewContainer.scrollTop = targetIndex * this.myTreeGrid.itemHeight;
+            const element = this.treeViewContent.querySelector(`[data-id="${targetNodeId}"]`);
+            if (element) {
+              element.style.backgroundColor = "yellow";
+              setTimeout(() => { element.style.backgroundColor = ""; }, 2000);
+            }
+          }
+        }, 300);
       }
       navigateToHandle(handle, addHistory = true) {
         const activeTab = this.getActiveTab();
@@ -4194,6 +4269,55 @@ flattenTree(nodes, initialLevel = 0) {
         });
         return results;
       }
+      openFileTab(file, targetLine) {
+        // Close the batch results overlay.
+        document.getElementById("batchProcessingOverlay").style.display = "none";
+
+        // Check if a tab for this file already exists (using file.name as the identifier).
+        let existingTab = this.tabs.find(tab => tab.name === file.name);
+        if (existingTab) {
+          // Switch to that tab.
+          this.activeTabId = existingTab.id;
+          this.updateTabUI();
+          this.myTreeGrid.setData(existingTab.currentTreeData);
+          // Delay scrolling until after the tab is rendered.
+          setTimeout(() => {
+            this.scrollToLineAfterTabOpen(targetLine);
+          }, 300);
+        } else {
+          // File not loaded yet: load it as with manual file parsing.
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const text = event.target.result;
+            const objects = this.dxfParser.parse(text);
+            const newTab = {
+              id: Date.now() + Math.random(),
+              name: file.name,
+              originalTreeData: objects,
+              currentTreeData: objects,
+              codeSearchTerms: [],
+              dataSearchTerms: [],
+              currentSortField: "line",
+              currentSortAscending: true,
+              minLine: null,
+              maxLine: null,
+              dataExact: false,
+              dataCase: false,
+              navigationHistory: [],
+              currentHistoryIndex: -1
+            };
+            this.tabs.push(newTab);
+            this.activeTabId = newTab.id;
+            this.updateTabUI();
+            this.myTreeGrid.setData(newTab.currentTreeData);
+            // Delay scrolling until after the new tab is rendered.
+            setTimeout(() => {
+              this.scrollToLineAfterTabOpen(targetLine);
+            }, 300);
+          };
+          reader.readAsText(file, "ascii");
+        }
+      }
       handleBatchProcess() {
         const directoryInput = document.getElementById("directoryInput");
         const files = directoryInput.files;
@@ -4231,7 +4355,14 @@ flattenTree(nodes, initialLevel = 0) {
               row.appendChild(cellNum);
 
               const cellFile = document.createElement("td");
-              cellFile.textContent = file.webkitRelativePath || file.name;
+              const link = document.createElement("a");
+              link.textContent = file.webkitRelativePath || file.name;
+              link.href = "#";
+              link.addEventListener("click", function(e) {
+                e.preventDefault();
+                window.app.openFileTab(file, match.line);
+              });
+              cellFile.appendChild(link);
               row.appendChild(cellFile);
 
               const cellLine = document.createElement("td");
@@ -4252,14 +4383,16 @@ flattenTree(nodes, initialLevel = 0) {
 
         // Process each file sequentially.
         const processAllFiles = async () => {
-          for (const file of filesArray) {
-            await processFile(file);
+          for (let i = 0; i < filesArray.length; i++) {
+            await processFile(filesArray[i]);
+            // Update progress bar (percentage complete)
+            const progressBar = document.getElementById("batchProgress");
+            progressBar.value = ((i + 1) / filesArray.length) * 100;
           }
         };
 
         processAllFiles();
       }
-
       downloadBatchResultsAsExcel() {
         const table = document.getElementById("batchResultsTable");
         if (!table) {
