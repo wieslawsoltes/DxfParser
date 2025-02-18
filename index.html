@@ -680,7 +680,7 @@
       </div>
       <div style="margin-bottom:1em;">
         <button id="startBatchProcess">Start Batch Process</button>
-        <progress id="batchProgress" value="0" max="100" style="width:100%;"></progress>
+        <progress id="batchProgress" value="0" max="100" style="width:100%; display:none;"></progress>
       </div>
       <hr>
       <h3>Results</h3>
@@ -4382,13 +4382,19 @@
         };
 
         // Process each file sequentially.
+        const progressBar = document.getElementById("batchProgress");
+        // Show progress bar when processing starts
+        progressBar.style.display = "block";
+
         const processAllFiles = async () => {
           for (let i = 0; i < filesArray.length; i++) {
             await processFile(filesArray[i]);
             // Update progress bar (percentage complete)
-            const progressBar = document.getElementById("batchProgress");
             progressBar.value = ((i + 1) / filesArray.length) * 100;
           }
+          // When finished, reset progress and hide the progress bar
+          progressBar.value = 0;
+          progressBar.style.display = "none";
         };
 
         processAllFiles();
