@@ -4167,7 +4167,7 @@ flattenTree(nodes, initialLevel = 0) {
       searchDxfTree(nodes, objectType, searchText, exact) {
         let results = [];
         nodes.forEach(node => {
-          if (node.type && node.type.toLowerCase() === objectType.toLowerCase()) {
+          if (!objectType || (node.type && node.type.toLowerCase() === objectType.toLowerCase())) {
             if (node.properties && node.properties.length > 0) {
               node.properties.forEach(prop => {
                 if (prop.value) {
@@ -4201,8 +4201,8 @@ flattenTree(nodes, initialLevel = 0) {
         const searchText = document.getElementById("batchSearchText").value.trim();
         const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
         const exact = (searchMode === "exact");
-        if (!objectType || !searchText) {
-          alert("Please enter both object type and search text.");
+        if (!searchText) {
+          alert("Please enter search text.");
           return;
         }
         const resultsTbody = document.getElementById("batchResultsTable").querySelector("tbody");
