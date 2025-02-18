@@ -683,10 +683,13 @@
       </div>
       <hr>
       <h3>Results</h3>
+      <!-- New download button added -->
+      <button id="downloadExcelBtn" style="margin-bottom:1em;">Download as Excel</button>
       <div style="overflow:auto; max-height:300px;">
         <table id="batchResultsTable" border="1" cellspacing="0" cellpadding="4" style="width:100%;">
           <thead>
             <tr>
+              <th>#</th>
               <th>File (Relative Path)</th>
               <th>Line</th>
               <th>Data</th>
@@ -1824,6 +1827,7 @@ flattenTree(nodes, initialLevel = 0) {
           document.getElementById("batchProcessingOverlay").style.display = "none";
         });
         document.getElementById("startBatchProcess").addEventListener("click", () => this.handleBatchProcess());
+        document.getElementById("downloadExcelBtn").addEventListener("click", () => this.downloadBatchResultsAsExcel());
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
@@ -4207,12 +4211,12 @@ flattenTree(nodes, initialLevel = 0) {
         }
         const resultsTbody = document.getElementById("batchResultsTable").querySelector("tbody");
         resultsTbody.innerHTML = ""; // Clear any previous results
+        let rowCounter = 1; // Counter for numbering rows
 
         // Process the files sequentially to help keep memory usage low.
         const filesArray = Array.from(files);
         const processFile = async (file) => {
-
-        console.log("Processing file:", file.name);
+          console.log("Processing file:", file.name);
           // Only process DXF files.
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
           try {
@@ -4221,15 +4225,23 @@ flattenTree(nodes, initialLevel = 0) {
             const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact);
             matches.forEach(match => {
               const row = document.createElement("tr");
+              // Add numbering cell as the first column.
+              const cellNum = document.createElement("td");
+              cellNum.textContent = rowCounter++;
+              row.appendChild(cellNum);
+
               const cellFile = document.createElement("td");
               cellFile.textContent = file.webkitRelativePath || file.name;
+              row.appendChild(cellFile);
+
               const cellLine = document.createElement("td");
               cellLine.textContent = match.line;
+              row.appendChild(cellLine);
+
               const cellData = document.createElement("td");
               cellData.textContent = match.data;
-              row.appendChild(cellFile);
-              row.appendChild(cellLine);
               row.appendChild(cellData);
+
               resultsTbody.appendChild(row);
             });
           } catch (err) {
@@ -4246,6 +4258,35 @@ flattenTree(nodes, initialLevel = 0) {
         };
 
         processAllFiles();
+      }
+
+      downloadBatchResultsAsExcel() {
+        const table = document.getElementById("batchResultsTable");
+        if (!table) {
+          alert("No batch results table found.");
+          return;
+        }
+        let csv = "";
+        // Loop over all rows in the table.
+        for (let row of table.rows) {
+          let rowData = [];
+          for (let cell of row.cells) {
+            let cellText = cell.textContent.trim();
+            // Escape any quotes in the cell text.
+            cellText = cellText.replace(/"/g, '""');
+            rowData.push('"' + cellText + '"');
+          }
+          csv += rowData.join(",") + "\n";
+        }
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "batch_results.csv");
+        link.style.visibility = "hidden";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
       }
     }
     document.addEventListener("DOMContentLoaded", () => { 
