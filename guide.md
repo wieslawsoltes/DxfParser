@@ -1,484 +1,419 @@
-# DXF Parser – Comprehensive User Documentation
+## **DXF Parser & Viewer – User Documentation**
 
-The DXF Parser is a powerful web‑based tool designed to read, parse, and analyze DXF files. It converts the file’s text into a hierarchical tree structure, making it easy to examine every section, entity, and property within the file. In addition to a rich tree view, the application offers a variety of overlays for advanced analysis, filtering and searching capabilities, and even batch processing of multiple files.
+Welcome to the **DXF Parser** application. This tool is designed to help CAD developers, drafters, and DXF power-users inspect and analyze DXF (Drawing Exchange Format) files in great detail. Whether you’re debugging complex AutoCAD files, investigating unusual entities, or simply learning the structure of DXF data, this viewer streamlines the process by providing a powerful tree-based inspection, filtering, searching, and batch processing interface.
 
----
-
-## 1. Application Overview
-
-**What It Does:**  
-- **Parsing DXF Files:** The app converts raw DXF text into a structured, navigable tree. It supports both full‑file and streamed parsing modes to handle files of all sizes.
-- **Tree Visualization:** The parsed data is shown in a grid view where each node represents an entity (e.g., LINE, CIRCLE, SECTION) or a property. Each row includes critical information such as line number, DXF group code, and data content.
-- **Deep Analysis Tools:** With overlays like Cloud Data, Statistics, Dependencies, Hex Viewer, and more, users can explore and analyze DXF data beyond just visualizing the structure.
-- **Batch Processing:** Quickly search through directories of DXF files for specific entities or property values, and export the results for further review.
-
-**Why Use It:**  
-Whether you’re a CAD engineer troubleshooting a DXF file, a developer integrating DXF data into another system, or a data analyst needing to process large sets of CAD files, this tool offers comprehensive insight and control.
+Below is a comprehensive guide to using all the features in the application, as implemented in the provided code:
 
 ---
 
-## 2. File Parsing & Upload
+## **1. Overview of the Interface**
 
-### File Input Options
+1. **Main Layout**  
+   - **Sidebar (Left Pane)**: Contains buttons for global actions (e.g., expand/collapse all, show overlays like Statistics, Cloud, Dependencies, etc.) and filtering options.  
+   - **Main Content (Right Pane)**: Contains file input controls, a navigation bar, and the detailed “Tree View” of the DXF data.  
+   - **Pane Resizer**: A draggable vertical bar between the sidebar and the main content lets you resize the sidebar width.
 
-**Standard File Upload:**  
-- **How It Works:** Use the file input control at the top of the application interface. This control accepts one or multiple files with the “.dxf” extension.
-- **When to Use:** Ideal for typical DXF files that are small to moderate in size.
-- **User Tip:** Select your file and then click the “Parse File(s)” button to begin processing.
+2. **Tabs**  
+   - You can open multiple DXF files, each in its own “tab” across the top of the main content area. Switch between tabs to quickly view different loaded files.  
+   - Each tab retains its own search and filter settings.
 
-**Drag & Drop:**  
-- **How It Works:** Simply drag your DXF file(s) from your file explorer and drop them onto any part of the application window.
-- **Benefits:** This method is quick and eliminates the need to manually click the file input.
-- **Use Case:** When processing multiple files, drag and drop is particularly convenient.
+3. **Tree View**  
+   - Displays the parsed structure of the DXF file in a hierarchical manner.  
+   - Each row shows the line number in the original file, the group code, the data, object count, and data size.  
+   - Properties are shown as nested rows underneath each parent entity when expanded.
 
-**Streamed Parsing:**  
-- **Feature Description:** A checkbox labeled “Use Streamed Parsing” allows the application to read DXF files in chunks rather than loading the entire file into memory.
-- **When to Use:** Best for very large DXF files that might otherwise cause the browser to hang or run slowly.
-- **Technical Insight:** Streamed parsing uses the file’s ReadableStream interface, processing data line-by-line to avoid performance bottlenecks.
-- **User Tip:** Enable streamed parsing if you are working with files larger than a few megabytes.
-
----
-
-## 3. Tree View & Navigation
-
-### Tree Grid Display
-
-**Hierarchical Data Representation:**  
-- **Nodes & Children:** The DXF file is decomposed into a tree. Container nodes (such as sections or blocks) can be expanded to reveal their child entities and properties.
-- **Visual Cues:**  
-  - **Indentation:** Child nodes are indented to visually reflect the hierarchy.
-  - **Toggle Icons:** A clickable arrow (► for collapsed, ▼ for expanded) is present for nodes that contain sub‑nodes.
-  
-**Columns Explained:**
-
-- **Line Number:**  
-  - **Purpose:** Displays the original line number from the DXF file for each node.  
-  - **Usage:** Helps trace back to the source document, which is useful when debugging or cross‑referencing the file.
-- **DXF Group Code:**  
-  - **Purpose:** For property nodes, this column shows the numeric DXF code (for example, 0, 5, 310).  
-  - **Usage:** Useful for filtering and understanding the type of data (e.g., handles, layer names, etc.).
-- **Data Column:**  
-  - **Purpose:** Displays the entity type (like “LINE”, “SECTION”) or the property value.  
-  - **Interactive Elements:**  
-    - **Clickable Handles:** If the data represents a DXF handle, it is rendered as a link.
-    - **Action Buttons:** Buttons like “Copy,” “Open,” or “Hex Viewer” appear on hover.
-- **Object Count:**  
-  - **Purpose:** For nodes that act as containers, this column shows the number of child objects.  
-  - **Usage:** Quickly gauge the complexity or the size of a section.
-- **Data Size:**  
-  - **Purpose:** Indicates the cumulative size (in characters) of the node’s data and properties.  
-  - **Usage:** Helps identify objects that may contain large amounts of data, such as embedded binary streams.
-
-### Interactivity
-
-- **Row Selection:**  
-  Clicking on any row selects that node, which can then be copied, opened in a new tab, or navigated to via its handle.
-  
-- **Column Resizing:**  
-  - **How It Works:** Each header has a resizer handle. Click and drag this handle to adjust the column’s width.
-  - **Benefit:** Customize the view to focus on details that matter most to you.
-  
-- **Sorting:**  
-  - **How It Works:** Clicking on a header (outside of the resizer) sorts the tree by that column’s values.  
-  - **Visual Feedback:** Sort direction is indicated by an arrow (▲ for ascending, ▼ for descending).
-
-**Use Case Example:**  
-Imagine you are troubleshooting a DXF file with many sections. By expanding the “SECTION” nodes and sorting by “Line,” you can quickly pinpoint where specific entities start. Adjusting the “Data” column width lets you better read lengthy property values.
+4. **Overlays**  
+   - The application features numerous overlays (pop-up panels) for advanced analysis:  
+     - **Cloud Data**  
+     - **Statistics**  
+     - **Dependencies**  
+     - **Binary Objects**  
+     - **Handle Map**  
+     - **Proxy Objects**  
+     - **Fonts Used**  
+     - **Classes**  
+     - **Object Sizes**  
+     - **Blocks & Inserts**  
+     - **Line Types**  
+     - **Texts**  
+     - **Batch Process**  
+   - Overlays can be closed via a “Close” button or by clicking a “Back to Tree” button.
 
 ---
 
-## 4. Filtering & Searching
+## **2. Loading and Parsing DXF Files**
 
-### Filter Panel
+### 2.1. Single/Multiple File Selection
+1. Click **Choose File(s)** in the top row of the main content area (the “Parse File(s)” section).  
+2. Select one or more `.dxf` files from your file system.  
+3. Check “Use Streamed Parsing” if you want to parse very large DXF files using streaming (available in modern browsers).  
+4. Click **Parse File(s)** to load and parse the selected file(s).
 
-**Search by DXF Group Code:**  
-- **How It Works:**  
-  - Enter a group code (e.g., “5”) into the provided input box.  
-  - Once entered (press Enter or comma), the code is converted into a tag.
-- **Purpose:**  
-  - Filters the tree view to display only those nodes whose properties match the specified DXF group code.
-- **Practical Scenario:**  
-  - When you want to review all entities associated with handles (commonly group code 5), entering “5” filters the results accordingly.
+**Use Case Example**:
+- You have multiple small DXF drawings of simple parts that you want to quickly compare. Select all of them at once and click **Parse File(s)**. Each file will open as a new tab.
 
-**Search by Data Value:**  
-- **How It Works:**  
-  - Enter text into the Data search field (for example, “CIRCLE” or “DIMSTYLE”).  
-  - Tags are created as you type, and the tree updates to show only matching nodes.
-- **Customization Options:**  
-  - **Exact Data Match:** When enabled, the search will return only nodes whose data value exactly matches the input.
-  - **Case Sensitive:** When checked, the search differentiates between uppercase and lowercase characters.
-- **Use Case:**  
-  - A designer looking for all instances of a particular text style can type the style name into the data search field and refine the search by turning on “Exact Data Match.”
+**How it Helps**:
+- Quickly gather and display the structure of multiple DXF files without opening them in a heavy CAD platform.
 
-**Line Range Filters:**  
-- **Input Fields:**  
-  - Specify a “Min Line” and “Max Line” to limit your search to a specific portion of the DXF file.
-- **Usage Scenario:**  
-  - When you suspect an error occurred in a particular part of the file, filtering by line number helps narrow down the area.
+### 2.2. Drag-and-Drop
+- You can also drag `.dxf` files from your file explorer and drop them onto the application window. The parser automatically detects and loads them into new tabs.
 
-**Search & Clear Actions:**  
-- **Search Button:**  
-  - Applies all active filters to the tree view.
-- **Clear Search Button:**  
-  - Resets all filter inputs, removes tags, and refreshes the view to show the entire tree.
+**Use Case Example**:
+- When you have a single DXF file on your desktop, simply drag it over the browser window to open it—no need to navigate the file picker.
 
-**Detailed Example:**  
-Suppose you’re troubleshooting a block definition error. You might:
-1. Enter the group code “2” (for block names) in the Code filter.
-2. Type a suspected block name in the Data filter.
-3. Set a line range if you know roughly where the block should be.
-4. Click “Search” to isolate the block’s definition in the tree.
+**How it Helps**:
+- Enhances user experience by reducing clicks and providing a quick way to open files.
 
 ---
 
-## 5. Navigation Controls
+## **3. Navigating the Tree View**
 
-### Go-to-Handle Functionality
+### 3.1. Tree Columns
+- **Line**: The line number in the DXF file from which this entity or property originated.  
+- **Code**: The group code for a given row. (For top-level entities, `0` indicates the start of an entity.)  
+- **Data**: The entity type (for entities) or the data string (for properties). For example, `SECTION`, `LINE`, `LTYPE`, etc.  
+- **Object Count**: If an entity has child objects, the total number of descendant objects is shown.  
+- **Data Size**: The total length of all text data within the entity (including properties and nested children).
 
-**Direct Navigation:**  
-- **How It Works:**  
-  - In the “Go to Handle” input box, type the unique DXF handle of an entity (e.g., “ABC123”).
-  - Click the “Go” button to have the application automatically expand the relevant sections and scroll to the matching node.
-- **Behind the Scenes:**  
-  - The app searches the tree for the handle, expands parent nodes, and scrolls the tree view so that the target node is visible and highlighted.
-- **Real‑World Scenario:**  
-  - If you have a reference from another file or report that mentions a DXF handle, you can quickly jump to the corresponding entity without manually scrolling through the tree.
+### 3.2. Row Expansion
+- **Arrow Icons (► / ▼)**: Click the small arrow in the “Line” column to expand or collapse child items. Entities like `SECTION`, `BLOCK`, or `TABLE` contain children and can be expanded further.
 
-### Navigation History
+### 3.3. Selecting Rows
+- **Row Highlight**: Click on a row to select it. This highlights the row in a light blue color, helping you keep track of which node you’re focusing on.
 
-**History Management:**  
-- **Back/Forward Buttons:**  
-  - Use these to cycle through previously visited nodes or handles.
-- **Clear History:**  
-  - Resets the navigation history, which can be useful after completing an investigation.
-- **User Experience:**  
-  - This feature provides a web‑browser–like history that allows you to retrace your steps as you navigate through complex DXF structures.
+### 3.4. Handling Properties
+- **Properties** appear as “child rows” of an entity. For example, an entity might list group codes 8 (layer), 10 (X coordinate), 20 (Y coordinate), etc.  
+- When you expand an entity, its properties appear directly below in the tree.  
+- Handles (codes `5, 105, 330, 350, 360`) appear as clickable links if you hover over them, so you can jump to related entities.
 
-**Example Scenario:**  
-After jumping to a specific handle to inspect a section, you might use the “Back” button to return to your previous location, compare sections, and then move “Forward” if necessary.
+### 3.5. Expand/Collapse All
+- **Expand All**: Button in the left sidebar that recursively expands every entity in the current tab.  
+- **Collapse All**: Collapses every entity in the current tab.
 
----
+**Use Case Example**:
+- If you want to see an entire file’s structure at once, use **Expand All**.  
+- If you’re overwhelmed by the expanded structure, use **Collapse All** to reset it.
 
-## 6. Overlays and Detailed Analysis
-
-The application provides several overlays to reveal deeper insights into the DXF file. Each overlay appears as a modal dialog and offers interactive elements to explore specific data types.
-
-### Cloud Data Overlay
-
-**Purpose:**  
-- Visualize the frequency of different DXF object types and group codes using a tag cloud.
-- Larger text size indicates a higher occurrence.
-
-**How to Use:**  
-- Click the “Cloud Data” button in the sidebar.
-- Two clouds are displayed: one for object types (e.g., LINE, CIRCLE, SECTION) and one for DXF group codes.
-- Clicking on any tag automatically filters the tree view to show objects matching that tag.
-
-**Detailed Use Case:**  
-If you notice that the “CIRCLE” tag is large, it indicates many circles in the file. Clicking it can help you review how these circles are defined, which is useful for performance tuning or debugging.
+**How it Helps**:
+- Quick toggling of the entire tree structure for easier navigation when handling large files.
 
 ---
 
-### Statistics Overlay
+## **4. Searching and Filtering**
 
-**Purpose:**  
-- Provide an aggregated overview of the DXF file’s complexity and structure.
-  
-**Displayed Statistics:**
-- **Total Objects:** The number of DXF entities.
-- **Total Properties:** How many properties (attributes) are defined.
-- **Maximum Nesting Depth:** Indicates the level of hierarchy.
-- **Total Data Size:** Sum of characters in all data fields.
-- **Average Properties per Object:** Helps gauge how detailed the objects are.
-- **Object Type Breakdown:** A clickable list of each type along with its count.
+### 4.1. Filters Panel (Sidebar)
+- **Code Search**: Enter one or multiple group codes you want to filter on.  
+- **Data Search**: Enter one or multiple text queries to filter the “Data” portion.  
+- **Exact Data Match**: If checked, the data must match exactly (case-sensitive or insensitive, depending on your other setting).  
+- **Case Sensitive**: If unchecked, searching is case-insensitive.  
+- **Min/Max Line**: Numeric range filters that restrict visible rows by their original DXF line number.  
 
-**Usage Tips:**  
-Click on any object type in the statistics list to navigate to its definition in the tree view.
+### 4.2. Tag-Based Searching
+1. Type a code or data query into the respective “Search by Code” or “Search by Data” field.  
+2. Press **Enter** or **,** (comma) to add it as a “tag.”  
+3. Multiple tags can be added. Only nodes matching *all* your filters are shown in the tree.
 
----
+### 4.3. Search/Clear
+- **Search**: Manually triggers the filter logic using the contents of the input fields.  
+- **Clear Search**: Resets all tags and line filters, restoring the full tree.
 
-### Dependencies Overlay
+**Use Case Example**:
+- You suspect a specific layer (code 8) with a certain name, e.g., “MyLayer,” is problematic. Add a code search for `8` and a data search for `MyLayer` to see only properties with `code=8` and `value=MyLayer`.
 
-**Purpose:**  
-- Identify and list external dependency objects such as linetypes (LTYPE), styles (STYLE), layers (LAYER), and others.
-  
-**How It Works:**  
-- The overlay categorizes dependency objects and provides a detailed list including line numbers and properties.
-- Interactive links allow for direct navigation to the entity in question.
-
-**Practical Use:**  
-When a DXF file fails to display correctly in a CAD application, the dependencies overlay can help pinpoint missing or misreferenced external definitions.
+**How it Helps**:
+- Zero in on the exact group codes or data strings you need to troubleshoot in large, complicated DXFs.
 
 ---
 
-### Hex Viewer Overlay
+## **5. Sorting the Tree**
 
-**Purpose:**  
-- Inspect raw binary data that appears as property values (commonly group code 310).
+1. **Clickable Column Headers**: Click on a header cell (e.g., “Line,” “Code,” “Data,” “Object Count,” “Data Size”) to sort the visible tree.  
+2. **Ascending/Descending**: Each click toggles the sort order. The small arrow indicator shows the current sort direction.
 
-**Features:**
-- **Virtualized Hex Dump:**  
-  - Only the visible portion of the hex dump is rendered to maintain performance even for large binary streams.
-- **Detected File Type:**  
-  - Uses known signatures (e.g., PNG, JPEG, ZIP) to identify the type of binary data.
-- **Control Options:**  
-  - “Save Binary” downloads the binary data.
-  - “Preview Image” attempts to render the binary data as an image if it matches common formats.
+**Use Case Example**:
+- Sorting by “Data Size” can help locate the largest objects (perhaps containing embedded images or large MTEXT blocks).  
+- Sorting by “Line” reverts to a near-original ordering.
 
-**Detailed Example:**  
-If you suspect that an embedded image is causing issues, open its binary data in the Hex Viewer to verify the header signature. Then use “Preview Image” to see if it displays correctly.
+**How it Helps**:
+- Quickly surfaces unusual or large objects by sorting them to the top of the tree.
 
 ---
 
-### Binary Objects Overlay
+## **6. Navigation Controls**
 
-**Purpose:**  
-- List all nodes that include binary data.
-- Provide options to open a Hex Viewer for further inspection or to jump to the node in the main tree view.
+### 6.1. Go to Handle
+- **Handle Search Input**: In the top-right, enter the handle you want to jump to.  
+- **Go Button**: If the handle is found, that portion of the tree is expanded, and you’re scrolled to it.
 
-**Use Case:**  
-When debugging a DXF that embeds external data (like images or compressed data), this overlay quickly shows you all binary objects and lets you review their contents.
+### 6.2. Navigation History
+- **Back/Forward**: Moves through previously visited handles.  
+- **Clear**: Clears the entire visited handle list.  
+- **Clickable History**: Each visited handle is displayed in the history list. Clicking it navigates back to that handle.
 
----
+**Use Case Example**:
+- You open a complicated DXF with many references. Jumping among multiple handles, you can then backtrack to a previously viewed handle for cross-referencing.
 
-### Handle Map Overlay
-
-**Purpose:**  
-- Visualize the relationships between DXF objects by mapping their unique handles.
-- Uses group code 330 to show ownership or reference relationships.
-
-**How to Use:**  
-- Clicking “Handle Map” shows a tree-like structure of handles.
-- Each handle is clickable, allowing you to jump to that node in the main view.
-
-**When to Use:**  
-If you are trying to understand how different parts of the DXF are linked, the Handle Map gives you a clear picture of parent‑child relationships based on handles.
+**How it Helps**:
+- Avoids losing your place in complex cross-references. Acts like a “browser history” for DXF entities.
 
 ---
 
-### Proxy Objects Overlay
+## **7. Action Buttons per Entity**
 
-**Purpose:**  
-- Focuses on “ACAD_PROXY_OBJECT” entries, which represent unsupported or externally defined objects.
-  
-**Features:**  
-- Each proxy object is listed with details like type, line number, and handle.
-- Options include copying the DXF code, viewing detailed analysis, or navigating directly to the object.
+When you hover over a row, you may see these small buttons if it’s an entity row (i.e., not just a property):
 
-**Use Case:**  
-For advanced users needing to troubleshoot proxy objects (often found in legacy or third‑party CAD files), this overlay provides detailed insight and direct navigation.
+- **Copy**: Copies the raw DXF text for that node (including its properties) to the clipboard. This is valid DXF code that can be pasted elsewhere.  
+- **Open**: Opens this entity (and only this entity) in a new tab, so you can isolate and inspect it deeply.  
+- **Hex Viewer**: Only appears if the entity has binary data (code `310`). Loads that binary data into a specialized Hex Viewer overlay.
 
----
+**Use Case Example**:
+- If you want to share just a specific block definition with a coworker, click **Copy** to get only that data.  
+- If you suspect a certain entity is broken, open it in a new, uncluttered tab.
 
-### Fonts Overlay
-
-**Purpose:**  
-- Identify all fonts referenced in the DXF (from STYLE, TEXT, or MTEXT entities).
-
-**Functionality:**  
-- Lists fonts along with contextual information (which entities use them, line numbers, and handles).
-- Clickable entries let you see all objects that use a particular font.
-
-**When to Use:**  
-When a DXF displays text incorrectly, check the Fonts Overlay to confirm that the correct fonts are referenced and to locate where they are used.
+**How it Helps**:
+- Precise control for debugging or partial file reconstruction.
 
 ---
 
-### Classes Overlay
+## **8. Special Overlays**
 
-**Purpose:**  
-- Display CLASS entities that define custom object types in the DXF.
+Below is a summary of each advanced overlay (accessible via sidebar buttons). All overlays can be exited by clicking **Close** or **Back to Tree**.
 
-**Displayed Information:**  
-- Record name, C++ class name, and application name.
-- A detailed toggle option reveals the full serialized data for in‑depth analysis.
-- Navigation links allow you to jump directly to the class definition in the main tree.
+### 8.1. Cloud Data
+- **Object Cloud**: Shows each object type in a word cloud, sized according to frequency.  
+- **Code Cloud**: Shows group code frequencies.  
+- **Clicking a Tag**: Attempts to jump in the tree to a matching handle or code usage.  
 
-**Use Case:**  
-If a DXF file uses custom classes and you need to validate their definitions, use the Classes Overlay to review and verify each class’s details.
+**Use Case Example**:
+- Identify the most common entity type in a big file (e.g., 5000 “LINE” entities) or see which group code appears most frequently.
 
----
+**How it Helps**:
+- Provides a quick, visual distribution of your DXF content.
 
-### Object Sizes Overlay
+### 8.2. Statistics
+- **Totals**: Summaries like total objects, total properties, maximum nesting depth, and total data size.  
+- **Object Type Counts**: A breakdown of how many times each entity appears.  
+- **Links**: Clicking an entity type tries to navigate to an example of that type in the tree.
 
-**Purpose:**  
-- Ranks objects based on the total size of their data (the sum of characters in the type names and property values).
+**Use Case Example**:
+- Checking whether your file is extremely large because it has thousands of blocks or proxies.
 
-**Functionality:**  
-- Displays objects in descending order of size.
-- Each row includes a “Show In Tree” button that highlights the corresponding node.
+**How it Helps**:
+- Offers an at-a-glance summary of file complexity.
 
-**When to Use:**  
-Use this overlay to identify unusually large objects that might be affecting performance or to locate sections with extensive embedded data.
+### 8.3. Dependencies
+- **Dependency Types**: Detects references like `LTYPE`, `STYLE`, `APPID`, `LAYER`, `DIMSTYLE`, etc.  
+- **Lists**: Each found item is displayed with lines and handles.  
+- **Click**: Jump to an entity in the tree if it has a handle.
 
----
+**Use Case Example**:
+- If your file uses a custom line type or shape file, see how many references exist and where.
 
-### Blocks & Inserts Overlay
+**How it Helps**:
+- Clarifies external references needed by the DXF.
 
-**Purpose:**  
-- Focuses on block definitions (BLOCK entities) and their corresponding INSERT entities.
-  
-**Details Provided:**
-- Lists each block along with its name (group code 2) and the line where it is defined.
-- Shows every insert that references the block, including nested INSERT relationships.
-- Navigation links allow for direct tree view location.
+### 8.4. Binary Objects
+- **Binary Data (code 310)**: Lists all entities that contain binary data.  
+- **Hex Viewer**: Quickly open each binary object in a Hex Viewer.  
+- **Show in Tree**: Jumps back to the entity in question.
 
-**Use Case:**  
-When troubleshooting block issues (such as missing definitions or unexpected behavior in inserts), this overlay provides a consolidated view of all block‑related data.
+**Use Case Example**:
+- If an embedded image is malfunctioning, you can confirm the correct file signature in the binary data.
 
----
+**How it Helps**:
+- Simplifies extraction and inspection of embedded data, such as images or ZIP-based custom objects.
 
-### Line Types Overlay
+### 8.5. Handle Map
+- **Owner-Child Relationships**: DXF uses handle references for ownership (code `330`). This overlay organizes objects in a hierarchy based on ownership handles.  
+- **Click**: Jump to any handle in the tree.
 
-**Purpose:**  
-- Summarizes all linetypes (both defined and used) in the DXF.
+**Use Case Example**:
+- If certain objects incorrectly claim the same owner, you can see those relationships at a glance.
 
-**How It Works:**  
-- Gathers linetype definitions (usually found in LTYPE entities) and compares them against usage in properties (group code 6).
-- Displays whether a linetype is “Defined” or “Used Only” and offers a navigation button for each.
+**How it Helps**:
+- Debugs parent-child or owner-owned relationships (common in advanced objects or custom AutoCAD objects).
 
-**When to Use:**  
-Useful for diagnosing drawing issues where an undefined or misreferenced linetype may cause rendering problems in CAD software.
+### 8.6. Proxy Objects
+- **ACAD_PROXY_OBJECT**: Lists all proxy objects (AutoCAD custom objects or third-party objects not recognized natively).  
+- **Copy DXF**: Save out the raw tags for further debugging.  
+- **Analyze**: Shows property details, potential embedded binary, and references (code `330`).
 
----
+**Use Case Example**:
+- Inspecting data from third-party plugins or older AutoCAD versions that store custom geometry as proxies.
 
-### Texts Overlay
+**How it Helps**:
+- Surfaces otherwise hidden or unsupported objects for troubleshooting.
 
-**Purpose:**  
-- Consolidates all TEXT and MTEXT entities for review.
-  
-**Features:**
-- Each text entry is listed along with its line number.
-- For MTEXT entities, an extra button allows you to view a “deciphered” version of the formatting commands.
-- The deciphered text replaces DXF formatting codes (such as \P, \L, \H, etc.) with a human‑readable explanation.
+### 8.7. Fonts Used
+- **STYLE Entities**: Collects font filenames from `STYLE` objects (group code 3).  
+- **Text & Mtext**: Also collects text style usage from `TEXT` or `MTEXT` (group code 7).  
+- **Click**: Jump to the referencing entity in the tree.
 
-**Detailed Example:**  
-If the text in your DXF appears garbled or uses non‑standard formatting, open the Texts Overlay and click “Show Deciphered Details” for the relevant MTEXT entry. This displays both the cleaned HTML‑formatted version and a breakdown of the formatting codes.
+**Use Case Example**:
+- Determining which fonts are required to properly render text from a DXF file.
 
----
+**How it Helps**:
+- Avoid missing fonts or incorrectly substituted typefaces.
 
-## 7. Batch Processing of DXF Files
+### 8.8. Classes
+- **CLASS Entities**: Collates class definitions (often used internally by AutoCAD).  
+- **Application Name**: Show an “app name cloud” if multiple classes are associated with the same app name.  
+- **Click**: Jump to the class node in the tree.
 
-### Batch Process Overlay
+**Use Case Example**:
+- Understanding or debugging custom classes in specialized AutoCAD vertical solutions.
 
-**Purpose:**  
-- Process a whole directory of DXF files at once to search for specific object types or property values.
+**How it Helps**:
+- Helps see which custom classes or third-party wrappers are present.
 
-**User Inputs:**
-- **Directory Input:**  
-  - Select a folder containing DXF files. This uses the browser’s directory selection feature.
-- **Object Type:**  
-  - Enter a specific DXF object type (e.g., LINE, CIRCLE, BLOCK) to narrow down the search.
-- **Search Code:**  
-  - (Optional) Specify a DXF group code to further refine the search.
-- **Search Data:**  
-  - Provide a text string to search within the object’s properties.
-- **Search Mode:**  
-  - Choose “Contains” (partial match) or “Exact” (full match) for how to compare the search text.
+### 8.9. Object Sizes
+- **Largest Objects First**: Ranks all entities by their “Data Size.”  
+- **Show in Tree**: Jump to any large object.  
+- **Helps**: Quickly find the biggest embedded images or giant text blocks.
 
-**Process Details:**
-- A progress bar shows how far along the batch process is.
-- Results are displayed in a tabbed grid that lists the file’s relative path, line number, and matching data.
-- A “Download as Excel” button exports the results for offline analysis.
+**Use Case Example**:
+- If your DXF is unexpectedly large, use Object Sizes to see which object is bloating the file.
 
-**Example Scenario:**  
-An engineering team receives hundreds of DXF files and needs to find every occurrence of a specific defect in the block definitions. Using the Batch Process Overlay, they enter “BLOCK” as the object type and the defect code as the search text. Once the process completes, they download the Excel file for further review.
+### 8.10. Blocks & Inserts
+- **BLOCK Definitions**: Gathers all `BLOCK` entities by name.  
+- **INSERT** Usage**: Shows each `INSERT` that references a block, including nested inserts.  
+- **Click**: Jump to the block or insert in the tree.
 
----
+**Use Case Example**:
+- Determining how many times a certain block is inserted, or verifying references to a missing or incorrectly named block.
 
-## 8. Additional Features & Utilities
+**How it Helps**:
+- Diagnoses block referencing errors or duplication.
 
-### Node Actions
+### 8.11. Line Types
+- **LTYPE** Definitions**: Lists all linetype definitions found.  
+- **Used Linetypes**: Also detects any references in property code `6`.  
+- **Show in Tree**: Jump to either the definition or usage.
 
-- **Copy Function:**  
-  - Each node has a “Copy” button which serializes the node into valid DXF tag format and copies it to the clipboard.
-  - **Usage:** Quickly extract a node’s definition to share with colleagues or to paste into another DXF file.
-- **Open in New Tab:**  
-  - The “Open” button allows you to isolate a single node and view it in a dedicated tab. This is helpful for focused analysis.
-- **Hex Viewer Trigger:**  
-  - Nodes with embedded binary data show a “Hex Viewer” button. Clicking this opens the Hex Viewer Overlay for detailed inspection.
+**Use Case Example**:
+- Identifying whether a certain custom linetype is actually used or if it’s simply leftover in the DXF.
 
-### Virtualized Rendering
+**How it Helps**:
+- Clears confusion about “missing” or “unused” linetypes.
 
-- **Purpose:**  
-  - Both the tree view and hex viewer use virtualization techniques. Only the rows or lines that are visible are rendered, ensuring smooth scrolling and performance even for very large files.
-- **Benefit:**  
-  - This design minimizes browser load and prevents slowdowns when dealing with thousands of nodes or long hex dumps.
+### 8.12. Texts
+- **TEXT & MTEXT**: Collects all text-based entities.  
+- **Show in Tree**: Navigate to each.  
+- **Deciphering**: For `MTEXT`, the viewer can parse embedded DXF formatting codes (like `\P`, `\~`, `\L`, etc.) and display an interpretation.
 
-### Column Resizing & Sorting
+**Use Case Example**:
+- Searching for incorrectly formatted multi-line text or verifying special text height commands in `MTEXT`.
 
-- **Resizable Columns:**  
-  - Adjust each column’s width to suit your preferences by dragging the resizer handle.
-- **Sortable Headers:**  
-  - Click any header (except the resizer area) to sort the data by that column. This is useful for quickly finding the largest objects or sorting by line numbers.
-
----
-
-## 9. Example Use Cases
-
-### Use Case 1: Quick Inspection of a DXF File
-1. **Upload the File:**  
-   - Drag and drop a DXF file into the app.
-2. **Examine the Tree:**  
-   - Expand the “SECTION” nodes to see the overall structure.
-   - Adjust column widths to better view long property values.
-3. **Interact with a Node:**  
-   - Click on an entity to highlight it.
-   - Use the “Copy” button to extract its DXF definition.
-   - If the node contains binary data, click “Hex Viewer” for a detailed inspection.
-
-### Use Case 2: Detailed Filtering and Search
-1. **Apply Filters:**  
-   - In the filter panel, enter “5” in the Code field to focus on handle properties.
-   - Enter “XYZ” in the Data field to search for a specific handle.
-2. **Customize the Search:**  
-   - Enable “Exact Data Match” if needed.
-   - Specify a line range to narrow down the search area.
-3. **Analyze the Results:**  
-   - Click “Search” to update the tree view with only the matching nodes.
-   - Clear filters when finished by clicking “Clear Search.”
-
-### Use Case 3: Navigating via Handle
-1. **Direct Navigation:**  
-   - Type a known DXF handle (e.g., “ABC123”) into the “Go to Handle” field.
-   - Click “Go” to have the app automatically scroll and highlight the matching entity.
-2. **History Navigation:**  
-   - Use the Back/Forward buttons to revisit previous navigations.
-   - Clear the history if you want to start a new navigation session.
-
-### Use Case 4: Batch Searching Across Multiple Files
-1. **Initiate Batch Process:**  
-   - Open the Batch Process Overlay and select the directory containing your DXF files.
-2. **Define Search Parameters:**  
-   - Enter “LINE” as the object type, specify a DXF group code if necessary, and provide a search term.
-3. **Monitor and Export:**  
-   - Start the process, watch the progress bar, and review the results in the tabbed grid.
-   - Download the results as an Excel file for further analysis.
-
-### Use Case 5: Analyzing Text and Binary Data
-1. **Inspect MTEXT:**  
-   - Open the Texts Overlay.
-   - For an MTEXT entity, click “Show Deciphered Details” to view the formatted text and a breakdown of DXF formatting codes.
-2. **Review Binary Streams:**  
-   - Identify nodes with binary data (group code 310) and click “Hex Viewer.”
-   - Use the Hex Viewer to check the header signature and, if applicable, preview the embedded image.
+**How it Helps**:
+- Makes it easy to see all textual data and decode special formatting commands.
 
 ---
 
-## 10. Troubleshooting & Tips
+## **9. Batch Processing**
 
-**DXF File Not Loading:**  
-- Confirm that the file extension is “.dxf.”
-- For large files, ensure that “Use Streamed Parsing” is enabled.
+### 9.1. Purpose
+- Process multiple `.dxf` files in a folder hierarchy automatically. Searches for a given object type, group code, or data string and gathers matches into a single Excel report.
 
-**Performance Issues:**  
-- If the tree view is slow, try collapsing nodes to reduce the number of rendered items.
-- Ensure your browser is updated, as modern browsers handle virtualization more efficiently.
+### 9.2. How to Use
+1. **Select Root Directory**: Click the folder icon (or “Choose Directory”) that allows picking a folder of `.dxf` files (via `webkitdirectory`).  
+2. **Object Type**: (Optional) e.g., “LINE,” “CIRCLE,” etc. Only matching entity types are included.  
+3. **Search Code**: (Optional) e.g., `8` to search layer codes, `1` for text content, etc.  
+4. **Search Data**: (Optional) Text to match.  
+5. **Search Mode**: **Contains** or **Exact** to control partial or exact matching.  
+6. **Start Batch Process**: Parses each DXF in turn, searching for matches.  
+7. **View Results**: The results appear in a “batch results” tab. Each row shows file name, line number, and data matched.  
+8. **Download as Excel**: One-click generation of an XLSX file containing all result tabs.
 
-**Navigation and Filtering:**  
-- If you cannot find an entity by its handle, double‑check that the DXF file contains valid handle data (group codes such as 5, 330, etc.).
-- Adjust search parameters (e.g., toggle Exact Match or Case Sensitive) if your filters yield no results.
+**Use Case Example**:
+- You have 100 DXF files in a directory, each possibly containing certain `MTEXT` codes or special layers. Enter `MTEXT` as the object type and `8` as the search code with data `MySpecialLayer` to find references across all files.
 
-**Column and View Customization:**  
-- Experiment with column resizing to optimize the view for your data.
-- Use sorting on columns like “Data Size” to identify objects that may be causing issues.
+**How it Helps**:
+- Saves enormous time by automating repetitive searches across many files, generating a consolidated report.
+
+---
+
+## **10. Hex Viewer and Embedded Binary Handling**
+
+### 10.1. Hex Viewer
+- **Access**: Click “Hex Viewer” on any entity row that has binary data (group code `310`), or within the **Binary Objects** overlay.  
+- **Scrolling**: A virtualized list of hex lines makes it efficient even for large binary data.  
+- **Detected File Type**: The viewer checks for known file signatures (PNG, GIF, JPEG, ZIP, PDF, etc.).
+
+### 10.2. Binary Export
+- **Save Binary**: Exports the binary data as a `.bin` file, or if recognized, with the correct file extension (e.g., `.png`, `.pdf`).  
+- **Preview Image**: If recognized as an image, displays a preview.  
+- **ZIP Browsing**: If recognized as a ZIP, lists the contents, letting you preview or download individual files from the archive.
+
+**Use Case Example**:
+- Inspect embedded images or custom object data to confirm that the internal signature is correct or to fix corrupted data.
+
+**How it Helps**:
+- Eliminates guesswork around embedded data, letting you confirm file signatures or extract them entirely for separate analysis.
+
+---
+
+## **11. Additional Tips and Tricks**
+
+1. **Multiple Tabs**: You can open multiple DXF files concurrently. Each tab preserves its own expand/collapse state and filters.  
+2. **Copy Node to Clipboard**: If you only want the raw DXF code for an object or a block definition, use the **Copy** button in the tree.  
+3. **Drag & Drop**: The simplest way to open a file is by dragging it into the browser window.  
+4. **Sorting**: Sorting by “Line” is closest to the original file order. However, note that the actual DXF might have sections out of typical order.  
+5. **Case Sensitivity**: By default, data searches are case-insensitive unless you explicitly enable “Case Sensitive.”  
+6. **Navigation**: Use the handle-based navigation to jump among cross-referenced entities quickly (layer definitions, block references, etc.).
+
+---
+
+## **12. Example Workflows**
+
+1. **Finding a Missing Block**  
+   - **Load**: Open your file (with “Parse File(s)”).  
+   - **Search**: In the **Filters** panel, type `BLOCK` in **Data** to show only blocks.  
+   - **Compare**: Expand to see if the block name is present. If not, it may be a missing external reference.  
+   - **Switch**: Sort by “Object Count” to see which block is most used.
+
+2. **Inspecting a Corrupted Image**  
+   - **Open File** and expand.  
+   - In **Binary Objects** overlay, find the entity containing an embedded image (`310` code).  
+   - **Hex Viewer**: Confirm the file signature is `PNG`, `GIF`, or `JPEG`. Check if it’s truncated.
+
+3. **Analyzing a Large Text**  
+   - **Sort** by “Data Size.” The biggest entity might be a large MTEXT.  
+   - Expand the entity, copy the text, or decipher special formatting codes in “Texts” overlay.
+
+4. **Batch Searching Hundred Files**  
+   - Use the **Batch Process** overlay, select the root folder, and specify an object type.  
+   - Generate an XLSX report of lines where that object (or code/data) is found.  
+   - Click entries in the batch results to open and jump to that exact line in a newly opened tab.
+
+---
+
+## **13. Troubleshooting & FAQ**
+
+1. **Why do some “handles” not jump anywhere?**  
+   - The handle might not exist or is referencing something outside the scope of the file. Make sure the reference is valid or check if it’s from an external XREF.
+
+2. **Why is the file recognized as “Unknown file type” in the Hex Viewer?**  
+   - The application checks only popular signatures (PNG, PDF, ZIP, etc.). Custom or proprietary data won’t be recognized.
+
+3. **Why does the application show “No data loaded” in some overlays?**  
+   - You must parse a DXF file first or switch to a tab that actually has loaded data.
+
+4. **Is the tree view the real file order?**  
+   - By default, lines are sorted in ascending order. If you sort by another column, the order changes. Switch back or re-click “Line” to restore near-original order.
+
+5. **Can I directly edit or save the entire DXF file here?**  
+   - The application is primarily a viewer. You can copy partial data or entire sections, but it does not fully rewrite the entire file.  
+
+---
+
+## **14. Conclusion**
+
+The **DXF Parser** application brings a powerful suite of tools for dissecting, visualizing, and troubleshooting DXF files of all sizes. From single-file debugging to multi-file batch search across directories, it offers detailed insights into everything from high-level structure to raw binary payloads.
+
+**Key Benefits**:
+- **Clarity**: Tree-based approach for easily seeing hierarchical structures (sections, blocks, tables, etc.).  
+- **Efficiency**: Advanced filtering, sorting, and direct handle navigation significantly reduce the time needed to locate data.  
+- **Deep Analysis**: Overlays for fonts, dependencies, stats, object sizes, and more reveal hidden or complicated aspects of the DXF.  
+- **Convenient Exports**: Copy partial entities, export embedded data, or compile Excel reports in batch mode.
+
+We hope you find this viewer indispensable in your DXF workflows—whether you are a CAD developer investigating custom objects, a drafter verifying references, or a curious user exploring the internals of DWG-like data. Enjoy exploring your DXF files with more insight than ever before!
