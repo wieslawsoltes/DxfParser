@@ -655,58 +655,65 @@
     </div>
   </div>
   <div id="batchProcessingOverlay">
-    <div class="overlay-content" style="display: flex; flex-direction: column;">
+    <div class="overlay-content" style="display: flex; flex-direction: column; gap: 0.5em; position: relative;">
       <!-- Close Button -->
       <button id="closeBatchOverlay" style="position: absolute; top: 10px; right: 10px; cursor: pointer;">Close</button>
-
       <!-- Title -->
-      <h2>Batch Process DXF Files</h2>
+      <h2 style="margin: 0;">Batch Process DXF Files</h2>
 
-      <!-- Input Controls -->
-      <div style="margin: 1em 0;">
-        <label>Select Root Directory:
-          <input type="file" id="directoryInput" webkitdirectory directory multiple>
-        </label>
-      </div>
-      <div style="margin: 1em 0;">
-        <label>Object Type:
-          <input type="text" id="batchObjectType" placeholder="e.g. LINE, CIRCLE">
-        </label>
-      </div>
-      <div style="margin: 1em 0;">
-        <label>Search Code:
-          <input type="text" id="batchSearchCode" placeholder="Enter DXF code (optional)">
-        </label>
-      </div>
-      <div style="margin: 1em 0;">
-        <label>Search Data:
-          <input type="text" id="batchSearchText" placeholder="Enter search text">
-        </label>
-      </div>
-      <div style="margin: 1em 0;">
-        <label>
-          <input type="radio" name="batchSearchMode" value="contains" checked> Contains
-        </label>
-        <label>
-          <input type="radio" name="batchSearchMode" value="exact"> Exact
-        </label>
-      </div>
-      <div style="margin: 1em 0;">
-        <button id="startBatchProcess">Start Batch Process</button>
-        <progress id="batchProgress" value="0" max="100" style="width: 100%; display: none;"></progress>
+      <!-- Search Options: compact grid layout -->
+      <div class="batch-search-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; margin: 0;">
+        <!-- Full-width row for directory input -->
+        <div style="grid-column: 1 / -1;">
+          <label>Select Root Directory:
+            <input type="file" id="directoryInput" webkitdirectory directory multiple>
+          </label>
+        </div>
+        <!-- Two-column row: Object Type and Search Code -->
+        <div>
+          <label>Object Type:
+            <input type="text" id="batchObjectType" placeholder="e.g. LINE, CIRCLE">
+          </label>
+        </div>
+        <div>
+          <label>Search Code:
+            <input type="text" id="batchSearchCode" placeholder="DXF code (optional)">
+          </label>
+        </div>
+        <!-- Two-column row: Search Data and Search Mode -->
+        <div>
+          <label>Search Data:
+            <input type="text" id="batchSearchText" placeholder="Enter search text">
+          </label>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5em;">
+          <label>
+            <input type="radio" name="batchSearchMode" value="contains" checked>
+            Contains
+          </label>
+          <label>
+            <input type="radio" name="batchSearchMode" value="exact">
+            Exact
+          </label>
+        </div>
+        <!-- Full-width row for Start button and progress bar -->
+        <div style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0.5em;">
+          <button id="startBatchProcess">Start Batch Process</button>
+          <progress id="batchProgress" value="0" max="100" style="width: 100%; display: none;"></progress>
+        </div>
       </div>
 
-      <hr>
+      <hr style="margin: 0;">
 
-      <!-- Results Section (Fills Remaining Space) -->
-      <h3>Results</h3>
+      <!-- Results Section -->
+      <h3 style="margin: 0;">Results</h3>
       <div id="batchResultsTabs" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
         <div id="batchResultsTabHeaders" style="display: flex; border-bottom: 1px solid #ccc;"></div>
         <div id="batchResultsTabContents" style="flex: 1; overflow: auto;"></div>
       </div>
 
       <!-- Download Button -->
-      <div style="margin-top: 1em; text-align: center;">
+      <div style="text-align: center; margin-top: 0.5em;">
         <button id="downloadExcelBtn">Download as Excel</button>
       </div>
     </div>
