@@ -1707,6 +1707,232 @@
 
     }
   </script>
+  <!-- BatchDataGrid Control -->
+  <script>
+    class BatchDataGrid {
+      constructor(tabHeadersContainer, tabContentsContainer) {
+        this.tabHeadersContainer = tabHeadersContainer;
+        this.tabContentsContainer = tabContentsContainer;
+        this.tabs = {}; // each key is a tabId with its data
+        this.activeTabId = null;
+      }
+
+      addTab(fileName) {
+        const tabId = 'batch-tab-' + Date.now() + Math.random();
+        // Create header element
+        const header = document.createElement('div');
+        header.className = 'batch-tab-header';
+        header.dataset.tabId = tabId;
+        header.style.padding = '0.5em 1em';
+        header.style.cursor = 'pointer';
+        header.style.border = '1px solid #ccc';
+        header.style.borderBottom = 'none';
+        header.style.backgroundColor = '#eee';
+        header.textContent = fileName;
+        // Add close button to header
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '×';
+        closeBtn.style.marginLeft = '0.5em';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.removeTab(tabId);
+        });
+        header.appendChild(closeBtn);
+        header.addEventListener('click', () => this.switchTab(tabId));
+        this.tabHeadersContainer.appendChild(header);
+
+        // Create content container for the tab
+        const content = document.createElement('div');
+        content.className = 'batch-tab-content';
+        content.dataset.tabId = tabId;
+        content.style.display = 'none';
+        content.style.height = '100%';
+        content.style.overflowX = 'hidden';
+
+        // Create a static header table for the grid
+        const headerTable = document.createElement('table');
+        headerTable.border = "1";
+        headerTable.cellSpacing = "0";
+        headerTable.cellPadding = "4";
+        headerTable.style.width = "100%";
+        headerTable.style.tableLayout = "auto";
+        const colgroup = document.createElement('colgroup');
+        const col0 = document.createElement('col'); 
+        col0.style.minWidth = '40px';
+        colgroup.appendChild(col0);
+        colgroup.appendChild(document.createElement('col'));
+        colgroup.appendChild(document.createElement('col'));
+        colgroup.appendChild(document.createElement('col'));
+        headerTable.appendChild(colgroup);
+        const thead = document.createElement('thead');
+        thead.innerHTML = `<tr>
+          <th>#</th>
+          <th>File (Relative Path)</th>
+          <th>Line</th>
+          <th>Data</th>
+        </tr>`;
+        headerTable.appendChild(thead);
+        content.appendChild(headerTable);
+
+        // Create the virtualized container (for scrolling and rendering rows)
+        const virtualizedContainer = document.createElement('div');
+        virtualizedContainer.className = 'virtualized-results';
+        virtualizedContainer.style.height = 'calc(100% - 40px)';
+        virtualizedContainer.style.position = 'relative';
+        virtualizedContainer.style.overflowY = 'auto';
+        virtualizedContainer.style.overflowX = 'auto';
+        content.appendChild(virtualizedContainer);
+
+        // Inner container where rows are rendered
+        const virtualizedContent = document.createElement('div');
+        virtualizedContent.className = 'virtualized-content';
+        virtualizedContent.style.position = 'absolute';
+        virtualizedContent.style.left = '0';
+        virtualizedContent.style.right = '0';
+        virtualizedContainer.appendChild(virtualizedContent);
+
+        // Sync horizontal scrolling so that header stays in view
+        virtualizedContainer.addEventListener('scroll', () => {
+          headerTable.style.transform = `translateX(-${virtualizedContainer.scrollLeft}px)`;
+          this.updateVirtualizedResults(tabId);
+        });
+
+        this.tabContentsContainer.appendChild(content);
+
+        // Save all elements and state in the new tab data object
+        this.tabs[tabId] = {
+          fileName,
+          header,
+          content,
+          headerTable,
+          virtualizedContainer,
+          virtualizedContent,
+          rows: [],
+          rowHeight: 30
+        };
+
+        // Switch to the new tab immediately
+        this.switchTab(tabId);
+        return tabId;
+      }
+
+      addRow(tabId, rowData) {
+        if (this.tabs[tabId]) {
+          this.tabs[tabId].rows.push(rowData);
+          this.updateVirtualizedResults(tabId);
+        }
+      }
+
+      updateVirtualizedResults(tabId) {
+        const tabData = this.tabs[tabId];
+        if (!tabData) return;
+        const { rows, rowHeight, virtualizedContainer, virtualizedContent, headerTable } = tabData;
+        const totalRows = rows.length;
+        // Set overall virtualized height to simulate all rows
+        virtualizedContent.style.height = (totalRows * rowHeight) + "px";
+        const scrollTop = virtualizedContainer.scrollTop;
+        const containerHeight = virtualizedContainer.clientHeight;
+        const startIndex = Math.floor(scrollTop / rowHeight);
+        const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
+        const endIndex = Math.min(startIndex + visibleCount, totalRows);
+        virtualizedContent.innerHTML = "";
+
+        // Measure header cell widths for fixed layout
+        const headerCells = headerTable.querySelectorAll('th');
+        const colWidths = Array.from(headerCells).map(cell => cell.getBoundingClientRect().width);
+
+        // Create table for visible rows with fixed layout
+        const table = document.createElement('table');
+        table.border = "1";
+        table.cellSpacing = "0";
+        table.cellPadding = "4";
+        table.style.width = "100%";
+        table.style.tableLayout = "fixed";
+        const colGroup = document.createElement('colgroup');
+        colWidths.forEach(width => {
+          const col = document.createElement('col');
+          col.style.width = width + "px";
+          colGroup.appendChild(col);
+        });
+        table.appendChild(colGroup);
+        const tbody = document.createElement('tbody');
+        for (let i = startIndex; i < endIndex; i++) {
+          const rowData = rows[i];
+          const tr = document.createElement('tr');
+          // Column: Row number
+          const tdNum = document.createElement('td');
+          tdNum.textContent = (i + 1);
+          tr.appendChild(tdNum);
+          // Column: File name (with clickable link)
+          const tdFile = document.createElement('td');
+          const link = document.createElement('a');
+          link.textContent = rowData.file;
+          link.href = "#";
+          link.addEventListener("click", (e) => {
+            e.preventDefault();
+            window.app.openFileTab(rowData.fileObject, rowData.line);
+          });
+          tdFile.appendChild(link);
+          tr.appendChild(tdFile);
+          // Column: Line number
+          const tdLine = document.createElement('td');
+          tdLine.textContent = rowData.line;
+          tr.appendChild(tdLine);
+          // Column: Data
+          const tdData = document.createElement('td');
+          tdData.textContent = rowData.data;
+          tr.appendChild(tdData);
+
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        table.style.position = "absolute";
+        table.style.top = (startIndex * rowHeight) + "px";
+        virtualizedContent.appendChild(table);
+
+        // Adjust header to account for vertical scrollbar
+        const scrollbarWidth = virtualizedContainer.offsetWidth - virtualizedContainer.clientWidth;
+        headerTable.style.marginRight = scrollbarWidth + "px";
+      }
+
+      switchTab(tabId) {
+        this.activeTabId = tabId;
+        for (let id in this.tabs) {
+          const tab = this.tabs[id];
+          if (id === tabId) {
+            tab.header.style.backgroundColor = '#fff';
+            tab.header.style.fontWeight = 'bold';
+            tab.content.style.display = 'block';
+          } else {
+            tab.header.style.backgroundColor = '#eee';
+            tab.header.style.fontWeight = 'normal';
+            tab.content.style.display = 'none';
+          }
+        }
+      }
+
+      removeTab(tabId) {
+        if (this.tabs[tabId]) {
+          const tab = this.tabs[tabId];
+          tab.header.remove();
+          tab.content.remove();
+          delete this.tabs[tabId];
+          // Switch to another tab if available
+          const remaining = Object.keys(this.tabs);
+          if (remaining.length > 0) {
+            this.switchTab(remaining[0]);
+          } else {
+            this.activeTabId = null;
+          }
+        }
+      }
+
+      getAllTabs() {
+        return this.tabs;
+      }
+    }
+  </script>
   <!-- Application Code -->
   <script>
     class App {
@@ -1739,7 +1965,10 @@
           columnWidths: this.columnWidths,
           hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
         });
-      this.batchResultsData = {}; // keys will be tabIds, each with { rows: [...], rowHeight, virtualizedContainer, virtualizedContent }
+        this.batchDataGrid = new BatchDataGrid(
+          document.getElementById("batchResultsTabHeaders"),
+          document.getElementById("batchResultsTabContents")
+        );
         this.initEventListeners();
       }
       
@@ -4448,245 +4677,7 @@
           reader.readAsText(file, "ascii");
         }
       }
-      
-      addBatchResultTab(fileName) {
-        const tabId = 'batch-tab-' + Date.now() + Math.random();
-        const tabHeaders = document.getElementById('batchResultsTabHeaders');
-        const tabContents = document.getElementById('batchResultsTabContents');
 
-        // Create the tab header (for selecting this tab)
-        const header = document.createElement('div');
-        header.className = 'batch-tab-header';
-        header.dataset.tabId = tabId;
-        header.style.padding = '0.5em 1em';
-        header.style.cursor = 'pointer';
-        header.style.border = '1px solid #ccc';
-        header.style.borderBottom = 'none';
-        header.style.backgroundColor = '#eee';
-        header.textContent = fileName;
-
-        const closeBtn = document.createElement('span');
-        closeBtn.textContent = '×';
-        closeBtn.style.marginLeft = '0.5em';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.removeBatchResultTab(tabId);
-        });
-        header.appendChild(closeBtn);
-
-        header.addEventListener('click', () => {
-          this.switchBatchResultTab(tabId);
-        });
-        tabHeaders.appendChild(header);
-
-        // Create an overall content container for this tab.
-        // We enable horizontal scrolling here.
-        const content = document.createElement('div');
-        content.className = 'batch-tab-content';
-        content.dataset.tabId = tabId;
-        content.style.display = 'none';
-        content.style.height = '100%';
-        content.style.overflowX = 'hidden';
-
-        // --- Header Table (static) ---
-        // Use auto layout so that columns size to content.
-        const headerTable = document.createElement('table');
-        headerTable.border = "1";
-        headerTable.cellSpacing = "0";
-        headerTable.cellPadding = "4";
-        headerTable.style.width = "100%";
-        headerTable.style.tableLayout = "auto";
-
-        // Create a colgroup for the header.
-        // Fix only the first column (#) to 40px; let the others auto-size.
-        const headerColGroup = document.createElement('colgroup');
-        const col0 = document.createElement('col');
-        col0.style.minWidth = '40px';
-        headerColGroup.appendChild(col0);
-        // Append one <col> per remaining column (they have no width set so they auto-size)
-        headerColGroup.appendChild(document.createElement('col'));
-        headerColGroup.appendChild(document.createElement('col'));
-        headerColGroup.appendChild(document.createElement('col'));
-        headerTable.appendChild(headerColGroup);
-
-        const thead = document.createElement('thead');
-        thead.innerHTML = `<tr>
-          <th>#</th>
-          <th>File (Relative Path)</th>
-          <th>Line</th>
-          <th>Data</th>
-        </tr>`;
-        headerTable.appendChild(thead);
-        content.appendChild(headerTable);
-
-        // --- Virtualized Container for the Rows ---
-        const virtualizedContainer = document.createElement('div');
-        virtualizedContainer.className = 'virtualized-results';
-        // Reserve space below the header; assume header height is ~40px.
-        virtualizedContainer.style.height = 'calc(100% - 40px)';
-        virtualizedContainer.style.position = 'relative';
-        // Enable both vertical and horizontal scrolling in the body container.
-        virtualizedContainer.style.overflowY = 'auto';
-        virtualizedContainer.style.overflowX = 'auto';
-        content.appendChild(virtualizedContainer);
-
-        // Create the inner container where virtualized rows will be rendered.
-        const virtualizedContent = document.createElement('div');
-        virtualizedContent.className = 'virtualized-content';
-        virtualizedContent.style.position = 'absolute';
-        virtualizedContent.style.left = '0';
-        virtualizedContent.style.right = '0';
-        virtualizedContainer.appendChild(virtualizedContent);
-
-        // When the body container scrolls horizontally, shift the header.
-        virtualizedContainer.addEventListener('scroll', function() {
-          // Sync horizontal scroll: move the header table in the opposite direction.
-          headerTable.style.transform = `translateX(-${this.scrollLeft}px)`;
-          // Also update visible rows (vertical scroll)
-          window.app.updateVirtualizedBatchResults(tabId);
-        });
-
-        tabContents.appendChild(content);
-
-        // Save references needed to keep header and rows in sync.
-        this.batchResultsData[tabId] = {
-          rows: [],
-          rowHeight: 30, // fixed row height (in pixels)
-          virtualizedContainer: virtualizedContainer,
-          virtualizedContent: virtualizedContent,
-          headerTable: headerTable
-        };
-
-        // Switch to the new tab.
-        this.switchBatchResultTab(tabId);
-        return { tabId };
-      }
-      
-      updateVirtualizedBatchResults(tabId) {
-        const tabData = this.batchResultsData[tabId];
-        if (!tabData) return;
-        const { rows, rowHeight, virtualizedContainer, virtualizedContent, headerTable } = tabData;
-        const totalRows = rows.length;
-        // Set the inner container height to simulate all rows.
-        virtualizedContent.style.height = (totalRows * rowHeight) + "px";
-
-        const scrollTop = virtualizedContainer.scrollTop;
-        const containerHeight = virtualizedContainer.clientHeight;
-        const startIndex = Math.floor(scrollTop / rowHeight);
-        const visibleCount = Math.ceil(containerHeight / rowHeight) + 1;
-        const endIndex = Math.min(startIndex + visibleCount, totalRows);
-
-        // Clear current visible rows.
-        virtualizedContent.innerHTML = "";
-
-        // --- Measure header cell widths (as rendered) ---
-        const headerCells = headerTable.querySelectorAll('th');
-        const colWidths = [];
-        headerCells.forEach(cell => {
-          // Use getBoundingClientRect() to get the actual rendered width.
-          colWidths.push(cell.getBoundingClientRect().width);
-        });
-
-        // (Optional enhancement:)
-        // If you wish, you could loop through the visible rows' cells here
-        // and use the maximum of header and cell widths for each column.
-        // For simplicity, we’ll use the header widths.
-
-        // Create a table for the visible rows.
-        // Use fixed layout so that we can force column widths via colgroup.
-        const table = document.createElement('table');
-        table.border = "1";
-        table.cellSpacing = "0";
-        table.cellPadding = "4";
-        table.style.width = "100%";
-        table.style.tableLayout = "fixed";
-
-        // Build a colgroup for the body table using the measured widths.
-        const bodyColGroup = document.createElement('colgroup');
-        colWidths.forEach(width => {
-          const col = document.createElement('col');
-          col.style.width = width + "px";
-          bodyColGroup.appendChild(col);
-        });
-        table.appendChild(bodyColGroup);
-
-        const tbody = document.createElement('tbody');
-        for (let i = startIndex; i < endIndex; i++) {
-          const rowData = rows[i];
-          const tr = document.createElement('tr');
-
-          // Column 0: Row number
-          const tdNum = document.createElement('td');
-          tdNum.textContent = (i + 1);
-          tr.appendChild(tdNum);
-
-          // Column 1: File (with a clickable link)
-          const tdFile = document.createElement('td');
-          const link = document.createElement('a');
-          link.textContent = rowData.file;
-          link.href = "#";
-          link.addEventListener("click", (e) => {
-            e.preventDefault();
-            window.app.openFileTab(rowData.fileObject, rowData.line);
-          });
-          tdFile.appendChild(link);
-          tr.appendChild(tdFile);
-
-          // Column 2: Line
-          const tdLine = document.createElement('td');
-          tdLine.textContent = rowData.line;
-          tr.appendChild(tdLine);
-
-          // Column 3: Data
-          const tdData = document.createElement('td');
-          tdData.textContent = rowData.data;
-          tr.appendChild(tdData);
-
-          tbody.appendChild(tr);
-        }
-        table.appendChild(tbody);
-
-        // Position the table vertically based on the startIndex.
-        table.style.position = "absolute";
-        table.style.top = (startIndex * rowHeight) + "px";
-        virtualizedContent.appendChild(table);
-
-        // --- Adjust header table for vertical scrollbar width ---
-        const scrollbarWidth = virtualizedContainer.offsetWidth - virtualizedContainer.clientWidth;
-        headerTable.style.marginRight = scrollbarWidth + "px";
-      }
-      
-      switchBatchResultTab(tabId) {
-        const headers = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
-        const contents = document.querySelectorAll('#batchResultsTabContents .batch-tab-content');
-        headers.forEach(header => {
-          if (header.dataset.tabId === tabId) {
-            header.style.backgroundColor = '#fff';
-            header.style.fontWeight = 'bold';
-          } else {
-            header.style.backgroundColor = '#eee';
-            header.style.fontWeight = 'normal';
-          }
-        });
-        contents.forEach(content => {
-          content.style.display = (content.dataset.tabId === tabId) ? 'block' : 'none';
-        });
-      }
-      
-      removeBatchResultTab(tabId) {
-        const header = document.querySelector(`#batchResultsTabHeaders .batch-tab-header[data-tab-id="${tabId}"]`);
-        const content = document.querySelector(`#batchResultsTabContents .batch-tab-content[data-tab-id="${tabId}"]`);
-        if (header) header.remove();
-        if (content) content.remove();
-
-        // If any tab remains, switch to the first one.
-        const remaining = document.querySelectorAll('#batchResultsTabHeaders .batch-tab-header');
-        if (remaining.length > 0) {
-          this.switchBatchResultTab(remaining[0].dataset.tabId);
-        }
-      }
-      
       handleBatchProcess() {
         const directoryInput = document.getElementById("directoryInput");
         const files = directoryInput.files;
@@ -4696,22 +4687,20 @@
         }
         const objectType = document.getElementById("batchObjectType").value.trim();
         const searchText = document.getElementById("batchSearchText").value.trim();
-        const searchCode = document.getElementById("batchSearchCode").value.trim(); // new input
+        const searchCode = document.getElementById("batchSearchCode").value.trim();
         const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
         const exact = (searchMode === "exact");
 
-        // Require at least one of objectType or searchText or searchCode
         if (!objectType && !searchText && !searchCode) {
           alert("Please enter search text or a DXF code.");
           return;
         }
 
-        // Create one new virtualized tab for this search
+        // Create a new batch result tab via the BatchDataGrid class.
         const now = new Date();
         const tabTitle = "Search " + now.toLocaleTimeString();
-        const { tabId } = this.addBatchResultTab(tabTitle);
+        const tabId = this.batchDataGrid.addTab(tabTitle);
 
-        // Process all files and add results to the same virtualized data array
         const filesArray = Array.from(files);
         const progressBar = document.getElementById("batchProgress");
         progressBar.style.display = "block";
@@ -4720,18 +4709,16 @@
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
           try {
             const dxfObjects = await this.parseFileStream(file);
-            // Pass the searchCode parameter to the search function
             const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
-            const tabData = this.batchResultsData[tabId];
             matches.forEach(match => {
-              tabData.rows.push({
+              // Add each matching row into the tab’s grid.
+              this.batchDataGrid.addRow(tabId, {
                 file: file.webkitRelativePath || file.name,
                 fileObject: file,
                 line: match.line,
                 data: match.data
               });
             });
-            this.updateVirtualizedBatchResults(tabId);
           } catch (err) {
             console.error("Error processing file: " + file.name, err);
           }
@@ -4750,37 +4737,23 @@
       }
       
       downloadBatchResultsAsExcel() {
-        // Create a new workbook
         const workbook = XLSX.utils.book_new();
-
-        // Loop through your batch result tabs (stored in this.batchResultsData)
-        Object.keys(this.batchResultsData).forEach((tabId, idx) => {
-          const tabData = this.batchResultsData[tabId];
-
-          // Prepare data array for the sheet (including header row)
+        const tabs = this.batchDataGrid.getAllTabs();
+        Object.keys(tabs).forEach((tabId, idx) => {
+          const tabData = tabs[tabId];
           const ws_data = [
             ["#", "File (Relative Path)", "Line", "Data"]
           ];
-
           tabData.rows.forEach((row, index) => {
             ws_data.push([index + 1, row.file, row.line, row.data]);
           });
-
-          // Convert the array of arrays into a worksheet
           const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
-
-          // Apply an auto-filter to all columns.
-          // Dynamically determine the range based on the number of columns and rows.
           const numCols = ws_data[0].length;
           const range = "A1:" + XLSX.utils.encode_col(numCols - 1) + ws_data.length;
           worksheet["!autofilter"] = { ref: range };
-
-          // Create a sheet name (for example, "Results 1", "Results 2", etc.)
           const sheetName = `Results ${idx + 1}`;
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         });
-
-        // Write the workbook to a file and trigger the download
         XLSX.writeFile(workbook, "batch_results.xlsx");
       }
     }
