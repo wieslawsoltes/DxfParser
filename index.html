@@ -4315,42 +4315,83 @@
         }
         document.getElementById("overlayTextsContent").innerHTML = html;
       }
-      
+
       searchDxfTree(nodes, objectType, searchText, exact, searchCode) {
         let results = [];
         nodes.forEach(node => {
-          if (!objectType || (node.type && node.type.toLowerCase() === objectType.toLowerCase())) {
+          // If an object type is provided, only consider nodes of that type.
+          if (objectType) {
+            if (node.type && node.type.toLowerCase() === objectType.toLowerCase()) {
+              // If no code or data is provided, return the object itself.
+              if (!searchCode && !searchText) {
+                results.push({ line: node.line, data: node.type });
+              } else if (node.properties && node.properties.length > 0) {
+                node.properties.forEach(prop => {
+                  // If a code is provided, only consider properties with that code.
+                  if (searchCode) {
+                    if (String(prop.code) === searchCode) {
+                      if (searchText) {
+                        // When both code and data are provided, check data only on properties with the matching code.
+                        const isMatch = exact
+                          ? prop.value === searchText
+                          : prop.value.toLowerCase().includes(searchText.toLowerCase());
+                        if (isMatch) {
+                          results.push({ line: prop.line, data: prop.value });
+                        }
+                      } else {
+                        // If only code is provided, add the property.
+                        results.push({ line: prop.line, data: prop.value });
+                      }
+                    }
+                  } else if (searchText) {
+                    // If no code is provided but data is, check all properties.
+                    const isMatch = exact
+                      ? prop.value === searchText
+                      : prop.value.toLowerCase().includes(searchText.toLowerCase());
+                    if (isMatch) {
+                      results.push({ line: prop.line, data: prop.value });
+                    }
+                  }
+                });
+              }
+            }
+          } else {
+            // If no object type is provided, you can implement similar logic for all nodes.
             if (node.properties && node.properties.length > 0) {
               node.properties.forEach(prop => {
-                // If a search code is provided, skip properties that don’t match.
-                if (searchCode && String(prop.code) !== searchCode) {
-                  return;
-                }
-                // If searchText is provided (non‑empty), check it against the property value.
-                if (searchText) {
-                  let isMatch = false;
-                  if (exact) {
-                    isMatch = (prop.value === searchText);
-                  } else {
-                    isMatch = prop.value.toLowerCase().includes(searchText.toLowerCase());
+                if (searchCode) {
+                  if (String(prop.code) === searchCode) {
+                    if (searchText) {
+                      const isMatch = exact
+                        ? prop.value === searchText
+                        : prop.value.toLowerCase().includes(searchText.toLowerCase());
+                      if (isMatch) {
+                        results.push({ line: prop.line, data: prop.value });
+                      }
+                    } else {
+                      results.push({ line: prop.line, data: prop.value });
+                    }
                   }
+                } else if (searchText) {
+                  const isMatch = exact
+                    ? prop.value === searchText
+                    : prop.value.toLowerCase().includes(searchText.toLowerCase());
                   if (isMatch) {
                     results.push({ line: prop.line, data: prop.value });
                   }
-                } else {
-                  // If no search text is provided, we skip data matching.
-                  results.push({ line: prop.line, data: prop.value });
                 }
               });
             }
           }
           if (node.children && node.children.length > 0) {
-            results = results.concat(this.searchDxfTree(node.children, objectType, searchText, exact, searchCode));
+            results = results.concat(
+              this.searchDxfTree(node.children, objectType, searchText, exact, searchCode)
+            );
           }
         });
         return results;
       }
-      
+
       openFileTab(file, targetLine) {
         // Close the batch results overlay.
         document.getElementById("batchProcessingOverlay").style.display = "none";
@@ -4652,8 +4693,8 @@
         const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
         const exact = (searchMode === "exact");
 
-        // Require at least one of searchText or searchCode
-        if (!searchText && !searchCode) {
+        // Require at least one of objectType or searchText or searchCode
+        if (!objectType && !searchText && !searchCode) {
           alert("Please enter search text or a DXF code.");
           return;
         }
