@@ -800,6 +800,19 @@
       }
       return null;
     }
+    
+    function isHandleCode(code) {
+      return code === 5 ||
+             code === 105 ||
+             (code >= 320 && code <= 329) ||
+             (code >= 330 && code <= 339) ||
+             (code >= 340 && code <= 349) ||
+             (code >= 350 && code <= 359) ||
+             (code >= 360 && code <= 369) ||
+             (code >= 390 && code <= 399) ||
+             (code >= 480 && code <= 481) ||
+             code === 1005;
+    }
   </script>
   <!-- JavaScript Classes -->
   <script>
@@ -813,9 +826,8 @@
           "POLYLINE": "SEQEND"
         };
         this.nextId = 1;
-        this.handleCodes = [5, 105, 330, 350, 360];
       }
-      
+ 
       parse(text) {
         const tags = this.parseDxf(text);
         const grouped = this.groupObjectsIterative(tags, 0);
@@ -959,7 +971,7 @@
 
           // Check for a handle property.
           const handleProp = entity.properties.find(prop =>
-            this.handleCodes.includes(prop.code)
+            isHandleCode(Number(prop.code))
           );
           if (handleProp) {
             entity.handle = handleProp.value;
@@ -1133,7 +1145,7 @@
     }
 
     // Look for a handle property among the collected properties.
-    const handleProp = entity.properties.find(prop => this.handleCodes.includes(prop.code));
+    const handleProp = entity.properties.find(prop => isHandleCode(prop.code));
     if (handleProp) {
       entity.handle = handleProp.value;
     }
@@ -1584,12 +1596,9 @@
           dataDiv.style.flex = "0 0 auto";
           // When rendering a row…
           if (node.isProperty) {
-            // Define the list of DXF group codes that represent handles.
-            const handleCodes = [5, 105, 330, 350, 360];
-
             // If this property’s code is one of the handle codes,
             // create a clickable span instead of plain text.
-            if (handleCodes.includes(Number(node.code))) {
+            if (isHandleCode(Number(node.code))) {
               const spanHandle = document.createElement("span");
               spanHandle.textContent = node.data;
               spanHandle.style.textDecoration = "underline";
