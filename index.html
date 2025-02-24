@@ -4929,68 +4929,84 @@
         XLSX.writeFile(workbook, "batch_results.xlsx");
       }
       
-      handleDiff() {
-        const oldFile = document.getElementById("oldDxfInput").files[0];
-        const newFile = document.getElementById("newDxfInput").files[0];
-        if (!oldFile || !newFile) {
-          alert("Please select both an old and a new DXF file.");
-          return;
-        }
-        Promise.all([this.readFile(oldFile), this.readFile(newFile)])
-          .then(([oldText, newText]) => {
-            const oldObjects = this.dxfParser.parse(oldText);
-            const newObjects = this.dxfParser.parse(newText);
-            const diffResult = this.diffDxfTrees(oldObjects, newObjects);
-            const diffHtml = this.renderDiffHtml(diffResult);
-            document.getElementById("diffContent").innerHTML = diffHtml;
-          })
-          .catch(err => {
-            alert("Error reading files: " + err);
-          });
-      }
-      
-      readFile(file) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = e => resolve(e.target.result);
-          reader.onerror = err => reject(err);
-          reader.readAsText(file, "ascii");
-        });
+      // Create a simple hash from an array of properties.
+      hashProps(props = []) {
+        return props.map(p => `${p.code}:${p.value}`).join("|");
       }
 
+      // Compute a unique key for a node. Use the node’s handle if available.
+      makeKey(node) {
+        if (node.handle) return node.handle;
+        return `${node.type}_${node.line}_${this.hashProps(node.properties)}`;
+      }
+
+      // Diff two arrays of DXF properties.
+      // Returns an object with added, removed, and modified properties (or null if no differences).
+      diffProperties(oldProps = [], newProps = []) {
+        const diffs = { added: [], removed: [], modified: [] };
+        const oldMap = new Map();
+        oldProps.forEach(prop => oldMap.set(prop.code, prop.value));
+        const newMap = new Map();
+        newProps.forEach(prop => newMap.set(prop.code, prop.value));
+        // Check for removed or modified properties.
+        oldMap.forEach((oldVal, code) => {
+          if (!newMap.has(code)) {
+            diffs.removed.push({ code, oldVal });
+          } else {
+            const newVal = newMap.get(code);
+            if (oldVal !== newVal) {
+              diffs.modified.push({ code, oldVal, newVal });
+            }
+          }
+        });
+        // Check for added properties.
+        newMap.forEach((newVal, code) => {
+          if (!oldMap.has(code)) {
+            diffs.added.push({ code, newVal });
+          }
+        });
+        return (diffs.added.length || diffs.removed.length || diffs.modified.length)
+          ? diffs
+          : null;
+      }
+
+      // Helper to check if a child diff object has any differences.
+      hasAnyDiff(childDiff) {
+        return childDiff.added.length > 0 ||
+               childDiff.removed.length > 0 ||
+               childDiff.modified.length > 0;
+      }
+
+      // Recursively diff two arrays of DXF nodes.
+      // Returns an object with arrays: added, removed, and modified nodes.
       diffDxfTrees(oldNodes, newNodes) {
-        // We'll use a simple key: type + "_" + line number.
         const diff = { added: [], removed: [], modified: [] };
 
-        const makeKey = (node) => node.type + "_" + node.line;
-
+        // Build maps for fast lookup.
         const oldMap = new Map();
         oldNodes.forEach(node => {
-          oldMap.set(makeKey(node), node);
+          oldMap.set(this.makeKey(node), node);
         });
         const newMap = new Map();
         newNodes.forEach(node => {
-          newMap.set(makeKey(node), node);
+          newMap.set(this.makeKey(node), node);
         });
 
-        // Check for removed or modified nodes.
+        // Process nodes in the old set.
         oldMap.forEach((oldNode, key) => {
           if (!newMap.has(key)) {
             diff.removed.push(oldNode);
           } else {
             const newNode = newMap.get(key);
-            if (JSON.stringify(oldNode.properties) !== JSON.stringify(newNode.properties)) {
-              diff.modified.push({ old: oldNode, new: newNode });
-            }
-            // Recursively diff children.
+            const propDiff = this.diffProperties(oldNode.properties, newNode.properties);
             const childDiff = this.diffDxfTrees(oldNode.children || [], newNode.children || []);
-            if (childDiff.added.length || childDiff.removed.length || childDiff.modified.length) {
-              diff.modified.push({ old: oldNode, new: newNode, childDiff });
+            if (propDiff || this.hasAnyDiff(childDiff)) {
+              diff.modified.push({ key, old: oldNode, new: newNode, propDiff, childDiff });
             }
           }
         });
 
-        // Check for added nodes.
+        // Process nodes that appear only in newNodes.
         newMap.forEach((newNode, key) => {
           if (!oldMap.has(key)) {
             diff.added.push(newNode);
@@ -5000,44 +5016,54 @@
         return diff;
       }
 
-      renderNodePropertyDiff(oldNode, newNode) {
-        let html = `<table border="1" cellspacing="0" cellpadding="4" style="width:100%; border-collapse: collapse;">
-                      <thead>
-                        <tr>
-                          <th>DXF Code</th>
-                          <th>Old Value</th>
-                          <th>New Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>`;
-        // Build maps for easier lookup.
-        let oldProps = {};
-        oldNode.properties.forEach(prop => { oldProps[prop.code] = prop.value; });
-        let newProps = {};
-        newNode.properties.forEach(prop => { newProps[prop.code] = prop.value; });
-        // Get the union of all property codes.
-        let codes = new Set([...Object.keys(oldProps), ...Object.keys(newProps)]);
-        codes.forEach(code => {
-          let oldVal = oldProps[code] || "";
-          let newVal = newProps[code] || "";
-          // Highlight the row if values differ.
-          let rowStyle = (oldVal !== newVal) ? "background-color:#ffd;" : "";
-          html += `<tr style="${rowStyle}">
-                    <td>${code}</td>
-                    <td>${oldVal}</td>
-                    <td>${newVal}</td>
-                   </tr>`;
+      // -------------------------------
+      // Diff Visualization Methods
+      // -------------------------------
+
+      // Render a table showing differences in properties.
+      renderPropDiff(propDiff) {
+        let html = `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse: collapse; width: 100%;">
+          <thead>
+            <tr>
+              <th>DXF Code</th>
+              <th>Old Value</th>
+              <th>New Value</th>
+            </tr>
+          </thead>
+          <tbody>`;
+        propDiff.removed.forEach(item => {
+          html += `<tr style="background-color:#ffe6e6;">
+            <td>${item.code}</td>
+            <td>${item.oldVal}</td>
+            <td>--</td>
+          </tr>`;
+        });
+        propDiff.added.forEach(item => {
+          html += `<tr style="background-color:#e6ffe6;">
+            <td>${item.code}</td>
+            <td>--</td>
+            <td>${item.newVal}</td>
+          </tr>`;
+        });
+        propDiff.modified.forEach(item => {
+          html += `<tr style="background-color:#ffffe6;">
+            <td>${item.code}</td>
+            <td>${item.oldVal}</td>
+            <td>${item.newVal}</td>
+          </tr>`;
         });
         html += `</tbody></table>`;
         return html;
       }
 
-      renderDetailedDiffHtml(diff) {
+      // Recursively render the diff object as HTML.
+      // Added nodes appear in green, removed nodes in red, and modified nodes in yellow.
+      renderDiffHtml(diff) {
         let html = `<h3>DXF Diff Results</h3>`;
 
-        // Added nodes section (green background)
+        // Added nodes section.
         html += `<div class="diff-section added" style="background-color:#e6ffe6; padding:10px; margin:10px 0;">
-                   <h4>Added Nodes</h4>`;
+          <h4>Added Nodes</h4>`;
         if (diff.added.length === 0) {
           html += `<p>None</p>`;
         } else {
@@ -5049,9 +5075,9 @@
         }
         html += `</div>`;
 
-        // Removed nodes section (red background)
+        // Removed nodes section.
         html += `<div class="diff-section removed" style="background-color:#ffe6e6; padding:10px; margin:10px 0;">
-                   <h4>Removed Nodes</h4>`;
+          <h4>Removed Nodes</h4>`;
         if (diff.removed.length === 0) {
           html += `<p>None</p>`;
         } else {
@@ -5063,20 +5089,23 @@
         }
         html += `</div>`;
 
-        // Modified nodes section (yellow background)
+        // Modified nodes section.
         html += `<div class="diff-section modified" style="background-color:#ffffe6; padding:10px; margin:10px 0;">
-                   <h4>Modified Nodes</h4>`;
+          <h4>Modified Nodes</h4>`;
         if (diff.modified.length === 0) {
           html += `<p>None</p>`;
         } else {
           html += `<ul>`;
           diff.modified.forEach(mod => {
             html += `<li>
-                       <div><strong>${mod.old.type}</strong> (Line ${mod.old.line}) was modified.</div>
-                       <div style="margin:8px 0;">Property differences:</div>
-                       ${this.renderNodePropertyDiff(mod.old, mod.new)}
-                       ${mod.childDiff ? this.renderDetailedDiffHtml(mod.childDiff) : ""}
-                     </li>`;
+              <div><strong>${mod.old.type}</strong> (Line ${mod.old.line}) was modified.</div>`;
+            if (mod.propDiff) {
+              html += `<div><em>Property differences:</em>${this.renderPropDiff(mod.propDiff)}</div>`;
+            }
+            if (mod.childDiff && (mod.childDiff.added.length || mod.childDiff.removed.length || mod.childDiff.modified.length)) {
+              html += `<div><em>Child differences:</em>${this.renderDiffHtml(mod.childDiff)}</div>`;
+            }
+            html += `</li>`;
           });
           html += `</ul>`;
         }
@@ -5085,6 +5114,22 @@
         return html;
       }
 
+      // -------------------------------
+      // Updated Diff Handler Method
+      // -------------------------------
+
+      // Helper to read a file as text.
+      readFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => resolve(e.target.result);
+          reader.onerror = err => reject(err);
+          reader.readAsText(file, "ascii");
+        });
+      }
+
+      // New diff handler. Reads two DXF files, computes the diff,
+      // and displays the results in the #diffContent container.
       handleDiff() {
         const oldFile = document.getElementById("oldDxfInput").files[0];
         const newFile = document.getElementById("newDxfInput").files[0];
@@ -5094,10 +5139,13 @@
         }
         Promise.all([this.readFile(oldFile), this.readFile(newFile)])
           .then(([oldText, newText]) => {
+            // Parse the DXF texts (using your existing dxfParser instance).
             const oldObjects = this.dxfParser.parse(oldText);
             const newObjects = this.dxfParser.parse(newText);
+            // Compute the diff.
             const diffResult = this.diffDxfTrees(oldObjects, newObjects);
-            const diffHtml = this.renderDetailedDiffHtml(diffResult);
+            // Render the diff HTML.
+            const diffHtml = this.renderDiffHtml(diffResult);
             document.getElementById("diffContent").innerHTML = diffHtml;
           })
           .catch(err => {
