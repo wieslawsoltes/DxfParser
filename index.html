@@ -5056,6 +5056,51 @@
         return html;
       }
 
+      computeLineDiff(oldText, newText) {
+        const oldLines = oldText.split('\n');
+        const newLines = newText.split('\n');
+        const n = oldLines.length, m = newLines.length;
+        // Build a DP table for the longest common subsequence (LCS)
+        const dp = Array(n + 1).fill(null).map(() => Array(m + 1).fill(0));
+        for (let i = n - 1; i >= 0; i--) {
+          for (let j = m - 1; j >= 0; j--) {
+            if (oldLines[i] === newLines[j]) {
+              dp[i][j] = dp[i + 1][j + 1] + 1;
+            } else {
+              dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+          }
+        }
+        let i = 0, j = 0;
+        const diffLines = [];
+        while (i < n && j < m) {
+          if (oldLines[i] === newLines[j]) {
+            diffLines.push({ type: 'equal', text: oldLines[i] });
+            i++; j++;
+          } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+            diffLines.push({ type: 'delete', text: oldLines[i] });
+            i++;
+          } else {
+            diffLines.push({ type: 'insert', text: newLines[j] });
+            j++;
+          }
+        }
+        while (i < n) { diffLines.push({ type: 'delete', text: oldLines[i] }); i++; }
+        while (j < m) { diffLines.push({ type: 'insert', text: newLines[j] }); j++; }
+        let html = '<pre style="font-family: monospace;">';
+        diffLines.forEach(line => {
+          if (line.type === 'equal') {
+            html += '  ' + line.text + '\n';
+          } else if (line.type === 'delete') {
+            html += '<span style="background-color: #ffe6e6;">- ' + line.text + '</span>\n';
+          } else if (line.type === 'insert') {
+            html += '<span style="background-color: #e6ffe6;">+ ' + line.text + '</span>\n';
+          }
+        });
+        html += '</pre>';
+        return html;
+      }
+
       // Recursively render the diff object as HTML.
       // Added nodes appear in green, removed nodes in red, and modified nodes in yellow.
       renderDiffHtml(diff) {
@@ -5099,8 +5144,18 @@
           diff.modified.forEach(mod => {
             html += `<li>
               <div><strong>${mod.old.type}</strong> (Line ${mod.old.line}) was modified.</div>`;
+            if (mod.old.handle) {
+              html += `<div><strong>Handle:</strong> ${mod.old.handle}</div>`;
+            }
             if (mod.propDiff) {
               html += `<div><em>Property differences:</em>${this.renderPropDiff(mod.propDiff)}</div>`;
+            }
+            {
+              // Generate a line‑by‑line diff of the DXF text for the node.
+              const oldSerial = this.dxfParser.serializeNode(mod.old);
+              const newSerial = this.dxfParser.serializeNode(mod.new);
+              const lineDiffHtml = this.computeLineDiff(oldSerial, newSerial);
+              html += `<div><em>Line‑by‑line Diff:</em>${lineDiffHtml}</div>`;
             }
             if (mod.childDiff && (mod.childDiff.added.length || mod.childDiff.removed.length || mod.childDiff.modified.length)) {
               html += `<div><em>Child differences:</em>${this.renderDiffHtml(mod.childDiff)}</div>`;
