@@ -2100,7 +2100,13 @@
   </script>
   <!-- Application Code -->
   <script>
+
+      // Global variables to store the original texts so the expand function can re‐render.
+    let gOldText = "";
+    let gNewText = "";
+
     class App {
+      
       constructor() {
         // Define column widths – these will be passed into the TreeDataGrid constructor.
         this.columnWidths = {
@@ -4928,7 +4934,7 @@
         });
         XLSX.writeFile(workbook, "batch_results.xlsx");
       }
-      
+ 
       // Create a simple hash from an array of properties.
       hashProps(props = []) {
         return props.map(p => `${p.code}:${p.value}`).join("|");
@@ -5056,11 +5062,22 @@
         return html;
       }
 
-      computeLineDiff(oldText, newText) {
+      /**
+       * Compute a diff between oldText and newText.
+       * If full is false then unchanged blocks longer than 2*context lines
+       * are collapsed to only show the first and last 'context' lines.
+       * A collapsed marker is rendered that calls expandDiffView() when clicked.
+       */
+      computeLineDiff(oldText, newText, context = 3, full = false) {
+        // Save texts globally so we can re‑render when the user expands.
+        gOldText = oldText;
+        gNewText = newText;
+
         const oldLines = oldText.split('\n');
         const newLines = newText.split('\n');
         const n = oldLines.length, m = newLines.length;
-        // Build a DP table for the longest common subsequence (LCS)
+
+        // Build a DP table for the longest common subsequence.
         const dp = Array(n + 1).fill(null).map(() => Array(m + 1).fill(0));
         for (let i = n - 1; i >= 0; i--) {
           for (let j = m - 1; j >= 0; j--) {
@@ -5071,6 +5088,8 @@
             }
           }
         }
+
+        // Generate the full diff as an array of diff objects.
         let i = 0, j = 0;
         const diffLines = [];
         while (i < n && j < m) {
@@ -5085,20 +5104,82 @@
             j++;
           }
         }
-        while (i < n) { diffLines.push({ type: 'delete', text: oldLines[i] }); i++; }
-        while (j < m) { diffLines.push({ type: 'insert', text: newLines[j] }); j++; }
+        while (i < n) {
+          diffLines.push({ type: 'delete', text: oldLines[i] });
+          i++;
+        }
+        while (j < m) {
+          diffLines.push({ type: 'insert', text: newLines[j] });
+          j++;
+        }
+
+        // If we want the collapsed view, process the diffLines to collapse long blocks.
+        let displayLines = [];
+        if (full) {
+          displayLines = diffLines;
+        } else {
+          let idx = 0;
+          while (idx < diffLines.length) {
+            if (diffLines[idx].type === 'equal') {
+              let start = idx;
+              while (idx < diffLines.length && diffLines[idx].type === 'equal') {
+                idx++;
+              }
+              let end = idx;
+              // If there are more than 2*context equal lines, collapse the middle.
+              if (end - start > 2 * context) {
+                // Show first context lines.
+                for (let k = start; k < start + context; k++) {
+                  displayLines.push(diffLines[k]);
+                }
+                const hiddenCount = end - start - 2 * context;
+                // Add a collapsed marker.
+                displayLines.push({
+                  type: 'collapsed',
+                  text: `... ${hiddenCount} unchanged lines ... (click to expand)`
+                });
+                // Show last context lines.
+                for (let k = end - context; k < end; k++) {
+                  displayLines.push(diffLines[k]);
+                }
+              } else {
+                for (let k = start; k < end; k++) {
+                  displayLines.push(diffLines[k]);
+                }
+              }
+            } else {
+              displayLines.push(diffLines[idx]);
+              idx++;
+            }
+          }
+        }
+
+        // Build the HTML string.
         let html = '<pre style="font-family: monospace;">';
-        diffLines.forEach(line => {
+        displayLines.forEach(line => {
           if (line.type === 'equal') {
             html += '  ' + line.text + '\n';
           } else if (line.type === 'delete') {
             html += '<span style="background-color: #ffe6e6;">- ' + line.text + '</span>\n';
           } else if (line.type === 'insert') {
             html += '<span style="background-color: #e6ffe6;">+ ' + line.text + '</span>\n';
+          } else if (line.type === 'collapsed') {
+            // The collapsed marker is clickable; clicking it will expand the diff.
+            html += `<span style="background-color: #f0f0f0; cursor: pointer;"
+                      onclick="window.app.expandDiffView()">${line.text}</span>\n`;
           }
         });
         html += '</pre>';
         return html;
+      }
+
+      /**
+       * When the user clicks a collapsed marker, re-render the diff with full context.
+       */
+      expandDiffView() {
+        // Recompute the diff with full=true.
+        const fullHtml = this.computeLineDiff(gOldText, gNewText, 3, true);
+        document.getElementById("diffContent").innerHTML = fullHtml;
       }
 
       // Recursively render the diff object as HTML.
