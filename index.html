@@ -441,6 +441,7 @@
           <button id="showLineTypesOverlayBtn">Line Types</button>
           <button id="showTextsOverlayBtn">Texts</button>
           <button id="showBatchProcessOverlayBtn">Batch Process</button>
+          <button id="showDiffOverlayBtn">Diff DXF</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
@@ -716,6 +717,22 @@
       <div style="text-align: center; margin-top: 0.5em;">
         <button id="downloadExcelBtn">Download as Excel</button>
       </div>
+    </div>
+  </div>
+  <div id="diffOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color: rgba(0,0,0,0.5); z-index:1100;">
+    <div class="overlay-content">
+      <button id="closeDiffOverlay" style="position:absolute; top:10px; right:10px; cursor:pointer;">Close</button>
+      <h2>DXF Diff Mode</h2>
+      <div id="diffInputContainer" style="margin-bottom:1em;">
+        <label>Old Version:
+          <input type="file" id="oldDxfInput" accept=".dxf">
+        </label>
+        <label style="margin-left:1em;">New Version:
+          <input type="file" id="newDxfInput" accept=".dxf">
+        </label>
+        <button id="runDiffBtn" style="margin-left:1em;">Run Diff</button>
+      </div>
+      <div id="diffContent" style="overflow:auto; max-height: calc(100% - 120px); border:1px solid #ccc; padding:1em;"></div>
     </div>
   </div>
   <!-- Utility Functions -->
@@ -2226,6 +2243,13 @@
         });
         document.getElementById("startBatchProcess").addEventListener("click", () => this.handleBatchProcess());
         document.getElementById("downloadExcelBtn").addEventListener("click", () => this.downloadBatchResultsAsExcel());
+        document.getElementById("showDiffOverlayBtn").addEventListener("click", () => {
+        document.getElementById("diffOverlay").style.display = "block";
+        });
+        document.getElementById("closeDiffOverlay").addEventListener("click", () => {
+          document.getElementById("diffOverlay").style.display = "none";
+        });
+        document.getElementById("runDiffBtn").addEventListener("click", () => this.handleDiff());
         document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
         document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
@@ -4903,6 +4927,118 @@
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         });
         XLSX.writeFile(workbook, "batch_results.xlsx");
+      }
+      
+      handleDiff() {
+        const oldFile = document.getElementById("oldDxfInput").files[0];
+        const newFile = document.getElementById("newDxfInput").files[0];
+        if (!oldFile || !newFile) {
+          alert("Please select both an old and a new DXF file.");
+          return;
+        }
+        Promise.all([this.readFile(oldFile), this.readFile(newFile)])
+          .then(([oldText, newText]) => {
+            const oldObjects = this.dxfParser.parse(oldText);
+            const newObjects = this.dxfParser.parse(newText);
+            const diffResult = this.diffDxfTrees(oldObjects, newObjects);
+            const diffHtml = this.renderDiffHtml(diffResult);
+            document.getElementById("diffContent").innerHTML = diffHtml;
+          })
+          .catch(err => {
+            alert("Error reading files: " + err);
+          });
+      }
+      
+      readFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => resolve(e.target.result);
+          reader.onerror = err => reject(err);
+          reader.readAsText(file, "ascii");
+        });
+      }
+
+      diffDxfTrees(oldNodes, newNodes) {
+        // We'll use a simple key: type + "_" + line number.
+        const diff = { added: [], removed: [], modified: [] };
+
+        const makeKey = (node) => node.type + "_" + node.line;
+
+        const oldMap = new Map();
+        oldNodes.forEach(node => {
+          oldMap.set(makeKey(node), node);
+        });
+        const newMap = new Map();
+        newNodes.forEach(node => {
+          newMap.set(makeKey(node), node);
+        });
+
+        // Check for removed or modified nodes.
+        oldMap.forEach((oldNode, key) => {
+          if (!newMap.has(key)) {
+            diff.removed.push(oldNode);
+          } else {
+            const newNode = newMap.get(key);
+            if (JSON.stringify(oldNode.properties) !== JSON.stringify(newNode.properties)) {
+              diff.modified.push({ old: oldNode, new: newNode });
+            }
+            // Recursively diff children.
+            const childDiff = this.diffDxfTrees(oldNode.children || [], newNode.children || []);
+            if (childDiff.added.length || childDiff.removed.length || childDiff.modified.length) {
+              diff.modified.push({ old: oldNode, new: newNode, childDiff });
+            }
+          }
+        });
+
+        // Check for added nodes.
+        newMap.forEach((newNode, key) => {
+          if (!oldMap.has(key)) {
+            diff.added.push(newNode);
+          }
+        });
+
+        return diff;
+      }
+
+      renderDiffHtml(diff) {
+        let html = "<h3>Diff Results</h3>";
+        html += "<h4>Added Nodes:</h4>";
+        if (diff.added.length === 0) {
+          html += "<p>None</p>";
+        } else {
+          html += "<ul>";
+          diff.added.forEach(node => {
+            html += `<li>${node.type} (Line ${node.line})</li>`;
+          });
+          html += "</ul>";
+        }
+
+        html += "<h4>Removed Nodes:</h4>";
+        if (diff.removed.length === 0) {
+          html += "<p>None</p>";
+        } else {
+          html += "<ul>";
+          diff.removed.forEach(node => {
+            html += `<li>${node.type} (Line ${node.line})</li>`;
+          });
+          html += "</ul>";
+        }
+
+        html += "<h4>Modified Nodes:</h4>";
+        if (diff.modified.length === 0) {
+          html += "<p>None</p>";
+        } else {
+          html += "<ul>";
+          diff.modified.forEach(item => {
+            html += `<li>${item.old.type} (Line ${item.old.line}) modified.`;
+            if (item.childDiff) {
+              html += renderDiffHtml(item.childDiff);
+            }
+            html += "</li>";
+          });
+          html += "</ul>";
+        }
+        return html;
       }
     }
     document.addEventListener("DOMContentLoaded", () => { 
