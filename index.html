@@ -1678,7 +1678,21 @@
             }
           } else {
             // For non‑property nodes, keep all your original functionality.
-            dataDiv.textContent = node.type || "";
+            if (node.type && node.type.toUpperCase() === "SECTION") {
+              // Look for the SECTION name in properties (code 2)
+              let sectionName = "";
+              if (node.properties) {
+                for (const prop of node.properties) {
+                  if (Number(prop.code) === 2) {
+                    sectionName = prop.value;
+                    break;
+                  }
+                }
+              }
+              dataDiv.textContent = sectionName ? node.type + " (" + sectionName + ")" : node.type;
+            } else {
+              dataDiv.textContent = node.type || "";
+            }
             // Append the handle (if any) as a clickable link.
             if (node.handle) {
               const spanHandle = document.createElement("span");
