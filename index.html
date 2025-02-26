@@ -697,6 +697,50 @@
             Exact
           </label>
         </div>
+
+        <!-- Predefined Query Templates Dropdown -->
+        <div style="grid-column: 1 / -1;">
+          <label>Predefined Query Templates:
+            <select id="batchPredefinedQuery">
+              <option value="">--Select Template--</option>
+              <option value="node => true">All Nodes</option>
+              <option value="node => node.type === 'LINE'">All Lines</option>
+              <option value="node => node.properties && node.properties.some(p => String(p.code) === '310')">
+                Nodes with Code 310
+              </option>
+              <option value="node => ! (node.properties && node.properties.some(p => String(p.code) === '310'))">
+                Nodes without Code 310
+              </option>
+              <option value="node => (node.type === 'CIRCLE' || node.type === 'ARC')">
+                Circles or Arcs
+              </option>
+              <!-- Filter nodes whose type matches a regex (case-insensitive) -->
+              <option value="node => /LINE/i.test(node.type)">
+                Nodes with type matching /LINE/i
+              </option>
+              <!-- Filter nodes that have children with a specific type -->
+              <option value="node => node.children && node.children.some(child => child.type === 'BLOCK')">
+                Nodes with a Child of type 'BLOCK'
+              </option>
+              <!-- Filter nodes where any property value matches a regex -->
+              <option value="node => node.properties && node.properties.some(p => /circle/i.test(p.value))">
+                Nodes with property value matching /circle/i
+              </option>
+              <!-- Filter nodes that have a child whose property code '2' equals 'INSERT' -->
+              <option value="node => node.children && node.children.some(child => child.properties && child.properties.some(p => String(p.code) === '2' && p.value === 'INSERT'))">
+                Nodes with Child having property 2 equal to 'INSERT'
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <!-- JS Query Input Field -->
+        <div style="grid-column: 1 / -1;">
+          <label>JavaScript Query:
+            <input type="text" id="batchJsQuery" placeholder="e.g. node => node.type === 'LINE'" style="width:100%;">
+          </label>
+        </div>
+
         <!-- Full-width row for Start button and progress bar -->
         <div style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 0.5em;">
           <button id="startBatchProcess">Start Batch Process</button>
@@ -2248,6 +2292,9 @@
           document.getElementById("batchProcessingOverlay").style.display = "none";
         });
         document.getElementById("startBatchProcess").addEventListener("click", () => this.handleBatchProcess());
+        document.getElementById("batchPredefinedQuery").addEventListener("change", function() {
+          document.getElementById("batchJsQuery").value = this.value;
+        });
         document.getElementById("downloadExcelBtn").addEventListener("click", () => this.downloadBatchResultsAsExcel());
         document.getElementById("showDiffOverlayBtn").addEventListener("click", () => {
         document.getElementById("diffOverlay").style.display = "block";
@@ -4856,6 +4903,18 @@
         }
       }
 
+      evaluateJsQuery(query, node) {
+        try {
+          // Compile the user-supplied arrow function.
+          const fn = new Function("return (" + query + ");")();
+          // Now execute the arrow function with the given node.
+          return fn(node);
+        } catch (e) {
+          console.error("Error evaluating JS query:", e);
+          return false;
+        }
+      }
+
       handleBatchProcess() {
         const directoryInput = document.getElementById("directoryInput");
         const files = directoryInput.files;
@@ -4863,22 +4922,24 @@
           alert("Please select a directory containing DXF files.");
           return;
         }
+
+        // Retrieve existing simple search inputs if needed
         const objectType = document.getElementById("batchObjectType").value.trim();
         const searchText = document.getElementById("batchSearchText").value.trim();
         const searchCode = document.getElementById("batchSearchCode").value.trim();
         const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
         const exact = (searchMode === "exact");
 
-        if (!objectType && !searchText && !searchCode) {
-          alert("Please enter search text or a DXF code.");
+        // New JS query input field (populated from a drop‑down of predefined templates)
+        const jsQuery = document.getElementById("batchJsQuery").value.trim();
+        if (!objectType && !searchText && !searchCode && !jsQuery) {
+          alert("Please enter search text, a DXF code, or a JS query.");
           return;
         }
 
-        // Create a new batch result tab via the BatchDataGrid class.
         const now = new Date();
         const tabTitle = "Search " + now.toLocaleTimeString();
         const tabId = this.batchDataGrid.addTab(tabTitle);
-
         const filesArray = Array.from(files);
         const progressBar = document.getElementById("batchProgress");
         progressBar.style.display = "block";
@@ -4887,9 +4948,25 @@
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
           try {
             const dxfObjects = await this.parseFileStream(file);
-            const matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
+            let matches = [];
+            if (jsQuery) {
+              // Use an arrow function for searchJs so that "this" remains the App instance.
+              const searchJs = (nodes) => {
+                nodes.forEach((node) => {
+                  if (this.evaluateJsQuery(jsQuery, node)) {
+                    matches.push({ line: node.line, data: node.type });
+                  }
+                  if (node.children && node.children.length > 0) {
+                    searchJs(node.children);
+                  }
+                });
+              };
+              searchJs(dxfObjects);
+            } else {
+              // Fallback to your existing search logic.
+              matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
+            }
             matches.forEach(match => {
-              // Add each matching row into the tab’s grid.
               this.batchDataGrid.addRow(tabId, {
                 file: file.webkitRelativePath || file.name,
                 fileObject: file,
@@ -4913,7 +4990,7 @@
 
         processAllFiles();
       }
-      
+
       downloadBatchResultsAsExcel() {
         const workbook = XLSX.utils.book_new();
         const tabs = this.batchDataGrid.getAllTabs();
