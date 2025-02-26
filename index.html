@@ -4903,18 +4903,6 @@
         }
       }
 
-      evaluateJsQuery(query, node) {
-        try {
-          // Compile the user-supplied arrow function.
-          const fn = new Function("return (" + query + ");")();
-          // Now execute the arrow function with the given node.
-          return fn(node);
-        } catch (e) {
-          console.error("Error evaluating JS query:", e);
-          return false;
-        }
-      }
-
       handleBatchProcess() {
         const directoryInput = document.getElementById("directoryInput");
         const files = directoryInput.files;
@@ -4923,14 +4911,14 @@
           return;
         }
 
-        // Retrieve existing simple search inputs if needed
+        // Existing search inputs (if any)
         const objectType = document.getElementById("batchObjectType").value.trim();
         const searchText = document.getElementById("batchSearchText").value.trim();
         const searchCode = document.getElementById("batchSearchCode").value.trim();
         const searchMode = document.querySelector('input[name="batchSearchMode"]:checked').value;
         const exact = (searchMode === "exact");
 
-        // New JS query input field (populated from a drop‑down of predefined templates)
+        // Get JS query (populated from the predefined template dropdown or manually entered)
         const jsQuery = document.getElementById("batchJsQuery").value.trim();
         if (!objectType && !searchText && !searchCode && !jsQuery) {
           alert("Please enter search text, a DXF code, or a JS query.");
@@ -4944,16 +4932,29 @@
         const progressBar = document.getElementById("batchProgress");
         progressBar.style.display = "block";
 
+        // Pre-compile the JS query once if provided.
+        let queryFn = null;
+        if (jsQuery) {
+          try {
+            queryFn = new Function("return (" + jsQuery + ");")();
+          } catch (e) {
+            console.error("Error compiling JS query:", e);
+            alert("Invalid JS query: " + e.message);
+            progressBar.style.display = "none";
+            return;
+          }
+        }
+
         const processFile = async (file) => {
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
           try {
             const dxfObjects = await this.parseFileStream(file);
             let matches = [];
-            if (jsQuery) {
-              // Use an arrow function for searchJs so that "this" remains the App instance.
+            if (queryFn) {
+              // Use the pre-compiled function in the hot loop.
               const searchJs = (nodes) => {
                 nodes.forEach((node) => {
-                  if (this.evaluateJsQuery(jsQuery, node)) {
+                  if (queryFn(node)) {
                     matches.push({ line: node.line, data: node.type });
                   }
                   if (node.children && node.children.length > 0) {
@@ -4963,7 +4964,7 @@
               };
               searchJs(dxfObjects);
             } else {
-              // Fallback to your existing search logic.
+              // Fallback to your existing simple search logic.
               matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
             }
             matches.forEach(match => {
