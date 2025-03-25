@@ -1708,7 +1708,7 @@
               const classProp = node.properties.find(prop => Number(prop.code) === 91);
               if (classProp) {
                 const spanClass = document.createElement("span");
-                spanClass.textContent = " CLASS (ID=" + classProp.value + ")";
+                spanClass.textContent = " (CLASS ID=" + classProp.value + ") ";
                 spanClass.style.textDecoration = "underline";
                 spanClass.style.color = "blue";
                 spanClass.style.cursor = "pointer";
