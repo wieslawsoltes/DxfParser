@@ -4006,7 +4006,7 @@
 
         let html = "";
 
-        // Build a cloud of Application Names (group code 3) styled like the Code and Data clouds.
+        // (Optional) Build a cloud of Application Names as before...
         let appNameCounts = {};
         classes.forEach(cls => {
           let appName = "";
@@ -4023,17 +4023,15 @@
         });
 
         if (Object.keys(appNameCounts).length > 0) {
-          // Determine the maximum count to scale the font sizes.
           let maxCount = Math.max(...Object.values(appNameCounts));
           html += `<div class="app-cloud" style="padding:8px; margin:8px; border:1px dashed #aaa;">
-                     <h4>Application Name Cloud</h4>`;
+                   <h4>Application Name Cloud</h4>`;
           for (let app in appNameCounts) {
             let count = appNameCounts[app];
-            // Compute font size between 12 and 24 pixels.
             let fontSize = 12 + ((count / maxCount) * 12);
             html += `<span class="cloud-tag" style="font-size:${fontSize}px; cursor:pointer;"
-                            onclick="window.app.filterClassesByAppName('${app.replace(/'/g, "\\'")}')">
-                            ${app} (${count})
+                        onclick="window.app.filterClassesByAppName('${app.replace(/'/g, "\\'")}')">
+                        ${app} (${count})
                      </span>`;
           }
           html += `</div>`;
@@ -4043,6 +4041,8 @@
         if (classes.length === 0) {
           html += "<p>No classes found in the DXF data.</p>";
         } else {
+          // Initialize the class ID counter to 500.
+          let classId = 500;
           classes.forEach(cls => {
             // Extract key properties from each CLASS node.
             let recordName = "", cppClass = "", appName = "";
@@ -4063,25 +4063,27 @@
                 }
               });
             }
+            // Append the class ID (starting at 500).
             html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
-                      <h3 style="margin-top:0;">${recordName || "Unnamed Class"}</h3>
+                      <h3 style="margin-top:0;">${recordName || "Unnamed Class"} (ID=${classId})</h3>
                       <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
                       <p><strong>Application Name:</strong> ${appName || "N/A"}</p>`;
             if (cls.handle) {
               html += `<p><a class="show-in-tree" href="#"
-                              onclick="window.app.handleLinkToHandle('${cls.handle}'); 
+                              onclick="window.app.handleLinkToHandle('${cls.handle}');
                                        document.getElementById('classesOverlay').style.display='none'; return false;">
                               Show in Tree</a></p>`;
             }
-            // Toggle button to show/hide the serialized details.
             html += `<button class="toggle-details" style="margin-bottom:8px;" 
-                            onclick="var details=this.nextElementSibling; 
-                                     if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
-                                     else { details.style.display='none'; this.textContent='Show Details'; }">
-                            Show Details</button>
+                          onclick="var details=this.nextElementSibling; 
+                                   if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
+                                   else { details.style.display='none'; this.textContent='Show Details'; }">
+                          Show Details</button>
                      <pre class="class-details" style="display:none; background:#f8f8f8; border:1px solid #eee; padding:8px; overflow:auto;">
       ${window.app.dxfParser.serializeNode(cls)}</pre>
                     </div>`;
+            // Increment for the next class.
+            classId++;
           });
         }
         document.getElementById("overlayClassesContent").innerHTML = html;
