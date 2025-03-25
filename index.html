@@ -1677,22 +1677,50 @@
               dataDiv.textContent = node.data;
             }
           } else {
-            // For non‑property nodes, keep all your original functionality.
-            if (node.type && node.type.toUpperCase() === "SECTION") {
-              // Look for the SECTION name in properties (code 2)
-              let sectionName = "";
-              if (node.properties) {
-                for (const prop of node.properties) {
-                  if (Number(prop.code) === 2) {
-                    sectionName = prop.value;
-                    break;
+            // For non‑property nodes, show the node type.
+            // If the node is a CLASS, append the (ID=…) text.
+            if (node.type) {
+              if (node.type.toUpperCase() === "CLASS" && node.classId !== undefined) {
+                dataDiv.textContent = node.type + " (ID=" + node.classId + ")";
+              } else {
+                // For other node types, just show the type (and any section name for SECTION nodes).
+                if (node.type.toUpperCase() === "SECTION") {
+                  let sectionName = "";
+                  if (node.properties) {
+                    for (const prop of node.properties) {
+                      if (Number(prop.code) === 2) {
+                        sectionName = prop.value;
+                        break;
+                      }
+                    }
                   }
+                  dataDiv.textContent = sectionName ? node.type + " (" + sectionName + ")" : node.type;
+                } else {
+                  dataDiv.textContent = node.type || "";
                 }
               }
-              dataDiv.textContent = sectionName ? node.type + " (" + sectionName + ")" : node.type;
-            } else {
-              dataDiv.textContent = node.type || "";
             }
+
+            // *** New code for ACAD_PROXY_OBJECTs ***
+            // If the node is an ACAD_PROXY_OBJECT, check if it has a property with code 91
+            // and add a clickable link (similar to handle navigation).
+            if (node.type && node.type.toUpperCase() === "ACAD_PROXY_OBJECT") {
+              const classProp = node.properties.find(prop => Number(prop.code) === 91);
+              if (classProp) {
+                const spanClass = document.createElement("span");
+                spanClass.textContent = " CLASS (ID=" + classProp.value + ")";
+                spanClass.style.textDecoration = "underline";
+                spanClass.style.color = "blue";
+                spanClass.style.cursor = "pointer";
+                spanClass.addEventListener("click", (e) => {
+                  e.preventDefault();
+                  // Call a function to navigate to the CLASS definition.
+                  window.app.navigateToClassById(classProp.value);
+                });
+                dataDiv.appendChild(spanClass);
+              }
+            }
+            
             // Append the handle (if any) as a clickable link.
             if (node.handle) {
               const spanHandle = document.createElement("span");
@@ -1708,6 +1736,8 @@
               });
               dataDiv.appendChild(spanHandle);
             }
+            
+
             // Retain the copy, open, and hex viewer buttons as before.
             if (this.copyCallback && !node.isProperty) {
               const copyButton = document.createElement("button");
@@ -2894,6 +2924,8 @@
               };
               this.tabs.push(newTab);
               this.activeTabId = newTab.id;
+              // Call updateClasses() now so that CLASS nodes get their classId set.
+              this.updateClasses();
               this.updateTabUI();
               this.myTreeGrid.setData(newTab.currentTreeData);
             };
@@ -3983,6 +4015,37 @@
         }
         document.getElementById("overlayFontsContent").innerHTML = html;
       }
+
+      navigateToClassById(classId) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        // Search for a CLASS node with the matching classId.
+        function search(nodes) {
+          for (const node of nodes) {
+            if (node.type && node.type.toUpperCase() === "CLASS" && node.classId == classId) {
+              return node;
+            }
+            if (node.children && node.children.length > 0) {
+              const found = search(node.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        }
+        const targetClass = search(activeTab.originalTreeData);
+        if (targetClass) {
+          // You can now use your handleLinkToHandle (if the CLASS node has a handle)
+          // or implement your own scrolling/highlighting logic.
+          if (targetClass.handle) {
+            this.handleLinkToHandle(targetClass.handle);
+          } else {
+            // Fallback: scroll to the node using its line number.
+            this.scrollToLineAfterTabOpen(targetClass.line);
+          }
+        } else {
+          alert("CLASS definition not found for class ID " + classId);
+        }
+      }
       
       updateClasses() {
         const activeTab = this.getActiveTab();
@@ -4005,90 +4068,55 @@
         activeTab.originalTreeData.forEach(node => traverse(node));
 
         let html = "";
-
-        // (Optional) Build a cloud of Application Names as before...
-        let appNameCounts = {};
+        // Assign class IDs starting at 500.
+        let classId = 500;
         classes.forEach(cls => {
-          let appName = "";
+          // Save the computed class ID into the node so we can later find it.
+          cls.classId = classId;
+
+          // Extract key properties (for display).
+          let recordName = "", cppClass = "", appName = "";
           if (cls.properties && cls.properties.length) {
             cls.properties.forEach(prop => {
-              if (Number(prop.code) === 3) {
-                appName = prop.value;
+              switch (Number(prop.code)) {
+                case 1:
+                  recordName = prop.value;
+                  break;
+                case 2:
+                  cppClass = prop.value;
+                  break;
+                case 3:
+                  appName = prop.value;
+                  break;
+                default:
+                  break;
               }
             });
           }
-          if (appName) {
-            appNameCounts[appName] = (appNameCounts[appName] || 0) + 1;
+          // Render the CLASS record header with the new classId.
+          html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
+                    <h3 style="margin-top:0;">${recordName || "Unnamed Class"} (ID=${classId})</h3>
+                    <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
+                    <p><strong>Application Name:</strong> ${appName || "N/A"}</p>`;
+          if (cls.handle) {
+            html += `<p><a class="show-in-tree" href="#"
+                            onclick="window.app.handleLinkToHandle('${cls.handle}');
+                                     document.getElementById('classesOverlay').style.display='none'; return false;">
+                            Show in Tree</a></p>`;
           }
-        });
-
-        if (Object.keys(appNameCounts).length > 0) {
-          let maxCount = Math.max(...Object.values(appNameCounts));
-          html += `<div class="app-cloud" style="padding:8px; margin:8px; border:1px dashed #aaa;">
-                   <h4>Application Name Cloud</h4>`;
-          for (let app in appNameCounts) {
-            let count = appNameCounts[app];
-            let fontSize = 12 + ((count / maxCount) * 12);
-            html += `<span class="cloud-tag" style="font-size:${fontSize}px; cursor:pointer;"
-                        onclick="window.app.filterClassesByAppName('${app.replace(/'/g, "\\'")}')">
-                        ${app} (${count})
-                     </span>`;
-          }
-          html += `</div>`;
-        }
-
-        // If no CLASS nodes were found, show a message.
-        if (classes.length === 0) {
-          html += "<p>No classes found in the DXF data.</p>";
-        } else {
-          // Initialize the class ID counter to 500.
-          let classId = 500;
-          classes.forEach(cls => {
-            // Extract key properties from each CLASS node.
-            let recordName = "", cppClass = "", appName = "";
-            if (cls.properties && cls.properties.length) {
-              cls.properties.forEach(prop => {
-                switch (Number(prop.code)) {
-                  case 1:
-                    recordName = prop.value;
-                    break;
-                  case 2:
-                    cppClass = prop.value;
-                    break;
-                  case 3:
-                    appName = prop.value;
-                    break;
-                  default:
-                    break;
-                }
-              });
-            }
-            // Append the class ID (starting at 500).
-            html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
-                      <h3 style="margin-top:0;">${recordName || "Unnamed Class"} (ID=${classId})</h3>
-                      <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
-                      <p><strong>Application Name:</strong> ${appName || "N/A"}</p>`;
-            if (cls.handle) {
-              html += `<p><a class="show-in-tree" href="#"
-                              onclick="window.app.handleLinkToHandle('${cls.handle}');
-                                       document.getElementById('classesOverlay').style.display='none'; return false;">
-                              Show in Tree</a></p>`;
-            }
-            html += `<button class="toggle-details" style="margin-bottom:8px;" 
-                          onclick="var details=this.nextElementSibling; 
-                                   if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
-                                   else { details.style.display='none'; this.textContent='Show Details'; }">
-                          Show Details</button>
-                     <pre class="class-details" style="display:none; background:#f8f8f8; border:1px solid #eee; padding:8px; overflow:auto;">
+          html += `<button class="toggle-details" style="margin-bottom:8px;" 
+                        onclick="var details=this.nextElementSibling; 
+                                 if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
+                                 else { details.style.display='none'; this.textContent='Show Details'; }">
+                        Show Details</button>
+                 <pre class="class-details" style="display:none; background:#f8f8f8; border:1px solid #eee; padding:8px; overflow:auto;">
       ${window.app.dxfParser.serializeNode(cls)}</pre>
-                    </div>`;
-            // Increment for the next class.
-            classId++;
-          });
-        }
+                </div>`;
+          classId++;
+        });
         document.getElementById("overlayClassesContent").innerHTML = html;
       }
-      
+
       filterClassesByAppName(appName) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
