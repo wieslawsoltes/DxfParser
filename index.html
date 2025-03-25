@@ -4046,7 +4046,7 @@
           alert("CLASS definition not found for class ID " + classId);
         }
       }
-      
+
       updateClasses() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -4068,52 +4068,88 @@
         activeTab.originalTreeData.forEach(node => traverse(node));
 
         let html = "";
-        // Assign class IDs starting at 500.
-        let classId = 500;
-        classes.forEach(cls => {
-          // Save the computed class ID into the node so we can later find it.
-          cls.classId = classId;
 
-          // Extract key properties (for display).
-          let recordName = "", cppClass = "", appName = "";
+        // Build a cloud of Application Names from the CLASS nodes.
+        let appNameCounts = {};
+        classes.forEach(cls => {
+          let appName = "";
           if (cls.properties && cls.properties.length) {
             cls.properties.forEach(prop => {
-              switch (Number(prop.code)) {
-                case 1:
-                  recordName = prop.value;
-                  break;
-                case 2:
-                  cppClass = prop.value;
-                  break;
-                case 3:
-                  appName = prop.value;
-                  break;
-                default:
-                  break;
+              if (Number(prop.code) === 3) {
+                appName = prop.value;
               }
             });
           }
-          // Render the CLASS record header with the new classId.
-          html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
-                    <h3 style="margin-top:0;">${recordName || "Unnamed Class"} (ID=${classId})</h3>
-                    <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
-                    <p><strong>Application Name:</strong> ${appName || "N/A"}</p>`;
-          if (cls.handle) {
-            html += `<p><a class="show-in-tree" href="#"
-                            onclick="window.app.handleLinkToHandle('${cls.handle}');
-                                     document.getElementById('classesOverlay').style.display='none'; return false;">
-                            Show in Tree</a></p>`;
+          if (appName) {
+            appNameCounts[appName] = (appNameCounts[appName] || 0) + 1;
           }
-          html += `<button class="toggle-details" style="margin-bottom:8px;" 
-                        onclick="var details=this.nextElementSibling; 
-                                 if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
-                                 else { details.style.display='none'; this.textContent='Show Details'; }">
-                        Show Details</button>
-                 <pre class="class-details" style="display:none; background:#f8f8f8; border:1px solid #eee; padding:8px; overflow:auto;">
-      ${window.app.dxfParser.serializeNode(cls)}</pre>
-                </div>`;
-          classId++;
         });
+
+        if (Object.keys(appNameCounts).length > 0) {
+          let maxCount = Math.max(...Object.values(appNameCounts));
+          html += `<div class="app-cloud" style="padding:8px; margin:8px; border:1px dashed #aaa;">
+                   <h4>Application Name Cloud</h4>`;
+          for (let app in appNameCounts) {
+            let count = appNameCounts[app];
+            let fontSize = 12 + ((count / maxCount) * 12);
+            html += `<span class="cloud-tag" style="font-size:${fontSize}px; cursor:pointer;"
+                        onclick="window.app.filterClassesByAppName('${app.replace(/'/g, "\\'")}')">
+                        ${app} (${count})
+                     </span>`;
+          }
+          html += `</div>`;
+        }
+
+        if (classes.length === 0) {
+          html += "<p>No classes found in the DXF data.</p>";
+        } else {
+          // Initialize the class ID counter to 500.
+          let classId = 500;
+          classes.forEach(cls => {
+            // Save the computed classId into the node.
+            cls.classId = classId;
+
+            // Extract key properties for display.
+            let recordName = "", cppClass = "", appName = "";
+            if (cls.properties && cls.properties.length) {
+              cls.properties.forEach(prop => {
+                switch (Number(prop.code)) {
+                  case 1:
+                    recordName = prop.value;
+                    break;
+                  case 2:
+                    cppClass = prop.value;
+                    break;
+                  case 3:
+                    appName = prop.value;
+                    break;
+                  default:
+                    break;
+                }
+              });
+            }
+            // Render the CLASS record with the assigned ID.
+            html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
+                      <h3 style="margin-top:0;">${recordName || "Unnamed Class"} (ID=${classId})</h3>
+                      <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
+                      <p><strong>Application Name:</strong> ${appName || "N/A"}</p>`;
+            if (cls.handle) {
+              html += `<p><a class="show-in-tree" href="#"
+                              onclick="window.app.handleLinkToHandle('${cls.handle}');
+                                       document.getElementById('classesOverlay').style.display='none'; return false;">
+                              Show in Tree</a></p>`;
+            }
+            html += `<button class="toggle-details" style="margin-bottom:8px;" 
+                          onclick="var details=this.nextElementSibling; 
+                                   if(details.style.display==='none'){ details.style.display='block'; this.textContent='Hide Details'; } 
+                                   else { details.style.display='none'; this.textContent='Show Details'; }">
+                          Show Details</button>
+                   <pre class="class-details" style="display:none; background:#f8f8f8; border:1px solid #eee; padding:8px; overflow:auto;">
+      ${window.app.dxfParser.serializeNode(cls)}</pre>
+                  </div>`;
+            classId++;
+          });
+        }
         document.getElementById("overlayClassesContent").innerHTML = html;
       }
 
