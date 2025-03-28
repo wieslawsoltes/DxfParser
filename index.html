@@ -1684,17 +1684,17 @@
                 dataDiv.textContent = node.type + " (ID=" + node.classId + ")";
               } else {
                 // For other node types, just show the type (and any section name for SECTION nodes).
-                if (node.type.toUpperCase() === "SECTION") {
-                  let sectionName = "";
+                if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "TABLE") {
+                  let nameValue = "";
                   if (node.properties) {
                     for (const prop of node.properties) {
                       if (Number(prop.code) === 2) {
-                        sectionName = prop.value;
+                        nameValue = prop.value;
                         break;
                       }
                     }
                   }
-                  dataDiv.textContent = sectionName ? node.type + " (" + sectionName + ")" : node.type;
+                  dataDiv.textContent = nameValue ? node.type + " (" + nameValue + ")" : node.type;
                 } else {
                   dataDiv.textContent = node.type || "";
                 }
