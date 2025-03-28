@@ -3852,98 +3852,154 @@
         const activeTab = this.getActiveTab();
         const listContainer = document.getElementById("proxyObjectsList");
         listContainer.innerHTML = "";
+
         if (!activeTab) {
           listContainer.textContent = "No DXF data loaded.";
           document.getElementById("proxyObjectsOverlay").style.display = "block";
           return;
         }
-        let proxyNodes = [];
-        function findProxyNodes(nodes) {
-          nodes.forEach(node => {
-            if (!node.isProperty && node.type && node.type.toUpperCase() === "ACAD_PROXY_OBJECT") {
+
+        // 1. Map classId → CLASS node
+        const classIdToNode = new Map();
+        function findClassNodes(nodes) {
+          for (const node of nodes) {
+            if (node.type?.toUpperCase() === "CLASS" && node.classId !== undefined) {
+              classIdToNode.set(node.classId, node);
+            }
+            if (node.children?.length) findClassNodes(node.children);
+          }
+        }
+
+        // 2. Find proxy objects
+        const proxyNodes = [];
+        function findProxies(nodes) {
+          for (const node of nodes) {
+            if (node.type?.toUpperCase() === "ACAD_PROXY_OBJECT") {
               proxyNodes.push(node);
             }
-            if (node.children && node.children.length > 0) { findProxyNodes(node.children); }
-          });
+            if (node.children?.length) findProxies(node.children);
+          }
         }
-        findProxyNodes(activeTab.originalTreeData);
+
+        // 3. Build handle → referencing nodes map
+        const handleToUsers = new Map();
+        function collectUsages(nodes) {
+          for (const node of nodes) {
+            for (const prop of node.properties || []) {
+              if (isHandleCode(Number(prop.code))) {
+                if (!handleToUsers.has(prop.value)) {
+                  handleToUsers.set(prop.value, []);
+                }
+                handleToUsers.get(prop.value).push({ node, prop });
+              }
+            }
+            if (node.children?.length) collectUsages(node.children);
+          }
+        }
+
+        // ─ Run scans
+        findClassNodes(activeTab.originalTreeData);
+        findProxies(activeTab.originalTreeData);
+        collectUsages(activeTab.originalTreeData);
+
         if (proxyNodes.length === 0) {
           listContainer.textContent = "No proxy objects found.";
-        } else {
-          proxyNodes.forEach(node => {
-            const div = document.createElement("div");
-            div.style.borderBottom = "1px solid #ccc";
-            div.style.padding = "5px";
-            let info = `Type: ${node.type} | Line: ${node.line}`;
-            if (node.handle) { info += ` | Handle: ${node.handle}`; }
-            const infoSpan = document.createElement("span");
-            infoSpan.textContent = info + " ";
-            div.appendChild(infoSpan);
-            const copyBtn = document.createElement("button");
-            copyBtn.textContent = "Copy DXF";
-            copyBtn.addEventListener("click", () => {
-              const serialized = this.dxfParser.serializeNode(node);
-              navigator.clipboard.writeText(serialized).then(() => {
-                alert("Copied proxy object to clipboard as valid DXF tags.");
-              }, () => {
-                alert("Failed to copy to clipboard.");
-              });
-            });
-            div.appendChild(copyBtn);
-            const detailsBtn = document.createElement("button");
-            detailsBtn.textContent = "Show Details";
-            const detailsDiv = document.createElement("pre");
-            detailsDiv.style.display = "none";
-            detailsDiv.style.background = "#f9f9f9";
-            detailsDiv.style.padding = "5px";
-            detailsDiv.textContent = this.dxfParser.serializeNode(node);
-            detailsBtn.addEventListener("click", () => {
-              if (detailsDiv.style.display === "none") {
-                detailsDiv.style.display = "block";
-                detailsBtn.textContent = "Hide Details";
-              } else {
-                detailsDiv.style.display = "none";
-                detailsBtn.textContent = "Show Details";
-              }
-            });
-            div.appendChild(detailsBtn);
-            div.appendChild(detailsDiv);
-            const analyzeBtn = document.createElement("button");
-            analyzeBtn.textContent = "Analyze";
-            const analyzeDiv = document.createElement("div");
-            analyzeDiv.style.display = "none";
-            analyzeDiv.style.background = "#eef";
-            analyzeDiv.style.padding = "5px";
-            analyzeBtn.addEventListener("click", () => {
-              if (analyzeDiv.style.display === "none") {
-                analyzeDiv.innerHTML = window.app.analyzeProxyObject(node);
-                analyzeDiv.style.display = "block";
-                analyzeBtn.textContent = "Hide Analysis";
-              } else {
-                analyzeDiv.style.display = "none";
-                analyzeBtn.textContent = "Analyze";
-              }
-            });
-            div.appendChild(analyzeBtn);
-            div.appendChild(analyzeDiv);
-            if (node.handle) {
+          document.getElementById("proxyObjectsOverlay").style.display = "block";
+          return;
+        }
+
+        for (const proxy of proxyNodes) {
+          const div = document.createElement("div");
+          div.style.borderBottom = "1px solid #ccc";
+          div.style.padding = "6px";
+
+          const classIdProp = proxy.properties.find(p => Number(p.code) === 91);
+          const classId = classIdProp?.value;
+          const handle = proxy.handle;
+
+          const classNode = classIdToNode.get(Number(classId));
+          const className = classNode
+            ? (classNode.properties.find(p => Number(p.code) === 1)?.value || "(Unnamed CLASS)")
+            : "(Unknown CLASS)";
+
+          // Header
+          div.innerHTML = `
+            <strong>Proxy Object</strong><br/>
+            Line: ${proxy.line}<br/>
+            Handle: <code>${handle || "N/A"}</code><br/>
+            Class ID: ${classId || "N/A"}<br/>
+            Class Name: ${className}
+            ${classNode ? ` - <a href="#" onclick="window.app.navigateToClassById('${classId}'); document.getElementById('proxyObjectsOverlay').style.display='none'; return false;">Show Class</a>` : ""}
+          `;
+
+          // Show in Tree
+          if (handle) {
+            const showBtn = document.createElement("button");
+            showBtn.textContent = "Show In Tree";
+            showBtn.onclick = () => {
+              document.getElementById("proxyObjectsOverlay").style.display = "none";
+              this.handleLinkToHandle(handle);
+            };
+            div.appendChild(showBtn);
+          }
+
+          // Copy DXF
+          const copyBtn = document.createElement("button");
+          copyBtn.textContent = "Copy DXF";
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(this.dxfParser.serializeNode(proxy));
+          };
+          div.appendChild(copyBtn);
+
+          // Raw Details
+          const detailsBtn = document.createElement("button");
+          detailsBtn.textContent = "Details";
+          const pre = document.createElement("pre");
+          pre.style.display = "none";
+          pre.style.background = "#f9f9f9";
+          pre.style.padding = "5px";
+          pre.textContent = this.dxfParser.serializeNode(proxy);
+          detailsBtn.onclick = () => {
+            pre.style.display = pre.style.display === "none" ? "block" : "none";
+          };
+          div.appendChild(detailsBtn);
+          div.appendChild(pre);
+
+          // Usages
+          const usages = handle ? handleToUsers.get(handle) || [] : [];
+          const usageTitle = document.createElement("p");
+          usageTitle.innerHTML = `<strong>Usages:</strong> ${usages.length}`;
+          div.appendChild(usageTitle);
+          if (usages.length > 0) {
+            const ul = document.createElement("ul");
+            for (const ref of usages) {
+              const li = document.createElement("li");
+              li.innerHTML = `${ref.node.type} at line ${ref.node.line} (code ${ref.prop.code}) `;
+
               const showLink = document.createElement("a");
               showLink.href = "#";
-              showLink.textContent = "Show in Tree";
-              showLink.style.marginLeft = "10px";
-              showLink.addEventListener("click", (e) => {
+              showLink.textContent = "Show";
+              showLink.onclick = (e) => {
                 e.preventDefault();
                 document.getElementById("proxyObjectsOverlay").style.display = "none";
-                this.handleLinkToHandle(node.handle);
-              });
-              div.appendChild(showLink);
+                if (ref.node.handle) {
+                  window.app.handleLinkToHandle(ref.node.handle);
+                } else {
+                  window.app.scrollToLineAfterTabOpen(ref.node.line);
+                }
+              };
+              li.appendChild(showLink);
+              ul.appendChild(li);
             }
-            listContainer.appendChild(div);
-          });
+            div.appendChild(ul);
+          }
+
+          listContainer.appendChild(div);
         }
+
         document.getElementById("proxyObjectsOverlay").style.display = "block";
       }
-      
+
       updateFonts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
