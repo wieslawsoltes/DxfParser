@@ -1076,47 +1076,35 @@
         return { objects, nextIndex: i };
       }
       
-      groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine = null) {
+groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine = null) {
   const objects = [];
-  // The stack holds previous contexts when entering a container.
   const stack = [];
-  // Our current context:
   let current = {
-    // "children" is where nodes (entities) for this level are collected.
     children: objects,
-    // If we are inside a container, this is the expected end marker (e.g. "ENDSEC")
     expectedEndMarker: endMarker,
-    // Track the highest non‑empty line number seen in this grouping.
     lastNonEmptyLine: containerStartLine !== null ? containerStartLine : 0,
-    // For container contexts, store the container entity so that later trailing property tags
-    // (those immediately following its children) can be attached.
-    containerNode: null
+    containerNode: null,
+    parentType: null
   };
 
   let i = startIndex;
   while (i < tags.length) {
     const tag = tags[i];
-    // Update lastNonEmptyLine if this tag’s value is not empty.
     if (tag.value.trim() !== "") {
       current.lastNonEmptyLine = Math.max(current.lastNonEmptyLine, tag.line);
     }
 
-    // If the tag is not a start-of-entity (code !== 0), skip it.
     if (tag.code !== 0) {
       i++;
       continue;
     }
 
-    // (At this point tag.code === 0.)
     const tagValue = tag.value.trim();
     const tagValueU = tagValue.toUpperCase();
 
-    // ─── 1. Check if we have reached the expected end marker for the current container ─────
     if (current.expectedEndMarker && tagValueU === current.expectedEndMarker) {
-      // Update lastNonEmptyLine with this end marker.
       current.lastNonEmptyLine = Math.max(current.lastNonEmptyLine, tag.line);
 
-      // Create an end‑marker node.
       const endNode = {
         id: this.nextId++,
         type: tag.value,
@@ -1128,9 +1116,7 @@
         expanded: false
       };
 
-      i++; // move past the end marker tag
-
-      // Collect any additional property tags that immediately follow the end marker.
+      i++;
       while (i < tags.length && tags[i].code !== 0) {
         const propTag = tags[i];
         if (propTag.value.trim() !== "") {
@@ -1139,18 +1125,19 @@
         endNode.properties.push(propTag);
         i++;
       }
-      // Append the end marker node to the current container’s children.
+
       current.children.push(endNode);
 
-      // ─── If we are finishing a container, then attach any trailing property tags
-      // to the container entity (just like the recursive version does) ───────────────
       let finishedContext = current;
       let finishedContainer = finishedContext.containerNode;
-      // Pop the previous context from the stack (if any).
-      current = stack.length > 0 ? stack.pop() : { children: objects, expectedEndMarker: null, lastNonEmptyLine: finishedContext.lastNonEmptyLine, containerNode: null };
+      current = stack.length > 0 ? stack.pop() : {
+        children: objects,
+        expectedEndMarker: null,
+        lastNonEmptyLine: finishedContext.lastNonEmptyLine,
+        containerNode: null,
+        parentType: null
+      };
 
-      // After closing a container, there may be extra property tags (until the next entity)
-      // that should be attached to the container entity.
       while (i < tags.length && tags[i].code !== 0) {
         const extraProp = tags[i];
         if (extraProp.value.trim() !== "") {
@@ -1161,10 +1148,10 @@
         }
         i++;
       }
-      continue; // proceed with next tag
+
+      continue;
     }
 
-    // ─── 2. Check for EOF marker ─────────────────────────────
     if (tagValueU === "EOF") {
       const eofNode = {
         id: this.nextId++,
@@ -1181,7 +1168,6 @@
       continue;
     }
 
-    // ─── 3. Process a new entity (a tag with code 0 that isn’t an end marker) ───
     const entity = {
       id: this.nextId++,
       type: tag.value,
@@ -1190,12 +1176,11 @@
       properties: [],
       children: [],
       expanded: false,
-      isContainer: !!this.containerMapping[tag.value.toUpperCase()]
+      isContainer: !!this.containerMapping[tag.value.toUpperCase()],
+      parentType: current.containerNode?.type || null // ⭐ Add parentType reference here
     };
-    // (Note: current.lastNonEmptyLine already updated above for tag.value.)
     i++;
 
-    // Collect any following property tags (all tags with code !== 0).
     while (i < tags.length && tags[i].code !== 0) {
       const propTag = tags[i];
       if (propTag.value.trim() !== "") {
@@ -1205,35 +1190,27 @@
       i++;
     }
 
-    // Look for a handle property among the collected properties.
     const handleProp = entity.properties.find(prop => isHandleCode(prop.code));
     if (handleProp) {
       entity.handle = handleProp.value;
     }
 
-    // ─── 4. If the entity is a container, set up a new context for its children ───
     if (entity.isContainer) {
-      // Push the current context on the stack.
       stack.push(current);
-      // Add this container entity to the parent's children.
-      // (The parent's context is now the one on the top of the stack.)
       const parentContext = stack[stack.length - 1];
       parentContext.children.push(entity);
-      // Now create a new context for the container’s children.
       current = {
         children: entity.children,
         expectedEndMarker: this.containerMapping[entity.type.toUpperCase()],
         lastNonEmptyLine: entity.line,
-        containerNode: entity
+        containerNode: entity,
+        parentType: entity.type // Pass down the parent type
       };
     } else {
-      // If not a container, simply add the entity to the current children.
       current.children.push(entity);
     }
-  } // end while
+  }
 
-  // ─── After processing all tags, if the current context was expecting an end marker,
-  // create a synthetic end marker.
   while (true) {
     if (current.expectedEndMarker) {
       const syntheticLine = current.lastNonEmptyLine + 1;
@@ -1684,7 +1661,8 @@
                 dataDiv.textContent = node.type + " (ID=" + node.classId + ")";
               } else {
                 // For other node types, just show the type (and any section name for SECTION nodes).
-                if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "TABLE") {
+                if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "TABLE" ||
+                    node.parentType?.toUpperCase() === "TABLE") {
                   let nameValue = "";
                   if (node.properties) {
                     for (const prop of node.properties) {
