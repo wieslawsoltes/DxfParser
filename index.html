@@ -1661,7 +1661,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                 dataDiv.textContent = node.type + " (ID=" + node.classId + ")";
               } else {
                 // For other node types, just show the type (and any section name for SECTION nodes).
-                if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "TABLE" ||
+                if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "BLOCK" || node.type.toUpperCase() === "TABLE" ||
                     node.parentType?.toUpperCase() === "TABLE") {
                   let nameValue = "";
                   if (node.properties) {
