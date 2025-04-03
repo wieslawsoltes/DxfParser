@@ -2505,11 +2505,13 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       populateObjectTypeDropdown() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
-        let types = new Set();
+
+        // Build a count for each object type.
+        let typeCounts = {};
         function traverse(nodes) {
           nodes.forEach(node => {
             if (!node.isProperty && node.type) {
-              types.add(node.type);
+              typeCounts[node.type] = (typeCounts[node.type] || 0) + 1;
             }
             if (node.children && node.children.length > 0) {
               traverse(node.children);
@@ -2517,6 +2519,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           });
         }
         activeTab.originalTreeData.forEach(node => traverse([node]));
+
         const container = document.getElementById("objectTypeDropdownContent");
         container.innerHTML = ""; // Clear existing options
 
@@ -2539,9 +2542,10 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         selectAllLabel.appendChild(document.createTextNode(" Select All"));
         container.appendChild(selectAllLabel);
 
-        const sortedTypes = Array.from(types).sort();
-        
-        // Create a checkbox for each type.
+        // Sort the types alphabetically.
+        const sortedTypes = Object.keys(typeCounts).sort();
+
+        // Create a checkbox for each type with its count.
         sortedTypes.forEach(type => {
           const label = document.createElement("label");
           const checkbox = document.createElement("input");
@@ -2556,7 +2560,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             this.updateObjectTypeDropdownButton();
           });
           label.appendChild(checkbox);
-          label.appendChild(document.createTextNode(" " + type));
+          // Append the object type with its count, e.g. "LINE (30)"
+          label.appendChild(document.createTextNode(" " + type + " (" + typeCounts[type] + ")"));
           container.appendChild(label);
         });
         this.updateObjectTypeDropdownButton();
