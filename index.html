@@ -388,6 +388,42 @@
     #imagePreviewContainer, #zipContentsContainer {
       margin-top: 10px;
     }
+    /* Dropdown with checkboxes styling */
+    .dropdown {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+    }
+
+    #objectTypeDropdownButton {
+      width: 100%;
+      text-align: left;
+      padding: 5px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      cursor: pointer;
+    }
+
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      background-color: #fff;
+      min-width: 100%;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      z-index: 10;
+    }
+
+    .dropdown-content label {
+      display: block;
+      padding: 5px;
+      cursor: pointer;
+    }
+
+    .dropdown-content label:hover {
+      background-color: #f1f1f1;
+    }
     /* Responsive adjustments for mobile */
     @media (max-width: 600px) {
       .filter-content .filter-row {
@@ -454,6 +490,15 @@
             <div class="filter-row">
               <div id="dataSearchTags" class="tag-container">
                 <input type="text" id="dataSearchInput" placeholder="Search by Data value">
+              </div>
+            </div>
+            <div class="filter-row">
+              <label>Object Types:</label>
+              <div id="objectTypeDropdown" class="dropdown">
+                <button id="objectTypeDropdownButton">All Types</button>
+                <div id="objectTypeDropdownContent" class="dropdown-content">
+                  <!-- Options with checkboxes will be populated dynamically -->
+                </div>
               </div>
             </div>
             <div class="filter-row">
@@ -2397,7 +2442,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           }
         });
       }
-      
+
       updateEffectiveSearchTerms() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2413,12 +2458,28 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
           effectiveDataSearchTerms.push(dataText);
         }
-        const minLine = document.getElementById("minLineInput").value.trim() !== "" ? parseInt(document.getElementById("minLineInput").value.trim(), 10) : null;
-        const maxLine = document.getElementById("maxLineInput").value.trim() !== "" ? parseInt(document.getElementById("maxLineInput").value.trim(), 10) : null;
+        const minLine = document.getElementById("minLineInput").value.trim() !== ""
+          ? parseInt(document.getElementById("minLineInput").value.trim(), 10)
+          : null;
+        const maxLine = document.getElementById("maxLineInput").value.trim() !== ""
+          ? parseInt(document.getElementById("maxLineInput").value.trim(), 10)
+          : null;
         activeTab.minLine = minLine;
         activeTab.maxLine = maxLine;
         activeTab.dataExact = document.getElementById("dataExactCheckbox").checked;
         activeTab.dataCase = document.getElementById("dataCaseCheckbox").checked;
+
+        // Get the selected object types from the dropdown checkboxes.
+        const container = document.getElementById("objectTypeDropdownContent");
+        const checkboxes = container.querySelectorAll("input[type='checkbox']");
+        const selectedTypes = [];
+        checkboxes.forEach(cb => {
+          if (cb.checked) {
+            selectedTypes.push(cb.value);
+          }
+        });
+        activeTab.selectedObjectTypes = selectedTypes;
+
         activeTab.currentTreeData = this.filterTree(
           activeTab.originalTreeData,
           activeTab.codeSearchTerms,
@@ -2426,7 +2487,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           activeTab.dataExact,
           activeTab.dataCase,
           activeTab.minLine,
-          activeTab.maxLine
+          activeTab.maxLine,
+          selectedTypes // Pass selected types into the filter
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
@@ -2435,7 +2497,84 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
       
       getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
-      
+
+      populateObjectTypeDropdown() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        let types = new Set();
+        function traverse(nodes) {
+          nodes.forEach(node => {
+            if (!node.isProperty && node.type) {
+              types.add(node.type);
+            }
+            if (node.children && node.children.length > 0) {
+              traverse(node.children);
+            }
+          });
+        }
+        activeTab.originalTreeData.forEach(node => traverse([node]));
+        const container = document.getElementById("objectTypeDropdownContent");
+        container.innerHTML = ""; // Clear existing options
+
+        // Add a "Select All / Deselect All" header option.
+        const selectAllLabel = document.createElement("label");
+        selectAllLabel.style.fontWeight = "bold";
+        const selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.checked = true; // Default: all types are selected.
+        selectAllCheckbox.addEventListener("change", () => {
+          // When toggled, set every type checkbox to the same state.
+          container.querySelectorAll("input[type='checkbox']").forEach((cb, index) => {
+            // Skip the first checkbox which is our "Select All"
+            if (index > 0) { cb.checked = selectAllCheckbox.checked; }
+          });
+          this.updateEffectiveSearchTerms();
+          this.updateObjectTypeDropdownButton();
+        });
+        selectAllLabel.appendChild(selectAllCheckbox);
+        selectAllLabel.appendChild(document.createTextNode(" Select All"));
+        container.appendChild(selectAllLabel);
+
+        const sortedTypes = Array.from(types).sort();
+        
+        // Create a checkbox for each type.
+        sortedTypes.forEach(type => {
+          const label = document.createElement("label");
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.value = type;
+          checkbox.checked = true; // Default to selected.
+          checkbox.addEventListener("change", () => {
+            // When any type is toggled, update the "Select All" checkbox.
+            const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
+            selectAllCheckbox.checked = allTypeCheckboxes.every(cb => cb.checked);
+            this.updateEffectiveSearchTerms();
+            this.updateObjectTypeDropdownButton();
+          });
+          label.appendChild(checkbox);
+          label.appendChild(document.createTextNode(" " + type));
+          container.appendChild(label);
+        });
+        this.updateObjectTypeDropdownButton();
+      }
+
+      updateObjectTypeDropdownButton() {
+        const container = document.getElementById("objectTypeDropdownContent");
+        const checkboxes = container.querySelectorAll("input[type='checkbox']");
+        const selected = [];
+        checkboxes.forEach(cb => {
+          if (cb.checked) selected.push(cb.value);
+        });
+        const button = document.getElementById("objectTypeDropdownButton");
+        if (selected.length === checkboxes.length) {
+          button.textContent = "All Types";
+        } else if (selected.length === 0) {
+          button.textContent = "None Selected";
+        } else {
+          button.textContent = selected.join(", ");
+        }
+      }
+ 
       updateTabUI() {
         const tabContainer = document.getElementById("tabContainer");
         tabContainer.innerHTML = "";
@@ -2471,6 +2610,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           tabElem.appendChild(closeBtn);
           tabContainer.appendChild(tabElem);
         });
+        this.populateObjectTypeDropdown();
         this.updateNavHistoryUI();
         this.updateNavButtons();
       }
@@ -2505,7 +2645,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           activeTab.dataExact,
           activeTab.dataCase,
           activeTab.minLine,
-          activeTab.maxLine
+          activeTab.maxLine,
+          activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
@@ -2525,7 +2666,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           activeTab.dataExact,
           activeTab.dataCase,
           activeTab.minLine,
-          activeTab.maxLine
+          activeTab.maxLine,
+          activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
@@ -2547,7 +2689,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             activeTab.dataExact,
             activeTab.dataCase,
             activeTab.minLine,
-            activeTab.maxLine
+            activeTab.maxLine,
+            activeTab.selectedObjectTypes
           );
           this.myTreeGrid.setData(activeTab.currentTreeData);
         }
@@ -2657,7 +2800,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           activeTab.dataExact,
           activeTab.dataCase,
           activeTab.minLine,
-          activeTab.maxLine
+          activeTab.maxLine,
+          activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
       }
@@ -2682,17 +2826,18 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.addEventListener("mousemove", onMouseMove);
         document.addEventListener("mouseup", onMouseUp);
       }
-      
-      filterTree(objects, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
+
+      filterTree(objects, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes) {
         const filtered = [];
         objects.forEach(obj => {
-          const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine);
+          const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes);
           if (filteredObj !== null) { filtered.push(filteredObj); }
         });
         return filtered;
       }
-      
-      filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine) {
+
+      filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes) {
+        // Determine if this node’s line number falls within the min/max range.
         let nodeLine = parseInt(obj.line, 10);
         let lineMatches = true;
         if (minLine != null && !isNaN(minLine)) {
@@ -2701,6 +2846,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         if (maxLine != null && !isNaN(maxLine)) {
           if (isNaN(nodeLine) || nodeLine > maxLine) lineMatches = false;
         }
+
+        // Filter properties based on min/max and code/data filters.
         const filteredProperties = obj.properties.filter(prop => {
           let propLine = parseInt(prop.line, 10);
           if (minLine != null && !isNaN(minLine)) {
@@ -2727,10 +2874,13 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           }
           return codeMatch && dataMatch;
         });
-        const filteredChildren = obj.children
-          .map(child => this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine))
+
+        // Recursively filter children.
+        const filteredChildren = (obj.children || [])
+          .map(child => this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes))
           .filter(child => child !== null);
-        const codeFilterActive = codeTerms.length > 0;
+
+        // For data filtering: if any data search terms are active, check whether the node’s type matches.
         const dataFilterActive = dataTerms.length > 0;
         let typeMatchesData = false;
         if (dataFilterActive) {
@@ -2746,32 +2896,43 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             );
           }
         }
-        if (!codeFilterActive && !dataFilterActive) {
-          if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
+
+        // Check if the node’s type matches any of the selected object types.
+        let typeMatchesFilter = true;
+        if (objectTypes && objectTypes.length > 0) {
+          typeMatchesFilter = objectTypes.some(filterType =>
+            obj.type.toLowerCase() === filterType.toLowerCase()
+          );
+        }
+
+        // NEW: If an object type filter is active, drop this node if:
+        //   • It does not match the filter (i.e. typeMatchesFilter is false)
+        //   • And it has no children that survive filtering.
+        if (objectTypes && objectTypes.length > 0) {
+          if (!typeMatchesFilter && filteredChildren.length === 0) {
             return null;
           }
-          return {
-            ...obj,
-            properties: filteredProperties,
-            children: filteredChildren
-          };
         }
-        if (codeFilterActive && filteredProperties.length === 0 && filteredChildren.length === 0) {
-          return null;
-        }
+
+        // If a data filter is active but nothing in the node (or its children/properties) matches, drop it.
         if (dataFilterActive && !(typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0)) {
           return null;
         }
+
+        // If the node’s own line is out of range and there are no matching children or properties, drop it.
         if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
           return null;
         }
+
+        // Otherwise, return the node (with filtered properties and children).
         return {
           ...obj,
+          expanded: obj.expanded,
           properties: filteredProperties,
           children: filteredChildren
         };
       }
-      
+
       handleCopy(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -2942,7 +3103,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             activeTab.dataExact,
             activeTab.dataCase,
             activeTab.minLine,
-            activeTab.maxLine
+            activeTab.maxLine,
+            activeTab.selectedObjectTypes
           );
           this.myTreeGrid.setData(activeTab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
@@ -3034,10 +3196,23 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       handleClearSearch() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
+
+        // Clear search-related terms
         activeTab.codeSearchTerms = [];
         activeTab.dataSearchTerms = [];
         activeTab.minLine = null;
         activeTab.maxLine = null;
+
+        // Reset the object type filter:
+        // Get the container holding the checkboxes and set them all to checked.
+        const objectTypeContainer = document.getElementById("objectTypeDropdownContent");
+        const checkboxes = objectTypeContainer.querySelectorAll("input[type='checkbox']");
+        checkboxes.forEach(cb => cb.checked = true);
+
+        // Update the active tab to include all types.
+        activeTab.selectedObjectTypes = Array.from(checkboxes).map(cb => cb.value);
+
+        // Update the UI for the tag containers and dropdown button.
         this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
         this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
         document.getElementById("codeSearchInput").value = "";
@@ -3046,6 +3221,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("dataCaseCheckbox").checked = false;
         document.getElementById("minLineInput").value = "";
         document.getElementById("maxLineInput").value = "";
+        this.updateObjectTypeDropdownButton();
+
+        // Re-filter the tree including the reset object type filter.
         activeTab.currentTreeData = this.filterTree(
           activeTab.originalTreeData,
           activeTab.codeSearchTerms,
@@ -3053,7 +3231,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           false,
           false,
           null,
-          null
+          null,
+          activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
@@ -5483,6 +5662,16 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
     }
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
+      
+      document.getElementById("objectTypeDropdownButton").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const dropdownContent = document.getElementById("objectTypeDropdownContent");
+        dropdownContent.style.display = (dropdownContent.style.display === "block") ? "none" : "block";
+      });
+      document.addEventListener("click", () => {
+        const dropdownContent = document.getElementById("objectTypeDropdownContent");
+        dropdownContent.style.display = "none";
+      });
       
       // DRAG & DROP SUPPORT:
       // Prevent default drag behaviors on document
