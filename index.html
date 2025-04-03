@@ -31,6 +31,7 @@
       padding: 1em;
       border-right: 1px solid #ccc;
       overflow-y: auto;
+      overflow-x: visible;
     }
     /* Sidebar Logo */
     .sidebar-logo h1 {
@@ -391,6 +392,7 @@
     /* Dropdown with checkboxes styling */
     .dropdown {
       position: relative;
+      overflow: visible;
       display: inline-block;
       width: 100%;
     }
@@ -405,6 +407,7 @@
     }
 
     .dropdown-content {
+      position: absolute;
       display: none;
       position: absolute;
       background-color: #fff;
@@ -412,7 +415,8 @@
       max-height: 200px;
       overflow-y: auto;
       border: 1px solid #ccc;
-      z-index: 10;
+      top: 100%;  /* Position immediately below the button */left: 0;
+      z-index: 1000;  /* Bring it above other elements */
     }
 
     .dropdown-content label {
