@@ -1538,7 +1538,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                     isProperty: true,
                     line: prop.line,
                     code: prop.code,
-                    data: prop.value
+                    data: prop.value,
+                    propRef: prop,
+                    parentNode: node
                   },
                   level: level + 1
                 });
@@ -1580,6 +1582,37 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           }
         }
         return size;
+      }
+
+      makeDataEditable(dataDiv, node) {
+        const originalValue = node.data || "";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = originalValue;
+        input.style.width = "100%";
+        dataDiv.innerHTML = "";
+        dataDiv.appendChild(input);
+        input.focus();
+
+        const finishEdit = (commit) => {
+          if (commit) {
+            const newValue = input.value;
+            node.data = newValue;
+            if (node.propRef) node.propRef.value = newValue;
+          }
+          dataDiv.innerHTML = "";
+          dataDiv.textContent = node.data;
+          this.updateVisibleNodes();
+        };
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            finishEdit(true);
+          } else if (e.key === "Escape") {
+            finishEdit(false);
+          }
+        });
+        input.addEventListener("blur", () => finishEdit(true));
       }
 
       updateVisibleNodes() {
@@ -1680,6 +1713,12 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           dataDiv.className = "tree-data";
           dataDiv.style.width = dataWidth + "px";
           dataDiv.style.flex = "0 0 auto";
+          if (node.isProperty) {
+            dataDiv.addEventListener("dblclick", (e) => {
+              e.stopPropagation();
+              this.makeDataEditable(dataDiv, node);
+            });
+          }
           // When rendering a row…
           if (node.isProperty) {
             // If this property’s code is one of the handle codes,
