@@ -1715,7 +1715,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                     }
                   }
                 }
-                dataDiv.textContent = (className || node.type) + " (ID=" + node.classId + ")";
+                dataDiv.textContent = node.type + " (" + className + ") " + " (ID=" + node.classId + ")";
               } else {
                 // For other node types, just show the type (and any section name for SECTION nodes).
                 if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "BLOCK" || node.type.toUpperCase() === "TABLE" ||
