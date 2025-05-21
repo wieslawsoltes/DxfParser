@@ -75,6 +75,12 @@
       align-items: center;
       margin-bottom: 1em;
     }
+    /* Row add/remove controls */
+    .row-controls {
+      display: flex;
+      margin-bottom: 1em;
+    }
+    .row-controls button { margin-right: 4px; }
     /* Left part: Handle Navigation */
     #handleNavBar {
       display: flex;
@@ -558,6 +564,11 @@
             </div>
             <div id="navHistoryList"></div>
           </div>
+        </div>
+        <!-- Row add/remove controls -->
+        <div id="rowControls" class="row-controls">
+          <button id="addRowBtn">Add Row</button>
+          <button id="removeRowBtn">Remove Row</button>
         </div>
         <!-- Tabs -->
         <div id="tabContainer"></div>
@@ -1307,6 +1318,20 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         return null;
       }
 
+      findParentByIdIterative(tree, id) {
+        const stack = tree.map(n => ({ node: n, parent: null }));
+        while (stack.length) {
+          const { node, parent } = stack.pop();
+          if (String(node.id) === String(id)) {
+            return parent;
+          }
+          if (node.children && node.children.length > 0) {
+            node.children.forEach(child => stack.push({ node: child, parent: node }));
+          }
+        }
+        return null;
+      }
+
       serializeNode(node) {
         let lines = [];
         lines.push("0");
@@ -1615,6 +1640,37 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         input.addEventListener("blur", () => finishEdit(true));
       }
 
+      makeCodeEditable(codeDiv, node) {
+        const originalValue = node.code != null ? node.code : "";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = originalValue;
+        input.style.width = "100%";
+        codeDiv.innerHTML = "";
+        codeDiv.appendChild(input);
+        input.focus();
+
+        const finishEdit = (commit) => {
+          if (commit) {
+            const newValue = input.value;
+            node.code = newValue;
+            if (node.propRef) node.propRef.code = newValue;
+          }
+          codeDiv.innerHTML = "";
+          codeDiv.textContent = node.code;
+          this.updateVisibleNodes();
+        };
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            finishEdit(true);
+          } else if (e.key === "Escape") {
+            finishEdit(false);
+          }
+        });
+        input.addEventListener("blur", () => finishEdit(true));
+      }
+
       updateVisibleNodes() {
         const scrollTop = this.container.scrollTop;
         const containerHeight = this.container.clientHeight;
@@ -1700,6 +1756,12 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           codeDiv.className = "tree-code";
           codeDiv.style.width = codeWidth + "px";
           codeDiv.style.textAlign = "left";
+          if (node.isProperty) {
+            codeDiv.addEventListener("dblclick", (e) => {
+              e.stopPropagation();
+              this.makeCodeEditable(codeDiv, node);
+            });
+          }
           // For properties or end markers we normally display the code.
           if (node.isProperty || node.isEndMarker) {
             codeDiv.textContent = node.code;
@@ -2285,6 +2347,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.activeTabId = null;
         this.currentBinaryData = null;
         this.currentDetectedType = null;
+        this.selectedNodeId = null;
             // We'll cache the measured hex line height here.
     this.hexLineHeight = null;
         // Create the TreeDataGrid instance and pass columnWidths via the constructor.
@@ -2294,7 +2357,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           openCallback: (nodeId) => this.handleOpen(nodeId),  // <-- new callback for "Open" button
           onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
-          onRowSelect: (nodeId) => console.log("Row selected:", nodeId),
+          onRowSelect: (nodeId) => { this.selectedNodeId = nodeId; },
           columnWidths: this.columnWidths,
           hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
         });
@@ -2309,6 +2372,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
+        document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
+        document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
         document.querySelectorAll('.header-cell').forEach(headerCell => {
           headerCell.addEventListener('click', (e) => {
             if (e.target.classList.contains('resizer')) return;
@@ -3033,7 +3098,56 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.updateTabUI();
         this.myTreeGrid.setData(newTab.currentTreeData);
       }
-      
+
+      handleAddRow() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab || !this.selectedNodeId) return;
+        const selected = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, this.selectedNodeId);
+        if (!selected) return;
+        if (selected.isProperty) {
+          const parent = selected.parentNode;
+          if (!parent) return;
+          const index = parent.properties.indexOf(selected.propRef);
+          const newProp = { line: '', code: '', value: '' };
+          parent.properties.splice(index + 1, 0, newProp);
+        } else {
+          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, selected.id);
+          const newNode = { id: this.dxfParser.nextId++, type: 'NEW', line: '', code: 0, properties: [], children: [], expanded: false };
+          if (parent) {
+            const idx = parent.children.indexOf(selected);
+            parent.children.splice(idx + 1, 0, newNode);
+          } else {
+            const idx = activeTab.originalTreeData.indexOf(selected);
+            activeTab.originalTreeData.splice(idx + 1, 0, newNode);
+          }
+        }
+        this.updateEffectiveSearchTerms();
+      }
+
+      handleRemoveRow() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab || !this.selectedNodeId) return;
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, this.selectedNodeId);
+        if (!node) return;
+        if (node.isProperty) {
+          const parent = node.parentNode;
+          if (!parent) return;
+          const idx = parent.properties.indexOf(node.propRef);
+          if (idx >= 0) parent.properties.splice(idx, 1);
+        } else {
+          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, node.id);
+          if (parent) {
+            const idx = parent.children.indexOf(node);
+            if (idx >= 0) parent.children.splice(idx, 1);
+          } else {
+            const idx = activeTab.originalTreeData.indexOf(node);
+            if (idx >= 0) activeTab.originalTreeData.splice(idx, 1);
+          }
+        }
+        this.selectedNodeId = null;
+        this.updateEffectiveSearchTerms();
+      }
+
       async parseFileStream(file) {
         const reader = file.stream().getReader();
         const decoder = new TextDecoder("ascii");
