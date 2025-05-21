@@ -1706,7 +1706,16 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             // If the node is a CLASS, append the (ID=…) text.
             if (node.type) {
               if (node.type.toUpperCase() === "CLASS" && node.classId !== undefined) {
-                dataDiv.textContent = node.type + " (ID=" + node.classId + ")";
+                let className = "";
+                if (node.properties) {
+                  for (const prop of node.properties) {
+                    if (Number(prop.code) === 1) {
+                      className = prop.value;
+                      break;
+                    }
+                  }
+                }
+                dataDiv.textContent = (className || node.type) + " (ID=" + node.classId + ")";
               } else {
                 // For other node types, just show the type (and any section name for SECTION nodes).
                 if (node.type.toUpperCase() === "SECTION" || node.type.toUpperCase() === "BLOCK" || node.type.toUpperCase() === "TABLE" ||
