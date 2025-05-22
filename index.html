@@ -569,6 +569,7 @@
         <div id="rowControls" class="row-controls">
           <button id="addRowBtn">Add Row</button>
           <button id="removeRowBtn">Remove Row</button>
+          <button id="downloadDxfBtn">Download DXF</button>
         </div>
         <!-- Tabs -->
         <div id="tabContainer"></div>
@@ -1348,13 +1349,17 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           const lastChild = node.children[node.children.length - 1];
           if (!lastChild.isEndMarker) {
             const endMarker = this.containerMapping[node.type.toUpperCase()];
-            if (endMarker) { 
-              lines.push("0"); 
-              lines.push(endMarker); 
+            if (endMarker) {
+              lines.push("0");
+              lines.push(endMarker);
             }
           }
         }
         return lines.join("\n");
+      }
+
+      serializeTree(nodes) {
+        return nodes.map(n => this.serializeNode(n)).join("\n");
       }
     }
   </script>
@@ -2379,6 +2384,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
         document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
         document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
+        document.getElementById("downloadDxfBtn").addEventListener("click", () => this.handleDownloadDxf());
         document.querySelectorAll('.header-cell').forEach(headerCell => {
           headerCell.addEventListener('click', (e) => {
             if (e.target.classList.contains('resizer')) return;
@@ -3151,6 +3157,21 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         }
         this.selectedNodeId = null;
         this.updateEffectiveSearchTerms();
+      }
+
+      handleDownloadDxf() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        const dxfText = this.dxfParser.serializeTree(activeTab.originalTreeData);
+        const blob = new Blob([dxfText], { type: "application/dxf" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = activeTab.name || "download.dxf";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       }
 
       async parseFileStream(file) {
