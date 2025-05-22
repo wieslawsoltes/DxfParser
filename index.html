@@ -571,6 +571,10 @@
           <button id="removeRowBtn">Remove Row</button>
           <button id="downloadDxfBtn">Download DXF</button>
         </div>
+        <!-- Tree Export Controls -->
+        <div id="treeExportControls" class="row-controls">
+          <button id="downloadTreeExcelBtn">Download Tree as Excel</button>
+        </div>
         <!-- Tabs -->
         <div id="tabContainer"></div>
         <!-- Tree Grid Header -->
@@ -2490,6 +2494,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           document.getElementById("batchJsQuery").value = this.value;
         });
         document.getElementById("downloadExcelBtn").addEventListener("click", () => this.downloadBatchResultsAsExcel());
+        document.getElementById("downloadTreeExcelBtn").addEventListener("click", () => this.downloadTreeAsExcel());
         document.getElementById("showDiffOverlayBtn").addEventListener("click", () => {
         document.getElementById("diffOverlay").style.display = "block";
         });
@@ -5514,6 +5519,41 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         });
         XLSX.writeFile(workbook, "batch_results.xlsx");
+      }
+
+      downloadTreeAsExcel() {
+        const workbook = XLSX.utils.book_new();
+        const ws_data = [["Line", "Code", "Data", "Object Count", "Data Size"]];
+        this.myTreeGrid.flatData.forEach(({ node, level }) => {
+          const line = node.line || "";
+          let codeVal = "";
+          if (node.isProperty || node.isEndMarker) {
+            codeVal = node.code;
+          } else if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
+            codeVal = "0";
+          } else {
+            codeVal = "";
+          }
+          let dataVal = "";
+          if (node.isProperty) {
+            dataVal = node.data;
+          } else {
+            dataVal = node.type || "";
+          }
+          dataVal = " ".repeat(level * 2) + dataVal;
+          let objectCount = "";
+          if (!node.isProperty && node.children && node.children.length) {
+            objectCount = this.myTreeGrid.computeObjectCount(node);
+          }
+          const dataSize = this.myTreeGrid.computeDataSize(node);
+          ws_data.push([line, codeVal, dataVal, objectCount, dataSize]);
+        });
+        const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
+        const numCols = ws_data[0].length;
+        const range = "A1:" + XLSX.utils.encode_col(numCols - 1) + ws_data.length;
+        worksheet["!autofilter"] = { ref: range };
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Tree");
+        XLSX.writeFile(workbook, "tree_data.xlsx");
       }
  
       // Create a simple hash from an array of properties.
