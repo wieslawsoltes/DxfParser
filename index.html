@@ -1844,7 +1844,12 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
               const classProp = node.properties.find(prop => Number(prop.code) === 91);
               if (classProp) {
                 const spanClass = document.createElement("span");
-                spanClass.textContent = " (CLASS ID=" + classProp.value + ") ";
+                const clsName = window.app.getClassNameById(Number(classProp.value));
+                spanClass.textContent =
+                  " (CLASS ID=" +
+                  classProp.value +
+                  (clsName ? " (" + clsName + ")" : "") +
+                  ") ";
                 spanClass.style.textDecoration = "underline";
                 spanClass.style.color = "blue";
                 spanClass.style.cursor = "pointer";
@@ -3184,7 +3189,40 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           }
           if (useStream && file.stream) {
             this.parseFileStream(file)
-              .then(objects => {
+                .then(objects => {
+                  const newTab = {
+                    id: Date.now() + Math.random(),
+                    name: file.name,
+                    originalTreeData: objects,
+                    currentTreeData: objects,
+                    codeSearchTerms: [],
+                    dataSearchTerms: [],
+                    currentSortField: "line",
+                    currentSortAscending: true,
+                    minLine: null,
+                    maxLine: null,
+                    dataExact: false,
+                    dataCase: false,
+                    navigationHistory: [],
+                    currentHistoryIndex: -1,
+                    classIdToName: {}
+                  };
+                  this.tabs.push(newTab);
+                  this.activeTabId = newTab.id;
+                  // Initialize class mapping before displaying data
+                  this.updateClasses();
+                  this.updateTabUI();
+                  this.myTreeGrid.setData(newTab.currentTreeData);
+                })
+              .catch(err => {
+                console.error("Error during streamed parsing:", err);
+                alert("Error during streamed parsing.");
+              });
+          } else {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const text = event.target.result;
+              const objects = this.dxfParser.parse(text);
                 const newTab = {
                   id: Date.now() + Math.random(),
                   name: file.name,
@@ -3199,38 +3237,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                   dataExact: false,
                   dataCase: false,
                   navigationHistory: [],
-                  currentHistoryIndex: -1
+                  currentHistoryIndex: -1,
+                  classIdToName: {}
                 };
-                this.tabs.push(newTab);
-                this.activeTabId = newTab.id;
-                this.updateTabUI();
-                this.myTreeGrid.setData(newTab.currentTreeData);
-              })
-              .catch(err => {
-                console.error("Error during streamed parsing:", err);
-                alert("Error during streamed parsing.");
-              });
-          } else {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const text = event.target.result;
-              const objects = this.dxfParser.parse(text);
-              const newTab = {
-                id: Date.now() + Math.random(),
-                name: file.name,
-                originalTreeData: objects,
-                currentTreeData: objects,
-                codeSearchTerms: [],
-                dataSearchTerms: [],
-                currentSortField: "line",
-                currentSortAscending: true,
-                minLine: null,
-                maxLine: null,
-                dataExact: false,
-                dataCase: false,
-                navigationHistory: [],
-                currentHistoryIndex: -1
-              };
               this.tabs.push(newTab);
               this.activeTabId = newTab.id;
               // Call updateClasses() now so that CLASS nodes get their classId set.
@@ -4430,6 +4439,12 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         }
       }
 
+      getClassNameById(classId) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab || !activeTab.classIdToName) return "";
+        return activeTab.classIdToName[classId] || "";
+      }
+
       updateClasses() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -4486,6 +4501,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         if (classes.length === 0) {
           html += "<p>No classes found in the DXF data.</p>";
         } else {
+          activeTab.classIdToName = {};
           // Initialize the class ID counter to 500.
           let classId = 500;
           classes.forEach(cls => {
@@ -4512,6 +4528,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
               });
             }
             // Render the CLASS record with the assigned ID.
+            cls.className = recordName;
+            activeTab.classIdToName[classId] = recordName;
+
             html += `<div class="class-record" style="border:1px solid #ddd; border-radius:4px; margin:8px; padding:8px;">
                       <h3 style="margin-top:0;">${recordName || "Unnamed Class"} (ID=${classId})</h3>
                       <p><strong>C++ Class:</strong> ${cppClass || "N/A"}</p>
