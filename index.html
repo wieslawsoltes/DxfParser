@@ -9,6 +9,11 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js">
   </script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <!-- Dockable UI dependencies -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/golden-layout@1.5.9/src/css/goldenlayout-base.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/golden-layout@1.5.9/src/css/goldenlayout-light-theme.css">
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.4/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/golden-layout@1.5.9/dist/goldenlayout.min.js"></script>
   <style>
     /* Base Styles */
     html, body { height: 100%; margin: 0; padding: 0; }
@@ -461,7 +466,8 @@
   </style>
 </head>
 <body>
-  <div class="main-container">
+  <div id="layoutContainer" style="height:100vh;"></div>
+  <div id="originalLayout" class="main-container" style="display:none;">
     <!-- Main content wrapper with sidebar and main content -->
     <div class="content-wrapper">
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
@@ -5907,8 +5913,27 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           });
       }
     }
-    document.addEventListener("DOMContentLoaded", () => { 
+    document.addEventListener("DOMContentLoaded", () => {
       window.app = new App();
+
+      // Initialize dockable UI using Golden Layout
+      const layoutConfig = {
+        content: [{
+          type: 'row',
+          content: [
+            { type: 'component', componentName: 'sidebarComp', width: 20, title: 'Sidebar' },
+            { type: 'component', componentName: 'mainComp', width: 80, title: 'Main' }
+          ]
+        }]
+      };
+      const myLayout = new GoldenLayout(layoutConfig, $('#layoutContainer'));
+      myLayout.registerComponent('sidebarComp', function(container, state) {
+        container.getElement().append($('#originalLayout .sidebar'));
+      });
+      myLayout.registerComponent('mainComp', function(container, state) {
+        container.getElement().append($('#originalLayout .main-content'));
+      });
+      myLayout.init();
       
       document.getElementById("objectTypeDropdownButton").addEventListener("click", (e) => {
         e.stopPropagation();
