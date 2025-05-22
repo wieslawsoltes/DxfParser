@@ -110,10 +110,7 @@
     #parseBtn { padding: 0.3em 0.6em; white-space: nowrap; }
     /* Tabs */
     #tabContainer {
-      display: flex;
-      flex-wrap: wrap;
-      border-bottom: 1px solid #ccc;
-      margin: 0.5em 0;
+      display: none;
     }
     .tab {
       padding: 0.5em 1em;
@@ -2365,7 +2362,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.currentBinaryData = null;
         this.currentDetectedType = null;
         this.selectedNodeId = null;
-            // We'll cache the measured hex line height here.
+        this.docContainers = {};
+        this.mainContent = document.querySelector('#originalLayout .main-content');
+        // We'll cache the measured hex line height here.
     this.hexLineHeight = null;
         // Create the TreeDataGrid instance and pass columnWidths via the constructor.
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
@@ -2716,40 +2715,16 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
  
       updateTabUI() {
-        const tabContainer = document.getElementById("tabContainer");
-        tabContainer.innerHTML = "";
-        this.tabs.forEach(tab => {
-          const tabElem = document.createElement("div");
-          tabElem.className = "tab" + (tab.id === this.activeTabId ? " active" : "");
-          tabElem.textContent = tab.name;
-          tabElem.dataset.tabId = tab.id;
-          tabElem.addEventListener("click", () => {
-            this.activeTabId = tab.id;
-            document.getElementById("codeSearchInput").value = "";
-            document.getElementById("dataSearchInput").value = "";
-            this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
-            this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
-            document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
-            document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
-            document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
-            document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
-            this.myTreeGrid.setData(tab.currentTreeData);
-            this.updateTabUI();
-          });
-          const closeBtn = document.createElement("span");
-          closeBtn.className = "close-tab";
-          closeBtn.textContent = "×";
-          closeBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            this.tabs = this.tabs.filter(t => t.id !== tab.id);
-            if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
-            this.updateTabUI();
-            if (this.activeTabId) { this.myTreeGrid.setData(this.getActiveTab().currentTreeData); }
-            else { this.myTreeGrid.setData([]); }
-          });
-          tabElem.appendChild(closeBtn);
-          tabContainer.appendChild(tabElem);
-        });
+        const tab = this.getActiveTab();
+        if (!tab) return;
+        document.getElementById("codeSearchInput").value = "";
+        document.getElementById("dataSearchInput").value = "";
+        this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
+        this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
+        document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
+        document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
+        document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
+        document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
         this.populateObjectTypeDropdown();
         this.updateNavHistoryUI();
         this.updateNavButtons();
@@ -3114,7 +3089,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         };
         this.tabs.push(newTab);
         this.activeTabId = newTab.id;
+        this.createDockComponent(newTab.name, newTab.id);
         this.updateTabUI();
+        this.activateDockComponent(newTab.id);
         this.myTreeGrid.setData(newTab.currentTreeData);
       }
 
@@ -3238,9 +3215,11 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                   };
                   this.tabs.push(newTab);
                   this.activeTabId = newTab.id;
+                  this.createDockComponent(file.name, newTab.id);
                   // Initialize class mapping before displaying data
                   this.updateClasses();
                   this.updateTabUI();
+                  this.activateDockComponent(newTab.id);
                   this.myTreeGrid.setData(newTab.currentTreeData);
                 })
               .catch(err => {
@@ -3271,9 +3250,11 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                 };
               this.tabs.push(newTab);
               this.activeTabId = newTab.id;
+              this.createDockComponent(file.name, newTab.id);
               // Call updateClasses() now so that CLASS nodes get their classId set.
               this.updateClasses();
               this.updateTabUI();
+              this.activateDockComponent(newTab.id);
               this.myTreeGrid.setData(newTab.currentTreeData);
             };
             reader.readAsText(file, "ascii");
@@ -5374,6 +5355,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           // Switch to that tab.
           this.activeTabId = existingTab.id;
           this.updateTabUI();
+          this.activateDockComponent(existingTab.id);
           this.myTreeGrid.setData(existingTab.currentTreeData);
           // Delay scrolling until after the tab is rendered.
           setTimeout(() => {
@@ -5403,7 +5385,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             };
             this.tabs.push(newTab);
             this.activeTabId = newTab.id;
+            this.createDockComponent(file.name, newTab.id);
             this.updateTabUI();
+            this.activateDockComponent(newTab.id);
             this.myTreeGrid.setData(newTab.currentTreeData);
             // Delay scrolling until after the new tab is rendered.
             setTimeout(() => {
@@ -5909,8 +5893,51 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             document.getElementById("diffContent").innerHTML = diffHtml;
           })
           .catch(err => {
-            alert("Error reading files: " + err);
-          });
+          alert("Error reading files: " + err);
+        });
+      }
+
+      createDockComponent(title, tabId) {
+        if (!window.docStack) return;
+        const config = {
+          type: 'component',
+          componentName: 'docComp',
+          title,
+          componentState: { tabId }
+        };
+        window.docStack.addChild(config);
+      }
+
+      activateDockComponent(tabId) {
+        const cont = this.docContainers[tabId];
+        if (cont && cont.parent && window.docStack) {
+          window.docStack.setActiveContentItem(cont.parent);
+        }
+      }
+
+      registerDocContainer(tabId, container) {
+        this.docContainers[tabId] = container;
+        container.on('destroy', () => {
+          delete this.docContainers[tabId];
+          this.tabs = this.tabs.filter(t => t.id !== tabId);
+          if (this.tabs.length === 0) {
+            this.activeTabId = null;
+            this.myTreeGrid.setData([]);
+          }
+          this.updateTabUI();
+        });
+      }
+
+      attachMainContent(tabId) {
+        const cont = this.docContainers[tabId];
+        if (!cont) return;
+        cont.getElement().append(this.mainContent);
+        this.activeTabId = tabId;
+        this.updateTabUI();
+        const tab = this.getActiveTab();
+        if (tab) {
+          this.myTreeGrid.setData(tab.currentTreeData);
+        }
       }
     }
     document.addEventListener("DOMContentLoaded", () => {
@@ -5922,18 +5949,29 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           type: 'row',
           content: [
             { type: 'component', componentName: 'sidebarComp', width: 20, title: 'Sidebar' },
-            { type: 'component', componentName: 'mainComp', width: 80, title: 'Main' }
+            { id: 'docStack', type: 'stack', width: 80, content: [] }
           ]
         }]
       };
       const myLayout = new GoldenLayout(layoutConfig, $('#layoutContainer'));
+      window.myLayout = myLayout;
+      let docStack;
       myLayout.registerComponent('sidebarComp', function(container, state) {
         container.getElement().append($('#originalLayout .sidebar'));
       });
-      myLayout.registerComponent('mainComp', function(container, state) {
-        container.getElement().append($('#originalLayout .main-content'));
+      myLayout.registerComponent('docComp', function(container, state) {
+        window.app.registerDocContainer(state.tabId, container);
       });
       myLayout.init();
+      docStack = myLayout.root.contentItems[0].contentItems.find(i => i.isStack);
+      window.docStack = docStack;
+      myLayout.on('stateChanged', function(){
+        if(!docStack) return;
+        const active = docStack.getActiveContentItem && docStack.getActiveContentItem();
+        if(active && active.config.componentState){
+          window.app.attachMainContent(active.config.componentState.tabId);
+        }
+      });
       
       document.getElementById("objectTypeDropdownButton").addEventListener("click", (e) => {
         e.stopPropagation();
