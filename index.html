@@ -302,6 +302,7 @@
     #statsOverlay,
     #depsOverlay,
     #binaryObjectsOverlay,
+    #oleFramesOverlay,
     #handleMapOverlay,
     #hexViewerOverlay,
     #proxyObjectsOverlay,
@@ -323,6 +324,7 @@
     #statsOverlay,
     #depsOverlay,
     #binaryObjectsOverlay,
+    #oleFramesOverlay,
     #handleMapOverlay,
     #proxyObjectsOverlay,
     #fontsOverlay { z-index: 1000; }
@@ -350,6 +352,7 @@
     #closeDepsOverlay,
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
+    #closeOleFramesOverlay,
     #closeHandleMapOverlay,
     #closeProxyObjectsOverlay,
     /* NEW Fonts Overlay close button */
@@ -366,6 +369,7 @@
     #closeDepsOverlay,
     #closeHexViewerOverlay,
     #closeBinaryObjectsOverlay,
+    #closeOleFramesOverlay,
     #closeHandleMapOverlay,
     #closeProxyObjectsOverlay,
     #closeFontsOverlay,
@@ -477,6 +481,7 @@
           <button id="showStatsOverlayBtn">Statistics</button>
           <button id="showDepsOverlayBtn">Dependencies</button>
           <button id="showBinaryObjectsOverlayBtn">Binary Objects</button>
+          <button id="showOleFramesOverlayBtn">OLE2 Frames</button>
           <button id="showHandleMapOverlayBtn">Handle Map</button>
           <button id="showProxyObjectsOverlayBtn">Proxy Objects</button>
           <button id="showFontsOverlayBtn">Fonts Used</button>
@@ -650,6 +655,14 @@
       <button class="backToTreeBtn" data-overlay="binaryObjectsOverlay">Back to Tree</button>
       <h2>Binary Data Objects</h2>
       <div id="binaryObjectsList"></div>
+    </div>
+  </div>
+  <div id="oleFramesOverlay">
+    <div class="overlay-content">
+      <button id="closeOleFramesOverlay">Close</button>
+      <button class="backToTreeBtn" data-overlay="oleFramesOverlay">Back to Tree</button>
+      <h2>OLE2FRAME Contents</h2>
+      <div id="oleFramesContent"></div>
     </div>
   </div>
   <div id="handleMapOverlay">
@@ -873,6 +886,31 @@
       }
       return result;
     }
+
+    // Parse minimal information from an OLE2 Compound File byte array.
+    function parseOleContainer(bytes) {
+      if (bytes.length < 512) return { error: "Data too small" };
+      const magic = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+      for (let i=0;i<8;i++) if (bytes[i] !== magic[i]) return { error: "Not an OLE file" };
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const sectorSize = 1 << view.getUint16(30, true);
+      const dirStart = view.getInt32(48, true);
+      const dirOffset = 512 + dirStart * sectorSize;
+      const entriesPerSector = sectorSize / 128;
+      const names = [];
+      for (let i=0;i<entriesPerSector && dirOffset + i*128 + 128 <= bytes.length;i++) {
+        const base = dirOffset + i*128;
+        const nameLength = view.getUint16(base + 64, true);
+        if (!nameLength) continue;
+        let name = "";
+        for (let j=0;j<nameLength-2;j+=2) {
+          name += String.fromCharCode(view.getUint16(base + j, true));
+        }
+        const size = view.getUint32(base + 120, true);
+        names.push({ name, size });
+      }
+      return { sectorSize, streams:names };
+    }
     
     // Attempt to detect a common file header from a Uint8Array.
     function detectHeader(buffer) {
@@ -886,6 +924,7 @@
         { type: "GIF Image",    signature: "GIF89a" },
         { type: "JPEG Image",   signature: [0xFF, 0xD8, 0xFF] },
         { type: "PDF Document", signature: "%PDF" },
+        { type: "OLE Compound File", signature: [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1] },
         { type: "ZIP Archive",  signature: [0x50, 0x4B, 0x03, 0x04] },
         // Additional formats:
         { type: "RAR Archive",  signature: [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00] },
@@ -2425,6 +2464,12 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         });
         document.getElementById("closeBinaryObjectsOverlay").addEventListener("click", () => {
           document.getElementById("binaryObjectsOverlay").style.display = "none";
+        });
+        document.getElementById("showOleFramesOverlayBtn").addEventListener("click", () => {
+          this.showOleFramesOverlay();
+        });
+        document.getElementById("closeOleFramesOverlay").addEventListener("click", () => {
+          document.getElementById("oleFramesOverlay").style.display = "none";
         });
         document.getElementById("showHandleMapOverlayBtn").addEventListener("click", () => {
           this.updateHandleMap();
@@ -4359,6 +4404,67 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("proxyObjectsOverlay").style.display = "block";
       }
 
+      showOleFramesOverlay() {
+        const activeTab = this.getActiveTab();
+        const container = document.getElementById("oleFramesContent");
+        container.innerHTML = "";
+        if (!activeTab) {
+          container.textContent = "No DXF data loaded.";
+          document.getElementById("oleFramesOverlay").style.display = "block";
+          return;
+        }
+
+        const oleNodes = [];
+        function find(nodes) {
+          nodes.forEach(n => {
+            if (n.type && n.type.toUpperCase() === "OLE2FRAME") oleNodes.push(n);
+            if (n.children && n.children.length) find(n.children);
+          });
+        }
+        find(activeTab.originalTreeData);
+
+        if (oleNodes.length === 0) {
+          container.textContent = "No OLE2FRAME objects found.";
+          document.getElementById("oleFramesOverlay").style.display = "block";
+          return;
+        }
+
+        oleNodes.forEach(node => {
+          const div = document.createElement("div");
+          div.style.borderBottom = "1px solid #ccc";
+          div.style.padding = "6px";
+          let info = `Line: ${node.line}`;
+          if (node.handle) info += ` | Handle: ${node.handle}`;
+          div.innerHTML = `<strong>${info}</strong>`;
+          const bin = node.properties.filter(p => Number(p.code) === 310).map(p => p.value).join("");
+          if (bin) {
+            const bytes = hexStringToByteArray(bin);
+            const parsed = parseOleContainer(bytes);
+            if (parsed.error) {
+              div.innerHTML += `<br/><em>${parsed.error}</em>`;
+            } else {
+              const list = parsed.streams.map(s => `${s.name} (${s.size} bytes)`).join(", ");
+              div.innerHTML += `<br/><strong>Streams:</strong> ${list}`;
+            }
+            const btn = document.createElement("button");
+            btn.textContent = "Hex Viewer";
+            btn.onclick = () => { this.showHexViewer(bin); };
+            div.appendChild(document.createElement("br"));
+            div.appendChild(btn);
+          }
+          const showBtn = document.createElement("button");
+          showBtn.textContent = "Show In Tree";
+          showBtn.onclick = () => {
+            document.getElementById("oleFramesOverlay").style.display = "none";
+            this.showInTree(node);
+          };
+          div.appendChild(showBtn);
+          container.appendChild(div);
+        });
+
+        document.getElementById("oleFramesOverlay").style.display = "block";
+      }
+
       updateFonts() {
         const activeTab = this.getActiveTab();
         if (!activeTab) {
@@ -4962,6 +5068,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           // Close the overlays that initiated this action.
           document.getElementById("lineTypesOverlay").style.display = "none";
           document.getElementById("textsOverlay").style.display = "none";
+          document.getElementById("oleFramesOverlay").style.display = "none";
           // Navigate to and highlight the node.
           this.showInTree(node);
         } else {
