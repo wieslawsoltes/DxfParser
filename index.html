@@ -1370,6 +1370,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       constructor(container, content, options = {}) {
         this.container = container;
         this.content = content;
+        this.header = options.header || document.getElementById("treeGridHeader");
         this.itemHeight = options.itemHeight || 24;
         this.copyCallback = options.copyCallback || null;
         this.openCallback = options.openCallback || null;
@@ -1377,6 +1378,20 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
         this.onRowSelect = options.onRowSelect || null;
+        this.isHandleCode = options.isHandleCode || ((code) => (
+          code === 5 ||
+          code === 105 ||
+          (code >= 320 && code <= 329) ||
+          (code >= 330 && code <= 339) ||
+          (code >= 340 && code <= 349) ||
+          (code >= 350 && code <= 359) ||
+          (code >= 360 && code <= 369) ||
+          (code >= 390 && code <= 399) ||
+          (code >= 480 && code <= 481) ||
+          code === 1005
+        ));
+        this.getClassNameById = options.getClassNameById || (() => "");
+        this.navigateToClassById = options.navigateToClassById || (() => {});
         this.columnWidths = options.columnWidths || {
           line: 100,
           code: 100,
@@ -1404,7 +1419,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
       
       attachHeaderResizerEvents() {
-        const headerResizers = document.querySelectorAll('#treeGridHeader .header-cell .resizer');
+        if (!this.header) return;
+        const headerResizers = this.header.querySelectorAll('.header-cell .resizer');
         headerResizers.forEach(resizer => {
           resizer.addEventListener("mousedown", (e) => this.handleResizerMouseDown(e));
         });
@@ -1444,7 +1460,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             fixedTotal += def;
           } else if (typeof def === "string") {
             if (def.toLowerCase() === "auto") {
-              const headerCell = document.querySelector(`#treeGridHeader .tree-${col}`);
+              const headerCell = this.header ? this.header.querySelector(`.tree-${col}`) : null;
               let autoWidth = headerCell ? headerCell.scrollWidth : 100;
               finalWidths[col] = autoWidth;
               fixedTotal += autoWidth;
@@ -1481,7 +1497,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
       
       syncHeaderWidths() {
-        const header = document.getElementById("treeGridHeader");
+        const header = this.header;
         if (!header) return;
         const colWidths = this.computeColumnFinalWidths();
         const lineCell = header.querySelector('.tree-line');
@@ -1791,7 +1807,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           if (node.isProperty) {
             // If this property’s code is one of the handle codes,
             // create a clickable span instead of plain text.
-            if (isHandleCode(Number(node.code))) {
+              if (this.isHandleCode(Number(node.code))) {
               const spanHandle = document.createElement("span");
               spanHandle.textContent = node.data;
               spanHandle.style.textDecoration = "underline";
@@ -1846,27 +1862,26 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             // *** New code for ACAD_PROXY_OBJECTs ***
             // If the node is an ACAD_PROXY_OBJECT, check if it has a property with code 91
             // and add a clickable link (similar to handle navigation).
-            if (node.type && node.type.toUpperCase() === "ACAD_PROXY_OBJECT") {
-              const classProp = node.properties.find(prop => Number(prop.code) === 91);
-              if (classProp) {
-                const spanClass = document.createElement("span");
-                const clsName = window.app.getClassNameById(Number(classProp.value));
-                spanClass.textContent =
-                  " (CLASS ID=" +
-                  classProp.value +
-                  (clsName ? " (" + clsName + ")" : "") +
-                  ") ";
-                spanClass.style.textDecoration = "underline";
-                spanClass.style.color = "blue";
-                spanClass.style.cursor = "pointer";
-                spanClass.addEventListener("click", (e) => {
-                  e.preventDefault();
-                  // Call a function to navigate to the CLASS definition.
-                  window.app.navigateToClassById(classProp.value);
-                });
-                dataDiv.appendChild(spanClass);
+              if (node.type && node.type.toUpperCase() === "ACAD_PROXY_OBJECT") {
+                const classProp = node.properties.find(prop => Number(prop.code) === 91);
+                if (classProp) {
+                  const spanClass = document.createElement("span");
+                  const clsName = this.getClassNameById(Number(classProp.value));
+                  spanClass.textContent =
+                    " (CLASS ID=" +
+                    classProp.value +
+                    (clsName ? " (" + clsName + ")" : "") +
+                    ") ";
+                  spanClass.style.textDecoration = "underline";
+                  spanClass.style.color = "blue";
+                  spanClass.style.cursor = "pointer";
+                  spanClass.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    this.navigateToClassById(classProp.value);
+                  });
+                  dataDiv.appendChild(spanClass);
+                }
               }
-            }
             
             // Append the handle (if any) as a clickable link.
             if (node.handle) {
@@ -2363,6 +2378,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
     this.hexLineHeight = null;
         // Create the TreeDataGrid instance and pass columnWidths via the constructor.
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
+          header: document.getElementById("treeGridHeader"),
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
           openCallback: (nodeId) => this.handleOpen(nodeId),  // <-- new callback for "Open" button
@@ -2370,7 +2386,10 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => { this.selectedNodeId = nodeId; },
           columnWidths: this.columnWidths,
-          hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
+          hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString),
+          isHandleCode: isHandleCode,
+          getClassNameById: (id) => this.getClassNameById(id),
+          navigateToClassById: (id) => this.navigateToClassById(id)
         });
         this.batchDataGrid = new BatchDataGrid(
           document.getElementById("batchResultsTabHeaders"),
@@ -2511,7 +2530,9 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("clearHistoryBtn").addEventListener("click", () => this.clearNavigationHistory());
         this.treeViewContainer.addEventListener("scroll", (e) => {
           const scrollLeft = e.target.scrollLeft;
-          document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
+          if (this.myTreeGrid.header) {
+            this.myTreeGrid.header.style.transform = "translateX(-" + scrollLeft + "px)";
+          }
         });
         window.addEventListener("resize", () => { this.myTreeGrid.updateVisibleNodes(); });
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
