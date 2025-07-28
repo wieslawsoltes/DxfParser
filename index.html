@@ -8057,6 +8057,100 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       saveRuleConfiguration() {
         localStorage.setItem("dxfDiagnosticRuleConfig", JSON.stringify(this.ruleConfiguration));
       }
+
+      // File-based profile save/load functionality
+      saveProfileToFile() {
+        const select = document.getElementById("ruleProfileSelect");
+        const profileName = select.value;
+        
+        if (!profileName) {
+          alert("Please select a profile to save to file.");
+          return;
+        }
+        
+        const profiles = this.getRuleProfiles();
+        const profile = profiles[profileName];
+        
+        if (!profile) {
+          alert("Profile not found.");
+          return;
+        }
+        
+        // Create the file content
+        const fileContent = JSON.stringify(profile, null, 2);
+        const blob = new Blob([fileContent], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        // Create download link
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${profileName.replace(/[^a-z0-9]/gi, '_')}_diagnostic_profile.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        alert(`Profile "${profileName}" saved to file successfully!`);
+      }
+
+      loadProfileFromFile(file) {
+        if (!file) {
+          return;
+        }
+        
+        if (!file.name.toLowerCase().endsWith('.json')) {
+          alert("Please select a JSON file.");
+          return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const profileData = JSON.parse(e.target.result);
+            
+            // Validate profile structure
+            if (!profileData.name || !profileData.config) {
+              alert("Invalid profile file format. Expected properties: name, config");
+              return;
+            }
+            
+            // Check if profile already exists
+            const profiles = this.getRuleProfiles();
+            const profileName = profileData.name;
+            
+            if (profiles[profileName]) {
+              if (!confirm(`Profile "${profileName}" already exists. Do you want to overwrite it?`)) {
+                return;
+              }
+            }
+            
+            // Save the profile
+            profiles[profileName] = {
+              name: profileName,
+              config: profileData.config,
+              created: profileData.created || new Date().toISOString(),
+              importedFrom: file.name
+            };
+            
+            localStorage.setItem("dxfDiagnosticProfiles", JSON.stringify(profiles));
+            this.loadProfileList();
+            
+            // Select the loaded profile
+            const select = document.getElementById("ruleProfileSelect");
+            select.value = profileName;
+            
+            alert(`Profile "${profileName}" loaded from file successfully!`);
+            
+          } catch (error) {
+            alert("Error parsing profile file: " + error.message);
+          }
+        };
+        
+        reader.readAsText(file);
+        
+        // Clear the file input
+        document.getElementById("profileFileInput").value = '';
+      }
     }
 
     // ============================================
