@@ -9,7 +9,15 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js">
   </script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-  <script src="app.js"></script>  <link rel="stylesheet" href="styles.css">
+  <!-- Load components in dependency order -->
+  <script src="components/utils.js"></script>
+  <script src="components/dxf-parser.js"></script>
+  <script src="components/tree-data-grid.js"></script>
+  <script src="components/batch-data-grid.js"></script>
+  <script src="components/state-manager.js"></script>
+  <script src="components/dxf-diagnostics-engine.js"></script>
+  <script src="components/app.js"></script>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="main-container">
