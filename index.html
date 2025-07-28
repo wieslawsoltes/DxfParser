@@ -6434,7 +6434,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           
         } catch (error) {
           console.error("Diagnostics error:", error);
-          alert("Error running diagnostics: " + error.message);
+          console.error("Error stack:", error.stack);
+          alert("Error running diagnostics: " + error.message + "\n\nCheck the browser console for detailed error information.");
           this.hideDiagnosticsProgress();
         }
       }
@@ -8269,6 +8270,11 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
        }
 
        checkMTextFormattingCodes(node, text) {
+         // Ensure text is a string
+         if (!text || typeof text !== 'string') {
+           return;
+         }
+         
          const formatPatterns = [
            { pattern: /\\[Pp];/g, name: 'paragraph break' },
            { pattern: /\\[Ll]/g, name: 'underline' },
@@ -8394,7 +8400,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
            if (['TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB'].includes(node.type)) {
              const text = this.getPropertyValue(node, 1);
              
-             if (text) {
+             if (text && typeof text === 'string') {
                // Check for Unicode escape sequences
                const unicodePattern = /\\U\+[0-9A-Fa-f]{4}/g;
                const unicodeMatches = text.match(unicodePattern);
@@ -8509,7 +8515,17 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
        getPropertyValue(node, code) {
          if (!node.properties) return null;
          const prop = node.properties.find(p => parseInt(p.code) === code);
-         return prop ? (isNaN(parseFloat(prop.value)) ? prop.value : parseFloat(prop.value)) : null;
+         if (!prop || prop.value === undefined || prop.value === null) return null;
+         
+         // For certain group codes that should always be strings, don't parse as numbers
+         const stringCodes = [1, 2, 3, 6, 7, 8, 100]; // Text, name, additional text, linetype, style, layer, subclass
+         if (stringCodes.includes(parseInt(code))) {
+           return String(prop.value);
+         }
+         
+         // Try to parse as number, but return string if it fails
+         const numValue = parseFloat(prop.value);
+         return isNaN(numValue) ? String(prop.value) : numValue;
        }
 
        async performanceAnalysis() {
