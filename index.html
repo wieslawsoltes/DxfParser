@@ -8267,26 +8267,7 @@ EOF`;
         }, 100);
       }
 
-      exportDiagnosticsReport() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab) {
-          alert("No DXF file loaded.");
-          return;
-        }
 
-        // Create a comprehensive text report
-        const reportContent = this.generateDiagnosticsReport();
-        
-        const blob = new Blob([reportContent], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${activeTab.fileName || 'dxf'}_diagnostics_report.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
 
       filterDiagnosticsBySeverity(severityType) {
         // Reset all checkboxes first
