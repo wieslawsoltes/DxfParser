@@ -616,6 +616,112 @@
       color: #666;
       text-transform: uppercase;
     }
+    .diagnostics-stat {
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .diagnostics-stat:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .diagnostics-stat.active {
+      background: #007bff;
+      color: white;
+    }
+    .diagnostics-filters {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 1em;
+      margin-top: 1em;
+    }
+    .diagnostics-filter-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 1em;
+      align-items: center;
+    }
+    .diagnostics-search-container {
+      display: flex;
+      gap: 0.5em;
+    }
+    .diagnostics-search-container input {
+      flex: 1;
+      padding: 0.5em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .diagnostics-search-container button {
+      padding: 0.5em 1em;
+      background: #6c757d;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .diagnostics-search-container button:hover {
+      background: #5a6268;
+    }
+    .diagnostics-severity-filters {
+      display: flex;
+      gap: 1em;
+      flex-wrap: wrap;
+    }
+    .diagnostics-severity-filters label {
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+      font-size: 0.9em;
+      cursor: pointer;
+    }
+    .diagnostics-category-filters select {
+      padding: 0.5em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+    }
+    .diagnostic-item.hidden {
+      display: none;
+    }
+    .diagnostics-no-results {
+      text-align: center;
+      padding: 2em;
+      color: #666;
+      font-style: italic;
+    }
+    
+    /* Responsive design for diagnostics */
+    @media (max-width: 768px) {
+      .diagnostics-filter-row {
+        grid-template-columns: 1fr;
+        gap: 0.5em;
+      }
+      .diagnostics-severity-filters {
+        flex-direction: column;
+        gap: 0.5em;
+      }
+      .diagnostics-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .diagnostics-tab {
+        padding: 0.5em 0.8em;
+        font-size: 0.9em;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .diagnostics-stats {
+        grid-template-columns: 1fr;
+      }
+      .diagnostic-item {
+        flex-direction: column;
+        gap: 0.5em;
+      }
+      .diagnostic-severity {
+        width: auto;
+        align-self: flex-start;
+      }
+    }
     /* Responsive adjustments for mobile */
     @media (max-width: 600px) {
       .filter-content .filter-row {
@@ -884,6 +990,39 @@
 
       <div class="diagnostics-summary" id="diagnosticsSummary" style="display:none;">
         <div class="diagnostics-stats" id="diagnosticsStats"></div>
+        
+        <!-- Advanced Search and Filtering -->
+        <div class="diagnostics-filters" id="diagnosticsFilters">
+          <div class="diagnostics-filter-row">
+            <div class="diagnostics-search-container">
+              <input type="text" id="diagnosticsSearchInput" placeholder="Search issues... (Ctrl+F)" title="Search in issue titles and descriptions. Use Ctrl+F to focus, Escape to clear." />
+              <button id="clearDiagnosticsSearch" title="Clear search">Clear</button>
+            </div>
+            <div class="diagnostics-severity-filters">
+              <label title="Press 1 to filter Critical issues only"><input type="checkbox" id="filterCritical" checked> Critical</label>
+              <label title="Press 2 to filter Error issues only"><input type="checkbox" id="filterError" checked> Error</label>
+              <label title="Press 3 to filter Warning issues only"><input type="checkbox" id="filterWarning" checked> Warning</label>
+              <label title="Press 4 to filter Info issues only"><input type="checkbox" id="filterInfo" checked> Info</label>
+              <label title="Press 5 to filter Suggestion issues only"><input type="checkbox" id="filterSuggestion" checked> Suggestion</label>
+            </div>
+            <div class="diagnostics-category-filters">
+              <select id="diagnosticsCategoryFilter" title="Filter by diagnostic category">
+                <option value="">All Categories</option>
+                <option value="structural">Structural Issues</option>
+                <option value="integrity">Data Integrity</option>
+                <option value="rendering">Rendering</option>
+                <option value="text">Text</option>
+                <option value="performance">Performance</option>
+                <option value="compliance">DXF Compliance</option>
+                <option value="best-practices">Best Practices</option>
+                <option value="security">Security</option>
+              </select>
+            </div>
+          </div>
+          <div class="diagnostics-help-text" style="font-size: 0.8em; color: #666; margin-top: 0.5em;">
+            💡 <strong>Quick Tips:</strong> Ctrl+F to search, 1-5 keys for severity filters, Ctrl+E to export, click statistics to filter by severity
+          </div>
+        </div>
       </div>
 
       <div class="diagnostics-tabs" id="diagnosticsTabs">
@@ -2746,6 +2885,62 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         });
         document.getElementById("exportDiagnosticsBtn").addEventListener("click", () => {
           this.exportDiagnosticsReport();
+        });
+        
+        // Advanced filtering event listeners
+        document.getElementById("diagnosticsSearchInput").addEventListener("input", () => {
+          this.applyDiagnosticsFilters();
+        });
+        document.getElementById("clearDiagnosticsSearch").addEventListener("click", () => {
+          document.getElementById("diagnosticsSearchInput").value = "";
+          this.applyDiagnosticsFilters();
+        });
+        document.getElementById("diagnosticsCategoryFilter").addEventListener("change", () => {
+          this.applyDiagnosticsFilters();
+        });
+        
+        // Severity filter checkboxes
+        ["Critical", "Error", "Warning", "Info", "Suggestion"].forEach(severity => {
+          document.getElementById(`filter${severity}`).addEventListener("change", () => {
+            this.applyDiagnosticsFilters();
+          });
+        });
+        
+        // Keyboard shortcuts for diagnostics
+        document.addEventListener("keydown", (e) => {
+          // Only apply shortcuts when diagnostics overlay is open
+          if (document.getElementById("diagnosticsOverlay").style.display === "block") {
+            if (e.ctrlKey || e.metaKey) {
+              switch (e.key) {
+                case 'f':
+                case 'F':
+                  e.preventDefault();
+                  document.getElementById("diagnosticsSearchInput").focus();
+                  break;
+                case 'e':
+                case 'E':
+                  e.preventDefault();
+                  this.exportDiagnosticsReport();
+                  break;
+              }
+            }
+            
+            // Number keys for quick severity filtering
+            if (e.key >= '1' && e.key <= '5') {
+              e.preventDefault();
+              const severities = ['critical', 'error', 'warning', 'info', 'suggestion'];
+              this.filterDiagnosticsBySeverity(severities[parseInt(e.key) - 1]);
+            }
+            
+            // Escape to clear search
+            if (e.key === 'Escape') {
+              const searchInput = document.getElementById("diagnosticsSearchInput");
+              if (searchInput.value) {
+                searchInput.value = "";
+                this.applyDiagnosticsFilters();
+              }
+            }
+          }
         });
         // Diagnostics tab switching
         document.querySelectorAll('.diagnostics-tab').forEach(tab => {
@@ -6261,50 +6456,48 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("diagnosticsTabContent").style.display = "block";
       }
 
-      displayDiagnosticsResults(results) {
-        // Update statistics
-        this.updateDiagnosticsStats(results.stats);
-        
-        // Update each tab with results
-        this.updateDiagnosticsOverview(results);
-        this.updateDiagnosticsStructural(results.structural);
-        this.updateDiagnosticsIntegrity(results.integrity);
-        this.updateDiagnosticsRendering(results.rendering);
-        this.updateDiagnosticsText(results.text);
-        this.updateDiagnosticsPerformance(results.performance);
-        this.updateDiagnosticsCompliance(results.compliance);
-        this.updateDiagnosticsBestPractices(results.bestPractices);
-        this.updateDiagnosticsSecurity(results.security);
-      }
+
 
       updateDiagnosticsStats(stats) {
         const statsContainer = document.getElementById("diagnosticsStats");
         statsContainer.innerHTML = `
-          <div class="diagnostics-stat">
+          <div class="diagnostics-stat" data-filter="all" title="Click to show all issues">
             <div class="diagnostics-stat-number">${stats.totalIssues}</div>
             <div class="diagnostics-stat-label">Total Issues</div>
           </div>
-          <div class="diagnostics-stat">
+          <div class="diagnostics-stat" data-filter="critical" title="Click to filter critical issues">
             <div class="diagnostics-stat-number">${stats.criticalIssues}</div>
             <div class="diagnostics-stat-label">Critical</div>
           </div>
-          <div class="diagnostics-stat">
+          <div class="diagnostics-stat" data-filter="error" title="Click to filter error issues">
             <div class="diagnostics-stat-number">${stats.errorIssues}</div>
             <div class="diagnostics-stat-label">Errors</div>
           </div>
-          <div class="diagnostics-stat">
+          <div class="diagnostics-stat" data-filter="warning" title="Click to filter warning issues">
             <div class="diagnostics-stat-number">${stats.warningIssues}</div>
             <div class="diagnostics-stat-label">Warnings</div>
           </div>
-          <div class="diagnostics-stat">
+          <div class="diagnostics-stat" data-filter="info" title="Click to filter info issues">
             <div class="diagnostics-stat-number">${stats.infoIssues}</div>
             <div class="diagnostics-stat-label">Info</div>
           </div>
-          <div class="diagnostics-stat">
+          <div class="diagnostics-stat" data-filter="suggestion" title="Click to filter suggestions">
             <div class="diagnostics-stat-number">${stats.suggestions}</div>
             <div class="diagnostics-stat-label">Suggestions</div>
           </div>
         `;
+        
+        // Add click handlers for filtering
+        statsContainer.querySelectorAll('.diagnostics-stat').forEach(stat => {
+          stat.addEventListener('click', (e) => {
+            const filterType = stat.dataset.filter;
+            this.filterDiagnosticsBySeverity(filterType);
+            
+            // Update visual state
+            statsContainer.querySelectorAll('.diagnostics-stat').forEach(s => s.classList.remove('active'));
+            stat.classList.add('active');
+          });
+        });
       }
 
       updateDiagnosticsOverview(results) {
@@ -6470,7 +6663,68 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       navigateToNode(nodeId) {
         // Close diagnostics overlay and navigate to the node
         document.getElementById("diagnosticsOverlay").style.display = "none";
-        this.navigateToNodeInTree(nodeId);
+        
+        // Find and expand the node in the tree
+        const activeTab = this.getActiveTab();
+        if (activeTab && activeTab.originalTreeData) {
+          const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+          if (node) {
+            // Expand the path to this node
+            this.expandPathToNode(activeTab.originalTreeData, nodeId);
+            
+            // Refresh the tree view
+            activeTab.currentTreeData = activeTab.originalTreeData;
+            this.myTreeGrid.setData(activeTab.currentTreeData);
+            
+            // Scroll to and highlight the node
+            this.scrollToNode(nodeId);
+          }
+        }
+      }
+
+      expandPathToNode(tree, targetNodeId) {
+        const findAndExpandPath = (nodes, path = []) => {
+          for (let i = 0; i < nodes.length; i++) {
+            const node = nodes[i];
+            const currentPath = [...path, i];
+            
+            if (String(node.id) === String(targetNodeId)) {
+              // Found target, expand all parents in the path
+              let current = tree;
+              for (const index of path) {
+                if (current[index]) {
+                  current[index].expanded = true;
+                  current = current[index].children || [];
+                }
+              }
+              return true;
+            }
+            
+            if (node.children && node.children.length > 0) {
+              if (findAndExpandPath(node.children, currentPath)) {
+                node.expanded = true;
+                return true;
+              }
+            }
+          }
+          return false;
+        };
+        
+        findAndExpandPath(tree);
+      }
+
+      scrollToNode(nodeId) {
+        // Wait for the tree to render, then scroll to the node
+        setTimeout(() => {
+          const targetRow = document.querySelector(`[data-id="${nodeId}"]`);
+          if (targetRow) {
+            targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            targetRow.style.backgroundColor = '#ffeb3b';
+            setTimeout(() => {
+              targetRow.style.backgroundColor = '';
+            }, 2000);
+          }
+        }, 100);
       }
 
       exportDiagnosticsReport() {
@@ -6494,12 +6748,303 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         URL.revokeObjectURL(url);
       }
 
+      filterDiagnosticsBySeverity(severityType) {
+        // Reset all checkboxes first
+        ["Critical", "Error", "Warning", "Info", "Suggestion"].forEach(severity => {
+          document.getElementById(`filter${severity}`).checked = false;
+        });
+        
+        if (severityType === 'all') {
+          // Check all boxes
+          ["Critical", "Error", "Warning", "Info", "Suggestion"].forEach(severity => {
+            document.getElementById(`filter${severity}`).checked = true;
+          });
+        } else {
+          // Check only the selected severity
+          const capitalizedType = severityType.charAt(0).toUpperCase() + severityType.slice(1);
+          document.getElementById(`filter${capitalizedType}`).checked = true;
+        }
+        
+        this.applyDiagnosticsFilters();
+      }
+
+      applyDiagnosticsFilters() {
+        const searchTerm = document.getElementById("diagnosticsSearchInput").value.toLowerCase();
+        const categoryFilter = document.getElementById("diagnosticsCategoryFilter").value;
+        
+        const severityFilters = {
+          critical: document.getElementById("filterCritical").checked,
+          error: document.getElementById("filterError").checked,
+          warning: document.getElementById("filterWarning").checked,
+          info: document.getElementById("filterInfo").checked,
+          suggestion: document.getElementById("filterSuggestion").checked
+        };
+        
+        // Apply filters to all diagnostic items
+        const allItems = document.querySelectorAll('.diagnostic-item');
+        let visibleCount = 0;
+        
+        allItems.forEach(item => {
+          const severityEl = item.querySelector('.diagnostic-severity');
+          const titleEl = item.querySelector('.diagnostic-title');
+          const descriptionEl = item.querySelector('.diagnostic-description');
+          const categoryEl = item.closest('.diagnostics-category');
+          
+          if (!severityEl || !titleEl || !descriptionEl) return;
+          
+          const severity = severityEl.textContent.toLowerCase();
+          const title = titleEl.textContent.toLowerCase();
+          const description = descriptionEl.textContent.toLowerCase();
+          const category = categoryEl ? categoryEl.querySelector('.diagnostics-category-header span').textContent.toLowerCase() : '';
+          
+          // Check severity filter
+          const severityMatch = severityFilters[severity];
+          
+          // Check search term
+          const searchMatch = !searchTerm || 
+            title.includes(searchTerm) || 
+            description.includes(searchTerm);
+          
+          // Check category filter
+          const categoryMatch = !categoryFilter || category.includes(categoryFilter.toLowerCase());
+          
+          const shouldShow = severityMatch && searchMatch && categoryMatch;
+          
+          if (shouldShow) {
+            item.classList.remove('hidden');
+            visibleCount++;
+          } else {
+            item.classList.add('hidden');
+          }
+        });
+        
+        // Show/hide categories based on visible items
+        const categories = document.querySelectorAll('.diagnostics-category');
+        categories.forEach(category => {
+          const visibleItems = category.querySelectorAll('.diagnostic-item:not(.hidden)');
+          if (visibleItems.length === 0) {
+            category.style.display = 'none';
+          } else {
+            category.style.display = 'block';
+          }
+        });
+        
+        // Show "no results" message if needed
+        this.updateNoResultsMessage(visibleCount);
+      }
+
+      updateNoResultsMessage(visibleCount) {
+        const tabContents = document.querySelectorAll('.diagnostics-content.active');
+        tabContents.forEach(content => {
+          let noResultsEl = content.querySelector('.diagnostics-no-results');
+          
+          if (visibleCount === 0) {
+            if (!noResultsEl) {
+              noResultsEl = document.createElement('div');
+              noResultsEl.className = 'diagnostics-no-results';
+              noResultsEl.textContent = 'No issues match the current filters.';
+              content.appendChild(noResultsEl);
+            }
+            noResultsEl.style.display = 'block';
+          } else if (noResultsEl) {
+            noResultsEl.style.display = 'none';
+          }
+        });
+      }
+
+      async exportDiagnosticsReport() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab || !this.lastDiagnosticsResults) {
+          alert("No diagnostics data available to export.");
+          return;
+        }
+
+        try {
+          // Create workbook
+          const wb = XLSX.utils.book_new();
+          
+          // Summary sheet
+          this.addSummarySheet(wb, this.lastDiagnosticsResults);
+          
+          // Individual category sheets
+          const categories = [
+            { key: 'structural', name: 'Structural Issues' },
+            { key: 'integrity', name: 'Data Integrity' },
+            { key: 'rendering', name: 'Rendering' },
+            { key: 'text', name: 'Text' },
+            { key: 'performance', name: 'Performance' },
+            { key: 'compliance', name: 'DXF Compliance' },
+            { key: 'bestPractices', name: 'Best Practices' },
+            { key: 'security', name: 'Security' }
+          ];
+          
+          categories.forEach(category => {
+            if (this.lastDiagnosticsResults[category.key] && this.lastDiagnosticsResults[category.key].length > 0) {
+              this.addCategorySheet(wb, category.name, this.lastDiagnosticsResults[category.key]);
+            }
+          });
+          
+          // Generate and download
+          const fileName = `${activeTab.fileName || 'dxf'}_diagnostics_${new Date().toISOString().slice(0,10)}.xlsx`;
+          XLSX.writeFile(wb, fileName);
+          
+        } catch (error) {
+          console.error("Error exporting diagnostics:", error);
+          alert("Error exporting diagnostics report: " + error.message);
+        }
+      }
+
+      addSummarySheet(wb, results) {
+        const stats = results.stats;
+        const summaryData = [
+          ['DXF Comprehensive Diagnostics Report'],
+          ['Generated on:', new Date().toISOString()],
+          ['File:', this.getActiveTab()?.fileName || 'Unknown'],
+          [],
+          ['Summary Statistics'],
+          ['Severity Level', 'Count'],
+          ['Total Issues', stats.totalIssues],
+          ['Critical', stats.criticalIssues],
+          ['Error', stats.errorIssues],
+          ['Warning', stats.warningIssues],
+          ['Info', stats.infoIssues],
+          ['Suggestions', stats.suggestions],
+          [],
+          ['Issues by Category'],
+          ['Category', 'Count']
+        ];
+        
+        // Add category counts
+        const categories = ['structural', 'integrity', 'rendering', 'text', 'performance', 'compliance', 'bestPractices', 'security'];
+        categories.forEach(category => {
+          const issues = results[category] || [];
+          const categoryName = category.charAt(0).toUpperCase() + category.slice(1).replace(/([A-Z])/g, ' $1');
+          summaryData.push([categoryName, issues.length]);
+        });
+        
+        const ws = XLSX.utils.aoa_to_sheet(summaryData);
+        
+        // Style the header
+        if (ws['A1']) ws['A1'].s = { font: { bold: true, sz: 16 } };
+        if (ws['A5']) ws['A5'].s = { font: { bold: true, sz: 14 } };
+        if (ws['A14']) ws['A14'].s = { font: { bold: true, sz: 14 } };
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'Summary');
+      }
+
+      addCategorySheet(wb, categoryName, issues) {
+        const data = [
+          ['Severity', 'Title', 'Description', 'Category', 'Location']
+        ];
+        
+        issues.forEach(issue => {
+          data.push([
+            issue.severity,
+            issue.title,
+            issue.description,
+            issue.category || '',
+            issue.location || ''
+          ]);
+        });
+        
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        
+        // Auto-width columns
+        const colWidths = [
+          { wch: 12 }, // Severity
+          { wch: 40 }, // Title
+          { wch: 60 }, // Description
+          { wch: 20 }, // Category
+          { wch: 20 }  // Location
+        ];
+        ws['!cols'] = colWidths;
+        
+        // Style header row
+        const headerRange = XLSX.utils.decode_range(ws['!ref']);
+        for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
+          const cellAddr = XLSX.utils.encode_cell({ r: 0, c: col });
+          if (ws[cellAddr]) {
+            ws[cellAddr].s = { font: { bold: true }, fill: { fgColor: { rgb: "E0E0E0" } } };
+          }
+        }
+        
+        XLSX.utils.book_append_sheet(wb, ws, categoryName.substring(0, 31)); // Excel sheet name limit
+      }
+
+      displayDiagnosticsResults(results) {
+        // Store results for export
+        this.lastDiagnosticsResults = results;
+        
+        // Update statistics
+        this.updateDiagnosticsStats(results.stats);
+        
+        // Update each tab with results
+        this.updateDiagnosticsOverview(results);
+        this.updateDiagnosticsStructural(results.structural);
+        this.updateDiagnosticsIntegrity(results.integrity);
+        this.updateDiagnosticsRendering(results.rendering);
+        this.updateDiagnosticsText(results.text);
+        this.updateDiagnosticsPerformance(results.performance);
+        this.updateDiagnosticsCompliance(results.compliance);
+        this.updateDiagnosticsBestPractices(results.bestPractices);
+        this.updateDiagnosticsSecurity(results.security);
+        
+        // Apply initial filters
+        setTimeout(() => this.applyDiagnosticsFilters(), 100);
+      }
+
       generateDiagnosticsReport() {
-        // Implementation would generate a comprehensive text report
-        return "DXF Diagnostics Report\n" +
-               "======================\n" +
-               "Generated on: " + new Date().toISOString() + "\n\n" +
-               "This would contain the full diagnostics report...";
+        if (!this.lastDiagnosticsResults) {
+          return "No diagnostics data available.";
+        }
+        
+        const results = this.lastDiagnosticsResults;
+        const stats = results.stats;
+        
+        let report = "DXF Comprehensive Diagnostics Report\n";
+        report += "====================================\n\n";
+        report += `Generated on: ${new Date().toISOString()}\n`;
+        report += `File: ${this.getActiveTab()?.fileName || 'Unknown'}\n\n`;
+        
+        report += "SUMMARY STATISTICS\n";
+        report += "------------------\n";
+        report += `Total Issues: ${stats.totalIssues}\n`;
+        report += `Critical: ${stats.criticalIssues}\n`;
+        report += `Errors: ${stats.errorIssues}\n`;
+        report += `Warnings: ${stats.warningIssues}\n`;
+        report += `Info: ${stats.infoIssues}\n`;
+        report += `Suggestions: ${stats.suggestions}\n\n`;
+        
+        // Add detailed issues by category
+        const categories = [
+          { key: 'structural', name: 'STRUCTURAL ISSUES' },
+          { key: 'integrity', name: 'DATA INTEGRITY' },
+          { key: 'rendering', name: 'RENDERING ISSUES' },
+          { key: 'text', name: 'TEXT ISSUES' },
+          { key: 'performance', name: 'PERFORMANCE' },
+          { key: 'compliance', name: 'DXF COMPLIANCE' },
+          { key: 'bestPractices', name: 'BEST PRACTICES' },
+          { key: 'security', name: 'SECURITY' }
+        ];
+        
+        categories.forEach(category => {
+          const issues = results[category.key] || [];
+          if (issues.length > 0) {
+            report += `${category.name}\n`;
+            report += "=".repeat(category.name.length) + "\n\n";
+            
+            issues.forEach((issue, index) => {
+              report += `${index + 1}. [${issue.severity.toUpperCase()}] ${issue.title}\n`;
+              report += `   ${issue.description}\n`;
+              if (issue.location) report += `   Location: ${issue.location}\n`;
+              if (issue.category) report += `   Category: ${issue.category}\n`;
+              report += "\n";
+            });
+            report += "\n";
+          }
+        });
+        
+        return report;
       }
     }
 
