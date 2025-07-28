@@ -955,6 +955,75 @@
         align-self: flex-start;
       }
     }
+
+    /* Context Menu Styles */
+    .context-menu {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #ccc;
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
+      border-radius: 4px;
+      padding: 0;
+      z-index: 10000;
+      min-width: 200px;
+      max-height: 400px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .context-menu-item {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-size: 14px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .context-menu-item:hover {
+      background: #f0f0f0;
+    }
+
+    .context-menu-item:last-child {
+      border-bottom: none;
+    }
+
+    .context-menu-separator {
+      height: 1px;
+      background: #ccc;
+      margin: 4px 0;
+    }
+
+    .context-menu-submenu {
+      position: relative;
+    }
+
+    .context-menu-submenu::after {
+      content: "▶";
+      float: right;
+      font-size: 12px;
+    }
+
+    .context-submenu {
+      position: absolute;
+      left: 100%;
+      top: 0;
+      background: #fff;
+      border: 1px solid #ccc;
+      box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
+      border-radius: 4px;
+      padding: 0;
+      min-width: 180px;
+      max-height: 300px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .context-menu-submenu:hover .context-submenu {
+      display: block;
+    }
     /* Responsive adjustments for mobile */
     @media (max-width: 600px) {
       .filter-content .filter-row {
@@ -1071,6 +1140,7 @@
               Use Streamed Parsing
             </label>
             <button id="parseBtn">Parse File(s)</button>
+            <button id="createNewDxfBtn">Create New DXF</button>
           </div>
           <div class="right-part">
             <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
@@ -1538,6 +1608,107 @@
       <div id="diffContent" style="overflow:auto; max-height: calc(100% - 120px); border:1px solid #ccc; padding:1em;"></div>
     </div>
   </div>
+
+  <!-- Context Menu -->
+  <div id="contextMenu" class="context-menu">
+    <button class="context-menu-item" data-action="add-above">Add Row Above</button>
+    <button class="context-menu-item" data-action="add-below">Add Row Below</button>
+    <button class="context-menu-item" data-action="add-child">Add Child Row</button>
+    <div class="context-menu-separator"></div>
+    <button class="context-menu-item" data-action="remove">Remove Row</button>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-submenu">
+      <button class="context-menu-item">Add DXF Section</button>
+      <div class="context-submenu" id="sectionsSubmenu">
+        <button class="context-menu-item" data-action="add-section" data-type="HEADER">HEADER Section</button>
+        <button class="context-menu-item" data-action="add-section" data-type="CLASSES">CLASSES Section</button>
+        <button class="context-menu-item" data-action="add-section" data-type="TABLES">TABLES Section</button>
+        <button class="context-menu-item" data-action="add-section" data-type="BLOCKS">BLOCKS Section</button>
+        <button class="context-menu-item" data-action="add-section" data-type="ENTITIES">ENTITIES Section</button>
+        <button class="context-menu-item" data-action="add-section" data-type="OBJECTS">OBJECTS Section</button>
+      </div>
+    </div>
+    <div class="context-menu-submenu">
+      <button class="context-menu-item">Add Entity</button>
+      <div class="context-submenu" id="entitiesSubmenu">
+        <button class="context-menu-item" data-action="add-entity" data-type="LINE">LINE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="CIRCLE">CIRCLE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="ARC">ARC</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="POLYLINE">POLYLINE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="LWPOLYLINE">LWPOLYLINE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="POINT">POINT</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="TEXT">TEXT</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="MTEXT">MTEXT</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="INSERT">INSERT</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="ELLIPSE">ELLIPSE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="SPLINE">SPLINE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="SOLID">SOLID</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="HATCH">HATCH</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="DIMENSION">DIMENSION</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="LEADER">LEADER</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="MLEADER">MLEADER</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="3DFACE">3DFACE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="3DSOLID">3DSOLID</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="REGION">REGION</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="BODY">BODY</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="MESH">MESH</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="SURFACE">SURFACE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="TOLERANCE">TOLERANCE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="MLINE">MLINE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="TRACE">TRACE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="SHAPE">SHAPE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="VIEWPORT">VIEWPORT</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="IMAGE">IMAGE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="WIPEOUT">WIPEOUT</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="OLE2FRAME">OLE2FRAME</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="OLEFRAME">OLEFRAME</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="XLINE">XLINE</button>
+        <button class="context-menu-item" data-action="add-entity" data-type="RAY">RAY</button>
+      </div>
+    </div>
+    <div class="context-menu-submenu">
+      <button class="context-menu-item">Add Table Entry</button>
+      <div class="context-submenu" id="tablesSubmenu">
+        <button class="context-menu-item" data-action="add-table" data-type="LAYER">LAYER</button>
+        <button class="context-menu-item" data-action="add-table" data-type="LTYPE">LTYPE (Line Type)</button>
+        <button class="context-menu-item" data-action="add-table" data-type="STYLE">STYLE (Text Style)</button>
+        <button class="context-menu-item" data-action="add-table" data-type="VIEW">VIEW</button>
+        <button class="context-menu-item" data-action="add-table" data-type="UCS">UCS</button>
+        <button class="context-menu-item" data-action="add-table" data-type="VPORT">VPORT (Viewport)</button>
+        <button class="context-menu-item" data-action="add-table" data-type="DIMSTYLE">DIMSTYLE</button>
+        <button class="context-menu-item" data-action="add-table" data-type="APPID">APPID</button>
+        <button class="context-menu-item" data-action="add-table" data-type="BLOCK_RECORD">BLOCK_RECORD</button>
+      </div>
+    </div>
+    <div class="context-menu-submenu">
+      <button class="context-menu-item">Add Object</button>
+      <div class="context-submenu" id="objectsSubmenu">
+        <button class="context-menu-item" data-action="add-object" data-type="DICTIONARY">DICTIONARY</button>
+        <button class="context-menu-item" data-action="add-object" data-type="LAYOUT">LAYOUT</button>
+        <button class="context-menu-item" data-action="add-object" data-type="PLOTSETTINGS">PLOTSETTINGS</button>
+        <button class="context-menu-item" data-action="add-object" data-type="GROUP">GROUP</button>
+        <button class="context-menu-item" data-action="add-object" data-type="MLINESTYLE">MLINESTYLE</button>
+        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF">IMAGEDEF</button>
+        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF_REACTOR">IMAGEDEF_REACTOR</button>
+        <button class="context-menu-item" data-action="add-object" data-type="RASTERVARIABLES">RASTERVARIABLES</button>
+        <button class="context-menu-item" data-action="add-object" data-type="SORTENTSTABLE">SORTENTSTABLE</button>
+        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_FILTER">SPATIAL_FILTER</button>
+        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_INDEX">SPATIAL_INDEX</button>
+        <button class="context-menu-item" data-action="add-object" data-type="LAYER_FILTER">LAYER_FILTER</button>
+        <button class="context-menu-item" data-action="add-object" data-type="LAYER_INDEX">LAYER_INDEX</button>
+        <button class="context-menu-item" data-action="add-object" data-type="XRECORD">XRECORD</button>
+        <button class="context-menu-item" data-action="add-object" data-type="PLACEHOLDER">PLACEHOLDER</button>
+        <button class="context-menu-item" data-action="add-object" data-type="VBA_PROJECT">VBA_PROJECT</button>
+        <button class="context-menu-item" data-action="add-object" data-type="MATERIAL">MATERIAL</button>
+        <button class="context-menu-item" data-action="add-object" data-type="VISUALSTYLE">VISUALSTYLE</button>
+        <button class="context-menu-item" data-action="add-object" data-type="TABLESTYLE">TABLESTYLE</button>
+        <button class="context-menu-item" data-action="add-object" data-type="SECTION">SECTION</button>
+        <button class="context-menu-item" data-action="add-object" data-type="SECTIONVIEWSTYLE">SECTIONVIEWSTYLE</button>
+        <button class="context-menu-item" data-action="add-object" data-type="DETAILVIEWSTYLE">DETAILVIEWSTYLE</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Utility Functions -->
   <script>
     // Convert a concatenated hex string into a Uint8Array.
@@ -3415,6 +3586,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
+        document.getElementById("createNewDxfBtn").addEventListener("click", () => this.handleCreateNewDxf());
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
         document.getElementById("resetStateBtn").addEventListener("click", () => this.handleResetState());
@@ -3741,6 +3913,549 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             document.removeEventListener('mouseup', onMouseUp);
           }
         });
+        
+        // Context menu functionality
+        this.initContextMenu();
+      }
+      
+      // Initialize context menu functionality
+      initContextMenu() {
+        const contextMenu = document.getElementById('contextMenu');
+        let currentContextTarget = null;
+        
+        // Right-click on tree rows to show context menu
+        this.treeViewContainer.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          const row = e.target.closest('.tree-row');
+          if (row) {
+            currentContextTarget = row;
+            this.showContextMenu(e.clientX, e.clientY);
+          }
+        });
+        
+        // Handle context menu item clicks
+        contextMenu.addEventListener('click', (e) => {
+          const item = e.target.closest('.context-menu-item');
+          if (item && currentContextTarget) {
+            const action = item.getAttribute('data-action');
+            const type = item.getAttribute('data-type');
+            
+            if (action) {
+              this.handleContextMenuAction(action, type, currentContextTarget);
+              this.hideContextMenu();
+            }
+          }
+        });
+        
+        // Hide context menu when clicking elsewhere
+        document.addEventListener('click', (e) => {
+          if (!contextMenu.contains(e.target)) {
+            this.hideContextMenu();
+          }
+        });
+        
+        // Hide context menu on escape key
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            this.hideContextMenu();
+          }
+        });
+      }
+      
+      // Show context menu at specified position
+      showContextMenu(x, y) {
+        const contextMenu = document.getElementById('contextMenu');
+        contextMenu.style.display = 'block';
+        contextMenu.style.left = x + 'px';
+        contextMenu.style.top = y + 'px';
+        
+        // Adjust position if menu goes off screen
+        const rect = contextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+          contextMenu.style.left = (window.innerWidth - rect.width - 10) + 'px';
+        }
+        if (rect.bottom > window.innerHeight) {
+          contextMenu.style.top = (window.innerHeight - rect.height - 10) + 'px';
+        }
+      }
+      
+      // Hide context menu
+      hideContextMenu() {
+        document.getElementById('contextMenu').style.display = 'none';
+      }
+      
+      // Handle context menu actions
+      handleContextMenuAction(action, type, targetRow) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        
+        const nodeId = targetRow.dataset.id;
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (!node) return;
+        
+        switch (action) {
+          case 'add-above':
+            this.addRowAbove(node);
+            break;
+          case 'add-below':
+            this.addRowBelow(node);
+            break;
+          case 'add-child':
+            this.addChildRow(node);
+            break;
+          case 'remove':
+            this.removeRow(node);
+            break;
+          case 'add-section':
+            this.addDxfSection(node, type);
+            break;
+          case 'add-entity':
+            this.addDxfEntity(node, type);
+            break;
+          case 'add-table':
+            this.addTableEntry(node, type);
+            break;
+          case 'add-object':
+            this.addDxfObject(node, type);
+            break;
+        }
+        
+        // Refresh tree and save state
+        this.updateEffectiveSearchTerms();
+        this.saveCurrentState();
+      }
+      
+      // Add row above the selected node
+      addRowAbove(targetNode) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        
+        if (targetNode.isProperty) {
+          // Add property above current property
+          const parent = targetNode.parentNode;
+          if (parent) {
+            const index = parent.properties.findIndex(p => p === targetNode.propRef);
+            const newProp = { line: '', code: 0, value: '' };
+            parent.properties.splice(index, 0, newProp);
+          }
+        } else {
+          // Add node above current node
+          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+          const newNode = this.createNewNode('NEW');
+          
+          if (parent) {
+            const index = parent.children.indexOf(targetNode);
+            parent.children.splice(index, 0, newNode);
+          } else {
+            const index = activeTab.originalTreeData.indexOf(targetNode);
+            activeTab.originalTreeData.splice(index, 0, newNode);
+          }
+        }
+      }
+      
+      // Add row below the selected node
+      addRowBelow(targetNode) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        
+        if (targetNode.isProperty) {
+          // Add property below current property
+          const parent = targetNode.parentNode;
+          if (parent) {
+            const index = parent.properties.findIndex(p => p === targetNode.propRef);
+            const newProp = { line: '', code: 0, value: '' };
+            parent.properties.splice(index + 1, 0, newProp);
+          }
+        } else {
+          // Add node below current node
+          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+          const newNode = this.createNewNode('NEW');
+          
+          if (parent) {
+            const index = parent.children.indexOf(targetNode);
+            parent.children.splice(index + 1, 0, newNode);
+          } else {
+            const index = activeTab.originalTreeData.indexOf(targetNode);
+            activeTab.originalTreeData.splice(index + 1, 0, newNode);
+          }
+        }
+      }
+      
+      // Add child row to the selected node
+      addChildRow(targetNode) {
+        if (targetNode.isProperty) return; // Can't add children to properties
+        
+        const newNode = this.createNewNode('NEW');
+        if (!targetNode.children) {
+          targetNode.children = [];
+        }
+        targetNode.children.push(newNode);
+        targetNode.expanded = true; // Expand to show new child
+      }
+      
+      // Remove the selected row
+      removeRow(targetNode) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) return;
+        
+        if (targetNode.isProperty) {
+          // Remove property
+          const parent = targetNode.parentNode;
+          if (parent) {
+            const index = parent.properties.findIndex(p => p === targetNode.propRef);
+            if (index >= 0) parent.properties.splice(index, 1);
+          }
+        } else {
+          // Remove node
+          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+          if (parent) {
+            const index = parent.children.indexOf(targetNode);
+            if (index >= 0) parent.children.splice(index, 1);
+          } else {
+            const index = activeTab.originalTreeData.indexOf(targetNode);
+            if (index >= 0) activeTab.originalTreeData.splice(index, 1);
+          }
+        }
+      }
+      
+      // Create a new node with default properties
+      createNewNode(type) {
+        return {
+          id: this.dxfParser.nextId++,
+          type: type,
+          line: '',
+          code: 0,
+          properties: [],
+          children: [],
+          expanded: false
+        };
+      }
+      
+      // Add DXF Section
+      addDxfSection(targetNode, sectionType) {
+        const newSection = this.createNewNode('SECTION');
+        newSection.properties = [
+          { line: '', code: 2, value: sectionType }
+        ];
+        newSection.children = [
+          this.createNewNode('ENDSEC')
+        ];
+        
+        this.addRowBelow(targetNode);
+        // Replace the generic 'NEW' node with our section
+        const activeTab = this.getActiveTab();
+        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+        if (parent) {
+          const index = parent.children.indexOf(targetNode) + 1;
+          parent.children[index] = newSection;
+        } else {
+          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
+          activeTab.originalTreeData[index] = newSection;
+        }
+      }
+      
+      // Add DXF Entity
+      addDxfEntity(targetNode, entityType) {
+        const templates = this.getDxfEntityTemplates();
+        const template = templates[entityType] || templates['LINE']; // Default to LINE
+        
+        const newEntity = this.createNewNode(entityType);
+        newEntity.properties = template.map(prop => ({ ...prop })); // Clone properties
+        
+        this.addRowBelow(targetNode);
+        // Replace the generic 'NEW' node with our entity
+        const activeTab = this.getActiveTab();
+        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+        if (parent) {
+          const index = parent.children.indexOf(targetNode) + 1;
+          parent.children[index] = newEntity;
+        } else {
+          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
+          activeTab.originalTreeData[index] = newEntity;
+        }
+      }
+      
+      // Add Table Entry
+      addTableEntry(targetNode, tableType) {
+        const templates = this.getDxfTableTemplates();
+        const template = templates[tableType] || templates['LAYER']; // Default to LAYER
+        
+        const newEntry = this.createNewNode(tableType);
+        newEntry.properties = template.map(prop => ({ ...prop })); // Clone properties
+        
+        this.addRowBelow(targetNode);
+        // Replace the generic 'NEW' node with our table entry
+        const activeTab = this.getActiveTab();
+        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+        if (parent) {
+          const index = parent.children.indexOf(targetNode) + 1;
+          parent.children[index] = newEntry;
+        } else {
+          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
+          activeTab.originalTreeData[index] = newEntry;
+        }
+      }
+      
+      // Add DXF Object
+      addDxfObject(targetNode, objectType) {
+        const templates = this.getDxfObjectTemplates();
+        const template = templates[objectType] || templates['DICTIONARY']; // Default to DICTIONARY
+        
+        const newObject = this.createNewNode(objectType);
+        newObject.properties = template.map(prop => ({ ...prop })); // Clone properties
+        
+        this.addRowBelow(targetNode);
+        // Replace the generic 'NEW' node with our object
+        const activeTab = this.getActiveTab();
+        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
+        if (parent) {
+          const index = parent.children.indexOf(targetNode) + 1;
+          parent.children[index] = newObject;
+        } else {
+          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
+          activeTab.originalTreeData[index] = newObject;
+        }
+      }
+      
+      // Get DXF Entity templates with common properties
+      getDxfEntityTemplates() {
+        return {
+          'LINE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // Start X
+            { line: '', code: 20, value: '0.0' }, // Start Y
+            { line: '', code: 30, value: '0.0' }, // Start Z
+            { line: '', code: 11, value: '1.0' }, // End X
+            { line: '', code: 21, value: '0.0' }, // End Y
+            { line: '', code: 31, value: '0.0' }  // End Z
+          ],
+          'CIRCLE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // Center X
+            { line: '', code: 20, value: '0.0' }, // Center Y
+            { line: '', code: 30, value: '0.0' }, // Center Z
+            { line: '', code: 40, value: '1.0' }  // Radius
+          ],
+          'ARC': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // Center X
+            { line: '', code: 20, value: '0.0' }, // Center Y
+            { line: '', code: 30, value: '0.0' }, // Center Z
+            { line: '', code: 40, value: '1.0' }, // Radius
+            { line: '', code: 50, value: '0.0' }, // Start angle
+            { line: '', code: 51, value: '90.0' } // End angle
+          ],
+          'POINT': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // X
+            { line: '', code: 20, value: '0.0' }, // Y
+            { line: '', code: 30, value: '0.0' }  // Z
+          ],
+          'TEXT': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // Insertion X
+            { line: '', code: 20, value: '0.0' }, // Insertion Y
+            { line: '', code: 30, value: '0.0' }, // Insertion Z
+            { line: '', code: 40, value: '1.0' }, // Height
+            { line: '', code: 1, value: 'Sample Text' }, // Text value
+            { line: '', code: 7, value: 'Standard' } // Text style
+          ],
+          'MTEXT': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // Insertion X
+            { line: '', code: 20, value: '0.0' }, // Insertion Y
+            { line: '', code: 30, value: '0.0' }, // Insertion Z
+            { line: '', code: 40, value: '1.0' }, // Height
+            { line: '', code: 41, value: '10.0' }, // Reference width
+            { line: '', code: 1, value: 'Sample Multi-line Text' }, // Text value
+            { line: '', code: 7, value: 'Standard' } // Text style
+          ],
+          'INSERT': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 2, value: 'BLOCK_NAME' }, // Block name
+            { line: '', code: 10, value: '0.0' }, // Insertion X
+            { line: '', code: 20, value: '0.0' }, // Insertion Y
+            { line: '', code: 30, value: '0.0' }, // Insertion Z
+            { line: '', code: 41, value: '1.0' }, // X scale
+            { line: '', code: 42, value: '1.0' }, // Y scale
+            { line: '', code: 43, value: '1.0' }, // Z scale
+            { line: '', code: 50, value: '0.0' }  // Rotation angle
+          ],
+          'POLYLINE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 66, value: '1' }, // Vertices follow flag
+            { line: '', code: 10, value: '0.0' }, // Default X
+            { line: '', code: 20, value: '0.0' }, // Default Y
+            { line: '', code: 30, value: '0.0' }, // Default Z
+            { line: '', code: 70, value: '0' }   // Polyline flag
+          ],
+          'LWPOLYLINE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 90, value: '3' }, // Number of vertices
+            { line: '', code: 70, value: '0' }, // Polyline flag
+            { line: '', code: 10, value: '0.0' }, // X1
+            { line: '', code: 20, value: '0.0' }, // Y1
+            { line: '', code: 10, value: '1.0' }, // X2
+            { line: '', code: 20, value: '0.0' }, // Y2
+            { line: '', code: 10, value: '1.0' }, // X3
+            { line: '', code: 20, value: '1.0' }  // Y3
+          ],
+          'ELLIPSE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // Center X
+            { line: '', code: 20, value: '0.0' }, // Center Y
+            { line: '', code: 30, value: '0.0' }, // Center Z
+            { line: '', code: 11, value: '1.0' }, // Major axis X
+            { line: '', code: 21, value: '0.0' }, // Major axis Y
+            { line: '', code: 31, value: '0.0' }, // Major axis Z
+            { line: '', code: 40, value: '0.5' }, // Ratio of minor to major
+            { line: '', code: 41, value: '0.0' }, // Start parameter
+            { line: '', code: 42, value: '6.283185307179586' } // End parameter (2*PI)
+          ],
+          'HATCH': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 2, value: 'SOLID' }, // Pattern name
+            { line: '', code: 70, value: '1' }, // Solid fill flag
+            { line: '', code: 71, value: '0' }, // Associativity flag
+            { line: '', code: 91, value: '1' }, // Number of boundary paths
+            { line: '', code: 92, value: '1' }, // Boundary path type flag
+            { line: '', code: 93, value: '4' }  // Number of edges
+          ],
+          'SPLINE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 70, value: '8' }, // Spline flag
+            { line: '', code: 71, value: '3' }, // Degree
+            { line: '', code: 72, value: '8' }, // Number of knots
+            { line: '', code: 73, value: '5' }, // Number of control points
+            { line: '', code: 74, value: '0' }  // Number of fit points
+          ],
+          '3DFACE': [
+            { line: '', code: 8, value: '0' }, // Layer
+            { line: '', code: 10, value: '0.0' }, // 1st corner X
+            { line: '', code: 20, value: '0.0' }, // 1st corner Y
+            { line: '', code: 30, value: '0.0' }, // 1st corner Z
+            { line: '', code: 11, value: '1.0' }, // 2nd corner X
+            { line: '', code: 21, value: '0.0' }, // 2nd corner Y
+            { line: '', code: 31, value: '0.0' }, // 2nd corner Z
+            { line: '', code: 12, value: '1.0' }, // 3rd corner X
+            { line: '', code: 22, value: '1.0' }, // 3rd corner Y
+            { line: '', code: 32, value: '0.0' }, // 3rd corner Z
+            { line: '', code: 13, value: '0.0' }, // 4th corner X
+            { line: '', code: 23, value: '1.0' }, // 4th corner Y
+            { line: '', code: 33, value: '0.0' }  // 4th corner Z
+          ]
+        };
+      }
+      
+      // Get DXF Table entry templates
+      getDxfTableTemplates() {
+        return {
+          'LAYER': [
+            { line: '', code: 5, value: '10' }, // Handle
+            { line: '', code: 330, value: '2' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbSymbolTableRecord' },
+            { line: '', code: 100, value: 'AcDbLayerTableRecord' },
+            { line: '', code: 2, value: 'NewLayer' }, // Layer name
+            { line: '', code: 70, value: '0' }, // Layer flags
+            { line: '', code: 62, value: '7' }, // Color number
+            { line: '', code: 6, value: 'Continuous' }, // Linetype name
+            { line: '', code: 370, value: '-3' } // Line weight
+          ],
+          'LTYPE': [
+            { line: '', code: 5, value: '14' }, // Handle
+            { line: '', code: 330, value: '5' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbSymbolTableRecord' },
+            { line: '', code: 100, value: 'AcDbLinetypeTableRecord' },
+            { line: '', code: 2, value: 'NewLinetype' }, // Linetype name
+            { line: '', code: 70, value: '0' }, // Linetype flags
+            { line: '', code: 3, value: 'New linetype description' }, // Description
+            { line: '', code: 72, value: '65' }, // Alignment
+            { line: '', code: 73, value: '0' }, // Number of dash items
+            { line: '', code: 40, value: '0.0' } // Total pattern length
+          ],
+          'STYLE': [
+            { line: '', code: 5, value: '11' }, // Handle
+            { line: '', code: 330, value: '3' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbSymbolTableRecord' },
+            { line: '', code: 100, value: 'AcDbTextStyleTableRecord' },
+            { line: '', code: 2, value: 'NewStyle' }, // Style name
+            { line: '', code: 70, value: '0' }, // Style flags
+            { line: '', code: 40, value: '0.0' }, // Fixed text height
+            { line: '', code: 41, value: '1.0' }, // Width factor
+            { line: '', code: 50, value: '0.0' }, // Oblique angle
+            { line: '', code: 71, value: '0' }, // Text generation flags
+            { line: '', code: 42, value: '2.5' }, // Last height used
+            { line: '', code: 3, value: 'txt' }, // Primary font file name
+            { line: '', code: 4, value: '' } // Big font file name
+          ],
+          'VPORT': [
+            { line: '', code: 5, value: '29' }, // Handle
+            { line: '', code: 330, value: '8' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbSymbolTableRecord' },
+            { line: '', code: 100, value: 'AcDbViewportTableRecord' },
+            { line: '', code: 2, value: 'NewViewport' }, // Viewport name
+            { line: '', code: 70, value: '0' }, // Viewport flags
+            { line: '', code: 10, value: '0.0' }, // Lower left corner X
+            { line: '', code: 20, value: '0.0' }, // Lower left corner Y
+            { line: '', code: 11, value: '1.0' }, // Upper right corner X
+            { line: '', code: 21, value: '1.0' } // Upper right corner Y
+          ],
+          'DIMSTYLE': [
+            { line: '', code: 105, value: '27' }, // Handle
+            { line: '', code: 330, value: 'A' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbSymbolTableRecord' },
+            { line: '', code: 100, value: 'AcDbDimStyleTableRecord' },
+            { line: '', code: 2, value: 'NewDimStyle' }, // Dimension style name
+            { line: '', code: 70, value: '0' } // Dimension style flags
+          ]
+        };
+      }
+      
+      // Get DXF Object templates
+      getDxfObjectTemplates() {
+        return {
+          'DICTIONARY': [
+            { line: '', code: 5, value: 'C' }, // Handle
+            { line: '', code: 330, value: '0' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbDictionary' },
+            { line: '', code: 281, value: '1' } // Hard owner flag
+          ],
+          'LAYOUT': [
+            { line: '', code: 5, value: '1E' }, // Handle
+            { line: '', code: 330, value: '1A' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbPlotSettings' },
+            { line: '', code: 1, value: 'NewLayout' }, // Layout name
+            { line: '', code: 2, value: 'none_device' }, // Printer/plotter name
+            { line: '', code: 4, value: '' }, // Paper size
+            { line: '', code: 6, value: '' }, // Plot view name
+            { line: '', code: 40, value: '0.0' }, // Left margin
+            { line: '', code: 41, value: '0.0' }, // Bottom margin
+            { line: '', code: 42, value: '0.0' }, // Right margin
+            { line: '', code: 43, value: '0.0' } // Top margin
+          ],
+          'GROUP': [
+            { line: '', code: 5, value: 'A0' }, // Handle
+            { line: '', code: 330, value: 'D' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbGroup' },
+            { line: '', code: 300, value: 'NewGroup' }, // Group description
+            { line: '', code: 70, value: '1' }, // Unnamed flag
+            { line: '', code: 71, value: '1' } // Selectable flag
+          ],
+          'XRECORD': [
+            { line: '', code: 5, value: 'A1' }, // Handle
+            { line: '', code: 330, value: '0' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbXrecord' },
+            { line: '', code: 280, value: '1' } // Duplicate record cloning flag
+          ],
+          'MATERIAL': [
+            { line: '', code: 5, value: 'A2' }, // Handle
+            { line: '', code: 330, value: '0' }, // Owner handle
+            { line: '', code: 100, value: 'AcDbMaterial' },
+            { line: '', code: 1, value: 'NewMaterial' }, // Material name
+            { line: '', code: 2, value: 'Material description' }, // Description
+            { line: '', code: 70, value: '1' } // Material type
+          ]
+        };
       }
 
       updateEffectiveSearchTerms() {
@@ -4501,6 +5216,614 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       handleParse() {
         const fileInput = document.getElementById("fileInput");
         this.handleFiles(fileInput.files);
+      }
+      
+      // Create a new empty DXF file with minimum valid structure
+      handleCreateNewDxf() {
+        const emptyDxfContent = this.generateEmptyDxfTemplate();
+        const objects = this.dxfParser.parse(emptyDxfContent);
+        
+        const newTab = {
+          id: Date.now() + Math.random(),
+          name: "New DXF File",
+          originalTreeData: objects,
+          currentTreeData: objects,
+          codeSearchTerms: [],
+          dataSearchTerms: [],
+          currentSortField: "line",
+          currentSortAscending: true,
+          minLine: null,
+          maxLine: null,
+          dataExact: false,
+          dataCase: false,
+          navigationHistory: [],
+          currentHistoryIndex: -1,
+          classIdToName: {}
+        };
+        
+        this.tabs.push(newTab);
+        this.activeTabId = newTab.id;
+        this.updateClasses();
+        this.updateTabUI();
+        this.myTreeGrid.setData(newTab.currentTreeData);
+        // Save state after new tab creation
+        this.saveCurrentState();
+      }
+      
+      // Generate a minimal valid DXF file template
+      generateEmptyDxfTemplate() {
+        return `0
+SECTION
+2
+HEADER
+9
+$ACADVER
+1
+AC1032
+9
+$DWGCODEPAGE
+3
+ANSI_1252
+0
+ENDSEC
+0
+SECTION
+2
+CLASSES
+0
+ENDSEC
+0
+SECTION
+2
+TABLES
+0
+TABLE
+2
+VPORT
+5
+8
+330
+0
+100
+AcDbSymbolTable
+70
+1
+0
+VPORT
+5
+29
+330
+8
+100
+AcDbSymbolTableRecord
+100
+AcDbViewportTableRecord
+2
+*ACTIVE
+70
+0
+10
+0.0
+20
+0.0
+11
+1.0
+21
+1.0
+12
+286.3055555555554
+22
+148.5
+13
+0.0
+23
+0.0
+14
+10.0
+24
+10.0
+15
+10.0
+25
+10.0
+16
+0.0
+26
+0.0
+36
+1.0
+17
+0.0
+27
+0.0
+37
+0.0
+40
+297.0
+41
+1.92798353909465
+42
+50.0
+43
+0.0
+44
+0.0
+50
+0.0
+51
+0.0
+71
+0
+72
+100
+73
+1
+74
+3
+75
+1
+76
+1
+77
+0
+78
+0
+281
+0
+65
+1
+110
+0.0
+120
+0.0
+130
+0.0
+111
+1.0
+121
+0.0
+131
+0.0
+112
+0.0
+122
+1.0
+132
+0.0
+79
+0
+146
+0.0
+0
+ENDTAB
+0
+TABLE
+2
+LTYPE
+5
+5
+330
+0
+100
+AcDbSymbolTable
+70
+4
+0
+LTYPE
+5
+14
+330
+5
+100
+AcDbSymbolTableRecord
+100
+AcDbLinetypeTableRecord
+2
+ByBlock
+70
+0
+3
+
+72
+65
+73
+0
+40
+0.0
+0
+LTYPE
+5
+15
+330
+5
+100
+AcDbSymbolTableRecord
+100
+AcDbLinetypeTableRecord
+2
+ByLayer
+70
+0
+3
+
+72
+65
+73
+0
+40
+0.0
+0
+LTYPE
+5
+16
+330
+5
+100
+AcDbSymbolTableRecord
+100
+AcDbLinetypeTableRecord
+2
+Continuous
+70
+0
+3
+Solid line
+72
+65
+73
+0
+40
+0.0
+0
+ENDTAB
+0
+TABLE
+2
+LAYER
+5
+2
+330
+0
+100
+AcDbSymbolTable
+70
+1
+0
+LAYER
+5
+10
+330
+2
+100
+AcDbSymbolTableRecord
+100
+AcDbLayerTableRecord
+2
+0
+70
+0
+62
+7
+6
+Continuous
+370
+-3
+390
+F
+0
+ENDTAB
+0
+TABLE
+2
+STYLE
+5
+3
+330
+0
+100
+AcDbSymbolTable
+70
+1
+0
+STYLE
+5
+11
+330
+3
+100
+AcDbSymbolTableRecord
+100
+AcDbTextStyleTableRecord
+2
+Standard
+70
+0
+40
+0.0
+41
+1.0
+50
+0.0
+71
+0
+42
+2.5
+3
+txt
+4
+
+0
+ENDTAB
+0
+TABLE
+2
+VIEW
+5
+6
+330
+0
+100
+AcDbSymbolTable
+70
+0
+0
+ENDTAB
+0
+TABLE
+2
+UCS
+5
+7
+330
+0
+100
+AcDbSymbolTable
+70
+0
+0
+ENDTAB
+0
+TABLE
+2
+APPID
+5
+9
+330
+0
+100
+AcDbSymbolTable
+70
+1
+0
+APPID
+5
+12
+330
+9
+100
+AcDbSymbolTableRecord
+100
+AcDbRegAppTableRecord
+2
+ACAD
+70
+0
+0
+ENDTAB
+0
+TABLE
+2
+DIMSTYLE
+5
+A
+330
+0
+100
+AcDbSymbolTable
+70
+1
+0
+DIMSTYLE
+105
+27
+330
+A
+100
+AcDbSymbolTableRecord
+100
+AcDbDimStyleTableRecord
+2
+Standard
+70
+0
+0
+ENDTAB
+0
+TABLE
+2
+BLOCK_RECORD
+5
+1
+330
+0
+100
+AcDbSymbolTable
+70
+2
+0
+BLOCK_RECORD
+5
+1F
+330
+1
+100
+AcDbSymbolTableRecord
+2
+*Model_Space
+70
+0
+280
+1
+281
+0
+0
+BLOCK_RECORD
+5
+1B
+330
+1
+100
+AcDbSymbolTableRecord
+2
+*Paper_Space
+70
+0
+280
+1
+281
+0
+0
+ENDTAB
+0
+ENDSEC
+0
+SECTION
+2
+BLOCKS
+0
+BLOCK
+5
+20
+330
+1F
+100
+AcDbEntity
+8
+0
+100
+AcDbBlockBegin
+2
+*Model_Space
+70
+0
+10
+0.0
+20
+0.0
+30
+0.0
+3
+*Model_Space
+1
+
+0
+ENDBLK
+5
+21
+330
+1F
+100
+AcDbEntity
+8
+0
+100
+AcDbBlockEnd
+0
+BLOCK
+5
+1C
+330
+1B
+100
+AcDbEntity
+67
+1
+8
+0
+100
+AcDbBlockBegin
+2
+*Paper_Space
+70
+0
+10
+0.0
+20
+0.0
+30
+0.0
+3
+*Paper_Space
+1
+
+0
+ENDBLK
+5
+1D
+330
+1B
+100
+AcDbEntity
+67
+1
+8
+0
+100
+AcDbBlockEnd
+0
+ENDSEC
+0
+SECTION
+2
+ENTITIES
+0
+ENDSEC
+0
+SECTION
+2
+OBJECTS
+0
+DICTIONARY
+5
+C
+330
+0
+100
+AcDbDictionary
+281
+1
+3
+ACAD_GROUP
+350
+D
+3
+ACAD_MLINESTYLE
+350
+17
+0
+DICTIONARY
+5
+D
+330
+C
+100
+AcDbDictionary
+281
+1
+0
+DICTIONARY
+5
+17
+330
+C
+100
+AcDbDictionary
+281
+1
+0
+ENDSEC
+0
+EOF`;
       }
       
       createTagElement(text, type) {
