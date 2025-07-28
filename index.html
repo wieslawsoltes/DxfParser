@@ -347,6 +347,54 @@
       position: relative;
       overflow-y: auto;
     }
+    /* Remove scrollbar from diagnostics overlay content to avoid double scrollbars */
+    #diagnosticsOverlay .overlay-content {
+      overflow-y: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Ensure the tab content area expands to fill available space */
+    #diagnosticsTabContent {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    /* Diagnostics header layout */
+    .diagnostics-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1em;
+      padding-bottom: 1em;
+      border-bottom: 1px solid #dee2e6;
+    }
+    .diagnostics-header-left {
+      display: flex;
+      align-items: center;
+      gap: 1em;
+    }
+    .diagnostics-header-left h2 {
+      margin: 0;
+      font-size: 1.5em;
+    }
+    .diagnostics-header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+    .diagnostics-header-right button,
+    .diagnostics-header-left button {
+      padding: 0.5em 1em;
+      border: 1px solid #ccc;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .diagnostics-header-right button:hover,
+    .diagnostics-header-left button:hover {
+      background: #e9ecef;
+    }
     #closeCloudOverlay,
     #closeStatsOverlay,
     #closeDepsOverlay,
@@ -357,9 +405,6 @@
     /* NEW Fonts Overlay close button */
     #closeFontsOverlay,
     #closeClassesOverlay,
-    #closeDiagnosticsOverlay,
-    #runDiagnosticsBtn,
-    #exportDiagnosticsBtn,
     #saveBinaryBtn,
     #previewImageBtn {
       position: absolute;
@@ -374,10 +419,7 @@
     #closeHandleMapOverlay,
     #closeProxyObjectsOverlay,
     #closeFontsOverlay,
-    #closeClassesOverlay,
-    #closeDiagnosticsOverlay { right: 10px; }
-    #runDiagnosticsBtn { right: 80px; }
-    #exportDiagnosticsBtn { right: 200px; }
+    #closeClassesOverlay { right: 10px; }
     #saveBinaryBtn { right: 80px; }
     #previewImageBtn { right: 170px; }
     .cloud-tag {
@@ -465,8 +507,14 @@
     }
     .diagnostics-content {
       display: none;
-      height: calc(100vh - 250px);
+      flex: 1;
       overflow-y: auto;
+      min-height: 200px;
+      max-height: calc(100vh - 400px);
+      padding: 1em;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      margin-top: 0.5em;
     }
     .diagnostics-content.active {
       display: block;
@@ -834,6 +882,35 @@
       display: none;
     }
     
+    /* Overlay header and footer styles */
+    .overlay-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 1em;
+      border-bottom: 1px solid #dee2e6;
+      margin-bottom: 1em;
+    }
+    .overlay-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5em;
+      padding-top: 1em;
+      border-top: 1px solid #dee2e6;
+      margin-top: 1em;
+    }
+    .overlay-footer button.primary {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 0.5em 1em;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .overlay-footer button.primary:hover {
+      background: #0056b3;
+    }
+    
     /* Responsive design for diagnostics */
     @media (max-width: 768px) {
       .diagnostics-filter-row {
@@ -1120,11 +1197,17 @@
   </div>
   <div id="diagnosticsOverlay">
     <div class="overlay-content">
-      <button id="closeDiagnosticsOverlay">Close</button>
-      <button id="configureRulesBtn">Configure Rules</button>
-      <button id="runDiagnosticsBtn">Run Analysis</button>
-      <button id="exportDiagnosticsBtn">Export Report</button>
-      <h2>DXF Comprehensive Diagnostics</h2>
+      <div class="diagnostics-header">
+        <div class="diagnostics-header-left">
+          <h2>DXF Comprehensive Diagnostics</h2>
+          <button id="configureRulesBtn">Configure Rules</button>
+        </div>
+        <div class="diagnostics-header-right">
+          <button id="runDiagnosticsBtn">Run Analysis</button>
+          <button id="exportDiagnosticsBtn">Export Report</button>
+          <button id="closeDiagnosticsOverlay">Close</button>
+        </div>
+      </div>
       
       <div class="diagnostics-progress" id="diagnosticsProgress" style="display:none;">
         <div class="diagnostics-progress-bar">
@@ -1168,50 +1251,7 @@
         💡 <strong>Quick Tips:</strong> Ctrl+F to search, 1-5 keys for severity filters, Ctrl+E to export, click statistics to filter by severity
       </div>
     </div>
-    
-    <!-- Rule Configuration Dialog -->
-    <div id="ruleConfigOverlay" class="overlay" style="display:none;">
-      <div class="overlay-content" style="max-width: 900px; max-height: 90vh; overflow: hidden;">
-        <div class="overlay-header">
-          <h2>Configure Diagnostic Rules</h2>
-          <button class="close-overlay" id="closeRuleConfigBtn">&times;</button>
-        </div>
-        
-        <div class="rule-config-toolbar">
-          <div class="rule-config-actions">
-            <button id="selectAllRulesBtn">Select All</button>
-            <button id="deselectAllRulesBtn">Deselect All</button>
-            <button id="resetToDefaultRulesBtn">Reset to Default</button>
-          </div>
-          
-          <div class="rule-profiles">
-            <select id="ruleProfileSelect">
-              <option value="">Select Profile...</option>
-            </select>
-            <button id="saveRuleProfileBtn">Save Profile</button>
-            <button id="loadRuleProfileBtn">Load Profile</button>
-            <button id="deleteRuleProfileBtn">Delete Profile</button>
-            <button id="clearAllProfilesBtn">Clear All Profiles</button>
-            <button id="saveProfileToFileBtn">Save to File</button>
-            <button id="loadProfileFromFileBtn">Load from File</button>
-            <input type="file" id="profileFileInput" accept=".json" style="display: none;">
-          </div>
-          
-          <div class="rule-search">
-            <input type="text" id="ruleSearchInput" placeholder="Search rules..." />
-          </div>
-        </div>
-        
-        <div class="rule-config-content" id="ruleConfigContent">
-          <!-- Rule categories will be populated dynamically -->
-        </div>
-        
-                 <div class="overlay-footer">
-           <button id="applyRuleConfigBtn" class="primary">Apply Configuration</button>
-           <button id="cancelRuleConfigBtn">Cancel</button>
-         </div>
-       </div>
-     </div>
+
 
       <div class="diagnostics-tabs" id="diagnosticsTabs">
         <div class="diagnostics-tab active" data-tab="overview">Overview</div>
@@ -1233,39 +1273,100 @@
         </div>
         
         <div class="diagnostics-content" id="diagnostics-structural">
-          <div id="diagnosticsStructuralContent"></div>
+          <div id="diagnosticsStructuralContent">
+            <p><em>No structural issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-integrity">
-          <div id="diagnosticsIntegrityContent"></div>
+          <div id="diagnosticsIntegrityContent">
+            <p><em>No data integrity issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-rendering">
-          <div id="diagnosticsRenderingContent"></div>
+          <div id="diagnosticsRenderingContent">
+            <p><em>No rendering issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-text">
-          <div id="diagnosticsTextContent"></div>
+          <div id="diagnosticsTextContent">
+            <p><em>No text issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-performance">
-          <div id="diagnosticsPerformanceContent"></div>
+          <div id="diagnosticsPerformanceContent">
+            <p><em>No performance issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-compliance">
-          <div id="diagnosticsComplianceContent"></div>
+          <div id="diagnosticsComplianceContent">
+            <p><em>No compliance issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-best-practices">
-          <div id="diagnosticsBestPracticesContent"></div>
+          <div id="diagnosticsBestPracticesContent">
+            <p><em>No best practice violations found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-security">
-          <div id="diagnosticsSecurityContent"></div>
+          <div id="diagnosticsSecurityContent">
+            <p><em>No security issues found yet. Click "Run Analysis" to begin diagnostics...</em></p>
+          </div>
         </div>
       </div>
     </div>
   </div>
+  
+  <!-- Rule Configuration Dialog - Separate overlay rendered above diagnostics -->
+  <div id="ruleConfigOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); z-index:1200;">
+    <div class="overlay-content" style="max-width: 900px; max-height: 90vh; overflow: hidden; margin: 20px auto;">
+      <div class="overlay-header">
+        <h2>Configure Diagnostic Rules</h2>
+        <button class="close-overlay" id="closeRuleConfigBtn" style="position: absolute; top: 10px; right: 10px; cursor: pointer;">&times;</button>
+      </div>
+      
+      <div class="rule-config-toolbar">
+        <div class="rule-config-actions">
+          <button id="selectAllRulesBtn">Select All</button>
+          <button id="deselectAllRulesBtn">Deselect All</button>
+          <button id="resetToDefaultRulesBtn">Reset to Default</button>
+        </div>
+        
+        <div class="rule-profiles">
+          <select id="ruleProfileSelect">
+            <option value="">Select Profile...</option>
+          </select>
+          <button id="saveRuleProfileBtn">Save Profile</button>
+          <button id="loadRuleProfileBtn">Load Profile</button>
+          <button id="deleteRuleProfileBtn">Delete Profile</button>
+          <button id="clearAllProfilesBtn">Clear All Profiles</button>
+          <button id="saveProfileToFileBtn">Save to File</button>
+          <button id="loadProfileFromFileBtn">Load from File</button>
+          <input type="file" id="profileFileInput" accept=".json" style="display: none;">
+        </div>
+        
+        <div class="rule-search">
+          <input type="text" id="ruleSearchInput" placeholder="Search rules..." />
+        </div>
+      </div>
+      
+      <div class="rule-config-content" id="ruleConfigContent">
+        <!-- Rule categories will be populated dynamically -->
+      </div>
+      
+      <div class="overlay-footer">
+        <button id="applyRuleConfigBtn" class="primary">Apply Configuration</button>
+        <button id="cancelRuleConfigBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+  
   <div id="objectSizeOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); z-index:1000;">
     <div class="overlay-content">
       <button id="closeObjectSizeOverlay" style="position:absolute; top:10px; right:10px; cursor:pointer;">Close</button>
