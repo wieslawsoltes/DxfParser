@@ -890,6 +890,8 @@
         <div class="diagnostics-tab active" data-tab="overview">Overview</div>
         <div class="diagnostics-tab" data-tab="structural">Structural Issues</div>
         <div class="diagnostics-tab" data-tab="integrity">Data Integrity</div>
+        <div class="diagnostics-tab" data-tab="rendering">Rendering</div>
+        <div class="diagnostics-tab" data-tab="text">Text</div>
         <div class="diagnostics-tab" data-tab="performance">Performance</div>
         <div class="diagnostics-tab" data-tab="compliance">DXF Compliance</div>
         <div class="diagnostics-tab" data-tab="best-practices">Best Practices</div>
@@ -909,6 +911,14 @@
         
         <div class="diagnostics-content" id="diagnostics-integrity">
           <div id="diagnosticsIntegrityContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-rendering">
+          <div id="diagnosticsRenderingContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-text">
+          <div id="diagnosticsTextContent"></div>
         </div>
         
         <div class="diagnostics-content" id="diagnostics-performance">
@@ -6259,6 +6269,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.updateDiagnosticsOverview(results);
         this.updateDiagnosticsStructural(results.structural);
         this.updateDiagnosticsIntegrity(results.integrity);
+        this.updateDiagnosticsRendering(results.rendering);
+        this.updateDiagnosticsText(results.text);
         this.updateDiagnosticsPerformance(results.performance);
         this.updateDiagnosticsCompliance(results.compliance);
         this.updateDiagnosticsBestPractices(results.bestPractices);
@@ -6357,6 +6369,14 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
 
       updateDiagnosticsIntegrity(issues) {
         this.updateDiagnosticsTabContent('diagnosticsIntegrityContent', issues, 'Data Integrity Issues');
+      }
+
+      updateDiagnosticsRendering(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsRenderingContent', issues, 'Rendering Issues');
+      }
+
+      updateDiagnosticsText(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsTextContent', issues, 'Text Issues');
       }
 
       updateDiagnosticsPerformance(issues) {
@@ -6494,6 +6514,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.issues = {
           structural: [],
           integrity: [],
+          rendering: [],
+          text: [],
           performance: [],
           compliance: [],
           bestPractices: [],
@@ -6514,13 +6536,15 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
 
       async runFullDiagnostics(progressCallback) {
         const steps = [
-          { name: "Indexing DXF structure", weight: 10 },
-          { name: "Analyzing structural integrity", weight: 15 },
-          { name: "Validating data integrity", weight: 15 },
-          { name: "Performance analysis", weight: 15 },
-          { name: "DXF compliance checks", weight: 20 },
-          { name: "Best practices analysis", weight: 15 },
-          { name: "Security assessment", weight: 10 }
+          { name: "Indexing DXF structure", weight: 8 },
+          { name: "Analyzing structural integrity", weight: 12 },
+          { name: "Validating data integrity", weight: 12 },
+          { name: "Checking rendering issues", weight: 14 },
+          { name: "Analyzing text issues", weight: 14 },
+          { name: "Performance analysis", weight: 12 },
+          { name: "DXF compliance checks", weight: 16 },
+          { name: "Best practices analysis", weight: 8 },
+          { name: "Security assessment", weight: 4 }
         ];
 
         let currentProgress = 0;
@@ -6533,10 +6557,12 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             case 0: await this.indexDXFStructure(); break;
             case 1: await this.analyzeStructuralIntegrity(); break;
             case 2: await this.validateDataIntegrity(); break;
-            case 3: await this.performanceAnalysis(); break;
-            case 4: await this.dxfComplianceChecks(); break;
-            case 5: await this.bestPracticesAnalysis(); break;
-            case 6: await this.securityAssessment(); break;
+            case 3: await this.analyzeRenderingIssues(); break;
+            case 4: await this.analyzeTextIssues(); break;
+            case 5: await this.performanceAnalysis(); break;
+            case 6: await this.dxfComplianceChecks(); break;
+            case 7: await this.bestPracticesAnalysis(); break;
+            case 8: await this.securityAssessment(); break;
           }
           
           currentProgress += step.weight;
@@ -6553,6 +6579,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           stats: this.stats,
           structural: this.issues.structural,
           integrity: this.issues.integrity,
+          rendering: this.issues.rendering,
+          text: this.issues.text,
           performance: this.issues.performance,
           compliance: this.issues.compliance,
           bestPractices: this.issues.bestPractices,
@@ -6753,6 +6781,31 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.checkBinaryData();
       }
 
+      async analyzeRenderingIssues() {
+        this.checkGeometryValidity();
+        this.checkColorAndVisibility();
+        this.checkViewportSettings();
+        this.checkLayerRenderingIssues();
+        this.checkBlockRenderingIssues();
+        this.checkLineTypeRendering();
+        this.checkHatchPatterns();
+        this.checkDimensionRendering();
+        this.checkSplineValidity();
+        this.checkExtrusionDirections();
+      }
+
+      async analyzeTextIssues() {
+        this.checkTextGeometry();
+        this.checkTextStyles();
+        this.checkTextFormatting();
+        this.checkMTextFormatting();
+        this.checkFontAvailability();
+        this.checkTextAlignment();
+        this.checkTextUnicode();
+        this.checkTextVisibility();
+        this.checkDimensionText();
+      }
+
       checkHandleReferences() {
         this.traverseTree(this.dxfTree, (node) => {
           if (node.properties) {
@@ -6925,15 +6978,1002 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             }
           }
         });
-      }
+             }
 
-      async performanceAnalysis() {
-        this.checkFileSize();
-        this.checkEntityCount();
-        this.checkNestingDepth();
-        this.checkDuplicateData();
-        this.checkUnusedDefinitions();
-      }
+       // ====================================
+       // RENDERING ISSUES ANALYSIS
+       // ====================================
+
+       checkGeometryValidity() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'LINE') {
+             this.checkLineValidity(node);
+           } else if (node.type === 'CIRCLE') {
+             this.checkCircleValidity(node);
+           } else if (node.type === 'ARC') {
+             this.checkArcValidity(node);
+           } else if (['POLYLINE', 'LWPOLYLINE'].includes(node.type)) {
+             this.checkPolylineValidity(node);
+           } else if (node.type === 'ELLIPSE') {
+             this.checkEllipseValidity(node);
+           }
+         });
+       }
+
+       checkLineValidity(node) {
+         const startX = this.getPropertyValue(node, 10);
+         const startY = this.getPropertyValue(node, 20);
+         const endX = this.getPropertyValue(node, 11);
+         const endY = this.getPropertyValue(node, 21);
+         
+         if (startX !== null && startY !== null && endX !== null && endY !== null) {
+           const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+           
+           if (length < 1e-10) {
+             this.addIssue('rendering', {
+               severity: 'warning',
+               title: 'Zero-Length Line',
+               description: 'Line entity has zero length and will not be visible when rendered.',
+               category: 'Geometry Validity',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Line' }]
+             });
+           }
+           
+           if (length > 1e12) {
+             this.addIssue('rendering', {
+               severity: 'warning',
+               title: 'Extremely Long Line',
+               description: `Line length (${length.toExponential(2)}) may cause rendering precision issues.`,
+               category: 'Geometry Validity',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Line' }]
+             });
+           }
+         }
+       }
+
+       checkCircleValidity(node) {
+         const radius = this.getPropertyValue(node, 40);
+         
+         if (radius !== null) {
+           if (radius <= 0) {
+             this.addIssue('rendering', {
+               severity: 'error',
+               title: 'Invalid Circle Radius',
+               description: `Circle has invalid radius: ${radius}. Radius must be positive.`,
+               category: 'Geometry Validity',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Circle' }]
+             });
+           }
+           
+           if (radius > 1e12) {
+             this.addIssue('rendering', {
+               severity: 'warning',
+               title: 'Extremely Large Circle',
+               description: `Circle radius (${radius.toExponential(2)}) may cause rendering issues.`,
+               category: 'Geometry Validity',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Circle' }]
+             });
+           }
+         }
+       }
+
+       checkArcValidity(node) {
+         const radius = this.getPropertyValue(node, 40);
+         const startAngle = this.getPropertyValue(node, 50);
+         const endAngle = this.getPropertyValue(node, 51);
+         
+         if (radius !== null && radius <= 0) {
+           this.addIssue('rendering', {
+             severity: 'error',
+             title: 'Invalid Arc Radius',
+             description: `Arc has invalid radius: ${radius}. Radius must be positive.`,
+             category: 'Geometry Validity',
+             location: `Line ${node.line}`,
+             actions: [{ type: 'navigate', data: node.id, label: 'Go to Arc' }]
+           });
+         }
+         
+         if (startAngle !== null && endAngle !== null && Math.abs(startAngle - endAngle) < 1e-6) {
+           this.addIssue('rendering', {
+             severity: 'warning',
+             title: 'Zero-Angle Arc',
+             description: 'Arc has zero sweep angle and may not render properly.',
+             category: 'Geometry Validity',
+             location: `Line ${node.line}`,
+             actions: [{ type: 'navigate', data: node.id, label: 'Go to Arc' }]
+           });
+         }
+       }
+
+       checkPolylineValidity(node) {
+         let vertexCount = 0;
+         
+         if (node.children) {
+           vertexCount = node.children.filter(child => child.type === 'VERTEX').length;
+         }
+         
+         if (vertexCount < 2) {
+           this.addIssue('rendering', {
+             severity: 'warning',
+             title: 'Polyline with Few Vertices',
+             description: `Polyline has only ${vertexCount} vertices. Minimum 2 required for proper rendering.`,
+             category: 'Geometry Validity',
+             location: `Line ${node.line}`,
+             actions: [{ type: 'navigate', data: node.id, label: 'Go to Polyline' }]
+           });
+         }
+       }
+
+       checkEllipseValidity(node) {
+         const majorAxisX = this.getPropertyValue(node, 11);
+         const majorAxisY = this.getPropertyValue(node, 21);
+         const ratio = this.getPropertyValue(node, 40);
+         
+         if (majorAxisX !== null && majorAxisY !== null) {
+           const majorAxisLength = Math.sqrt(majorAxisX * majorAxisX + majorAxisY * majorAxisY);
+           
+           if (majorAxisLength < 1e-10) {
+             this.addIssue('rendering', {
+               severity: 'error',
+               title: 'Invalid Ellipse Major Axis',
+               description: 'Ellipse has zero-length major axis.',
+               category: 'Geometry Validity',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Ellipse' }]
+             });
+           }
+         }
+         
+         if (ratio !== null && (ratio <= 0 || ratio > 1)) {
+           this.addIssue('rendering', {
+             severity: 'error',
+             title: 'Invalid Ellipse Ratio',
+             description: `Ellipse ratio (${ratio}) must be between 0 and 1.`,
+             category: 'Geometry Validity',
+             location: `Line ${node.line}`,
+             actions: [{ type: 'navigate', data: node.id, label: 'Go to Ellipse' }]
+           });
+         }
+       }
+
+       checkColorAndVisibility() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.properties) {
+             const colorCode = this.getPropertyValue(node, 62);
+             const transparency = this.getPropertyValue(node, 440);
+             
+             if (colorCode !== null && (colorCode < 0 || colorCode > 256)) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Color Code',
+                 description: `Color code ${colorCode} is outside valid range (0-256).`,
+                 category: 'Color and Visibility',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+               });
+             }
+             
+             if (transparency !== null && (transparency < 0 || transparency > 100)) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Invalid Transparency Value',
+                 description: `Transparency value ${transparency} is outside valid range (0-100).`,
+                 category: 'Color and Visibility',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkViewportSettings() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'VIEWPORT') {
+             const width = this.getPropertyValue(node, 40);
+             const height = this.getPropertyValue(node, 41);
+             const viewHeight = this.getPropertyValue(node, 45);
+             
+             if (width !== null && width <= 0) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Viewport Width',
+                 description: `Viewport width (${width}) must be positive.`,
+                 category: 'Viewport Settings',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Viewport' }]
+               });
+             }
+             
+             if (height !== null && height <= 0) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Viewport Height',
+                 description: `Viewport height (${height}) must be positive.`,
+                 category: 'Viewport Settings',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Viewport' }]
+               });
+             }
+             
+             if (viewHeight !== null && viewHeight <= 0) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Viewport View Height',
+                 description: `Viewport view height (${viewHeight}) must be positive.`,
+                 category: 'Viewport Settings',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Viewport' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkLayerRenderingIssues() {
+         const layers = new Map();
+         
+         // Collect layer definitions
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'LAYER') {
+             const name = this.getPropertyValue(node, 2);
+             const flags = this.getPropertyValue(node, 70);
+             const color = this.getPropertyValue(node, 62);
+             
+             if (name) {
+               layers.set(name, { node, flags, color });
+               
+               if (flags !== null && (flags & 1)) { // Frozen layer
+                 this.addIssue('rendering', {
+                   severity: 'info',
+                   title: `Frozen Layer: ${name}`,
+                   description: 'Layer is frozen and entities on it will not be visible.',
+                   category: 'Layer Rendering',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Layer' }]
+                 });
+               }
+               
+               if (color !== null && color < 0) {
+                 this.addIssue('rendering', {
+                   severity: 'info',
+                   title: `Layer Off: ${name}`,
+                   description: 'Layer is turned off and entities on it will not be visible.',
+                   category: 'Layer Rendering',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Layer' }]
+                 });
+               }
+             }
+           }
+         });
+       }
+
+       checkBlockRenderingIssues() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'INSERT') {
+             const scaleX = this.getPropertyValue(node, 41) || 1;
+             const scaleY = this.getPropertyValue(node, 42) || 1;
+             const scaleZ = this.getPropertyValue(node, 43) || 1;
+             
+             if (Math.abs(scaleX) < 1e-10 || Math.abs(scaleY) < 1e-10 || Math.abs(scaleZ) < 1e-10) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Block Insert with Zero Scale',
+                 description: 'Block insert has zero scale factor and will not be visible.',
+                 category: 'Block Rendering',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Insert' }]
+               });
+             }
+             
+             if (Math.abs(scaleX) > 1000 || Math.abs(scaleY) > 1000 || Math.abs(scaleZ) > 1000) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Block Insert with Extreme Scale',
+                 description: `Block insert has very large scale factors (${scaleX}, ${scaleY}, ${scaleZ}) which may cause rendering issues.`,
+                 category: 'Block Rendering',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Insert' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkLineTypeRendering() {
+         const definedLineTypes = new Set();
+         const usedLineTypes = new Set();
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'LTYPE') {
+             const name = this.getPropertyValue(node, 2);
+             if (name) {
+               definedLineTypes.add(name);
+             }
+           }
+           
+           const lineType = this.getPropertyValue(node, 6);
+           if (lineType && lineType !== 'BYLAYER' && lineType !== 'BYBLOCK') {
+             usedLineTypes.add(lineType);
+           }
+         });
+         
+         usedLineTypes.forEach(lineType => {
+           if (!definedLineTypes.has(lineType)) {
+             this.addIssue('rendering', {
+               severity: 'warning',
+               title: `Undefined Line Type: ${lineType}`,
+               description: `Line type "${lineType}" is used but not defined, may render as continuous.`,
+               category: 'Line Type Rendering',
+               location: 'Entities using this line type'
+             });
+           }
+         });
+       }
+
+       checkHatchPatterns() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'HATCH') {
+             const patternName = this.getPropertyValue(node, 2);
+             const patternType = this.getPropertyValue(node, 76);
+             const boundaryCount = this.getPropertyValue(node, 91);
+             
+             if (patternType === 1 && (!patternName || patternName === '')) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Missing Hatch Pattern Name',
+                 description: 'Predefined hatch pattern is missing pattern name.',
+                 category: 'Hatch Patterns',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Hatch' }]
+               });
+             }
+             
+             if (boundaryCount !== null && boundaryCount === 0) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Hatch with No Boundaries',
+                 description: 'Hatch entity has no boundary paths and will not render.',
+                 category: 'Hatch Patterns',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Hatch' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkDimensionRendering() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type && node.type.startsWith('DIMENSION')) {
+             const dimStyle = this.getPropertyValue(node, 3);
+             const textHeight = this.getPropertyValue(node, 140);
+             
+             if (!dimStyle || dimStyle === '') {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Dimension Missing Style',
+                 description: 'Dimension entity is missing dimension style reference.',
+                 category: 'Dimension Rendering',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
+               });
+             }
+             
+             if (textHeight !== null && textHeight <= 0) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Invalid Dimension Text Height',
+                 description: `Dimension text height (${textHeight}) is invalid, text may not be visible.`,
+                 category: 'Dimension Rendering',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkSplineValidity() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'SPLINE') {
+             const degree = this.getPropertyValue(node, 71);
+             const knotCount = this.getPropertyValue(node, 72);
+             const controlPointCount = this.getPropertyValue(node, 73);
+             
+             if (degree !== null && (degree < 1 || degree > 11)) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Spline Degree',
+                 description: `Spline degree (${degree}) must be between 1 and 11.`,
+                 category: 'Spline Validity',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Spline' }]
+               });
+             }
+             
+             if (controlPointCount !== null && controlPointCount < 2) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Insufficient Spline Control Points',
+                 description: `Spline has only ${controlPointCount} control points, minimum 2 required.`,
+                 category: 'Spline Validity',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Spline' }]
+               });
+             }
+             
+             if (degree !== null && controlPointCount !== null && controlPointCount <= degree) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Spline Control Point Degree Mismatch',
+                 description: `Spline should have more control points (${controlPointCount}) than degree (${degree}).`,
+                 category: 'Spline Validity',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Spline' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkExtrusionDirections() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.properties) {
+             const extrusionX = this.getPropertyValue(node, 210);
+             const extrusionY = this.getPropertyValue(node, 220);
+             const extrusionZ = this.getPropertyValue(node, 230);
+             
+             if (extrusionX !== null && extrusionY !== null && extrusionZ !== null) {
+               const length = Math.sqrt(extrusionX * extrusionX + extrusionY * extrusionY + extrusionZ * extrusionZ);
+               
+               if (length < 1e-10) {
+                 this.addIssue('rendering', {
+                   severity: 'error',
+                   title: 'Zero Extrusion Direction',
+                   description: 'Entity has zero-length extrusion direction vector.',
+                   category: 'Extrusion Directions',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+                 });
+               }
+               
+               if (Math.abs(length - 1.0) > 1e-6) {
+                 this.addIssue('rendering', {
+                   severity: 'warning',
+                   title: 'Non-Normalized Extrusion Direction',
+                   description: `Extrusion direction should be normalized (length=${length.toFixed(6)}).`,
+                   category: 'Extrusion Directions',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+                 });
+               }
+             }
+           }
+         });
+       }
+
+              // ====================================
+       // TEXT ISSUES ANALYSIS
+       // ====================================
+
+       checkTextGeometry() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (['TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB'].includes(node.type)) {
+             const height = this.getPropertyValue(node, 40);
+             const insertionX = this.getPropertyValue(node, 10);
+             const insertionY = this.getPropertyValue(node, 20);
+             const rotation = this.getPropertyValue(node, 50);
+             const widthFactor = this.getPropertyValue(node, 41);
+             const obliqueAngle = this.getPropertyValue(node, 51);
+             
+             if (height !== null && height <= 0) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid Text Height',
+                 description: `Text height (${height}) must be positive for text to be visible.`,
+                 category: 'Text Geometry',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+             
+             if (height !== null && height > 1000) {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Very Large Text Height',
+                 description: `Text height (${height}) is unusually large and may cause rendering issues.`,
+                 category: 'Text Geometry',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+             
+             if (insertionX !== null && insertionY !== null) {
+               if (Math.abs(insertionX) > 1e12 || Math.abs(insertionY) > 1e12) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: 'Text at Extreme Coordinates',
+                   description: `Text insertion point (${insertionX}, ${insertionY}) is at extreme coordinates.`,
+                   category: 'Text Geometry',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+             }
+             
+             if (widthFactor !== null && widthFactor <= 0) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid Text Width Factor',
+                 description: `Text width factor (${widthFactor}) must be positive.`,
+                 category: 'Text Geometry',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+             
+             if (obliqueAngle !== null && Math.abs(obliqueAngle) > 85) {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Extreme Text Oblique Angle',
+                 description: `Text oblique angle (${obliqueAngle}°) is very steep and may be difficult to read.`,
+                 category: 'Text Geometry',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkTextStyles() {
+         const definedStyles = new Set();
+         const usedStyles = new Set();
+         
+         // Collect style definitions
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'STYLE') {
+             const styleName = this.getPropertyValue(node, 2);
+             const fontFile = this.getPropertyValue(node, 3);
+             const bigFontFile = this.getPropertyValue(node, 4);
+             const fixedHeight = this.getPropertyValue(node, 40);
+             const widthFactor = this.getPropertyValue(node, 41);
+             const obliqueAngle = this.getPropertyValue(node, 50);
+             
+             if (styleName) {
+               definedStyles.add(styleName);
+               
+               if (!fontFile || fontFile === '') {
+                 this.addIssue('text', {
+                   severity: 'error',
+                   title: `Missing Font File in Style: ${styleName}`,
+                   description: 'Text style is missing font file specification.',
+                   category: 'Text Styles',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Style' }]
+                 });
+               }
+               
+               if (fixedHeight !== null && fixedHeight < 0) {
+                 this.addIssue('text', {
+                   severity: 'error',
+                   title: `Invalid Fixed Height in Style: ${styleName}`,
+                   description: `Text style fixed height (${fixedHeight}) cannot be negative.`,
+                   category: 'Text Styles',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Style' }]
+                 });
+               }
+               
+               if (widthFactor !== null && widthFactor <= 0) {
+                 this.addIssue('text', {
+                   severity: 'error',
+                   title: `Invalid Width Factor in Style: ${styleName}`,
+                   description: `Text style width factor (${widthFactor}) must be positive.`,
+                   category: 'Text Styles',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Style' }]
+                 });
+               }
+             }
+           }
+           
+           // Collect style usage
+           if (['TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB'].includes(node.type)) {
+             const styleName = this.getPropertyValue(node, 7);
+             if (styleName && styleName !== 'BYLAYER' && styleName !== 'BYBLOCK') {
+               usedStyles.add(styleName);
+             }
+           }
+         });
+         
+         // Check for missing style definitions
+         usedStyles.forEach(styleName => {
+           if (!definedStyles.has(styleName)) {
+             this.addIssue('text', {
+               severity: 'error',
+               title: `Undefined Text Style: ${styleName}`,
+               description: `Text style "${styleName}" is used but not defined.`,
+               category: 'Text Styles',
+               location: 'Text entities using this style'
+             });
+           }
+         });
+       }
+
+       checkTextFormatting() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'TEXT') {
+             const text = this.getPropertyValue(node, 1);
+             const alignment = this.getPropertyValue(node, 72);
+             const verticalAlignment = this.getPropertyValue(node, 73);
+             
+             if (!text || text === '') {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Empty Text Entity',
+                 description: 'Text entity has no content and will not be visible.',
+                 category: 'Text Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+             
+             if (text && text.length > 256) {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Very Long Text Content',
+                 description: `Text content is ${text.length} characters long, which may cause display issues.`,
+                 category: 'Text Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+             
+             if (alignment !== null && (alignment < 0 || alignment > 5)) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid Text Alignment',
+                 description: `Text horizontal alignment (${alignment}) must be between 0 and 5.`,
+                 category: 'Text Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+             
+             if (verticalAlignment !== null && (verticalAlignment < 0 || verticalAlignment > 3)) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid Text Vertical Alignment',
+                 description: `Text vertical alignment (${verticalAlignment}) must be between 0 and 3.`,
+                 category: 'Text Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkMTextFormatting() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'MTEXT') {
+             const text = this.getPropertyValue(node, 1);
+             const additionalText = node.properties?.filter(p => p.code === 3).map(p => p.value).join('') || '';
+             const fullText = (text || '') + additionalText;
+             const width = this.getPropertyValue(node, 41);
+             const lineSpacing = this.getPropertyValue(node, 44);
+             const attachment = this.getPropertyValue(node, 71);
+             
+             if (!fullText || fullText === '') {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Empty MTEXT Entity',
+                 description: 'MTEXT entity has no content and will not be visible.',
+                 category: 'MTEXT Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to MTEXT' }]
+               });
+             }
+             
+             if (width !== null && width <= 0) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid MTEXT Width',
+                 description: `MTEXT width (${width}) must be positive.`,
+                 category: 'MTEXT Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to MTEXT' }]
+               });
+             }
+             
+             if (lineSpacing !== null && lineSpacing <= 0) {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Invalid MTEXT Line Spacing',
+                 description: `MTEXT line spacing (${lineSpacing}) should be positive.`,
+                 category: 'MTEXT Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to MTEXT' }]
+               });
+             }
+             
+             if (attachment !== null && (attachment < 1 || attachment > 9)) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid MTEXT Attachment Point',
+                 description: `MTEXT attachment point (${attachment}) must be between 1 and 9.`,
+                 category: 'MTEXT Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to MTEXT' }]
+               });
+             }
+             
+             // Check for malformed formatting codes
+             if (fullText) {
+               this.checkMTextFormattingCodes(node, fullText);
+             }
+           }
+         });
+       }
+
+       checkMTextFormattingCodes(node, text) {
+         const formatPatterns = [
+           { pattern: /\\[Pp];/g, name: 'paragraph break' },
+           { pattern: /\\[Ll]/g, name: 'underline' },
+           { pattern: /\\[Oo]/g, name: 'overline' },
+           { pattern: /\\[Kk]/g, name: 'strikethrough' },
+           { pattern: /\\[Ff][^;]*;/g, name: 'font change' },
+           { pattern: /\\[Hh][^;]*;/g, name: 'height change' },
+           { pattern: /\\[Cc][^;]*;/g, name: 'color change' },
+           { pattern: /\\[Tt][^;]*;/g, name: 'tracking' },
+           { pattern: /\\[Qq][^;]*;/g, name: 'oblique angle' }
+         ];
+         
+         // Check for unclosed formatting codes
+         const openCodes = text.match(/\\[A-Za-z][^;\\]*$/);
+         if (openCodes) {
+           this.addIssue('text', {
+             severity: 'warning',
+             title: 'Unclosed MTEXT Formatting Code',
+             description: `MTEXT contains unclosed formatting code: "${openCodes[0]}"`,
+             category: 'MTEXT Formatting',
+             location: `Line ${node.line}`,
+             actions: [{ type: 'navigate', data: node.id, label: 'Go to MTEXT' }]
+           });
+         }
+         
+         // Check for malformed stacking
+         const stackPattern = /\\S[^;]*\\;/g;
+         const stackMatches = text.match(stackPattern);
+         if (stackMatches) {
+           stackMatches.forEach(match => {
+             if (!match.includes('#') && !match.includes('^') && !match.includes('/')) {
+               this.addIssue('text', {
+                 severity: 'warning',
+                 title: 'Malformed MTEXT Stack Code',
+                 description: `MTEXT contains malformed stack code: "${match}"`,
+                 category: 'MTEXT Formatting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to MTEXT' }]
+               });
+             }
+           });
+         }
+       }
+
+       checkFontAvailability() {
+         const fontFiles = new Set();
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'STYLE') {
+             const fontFile = this.getPropertyValue(node, 3);
+             const bigFontFile = this.getPropertyValue(node, 4);
+             
+             if (fontFile && fontFile !== '') {
+               fontFiles.add(fontFile);
+               
+               // Check for common font file issues
+               if (!fontFile.toLowerCase().endsWith('.shx') && !fontFile.toLowerCase().endsWith('.ttf')) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: `Unusual Font File Extension: ${fontFile}`,
+                   description: 'Font file should typically have .shx or .ttf extension.',
+                   category: 'Font Availability',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Style' }]
+                 });
+               }
+               
+               if (fontFile.includes(' ')) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: `Font File with Spaces: ${fontFile}`,
+                   description: 'Font file name contains spaces which may cause loading issues.',
+                   category: 'Font Availability',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Style' }]
+                 });
+               }
+             }
+             
+             if (bigFontFile && bigFontFile !== '') {
+               fontFiles.add(bigFontFile);
+             }
+           }
+         });
+         
+         if (fontFiles.size > 20) {
+           this.addIssue('text', {
+             severity: 'suggestion',
+             title: 'Many Font Files Referenced',
+             description: `Drawing references ${fontFiles.size} different font files, consider consolidating.`,
+             category: 'Font Availability',
+             location: 'STYLE table'
+           });
+         }
+       }
+
+       checkTextAlignment() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (['TEXT', 'MTEXT'].includes(node.type)) {
+             const justification = this.getPropertyValue(node, 72);
+             const secondAlignX = this.getPropertyValue(node, 11);
+             const secondAlignY = this.getPropertyValue(node, 21);
+             
+             if (justification !== null && justification > 0) {
+               // If justification is not "left", check for second alignment point
+               if (secondAlignX === null && secondAlignY === null) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: 'Missing Second Alignment Point',
+                   description: `Text with justification ${justification} is missing second alignment point (codes 11, 21).`,
+                   category: 'Text Alignment',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+             }
+           }
+         });
+       }
+
+       checkTextUnicode() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (['TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB'].includes(node.type)) {
+             const text = this.getPropertyValue(node, 1);
+             
+             if (text) {
+               // Check for Unicode escape sequences
+               const unicodePattern = /\\U\+[0-9A-Fa-f]{4}/g;
+               const unicodeMatches = text.match(unicodePattern);
+               
+               if (unicodeMatches) {
+                 this.addIssue('text', {
+                   severity: 'info',
+                   title: 'Text Contains Unicode Characters',
+                   description: `Text contains ${unicodeMatches.length} Unicode escape sequence(s), ensure proper font support.`,
+                   category: 'Text Unicode',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+               
+               // Check for non-ASCII characters
+               const nonAsciiPattern = /[^\x00-\x7F]/g;
+               const nonAsciiMatches = text.match(nonAsciiPattern);
+               
+               if (nonAsciiMatches && nonAsciiMatches.length > 0) {
+                 this.addIssue('text', {
+                   severity: 'info',
+                   title: 'Text Contains Non-ASCII Characters',
+                   description: `Text contains ${nonAsciiMatches.length} non-ASCII character(s), verify encoding compatibility.`,
+                   category: 'Text Unicode',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+               
+               // Check for control characters
+               const controlPattern = /[\x00-\x1F\x7F]/g;
+               const controlMatches = text.match(controlPattern);
+               
+               if (controlMatches && controlMatches.length > 0) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: 'Text Contains Control Characters',
+                   description: 'Text contains control characters which may cause display issues.',
+                   category: 'Text Unicode',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+             }
+           }
+         });
+       }
+
+       checkTextVisibility() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (['TEXT', 'MTEXT', 'ATTDEF', 'ATTRIB'].includes(node.type)) {
+             const layer = this.getPropertyValue(node, 8);
+             const color = this.getPropertyValue(node, 62);
+             
+             // Check if text is on a frozen or off layer
+             if (layer && layer !== '0') {
+               // This would require cross-referencing with layer definitions
+               // For now, we'll check if the text entity itself has visibility issues
+             }
+             
+             // Check for invisible text (color 0 or negative)
+             if (color !== null && color <= 0) {
+               this.addIssue('text', {
+                 severity: 'info',
+                 title: 'Text with Invisible Color',
+                 description: `Text color (${color}) may make text invisible or follow layer color.`,
+                 category: 'Text Visibility',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkDimensionText() {
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type && node.type.includes('DIMENSION')) {
+             const dimText = this.getPropertyValue(node, 1);
+             const textHeight = this.getPropertyValue(node, 140);
+             const textStyle = this.getPropertyValue(node, 7);
+             
+             if (dimText === '<>') {
+               // This is the default measured text, which is normal
+             } else if (dimText === '') {
+               this.addIssue('text', {
+                 severity: 'info',
+                 title: 'Dimension with Suppressed Text',
+                 description: 'Dimension text is suppressed and will not display measurement.',
+                 category: 'Dimension Text',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
+               });
+             }
+             
+             if (textHeight !== null && textHeight <= 0) {
+               this.addIssue('text', {
+                 severity: 'error',
+                 title: 'Invalid Dimension Text Height',
+                 description: `Dimension text height (${textHeight}) must be positive.`,
+                 category: 'Dimension Text',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
+               });
+             }
+           }
+         });
+       }
+
+       // Helper method to get property value by code
+       getPropertyValue(node, code) {
+         if (!node.properties) return null;
+         const prop = node.properties.find(p => parseInt(p.code) === code);
+         return prop ? (isNaN(parseFloat(prop.value)) ? prop.value : parseFloat(prop.value)) : null;
+       }
+
+       async performanceAnalysis() {
+         this.checkFileSize();
+         this.checkEntityCount();
+         this.checkNestingDepth();
+         this.checkDuplicateData();
+         this.checkUnusedDefinitions();
+       }
 
       checkFileSize() {
         // Estimate file size based on content
