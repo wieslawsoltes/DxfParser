@@ -306,7 +306,8 @@
     #hexViewerOverlay,
     #proxyObjectsOverlay,
     /* NEW Fonts Overlay */
-    #fontsOverlay {
+    #fontsOverlay,
+    #diagnosticsOverlay {
       display: none;
       position: fixed;
       top: 0;
@@ -325,7 +326,8 @@
     #binaryObjectsOverlay,
     #handleMapOverlay,
     #proxyObjectsOverlay,
-    #fontsOverlay { z-index: 1000; }
+    #fontsOverlay,
+    #diagnosticsOverlay { z-index: 1000; }
     #classesOverlay {
       display: none;
       position: fixed;
@@ -355,6 +357,9 @@
     /* NEW Fonts Overlay close button */
     #closeFontsOverlay,
     #closeClassesOverlay,
+    #closeDiagnosticsOverlay,
+    #runDiagnosticsBtn,
+    #exportDiagnosticsBtn,
     #saveBinaryBtn,
     #previewImageBtn {
       position: absolute;
@@ -369,7 +374,10 @@
     #closeHandleMapOverlay,
     #closeProxyObjectsOverlay,
     #closeFontsOverlay,
-    #closeClassesOverlay { right: 10px; }
+    #closeClassesOverlay,
+    #closeDiagnosticsOverlay { right: 10px; }
+    #runDiagnosticsBtn { right: 80px; }
+    #exportDiagnosticsBtn { right: 200px; }
     #saveBinaryBtn { right: 80px; }
     #previewImageBtn { right: 170px; }
     .cloud-tag {
@@ -433,6 +441,181 @@
     .dropdown-content label:hover {
       background-color: #f1f1f1;
     }
+    
+    /* Diagnostics Overlay Specific Styles */
+    .diagnostics-tabs {
+      display: flex;
+      border-bottom: 2px solid #ccc;
+      margin-bottom: 1em;
+    }
+    .diagnostics-tab {
+      padding: 0.8em 1.2em;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-bottom: none;
+      background: #f5f5f5;
+      margin-right: 2px;
+      font-weight: bold;
+    }
+    .diagnostics-tab.active {
+      background: #fff;
+      border-bottom: 2px solid #fff;
+      margin-bottom: -2px;
+      color: #0066cc;
+    }
+    .diagnostics-content {
+      display: none;
+      height: calc(100vh - 250px);
+      overflow-y: auto;
+    }
+    .diagnostics-content.active {
+      display: block;
+    }
+    .diagnostics-summary {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 1em;
+      margin-bottom: 1em;
+    }
+    .diagnostics-category {
+      margin-bottom: 1.5em;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .diagnostics-category-header {
+      background: #f0f0f0;
+      padding: 0.8em 1em;
+      border-bottom: 1px solid #e0e0e0;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .diagnostics-category-header:hover {
+      background: #e8e8e8;
+    }
+    .diagnostics-category-content {
+      display: none;
+      padding: 0;
+    }
+    .diagnostics-category-content.expanded {
+      display: block;
+    }
+    .diagnostic-item {
+      padding: 0.8em 1em;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      align-items: flex-start;
+      gap: 1em;
+    }
+    .diagnostic-item:last-child {
+      border-bottom: none;
+    }
+    .diagnostic-severity {
+      flex-shrink: 0;
+      width: 80px;
+      padding: 0.2em 0.5em;
+      border-radius: 4px;
+      font-size: 0.85em;
+      font-weight: bold;
+      text-align: center;
+    }
+    .diagnostic-severity.critical {
+      background: #dc3545;
+      color: white;
+    }
+    .diagnostic-severity.error {
+      background: #fd7e14;
+      color: white;
+    }
+    .diagnostic-severity.warning {
+      background: #ffc107;
+      color: #333;
+    }
+    .diagnostic-severity.info {
+      background: #17a2b8;
+      color: white;
+    }
+    .diagnostic-severity.suggestion {
+      background: #28a745;
+      color: white;
+    }
+    .diagnostic-details {
+      flex: 1;
+    }
+    .diagnostic-title {
+      font-weight: bold;
+      margin-bottom: 0.3em;
+      color: #333;
+    }
+    .diagnostic-description {
+      color: #666;
+      font-size: 0.9em;
+      line-height: 1.4;
+      margin-bottom: 0.5em;
+    }
+    .diagnostic-location {
+      font-size: 0.8em;
+      color: #888;
+      font-family: monospace;
+    }
+    .diagnostic-actions {
+      margin-top: 0.5em;
+    }
+    .diagnostic-action-btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 0.3em 0.8em;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 0.8em;
+      margin-right: 0.5em;
+    }
+    .diagnostic-action-btn:hover {
+      background: #0056b3;
+    }
+    .diagnostics-progress {
+      margin: 1em 0;
+    }
+    .diagnostics-progress-bar {
+      width: 100%;
+      height: 20px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .diagnostics-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #007bff, #0056b3);
+      transition: width 0.3s ease;
+    }
+    .diagnostics-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1em;
+      margin-bottom: 1em;
+    }
+    .diagnostics-stat {
+      text-align: center;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 0.8em;
+    }
+    .diagnostics-stat-number {
+      font-size: 1.5em;
+      font-weight: bold;
+      margin-bottom: 0.2em;
+    }
+    .diagnostics-stat-label {
+      font-size: 0.8em;
+      color: #666;
+      text-transform: uppercase;
+    }
     /* Responsive adjustments for mobile */
     @media (max-width: 600px) {
       .filter-content .filter-row {
@@ -485,6 +668,7 @@
           <button id="showBlocksOverlayBtn">Blocks & Inserts</button>
           <button id="showLineTypesOverlayBtn">Line Types</button>
           <button id="showTextsOverlayBtn">Texts</button>
+          <button id="showDiagnosticsOverlayBtn">DXF Diagnostics</button>
           <button id="showBatchProcessOverlayBtn">Batch Process</button>
           <button id="showDiffOverlayBtn">Diff DXF</button>
         </div>
@@ -682,6 +866,67 @@
       <button class="backToTreeBtn" data-overlay="classesOverlay">Back to Tree</button>
       <h2>DXF Classes</h2>
       <div id="overlayClassesContent"></div>
+    </div>
+  </div>
+  <div id="diagnosticsOverlay">
+    <div class="overlay-content">
+      <button id="closeDiagnosticsOverlay">Close</button>
+      <button id="runDiagnosticsBtn">Run Analysis</button>
+      <button id="exportDiagnosticsBtn">Export Report</button>
+      <h2>DXF Comprehensive Diagnostics</h2>
+      
+      <div class="diagnostics-progress" id="diagnosticsProgress" style="display:none;">
+        <div class="diagnostics-progress-bar">
+          <div class="diagnostics-progress-fill" id="diagnosticsProgressFill" style="width: 0%;"></div>
+        </div>
+        <div id="diagnosticsProgressText">Initializing diagnostics...</div>
+      </div>
+
+      <div class="diagnostics-summary" id="diagnosticsSummary" style="display:none;">
+        <div class="diagnostics-stats" id="diagnosticsStats"></div>
+      </div>
+
+      <div class="diagnostics-tabs" id="diagnosticsTabs">
+        <div class="diagnostics-tab active" data-tab="overview">Overview</div>
+        <div class="diagnostics-tab" data-tab="structural">Structural Issues</div>
+        <div class="diagnostics-tab" data-tab="integrity">Data Integrity</div>
+        <div class="diagnostics-tab" data-tab="performance">Performance</div>
+        <div class="diagnostics-tab" data-tab="compliance">DXF Compliance</div>
+        <div class="diagnostics-tab" data-tab="best-practices">Best Practices</div>
+        <div class="diagnostics-tab" data-tab="security">Security</div>
+      </div>
+
+      <div id="diagnosticsTabContent">
+        <div class="diagnostics-content active" id="diagnostics-overview">
+          <div id="diagnosticsOverviewContent">
+            <p>Click "Run Analysis" to start comprehensive DXF diagnostics analysis...</p>
+          </div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-structural">
+          <div id="diagnosticsStructuralContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-integrity">
+          <div id="diagnosticsIntegrityContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-performance">
+          <div id="diagnosticsPerformanceContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-compliance">
+          <div id="diagnosticsComplianceContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-best-practices">
+          <div id="diagnosticsBestPracticesContent"></div>
+        </div>
+        
+        <div class="diagnostics-content" id="diagnostics-security">
+          <div id="diagnosticsSecurityContent"></div>
+        </div>
+      </div>
     </div>
   </div>
   <div id="objectSizeOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); z-index:1000;">
@@ -2479,6 +2724,39 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         });
         document.getElementById("closeTextsOverlay").addEventListener("click", () => {
           document.getElementById("textsOverlay").style.display = "none";
+        });
+        document.getElementById("showDiagnosticsOverlayBtn").addEventListener("click", () => {
+          this.showDiagnosticsOverlay();
+        });
+        document.getElementById("closeDiagnosticsOverlay").addEventListener("click", () => {
+          document.getElementById("diagnosticsOverlay").style.display = "none";
+        });
+        document.getElementById("runDiagnosticsBtn").addEventListener("click", () => {
+          this.runDiagnostics();
+        });
+        document.getElementById("exportDiagnosticsBtn").addEventListener("click", () => {
+          this.exportDiagnosticsReport();
+        });
+        // Diagnostics tab switching
+        document.querySelectorAll('.diagnostics-tab').forEach(tab => {
+          tab.addEventListener('click', (e) => {
+            const targetTab = e.target.dataset.tab;
+            this.switchDiagnosticsTab(targetTab);
+          });
+        });
+        // Diagnostics category collapsing
+        document.addEventListener('click', (e) => {
+          if (e.target.classList.contains('diagnostics-category-header')) {
+            const content = e.target.nextElementSibling;
+            const isExpanded = content.classList.contains('expanded');
+            if (isExpanded) {
+              content.classList.remove('expanded');
+              e.target.querySelector('.category-toggle').textContent = '▶';
+            } else {
+              content.classList.add('expanded');
+              e.target.querySelector('.category-toggle').textContent = '▼';
+            }
+          }
         });
         document.getElementById("showBatchProcessOverlayBtn").addEventListener("click", () => {
         document.getElementById("batchProcessingOverlay").style.display = "block";
@@ -5906,7 +6184,1412 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             alert("Error reading files: " + err);
           });
       }
+
+      // ====================================
+      // COMPREHENSIVE DXF DIAGNOSTICS ENGINE
+      // ====================================
+
+      showDiagnosticsOverlay() {
+        document.getElementById("diagnosticsOverlay").style.display = "block";
+        // Reset to overview tab
+        this.switchDiagnosticsTab('overview');
+      }
+
+      switchDiagnosticsTab(tabName) {
+        // Update tab appearance
+        document.querySelectorAll('.diagnostics-tab').forEach(tab => {
+          tab.classList.remove('active');
+        });
+        document.querySelectorAll('.diagnostics-content').forEach(content => {
+          content.classList.remove('active');
+        });
+        
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        document.getElementById(`diagnostics-${tabName}`).classList.add('active');
+      }
+
+      async runDiagnostics() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab || !activeTab.originalTreeData || activeTab.originalTreeData.length === 0) {
+          alert("Please load a DXF file first.");
+          return;
+        }
+
+        // Show progress
+        this.showDiagnosticsProgress();
+        
+        try {
+          const diagnosticsEngine = new DXFDiagnosticsEngine(activeTab.originalTreeData, activeTab.fileName);
+          const results = await diagnosticsEngine.runFullDiagnostics((progress, message) => {
+            this.updateDiagnosticsProgress(progress, message);
+          });
+          
+          this.displayDiagnosticsResults(results);
+          this.hideDiagnosticsProgress();
+          
+        } catch (error) {
+          console.error("Diagnostics error:", error);
+          alert("Error running diagnostics: " + error.message);
+          this.hideDiagnosticsProgress();
+        }
+      }
+
+      showDiagnosticsProgress() {
+        document.getElementById("diagnosticsProgress").style.display = "block";
+        document.getElementById("diagnosticsSummary").style.display = "none";
+        document.getElementById("diagnosticsTabContent").style.display = "none";
+      }
+
+      updateDiagnosticsProgress(progress, message) {
+        document.getElementById("diagnosticsProgressFill").style.width = progress + "%";
+        document.getElementById("diagnosticsProgressText").textContent = message;
+      }
+
+      hideDiagnosticsProgress() {
+        document.getElementById("diagnosticsProgress").style.display = "none";
+        document.getElementById("diagnosticsSummary").style.display = "block";
+        document.getElementById("diagnosticsTabContent").style.display = "block";
+      }
+
+      displayDiagnosticsResults(results) {
+        // Update statistics
+        this.updateDiagnosticsStats(results.stats);
+        
+        // Update each tab with results
+        this.updateDiagnosticsOverview(results);
+        this.updateDiagnosticsStructural(results.structural);
+        this.updateDiagnosticsIntegrity(results.integrity);
+        this.updateDiagnosticsPerformance(results.performance);
+        this.updateDiagnosticsCompliance(results.compliance);
+        this.updateDiagnosticsBestPractices(results.bestPractices);
+        this.updateDiagnosticsSecurity(results.security);
+      }
+
+      updateDiagnosticsStats(stats) {
+        const statsContainer = document.getElementById("diagnosticsStats");
+        statsContainer.innerHTML = `
+          <div class="diagnostics-stat">
+            <div class="diagnostics-stat-number">${stats.totalIssues}</div>
+            <div class="diagnostics-stat-label">Total Issues</div>
+          </div>
+          <div class="diagnostics-stat">
+            <div class="diagnostics-stat-number">${stats.criticalIssues}</div>
+            <div class="diagnostics-stat-label">Critical</div>
+          </div>
+          <div class="diagnostics-stat">
+            <div class="diagnostics-stat-number">${stats.errorIssues}</div>
+            <div class="diagnostics-stat-label">Errors</div>
+          </div>
+          <div class="diagnostics-stat">
+            <div class="diagnostics-stat-number">${stats.warningIssues}</div>
+            <div class="diagnostics-stat-label">Warnings</div>
+          </div>
+          <div class="diagnostics-stat">
+            <div class="diagnostics-stat-number">${stats.infoIssues}</div>
+            <div class="diagnostics-stat-label">Info</div>
+          </div>
+          <div class="diagnostics-stat">
+            <div class="diagnostics-stat-number">${stats.suggestions}</div>
+            <div class="diagnostics-stat-label">Suggestions</div>
+          </div>
+        `;
+      }
+
+      updateDiagnosticsOverview(results) {
+        const content = document.getElementById("diagnosticsOverviewContent");
+        const summary = this.generateOverviewSummary(results);
+        content.innerHTML = summary;
+      }
+
+      generateOverviewSummary(results) {
+        const criticalIssues = this.getAllIssuesByType(results, 'critical');
+        const errorIssues = this.getAllIssuesByType(results, 'error');
+        
+        let html = `<h3>Diagnostics Summary</h3>`;
+        
+        if (criticalIssues.length > 0) {
+          html += `<div class="diagnostics-category">
+            <div class="diagnostics-category-header">
+              <span>Critical Issues Found (${criticalIssues.length})</span>
+              <span class="category-toggle">▼</span>
+            </div>
+            <div class="diagnostics-category-content expanded">
+              ${criticalIssues.map(issue => this.renderDiagnosticItem(issue)).join('')}
+            </div>
+          </div>`;
+        }
+        
+        if (errorIssues.length > 0) {
+          html += `<div class="diagnostics-category">
+            <div class="diagnostics-category-header">
+              <span>Error Issues Found (${errorIssues.length})</span>
+              <span class="category-toggle">▼</span>
+            </div>
+            <div class="diagnostics-category-content expanded">
+              ${errorIssues.map(issue => this.renderDiagnosticItem(issue)).join('')}
+            </div>
+          </div>`;
+        }
+        
+        if (criticalIssues.length === 0 && errorIssues.length === 0) {
+          html += `<div class="diagnostics-summary">
+            <h4 style="color: green;">✓ No Critical or Error Issues Found</h4>
+            <p>Your DXF file appears to be structurally sound. Check other tabs for warnings and suggestions.</p>
+          </div>`;
+        }
+        
+        return html;
+      }
+
+      getAllIssuesByType(results, type) {
+        const allIssues = [];
+        Object.values(results).forEach(category => {
+          if (Array.isArray(category)) {
+            allIssues.push(...category.filter(issue => issue.severity === type));
+          }
+        });
+        return allIssues;
+      }
+
+      updateDiagnosticsStructural(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsStructuralContent', issues, 'Structural Issues');
+      }
+
+      updateDiagnosticsIntegrity(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsIntegrityContent', issues, 'Data Integrity Issues');
+      }
+
+      updateDiagnosticsPerformance(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsPerformanceContent', issues, 'Performance Issues');
+      }
+
+      updateDiagnosticsCompliance(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsComplianceContent', issues, 'DXF Compliance Issues');
+      }
+
+      updateDiagnosticsBestPractices(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsBestPracticesContent', issues, 'Best Practices');
+      }
+
+      updateDiagnosticsSecurity(issues) {
+        this.updateDiagnosticsTabContent('diagnosticsSecurityContent', issues, 'Security Issues');
+      }
+
+      updateDiagnosticsTabContent(elementId, issues, title) {
+        const content = document.getElementById(elementId);
+        if (!issues || issues.length === 0) {
+          content.innerHTML = `<div class="diagnostics-summary">
+            <h4 style="color: green;">✓ No ${title} Found</h4>
+            <p>No issues found in this category.</p>
+          </div>`;
+          return;
+        }
+
+        const categorizedIssues = this.categorizeIssues(issues);
+        let html = '';
+        
+        Object.entries(categorizedIssues).forEach(([category, categoryIssues]) => {
+          html += `<div class="diagnostics-category">
+            <div class="diagnostics-category-header">
+              <span>${category} (${categoryIssues.length})</span>
+              <span class="category-toggle">▼</span>
+            </div>
+            <div class="diagnostics-category-content expanded">
+              ${categoryIssues.map(issue => this.renderDiagnosticItem(issue)).join('')}
+            </div>
+          </div>`;
+        });
+        
+        content.innerHTML = html;
+      }
+
+      categorizeIssues(issues) {
+        const categories = {};
+        issues.forEach(issue => {
+          const category = issue.category || 'General';
+          if (!categories[category]) {
+            categories[category] = [];
+          }
+          categories[category].push(issue);
+        });
+        return categories;
+      }
+
+      renderDiagnosticItem(issue) {
+        const actions = issue.actions ? issue.actions.map(action => 
+          `<button class="diagnostic-action-btn" onclick="window.app.handleDiagnosticAction('${action.type}', '${action.data}')">${action.label}</button>`
+        ).join('') : '';
+
+        return `<div class="diagnostic-item">
+          <div class="diagnostic-severity ${issue.severity}">${issue.severity.toUpperCase()}</div>
+          <div class="diagnostic-details">
+            <div class="diagnostic-title">${issue.title}</div>
+            <div class="diagnostic-description">${issue.description}</div>
+            ${issue.location ? `<div class="diagnostic-location">Location: ${issue.location}</div>` : ''}
+            ${actions ? `<div class="diagnostic-actions">${actions}</div>` : ''}
+          </div>
+        </div>`;
+      }
+
+      handleDiagnosticAction(actionType, actionData) {
+        switch (actionType) {
+          case 'navigate':
+            this.navigateToNode(actionData);
+            break;
+          case 'highlight':
+            this.highlightNode(actionData);
+            break;
+          case 'fix':
+            this.fixIssue(actionData);
+            break;
+          default:
+            console.log('Unknown diagnostic action:', actionType, actionData);
+        }
+      }
+
+      navigateToNode(nodeId) {
+        // Close diagnostics overlay and navigate to the node
+        document.getElementById("diagnosticsOverlay").style.display = "none";
+        this.navigateToNodeInTree(nodeId);
+      }
+
+      exportDiagnosticsReport() {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          alert("No DXF file loaded.");
+          return;
+        }
+
+        // Create a comprehensive text report
+        const reportContent = this.generateDiagnosticsReport();
+        
+        const blob = new Blob([reportContent], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${activeTab.fileName || 'dxf'}_diagnostics_report.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      generateDiagnosticsReport() {
+        // Implementation would generate a comprehensive text report
+        return "DXF Diagnostics Report\n" +
+               "======================\n" +
+               "Generated on: " + new Date().toISOString() + "\n\n" +
+               "This would contain the full diagnostics report...";
+      }
     }
+
+    // ============================================
+    // DXF DIAGNOSTICS ENGINE - COMPREHENSIVE ANALYSIS
+    // ============================================
+    
+    class DXFDiagnosticsEngine {
+      constructor(dxfTree, fileName) {
+        this.dxfTree = dxfTree;
+        this.fileName = fileName;
+        this.issues = {
+          structural: [],
+          integrity: [],
+          performance: [],
+          compliance: [],
+          bestPractices: [],
+          security: []
+        };
+        this.stats = {
+          totalIssues: 0,
+          criticalIssues: 0,
+          errorIssues: 0,
+          warningIssues: 0,
+          infoIssues: 0,
+          suggestions: 0
+        };
+        this.nodeMap = new Map();
+        this.handleMap = new Map();
+        this.objectTypeStats = new Map();
+      }
+
+      async runFullDiagnostics(progressCallback) {
+        const steps = [
+          { name: "Indexing DXF structure", weight: 10 },
+          { name: "Analyzing structural integrity", weight: 15 },
+          { name: "Validating data integrity", weight: 15 },
+          { name: "Performance analysis", weight: 15 },
+          { name: "DXF compliance checks", weight: 20 },
+          { name: "Best practices analysis", weight: 15 },
+          { name: "Security assessment", weight: 10 }
+        ];
+
+        let currentProgress = 0;
+        
+        for (let i = 0; i < steps.length; i++) {
+          const step = steps[i];
+          progressCallback(currentProgress, step.name);
+          
+          switch (i) {
+            case 0: await this.indexDXFStructure(); break;
+            case 1: await this.analyzeStructuralIntegrity(); break;
+            case 2: await this.validateDataIntegrity(); break;
+            case 3: await this.performanceAnalysis(); break;
+            case 4: await this.dxfComplianceChecks(); break;
+            case 5: await this.bestPracticesAnalysis(); break;
+            case 6: await this.securityAssessment(); break;
+          }
+          
+          currentProgress += step.weight;
+          
+          // Add small delay to show progress
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        progressCallback(100, "Analysis complete");
+        
+        this.calculateStatistics();
+        
+        return {
+          stats: this.stats,
+          structural: this.issues.structural,
+          integrity: this.issues.integrity,
+          performance: this.issues.performance,
+          compliance: this.issues.compliance,
+          bestPractices: this.issues.bestPractices,
+          security: this.issues.security
+        };
+      }
+
+      async indexDXFStructure() {
+        this.traverseTree(this.dxfTree, (node, path) => {
+          // Index all nodes for quick lookup
+          this.nodeMap.set(node.id, { node, path });
+          
+          // Index handles
+          if (node.handle) {
+            this.handleMap.set(node.handle, node);
+          }
+          
+          // Count object types
+          if (node.type) {
+            const count = this.objectTypeStats.get(node.type) || 0;
+            this.objectTypeStats.set(node.type, count + 1);
+          }
+        });
+      }
+
+      async analyzeStructuralIntegrity() {
+        // Check for missing required sections
+        this.checkRequiredSections();
+        
+        // Check section structure
+        this.checkSectionStructure();
+        
+        // Check for orphaned end markers
+        this.checkEndMarkers();
+        
+        // Check block definitions
+        this.checkBlockDefinitions();
+        
+        // Check table structure
+        this.checkTableStructure();
+      }
+
+      checkRequiredSections() {
+        const requiredSections = ['HEADER', 'TABLES', 'ENTITIES'];
+        const foundSections = new Set();
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'SECTION') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              foundSections.add(nameProperty.value);
+            }
+          }
+        });
+        
+        requiredSections.forEach(section => {
+          if (!foundSections.has(section)) {
+            this.addIssue('structural', {
+              severity: 'critical',
+              title: `Missing Required Section: ${section}`,
+              description: `The DXF file is missing the required ${section} section, which may cause compatibility issues.`,
+              category: 'Section Structure',
+              location: 'File structure'
+            });
+          }
+        });
+      }
+
+      checkSectionStructure() {
+        let currentSection = null;
+        let sectionDepth = 0;
+        
+        this.traverseTree(this.dxfTree, (node, path) => {
+          if (node.type === 'SECTION') {
+            sectionDepth++;
+            if (sectionDepth > 1) {
+              this.addIssue('structural', {
+                severity: 'error',
+                title: 'Nested SECTION Found',
+                description: 'SECTION blocks cannot be nested within other SECTION blocks.',
+                category: 'Section Structure',
+                location: `Line ${node.line}`,
+                actions: [{ type: 'navigate', data: node.id, label: 'Go to Section' }]
+              });
+            }
+            currentSection = node;
+          } else if (node.type === 'ENDSEC') {
+            sectionDepth--;
+            if (sectionDepth < 0) {
+              this.addIssue('structural', {
+                severity: 'error',
+                title: 'Unmatched ENDSEC',
+                description: 'Found ENDSEC without a corresponding SECTION.',
+                category: 'Section Structure',
+                location: `Line ${node.line}`,
+                actions: [{ type: 'navigate', data: node.id, label: 'Go to ENDSEC' }]
+              });
+            }
+          }
+        });
+        
+        if (sectionDepth !== 0) {
+          this.addIssue('structural', {
+            severity: 'error',
+            title: 'Unclosed SECTION',
+            description: 'One or more SECTION blocks are not properly closed with ENDSEC.',
+            category: 'Section Structure',
+            location: currentSection ? `Line ${currentSection.line}` : 'Unknown'
+          });
+        }
+      }
+
+      checkEndMarkers() {
+        const containerTypes = ['SECTION', 'BLOCK', 'TABLE', 'POLYLINE'];
+        const endMarkers = ['ENDSEC', 'ENDBLK', 'ENDTAB', 'SEQEND'];
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (endMarkers.includes(node.type) && node.synthetic) {
+            this.addIssue('structural', {
+              severity: 'warning',
+              title: `Missing ${node.type}`,
+              description: `Expected ${node.type} marker was not found and had to be synthesized.`,
+              category: 'End Markers',
+              location: `Line ${node.line}`,
+              actions: [{ type: 'navigate', data: node.id, label: 'Go to Location' }]
+            });
+          }
+        });
+      }
+
+      checkBlockDefinitions() {
+        const blockNames = new Set();
+        const referencedBlocks = new Set();
+        
+        // Collect block definitions
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'BLOCK') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              const blockName = nameProperty.value;
+              if (blockNames.has(blockName)) {
+                this.addIssue('structural', {
+                  severity: 'error',
+                  title: `Duplicate Block Definition: ${blockName}`,
+                  description: `Block "${blockName}" is defined multiple times.`,
+                  category: 'Block Definitions',
+                  location: `Line ${node.line}`,
+                  actions: [{ type: 'navigate', data: node.id, label: 'Go to Block' }]
+                });
+              }
+              blockNames.add(blockName);
+            }
+          } else if (node.type === 'INSERT') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              referencedBlocks.add(nameProperty.value);
+            }
+          }
+        });
+        
+        // Check for missing block definitions
+        referencedBlocks.forEach(blockName => {
+          if (!blockNames.has(blockName)) {
+            this.addIssue('structural', {
+              severity: 'error',
+              title: `Missing Block Definition: ${blockName}`,
+              description: `Block "${blockName}" is referenced but not defined.`,
+              category: 'Block References',
+              location: 'INSERT entities'
+            });
+          }
+        });
+      }
+
+      checkTableStructure() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'TABLE') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (!nameProperty) {
+              this.addIssue('structural', {
+                severity: 'error',
+                title: 'TABLE Missing Name',
+                description: 'TABLE entity is missing required name property (code 2).',
+                category: 'Table Structure',
+                location: `Line ${node.line}`,
+                actions: [{ type: 'navigate', data: node.id, label: 'Go to Table' }]
+              });
+            }
+          }
+        });
+      }
+
+      async validateDataIntegrity() {
+        this.checkHandleReferences();
+        this.checkGroupCodes();
+        this.checkCoordinateValues();
+        this.checkTextEncoding();
+        this.checkBinaryData();
+      }
+
+      checkHandleReferences() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              if (isHandleCode(prop.code) && prop.value && prop.value !== '0') {
+                if (!this.handleMap.has(prop.value)) {
+                  this.addIssue('integrity', {
+                    severity: 'error',
+                    title: `Invalid Handle Reference: ${prop.value}`,
+                    description: `Handle "${prop.value}" is referenced but does not exist in the file.`,
+                    category: 'Handle References',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Reference' }]
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+
+      checkGroupCodes() {
+        const validGroupCodes = new Set([
+          // Add comprehensive list of valid DXF group codes
+          0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+          20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+          40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+          60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
+          90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 105,
+          210, 220, 230, 310, 320, 330, 340, 350, 360, 370, 380, 390,
+          999, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009,
+          1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019,
+          1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029,
+          1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039,
+          1040, 1041, 1042, 1043, 1044, 1045, 1046, 1047, 1048, 1049,
+          1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059,
+          1060, 1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071
+        ]);
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              if (!validGroupCodes.has(parseInt(prop.code))) {
+                this.addIssue('integrity', {
+                  severity: 'warning',
+                  title: `Unknown Group Code: ${prop.code}`,
+                  description: `Group code ${prop.code} is not in the standard DXF specification.`,
+                  category: 'Group Codes',
+                  location: `Line ${prop.line}`,
+                  actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                });
+              }
+            });
+          }
+        });
+      }
+
+      checkCoordinateValues() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              const code = parseInt(prop.code);
+              // Coordinate group codes (10-39, 210-239)
+              if ((code >= 10 && code <= 39) || (code >= 210 && code <= 239)) {
+                const value = parseFloat(prop.value);
+                if (isNaN(value)) {
+                  this.addIssue('integrity', {
+                    severity: 'error',
+                    title: `Invalid Coordinate Value: ${prop.value}`,
+                    description: `Coordinate group code ${prop.code} contains non-numeric value "${prop.value}".`,
+                    category: 'Coordinate Values',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                } else if (Math.abs(value) > 1e14) {
+                  this.addIssue('integrity', {
+                    severity: 'warning',
+                    title: `Extreme Coordinate Value: ${prop.value}`,
+                    description: `Coordinate value ${prop.value} is extremely large and may cause precision issues.`,
+                    category: 'Coordinate Values',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+
+      checkTextEncoding() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              const code = parseInt(prop.code);
+              // Text group codes (1, 3, 7, etc.)
+              if ([1, 2, 3, 4, 5, 6, 7, 8, 9].includes(code) && prop.value) {
+                // Check for null characters or other problematic characters
+                if (prop.value.includes('\0')) {
+                  this.addIssue('integrity', {
+                    severity: 'warning',
+                    title: 'Text Contains Null Characters',
+                    description: 'Text value contains null characters which may cause display issues.',
+                    category: 'Text Encoding',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+                
+                // Check for very long text values
+                if (prop.value.length > 2048) {
+                  this.addIssue('integrity', {
+                    severity: 'info',
+                    title: 'Very Long Text Value',
+                    description: `Text value is ${prop.value.length} characters long, which may impact performance.`,
+                    category: 'Text Encoding',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+
+      checkBinaryData() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            const binaryProps = node.properties.filter(prop => prop.code === 310);
+            if (binaryProps.length > 0) {
+              const totalBinarySize = binaryProps.reduce((sum, prop) => sum + prop.value.length, 0);
+              
+              if (totalBinarySize > 1024 * 1024) { // 1MB
+                this.addIssue('integrity', {
+                  severity: 'info',
+                  title: 'Large Binary Data Object',
+                  description: `Entity contains ${Math.round(totalBinarySize / 1024)} KB of binary data, which may impact performance.`,
+                  category: 'Binary Data',
+                  location: `Line ${node.line}`,
+                  actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+                });
+              }
+              
+              // Check binary data integrity
+              binaryProps.forEach(prop => {
+                if (prop.value.length % 2 !== 0) {
+                  this.addIssue('integrity', {
+                    severity: 'error',
+                    title: 'Invalid Binary Data Length',
+                    description: 'Binary data (group code 310) has odd number of characters, expected even.',
+                    category: 'Binary Data',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+                
+                // Check for invalid hex characters
+                if (!/^[0-9A-Fa-f]*$/.test(prop.value)) {
+                  this.addIssue('integrity', {
+                    severity: 'error',
+                    title: 'Invalid Binary Data Format',
+                    description: 'Binary data contains non-hexadecimal characters.',
+                    category: 'Binary Data',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+              });
+            }
+          }
+        });
+      }
+
+      async performanceAnalysis() {
+        this.checkFileSize();
+        this.checkEntityCount();
+        this.checkNestingDepth();
+        this.checkDuplicateData();
+        this.checkUnusedDefinitions();
+      }
+
+      checkFileSize() {
+        // Estimate file size based on content
+        let estimatedSize = 0;
+        this.traverseTree(this.dxfTree, (node) => {
+          estimatedSize += node.type ? node.type.length : 0;
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              estimatedSize += prop.value ? prop.value.length : 0;
+            });
+          }
+        });
+        
+        if (estimatedSize > 50 * 1024 * 1024) { // 50MB
+          this.addIssue('performance', {
+            severity: 'warning',
+            title: 'Large File Size',
+            description: `DXF file is approximately ${Math.round(estimatedSize / (1024 * 1024))} MB, which may cause performance issues.`,
+            category: 'File Size',
+            location: 'Overall file'
+          });
+        }
+      }
+
+      checkEntityCount() {
+        let entityCount = 0;
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type && !['SECTION', 'ENDSEC', 'TABLE', 'ENDTAB'].includes(node.type)) {
+            entityCount++;
+          }
+        });
+        
+        if (entityCount > 100000) {
+          this.addIssue('performance', {
+            severity: 'warning',
+            title: 'High Entity Count',
+            description: `File contains ${entityCount.toLocaleString()} entities, which may impact rendering performance.`,
+            category: 'Entity Count',
+            location: 'Overall file'
+          });
+        }
+      }
+
+      checkNestingDepth() {
+        let maxDepth = 0;
+        
+        const checkDepth = (nodes, depth = 0) => {
+          maxDepth = Math.max(maxDepth, depth);
+          nodes.forEach(node => {
+            if (node.children && node.children.length > 0) {
+              checkDepth(node.children, depth + 1);
+            }
+          });
+        };
+        
+        checkDepth(this.dxfTree);
+        
+        if (maxDepth > 10) {
+          this.addIssue('performance', {
+            severity: 'warning',
+            title: 'Deep Nesting Structure',
+            description: `DXF structure has ${maxDepth} levels of nesting, which may impact parsing performance.`,
+            category: 'Structure Complexity',
+            location: 'Overall file'
+          });
+        }
+      }
+
+      checkDuplicateData() {
+        const stringValues = new Map();
+        let duplicateCount = 0;
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              if (prop.value && prop.value.length > 10) {
+                const existing = stringValues.get(prop.value);
+                if (existing) {
+                  duplicateCount++;
+                } else {
+                  stringValues.set(prop.value, [{ node, prop }]);
+                }
+              }
+            });
+          }
+        });
+        
+        if (duplicateCount > 100) {
+          this.addIssue('performance', {
+            severity: 'suggestion',
+            title: 'Potential Data Duplication',
+            description: `Found ${duplicateCount} duplicate string values, consider using blocks or references to reduce redundancy.`,
+            category: 'Data Optimization',
+            location: 'Overall file'
+          });
+        }
+      }
+
+      checkUnusedDefinitions() {
+        const definitions = new Map();
+        const references = new Set();
+        
+        // Collect definitions
+        this.traverseTree(this.dxfTree, (node) => {
+          if (['BLOCK', 'LTYPE', 'LAYER', 'STYLE', 'DIMSTYLE'].includes(node.type)) {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              definitions.set(nameProperty.value, node);
+            }
+          }
+          
+          // Collect references
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              if ([2, 6, 7, 8].includes(parseInt(prop.code)) && prop.value) {
+                references.add(prop.value);
+              }
+            });
+          }
+        });
+        
+        // Check for unused definitions
+        definitions.forEach((node, name) => {
+          if (!references.has(name) && !['0', 'STANDARD', 'CONTINUOUS'].includes(name)) {
+            this.addIssue('performance', {
+              severity: 'suggestion',
+              title: `Unused Definition: ${name}`,
+              description: `${node.type} "${name}" is defined but never used.`,
+              category: 'Unused Definitions',
+              location: `Line ${node.line}`,
+              actions: [{ type: 'navigate', data: node.id, label: 'Go to Definition' }]
+            });
+          }
+        });
+      }
+
+      async dxfComplianceChecks() {
+        this.checkDXFVersion();
+        this.checkRequiredVariables();
+        this.checkEntityTypes();
+        this.checkPropertyValues();
+        this.checkUnits();
+      }
+
+      checkDXFVersion() {
+        let versionFound = false;
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'HEADER') {
+            const versionVar = this.findVariableInHeader(node, '$ACADVER');
+            if (versionVar) {
+              versionFound = true;
+              // Check if version is supported
+              const supportedVersions = ['AC1009', 'AC1012', 'AC1014', 'AC1015', 'AC1018', 'AC1021', 'AC1024', 'AC1027', 'AC1032'];
+              if (!supportedVersions.includes(versionVar.value)) {
+                this.addIssue('compliance', {
+                  severity: 'warning',
+                  title: `Unsupported DXF Version: ${versionVar.value}`,
+                  description: 'This DXF version may not be fully supported by all applications.',
+                  category: 'DXF Version',
+                  location: 'HEADER section'
+                });
+              }
+            }
+          }
+        });
+        
+        if (!versionFound) {
+          this.addIssue('compliance', {
+            severity: 'error',
+            title: 'Missing DXF Version',
+            description: 'DXF file does not specify version ($ACADVER variable).',
+            category: 'DXF Version',
+            location: 'HEADER section'
+          });
+        }
+      }
+
+      findVariableInHeader(headerNode, varName) {
+        if (!headerNode.children) return null;
+        
+        for (let i = 0; i < headerNode.children.length; i++) {
+          const child = headerNode.children[i];
+          if (child.type === varName) {
+            const valueProperty = child.properties?.find(p => [1, 10, 40, 70].includes(parseInt(p.code)));
+            return valueProperty;
+          }
+        }
+        return null;
+      }
+
+      checkRequiredVariables() {
+        const requiredVars = ['$ACADVER', '$HANDSEED', '$DWGCODEPAGE'];
+        const foundVars = new Set();
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'HEADER' && node.children) {
+            node.children.forEach(child => {
+              if (requiredVars.includes(child.type)) {
+                foundVars.add(child.type);
+              }
+            });
+          }
+        });
+        
+        requiredVars.forEach(varName => {
+          if (!foundVars.has(varName)) {
+            this.addIssue('compliance', {
+              severity: 'error',
+              title: `Missing Required Variable: ${varName}`,
+              description: `Header variable ${varName} is required for DXF compliance.`,
+              category: 'Header Variables',
+              location: 'HEADER section'
+            });
+          }
+        });
+      }
+
+      checkEntityTypes() {
+        const validEntityTypes = new Set([
+          'LINE', 'POINT', 'CIRCLE', 'ARC', 'ELLIPSE', 'POLYLINE', 'LWPOLYLINE',
+          'SPLINE', 'TEXT', 'MTEXT', 'INSERT', 'BLOCK', 'SOLID', 'FACE3D',
+          'HATCH', 'DIMENSION', 'LEADER', 'TOLERANCE', 'MLINE', 'RAY', 'XLINE',
+          'REGION', '3DFACE', '3DSOLID', 'BODY', 'SURFACE', 'PLANESURFACE',
+          'ACAD_PROXY_ENTITY', 'VIEWPORT', 'MESH', 'LIGHT', 'SUN'
+        ]);
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type && !['SECTION', 'ENDSEC', 'TABLE', 'ENDTAB', 'ENDBLK', 'SEQEND', 'EOF'].includes(node.type)
+              && !node.type.startsWith('$') && !validEntityTypes.has(node.type)) {
+            this.addIssue('compliance', {
+              severity: 'warning',
+              title: `Unknown Entity Type: ${node.type}`,
+              description: `Entity type "${node.type}" is not in the standard DXF specification.`,
+              category: 'Entity Types',
+              location: `Line ${node.line}`,
+              actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+            });
+          }
+        });
+      }
+
+      checkPropertyValues() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              const code = parseInt(prop.code);
+              
+              // Check color codes (62)
+              if (code === 62) {
+                const colorValue = parseInt(prop.value);
+                if (isNaN(colorValue) || colorValue < 0 || colorValue > 256) {
+                  this.addIssue('compliance', {
+                    severity: 'error',
+                    title: `Invalid Color Code: ${prop.value}`,
+                    description: 'Color codes must be integers between 0 and 256.',
+                    category: 'Property Values',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+              }
+              
+              // Check line type scale (48)
+              if (code === 48) {
+                const scaleValue = parseFloat(prop.value);
+                if (isNaN(scaleValue) || scaleValue <= 0) {
+                  this.addIssue('compliance', {
+                    severity: 'error',
+                    title: `Invalid Line Type Scale: ${prop.value}`,
+                    description: 'Line type scale must be a positive number.',
+                    category: 'Property Values',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+
+      checkUnits() {
+        let unitsFound = false;
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'HEADER') {
+            const unitsVar = this.findVariableInHeader(node, '$INSUNITS');
+            if (unitsVar) {
+              unitsFound = true;
+              const unitsValue = parseInt(unitsVar.value);
+              if (unitsValue === 0) {
+                this.addIssue('compliance', {
+                  severity: 'warning',
+                  title: 'Units Not Specified',
+                  description: 'Drawing units are set to "Unitless" which may cause scaling issues.',
+                  category: 'Units',
+                  location: 'HEADER section'
+                });
+              }
+            }
+          }
+        });
+        
+        if (!unitsFound) {
+          this.addIssue('compliance', {
+            severity: 'suggestion',
+            title: 'No Units Variable',
+            description: 'Consider specifying drawing units ($INSUNITS) for better compatibility.',
+            category: 'Units',
+            location: 'HEADER section'
+          });
+        }
+      }
+
+      async bestPracticesAnalysis() {
+        this.checkLayerUsage();
+        this.checkBlockUsage();
+        this.checkTextStyles();
+        this.checkLineTypes();
+        this.checkNamingConventions();
+      }
+
+      checkLayerUsage() {
+        const layers = new Set();
+        const usedLayers = new Set();
+        
+        // Collect layer definitions
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'LAYER') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              layers.add(nameProperty.value);
+            }
+          }
+          
+          // Check layer usage
+          if (node.properties) {
+            const layerProperty = node.properties.find(p => p.code === 8);
+            if (layerProperty) {
+              usedLayers.add(layerProperty.value);
+            }
+          }
+        });
+        
+        // Check for entities on layer 0
+        let entitiesOnLayer0 = 0;
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            const layerProperty = node.properties.find(p => p.code === 8);
+            if (layerProperty && layerProperty.value === '0') {
+              entitiesOnLayer0++;
+            }
+          }
+        });
+        
+        if (entitiesOnLayer0 > 10) {
+          this.addIssue('bestPractices', {
+            severity: 'suggestion',
+            title: 'Many Entities on Layer 0',
+            description: `${entitiesOnLayer0} entities are on layer 0. Consider organizing content on named layers.`,
+            category: 'Layer Organization',
+            location: 'Overall file'
+          });
+        }
+        
+        // Check for unused layers
+        layers.forEach(layerName => {
+          if (!usedLayers.has(layerName) && layerName !== '0') {
+            this.addIssue('bestPractices', {
+              severity: 'suggestion',
+              title: `Unused Layer: ${layerName}`,
+              description: `Layer "${layerName}" is defined but contains no entities.`,
+              category: 'Layer Organization',
+              location: 'LAYER table'
+            });
+          }
+        });
+      }
+
+      checkBlockUsage() {
+        const blockDefinitions = new Map();
+        const blockUsage = new Map();
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'BLOCK') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              blockDefinitions.set(nameProperty.value, 0);
+            }
+          } else if (node.type === 'INSERT') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              const count = blockUsage.get(nameProperty.value) || 0;
+              blockUsage.set(nameProperty.value, count + 1);
+            }
+          }
+        });
+        
+        // Check for blocks that could benefit from more usage
+        blockUsage.forEach((count, blockName) => {
+          if (count === 1) {
+            this.addIssue('bestPractices', {
+              severity: 'suggestion',
+              title: `Single-Use Block: ${blockName}`,
+              description: `Block "${blockName}" is only used once. Consider if it adds value over a simple group.`,
+              category: 'Block Optimization',
+              location: 'Block usage'
+            });
+          }
+        });
+      }
+
+      checkTextStyles() {
+        const textStyles = new Set();
+        const usedStyles = new Set();
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'STYLE') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              textStyles.add(nameProperty.value);
+            }
+          } else if (['TEXT', 'MTEXT'].includes(node.type)) {
+            const styleProperty = node.properties?.find(p => p.code === 7);
+            if (styleProperty) {
+              usedStyles.add(styleProperty.value);
+            }
+          }
+        });
+        
+        if (textStyles.size > 10) {
+          this.addIssue('bestPractices', {
+            severity: 'suggestion',
+            title: 'Many Text Styles',
+            description: `File contains ${textStyles.size} text styles. Consider standardizing to fewer styles.`,
+            category: 'Style Management',
+            location: 'STYLE table'
+          });
+        }
+      }
+
+      checkLineTypes() {
+        const lineTypes = new Set();
+        const usedLineTypes = new Set();
+        
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.type === 'LTYPE') {
+            const nameProperty = node.properties?.find(p => p.code === 2);
+            if (nameProperty) {
+              lineTypes.add(nameProperty.value);
+            }
+          }
+          
+          if (node.properties) {
+            const ltypeProperty = node.properties.find(p => p.code === 6);
+            if (ltypeProperty) {
+              usedLineTypes.add(ltypeProperty.value);
+            }
+          }
+        });
+        
+        if (lineTypes.size > 20) {
+          this.addIssue('bestPractices', {
+            severity: 'suggestion',
+            title: 'Many Line Types',
+            description: `File contains ${lineTypes.size} line types. Consider using fewer, standard line types.`,
+            category: 'Style Management',
+            location: 'LTYPE table'
+          });
+        }
+      }
+
+      checkNamingConventions() {
+        const checkNames = (nodeType, nameCode) => {
+          this.traverseTree(this.dxfTree, (node) => {
+            if (node.type === nodeType) {
+              const nameProperty = node.properties?.find(p => p.code === nameCode);
+              if (nameProperty) {
+                const name = nameProperty.value;
+                
+                // Check for special characters
+                if (/[<>:"/\\|?*]/.test(name)) {
+                  this.addIssue('bestPractices', {
+                    severity: 'warning',
+                    title: `Invalid Characters in ${nodeType} Name`,
+                    description: `${nodeType} name "${name}" contains special characters that may cause issues.`,
+                    category: 'Naming Conventions',
+                    location: `Line ${node.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: `Go to ${nodeType}` }]
+                  });
+                }
+                
+                // Check for very long names
+                if (name.length > 255) {
+                  this.addIssue('bestPractices', {
+                    severity: 'warning',
+                    title: `Very Long ${nodeType} Name`,
+                    description: `${nodeType} name "${name}" is ${name.length} characters long, which may cause compatibility issues.`,
+                    category: 'Naming Conventions',
+                    location: `Line ${node.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: `Go to ${nodeType}` }]
+                  });
+                }
+              }
+            }
+          });
+        };
+        
+        checkNames('LAYER', 2);
+        checkNames('BLOCK', 2);
+        checkNames('STYLE', 2);
+        checkNames('LTYPE', 2);
+      }
+
+      async securityAssessment() {
+        this.checkExternalReferences();
+        this.checkScriptContent();
+        this.checkFileSize();
+        this.checkBinaryContent();
+      }
+
+      checkExternalReferences() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              if ([1, 3, 4].includes(parseInt(prop.code)) && prop.value) {
+                // Check for file paths
+                if (/[a-zA-Z]:\\|\/[a-zA-Z]/.test(prop.value)) {
+                  this.addIssue('security', {
+                    severity: 'warning',
+                    title: 'External File Reference',
+                    description: `Property contains file path: "${prop.value}". Verify this is safe.`,
+                    category: 'External References',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Reference' }]
+                  });
+                }
+                
+                // Check for URLs
+                if (/https?:\/\/|ftp:\/\//.test(prop.value)) {
+                  this.addIssue('security', {
+                    severity: 'warning',
+                    title: 'URL Reference',
+                    description: `Property contains URL: "${prop.value}". Verify this is safe.`,
+                    category: 'External References',
+                    location: `Line ${prop.line}`,
+                    actions: [{ type: 'navigate', data: node.id, label: 'Go to Reference' }]
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+
+      checkScriptContent() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            node.properties.forEach(prop => {
+              if (prop.value && prop.value.length > 20) {
+                // Check for potential script commands
+                const suspiciousPatterns = [
+                  /\bexec\b/i, /\beval\b/i, /\bshell\b/i, /\bcmd\b/i,
+                  /\bpowershell\b/i, /\bbash\b/i, /\bjavascript\b/i
+                ];
+                
+                suspiciousPatterns.forEach(pattern => {
+                  if (pattern.test(prop.value)) {
+                    this.addIssue('security', {
+                      severity: 'warning',
+                      title: 'Suspicious Script Content',
+                      description: 'Property contains text that resembles script commands.',
+                      category: 'Script Content',
+                      location: `Line ${prop.line}`,
+                      actions: [{ type: 'navigate', data: node.id, label: 'Go to Property' }]
+                    });
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+
+      checkBinaryContent() {
+        this.traverseTree(this.dxfTree, (node) => {
+          if (node.properties) {
+            const binaryProps = node.properties.filter(prop => prop.code === 310);
+            if (binaryProps.length > 0) {
+              const totalBinarySize = binaryProps.reduce((sum, prop) => sum + prop.value.length, 0);
+              
+              if (totalBinarySize > 10 * 1024 * 1024) { // 10MB
+                this.addIssue('security', {
+                  severity: 'warning',
+                  title: 'Large Binary Data',
+                  description: `Entity contains ${Math.round(totalBinarySize / (1024 * 1024))} MB of binary data. Verify content is safe.`,
+                  category: 'Binary Content',
+                  location: `Line ${node.line}`,
+                  actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+                });
+              }
+            }
+          }
+        });
+      }
+
+      // Utility methods
+      traverseTree(nodes, callback, path = []) {
+        nodes.forEach((node, index) => {
+          const currentPath = [...path, index];
+          callback(node, currentPath);
+          
+          if (node.children && node.children.length > 0) {
+            this.traverseTree(node.children, callback, currentPath);
+          }
+        });
+      }
+
+      addIssue(category, issue) {
+        if (!this.issues[category]) {
+          this.issues[category] = [];
+        }
+        this.issues[category].push(issue);
+      }
+
+      calculateStatistics() {
+        let totalIssues = 0;
+        let criticalIssues = 0;
+        let errorIssues = 0;
+        let warningIssues = 0;
+        let infoIssues = 0;
+        let suggestions = 0;
+        
+        Object.values(this.issues).forEach(categoryIssues => {
+          categoryIssues.forEach(issue => {
+            totalIssues++;
+            switch (issue.severity) {
+              case 'critical': criticalIssues++; break;
+              case 'error': errorIssues++; break;
+              case 'warning': warningIssues++; break;
+              case 'info': infoIssues++; break;
+              case 'suggestion': suggestions++; break;
+            }
+          });
+        });
+        
+        this.stats = {
+          totalIssues,
+          criticalIssues,
+          errorIssues,
+          warningIssues,
+          infoIssues,
+          suggestions
+        };
+      }
+    }
+
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
       
