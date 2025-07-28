@@ -3101,6 +3101,15 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         document.getElementById("clearAllProfilesBtn").addEventListener("click", () => {
           this.clearAllProfiles();
         });
+        document.getElementById("saveProfileToFileBtn").addEventListener("click", () => {
+          this.saveProfileToFile();
+        });
+        document.getElementById("loadProfileFromFileBtn").addEventListener("click", () => {
+          document.getElementById("profileFileInput").click();
+        });
+        document.getElementById("profileFileInput").addEventListener("change", (e) => {
+          this.loadProfileFromFile(e.target.files[0]);
+        });
         document.getElementById("applyRuleConfigBtn").addEventListener("click", () => {
           this.applyRuleConfiguration();
         });
