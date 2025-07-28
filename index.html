@@ -9064,6 +9064,18 @@ EOF`;
         document.getElementById("ruleConfigOverlay").style.display = "none";
       }
 
+      selectAllRules(selectAll) {
+        const checkboxes = document.querySelectorAll('#ruleConfigContent input[type="checkbox"]');
+        checkboxes.forEach(checkbox => {
+          checkbox.checked = selectAll;
+          const ruleId = checkbox.dataset.ruleId;
+          const categoryId = checkbox.dataset.categoryId;
+          if (ruleId && categoryId && this.ruleConfiguration[categoryId] && this.ruleConfiguration[categoryId][ruleId]) {
+            this.ruleConfiguration[categoryId][ruleId].enabled = selectAll;
+          }
+        });
+      }
+
       populateRuleConfigDialog() {
         const content = document.getElementById("ruleConfigContent");
         content.innerHTML = "";
