@@ -8396,6 +8396,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkRequiredSections() {
+        if (!this.isRuleEnabled('structural', 'requiredSections')) return;
+        
         const requiredSections = ['HEADER', 'TABLES', 'ENTITIES'];
         const foundSections = new Set();
         
@@ -8422,6 +8424,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkSectionStructure() {
+        if (!this.isRuleEnabled('structural', 'sectionStructure')) return;
+        
         let currentSection = null;
         let sectionDepth = 0;
         
@@ -8466,6 +8470,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkEndMarkers() {
+        if (!this.isRuleEnabled('structural', 'endMarkers')) return;
+        
         const containerTypes = ['SECTION', 'BLOCK', 'TABLE', 'POLYLINE'];
         const endMarkers = ['ENDSEC', 'ENDBLK', 'ENDTAB', 'SEQEND'];
         
@@ -8484,6 +8490,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkBlockDefinitions() {
+        if (!this.isRuleEnabled('structural', 'blockDefinitions')) return;
+        
         const blockNames = new Set();
         const referencedBlocks = new Set();
         
@@ -8528,6 +8536,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkTableStructure() {
+        if (!this.isRuleEnabled('structural', 'tableStructure')) return;
+        
         this.traverseTree(this.dxfTree, (node) => {
           if (node.type === 'TABLE') {
             const nameProperty = node.properties?.find(p => p.code === 2);
@@ -8586,6 +8596,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkHandleReferences() {
+        if (!this.isRuleEnabled('integrity', 'handleReferences')) return;
+        
         this.traverseTree(this.dxfTree, (node) => {
           if (node.properties) {
             node.properties.forEach(prop => {
@@ -8607,6 +8619,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkGroupCodes() {
+        if (!this.isRuleEnabled('integrity', 'groupCodes')) return;
+        
         const validGroupCodes = new Set([
           // Add comprehensive list of valid DXF group codes
           0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
@@ -8643,6 +8657,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkCoordinateValues() {
+        if (!this.isRuleEnabled('integrity', 'coordinateValues')) return;
+        
         this.traverseTree(this.dxfTree, (node) => {
           if (node.properties) {
             node.properties.forEach(prop => {
@@ -8676,6 +8692,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkTextEncoding() {
+        if (!this.isRuleEnabled('integrity', 'textEncoding')) return;
+        
         this.traverseTree(this.dxfTree, (node) => {
           if (node.properties) {
             node.properties.forEach(prop => {
@@ -8712,6 +8730,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkBinaryData() {
+        if (!this.isRuleEnabled('integrity', 'binaryData')) return;
+        
         this.traverseTree(this.dxfTree, (node) => {
           if (node.properties) {
             const binaryProps = node.properties.filter(prop => prop.code === 310);
@@ -8764,6 +8784,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
        // ====================================
 
        checkGeometryValidity() {
+         if (!this.isRuleEnabled('rendering', 'geometryValidity')) return;
+         
          this.traverseTree(this.dxfTree, (node) => {
            if (node.type === 'LINE') {
              this.checkLineValidity(node);
@@ -8920,6 +8942,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
        }
 
        checkColorAndVisibility() {
+         if (!this.isRuleEnabled('rendering', 'colorAndVisibility')) return;
+         
          this.traverseTree(this.dxfTree, (node) => {
            if (node.properties) {
              const colorCode = this.getPropertyValue(node, 62);
@@ -8951,6 +8975,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
        }
 
        checkViewportSettings() {
+         if (!this.isRuleEnabled('rendering', 'viewportSettings')) return;
+         
          this.traverseTree(this.dxfTree, (node) => {
            if (node.type === 'VIEWPORT') {
              const width = this.getPropertyValue(node, 40);
@@ -8994,6 +9020,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
        }
 
        checkLayerRenderingIssues() {
+         if (!this.isRuleEnabled('rendering', 'layerRenderingIssues')) return;
+         
          const layers = new Map();
          
          // Collect layer definitions
@@ -10357,6 +10385,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkDXFVersion() {
+        if (!this.isRuleEnabled('compliance', 'dxfVersion')) return;
+        
         let versionFound = false;
         this.traverseTree(this.dxfTree, (node) => {
           if (node.type === 'HEADER') {
@@ -10403,6 +10433,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkRequiredVariables() {
+        if (!this.isRuleEnabled('compliance', 'requiredVariables')) return;
+        
         const requiredVars = ['$ACADVER', '$HANDSEED', '$DWGCODEPAGE'];
         const foundVars = new Set();
         
@@ -10430,6 +10462,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkEntityTypes() {
+        if (!this.isRuleEnabled('compliance', 'entityTypes')) return;
+        
         const validEntityTypes = new Set([
           'LINE', 'POINT', 'CIRCLE', 'ARC', 'ELLIPSE', 'POLYLINE', 'LWPOLYLINE',
           'SPLINE', 'TEXT', 'MTEXT', 'INSERT', 'BLOCK', 'SOLID', 'FACE3D',
@@ -10454,6 +10488,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       }
 
       checkPropertyValues() {
+        if (!this.isRuleEnabled('compliance', 'propertyValues')) return;
+        
         this.traverseTree(this.dxfTree, (node) => {
           if (node.properties) {
             node.properties.forEach(prop => {
