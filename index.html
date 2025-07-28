@@ -690,6 +690,150 @@
       font-style: italic;
     }
     
+    /* Rule Configuration Dialog Styles */
+    .rule-config-toolbar {
+      display: flex;
+      flex-direction: column;
+      gap: 1em;
+      padding: 1em;
+      background: #f8f9fa;
+      border-bottom: 1px solid #dee2e6;
+    }
+    .rule-config-actions {
+      display: flex;
+      gap: 0.5em;
+      flex-wrap: wrap;
+    }
+    .rule-config-actions button {
+      padding: 0.5em 1em;
+      border: 1px solid #ccc;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .rule-config-actions button:hover {
+      background: #e9ecef;
+    }
+    .rule-profiles {
+      display: flex;
+      gap: 0.5em;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .rule-profiles select, .rule-profiles button {
+      padding: 0.5em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .rule-profiles button {
+      background: white;
+      cursor: pointer;
+    }
+    .rule-profiles button:hover {
+      background: #e9ecef;
+    }
+    .rule-search input {
+      width: 200px;
+      padding: 0.5em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .rule-config-content {
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 1em;
+    }
+    .rule-category {
+      margin-bottom: 1.5em;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .rule-category-header {
+      background: #007bff;
+      color: white;
+      padding: 0.75em;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .rule-category-header:hover {
+      background: #0056b3;
+    }
+    .rule-category-body {
+      display: none;
+      padding: 1em;
+      background: white;
+    }
+    .rule-category-body.expanded {
+      display: block;
+    }
+    .rule-category-controls {
+      display: flex;
+      gap: 0.5em;
+      margin-bottom: 1em;
+      padding-bottom: 0.5em;
+      border-bottom: 1px solid #eee;
+    }
+    .rule-category-controls button {
+      font-size: 0.8em;
+      padding: 0.3em 0.6em;
+      border: 1px solid #ccc;
+      background: white;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .rule-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75em;
+      padding: 0.75em;
+      border-bottom: 1px solid #f0f0f0;
+      transition: background-color 0.2s ease;
+    }
+    .rule-item:hover {
+      background: #f8f9fa;
+    }
+    .rule-item:last-child {
+      border-bottom: none;
+    }
+    .rule-checkbox {
+      margin-top: 0.2em;
+    }
+    .rule-info {
+      flex: 1;
+    }
+    .rule-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 0.25em;
+    }
+    .rule-description {
+      color: #666;
+      font-size: 0.9em;
+      line-height: 1.4;
+    }
+    .rule-severity {
+      font-size: 0.8em;
+      padding: 0.2em 0.5em;
+      border-radius: 12px;
+      font-weight: 600;
+      margin-top: 0.5em;
+      display: inline-block;
+    }
+    .rule-severity.critical { background: #ffebee; color: #c62828; }
+    .rule-severity.error { background: #ffebee; color: #d32f2f; }
+    .rule-severity.warning { background: #fff3e0; color: #ef6c00; }
+    .rule-severity.info { background: #e3f2fd; color: #1976d2; }
+    .rule-severity.suggestion { background: #f3e5f5; color: #7b1fa2; }
+    .rule-item.disabled {
+      opacity: 0.5;
+    }
+    .rule-item.hidden {
+      display: none;
+    }
+    
     /* Responsive design for diagnostics */
     @media (max-width: 768px) {
       .diagnostics-filter-row {
@@ -977,6 +1121,7 @@
   <div id="diagnosticsOverlay">
     <div class="overlay-content">
       <button id="closeDiagnosticsOverlay">Close</button>
+      <button id="configureRulesBtn">Configure Rules</button>
       <button id="runDiagnosticsBtn">Run Analysis</button>
       <button id="exportDiagnosticsBtn">Export Report</button>
       <h2>DXF Comprehensive Diagnostics</h2>
@@ -1019,11 +1164,51 @@
               </select>
             </div>
           </div>
-          <div class="diagnostics-help-text" style="font-size: 0.8em; color: #666; margin-top: 0.5em;">
-            💡 <strong>Quick Tips:</strong> Ctrl+F to search, 1-5 keys for severity filters, Ctrl+E to export, click statistics to filter by severity
+                <div class="diagnostics-help-text" style="font-size: 0.8em; color: #666; margin-top: 0.5em;">
+        💡 <strong>Quick Tips:</strong> Ctrl+F to search, 1-5 keys for severity filters, Ctrl+E to export, click statistics to filter by severity
+      </div>
+    </div>
+    
+    <!-- Rule Configuration Dialog -->
+    <div id="ruleConfigOverlay" class="overlay" style="display:none;">
+      <div class="overlay-content" style="max-width: 900px; max-height: 90vh; overflow: hidden;">
+        <div class="overlay-header">
+          <h2>Configure Diagnostic Rules</h2>
+          <button class="close-overlay" id="closeRuleConfigBtn">&times;</button>
+        </div>
+        
+        <div class="rule-config-toolbar">
+          <div class="rule-config-actions">
+            <button id="selectAllRulesBtn">Select All</button>
+            <button id="deselectAllRulesBtn">Deselect All</button>
+            <button id="resetToDefaultRulesBtn">Reset to Default</button>
+          </div>
+          
+          <div class="rule-profiles">
+            <select id="ruleProfileSelect">
+              <option value="">Select Profile...</option>
+            </select>
+            <button id="saveRuleProfileBtn">Save Profile</button>
+            <button id="loadRuleProfileBtn">Load Profile</button>
+            <button id="deleteRuleProfileBtn">Delete Profile</button>
+            <button id="clearAllProfilesBtn">Clear All Profiles</button>
+          </div>
+          
+          <div class="rule-search">
+            <input type="text" id="ruleSearchInput" placeholder="Search rules..." />
           </div>
         </div>
-      </div>
+        
+        <div class="rule-config-content" id="ruleConfigContent">
+          <!-- Rule categories will be populated dynamically -->
+        </div>
+        
+                 <div class="overlay-footer">
+           <button id="applyRuleConfigBtn" class="primary">Apply Configuration</button>
+           <button id="cancelRuleConfigBtn">Cancel</button>
+         </div>
+       </div>
+     </div>
 
       <div class="diagnostics-tabs" id="diagnosticsTabs">
         <div class="diagnostics-tab active" data-tab="overview">Overview</div>
@@ -2771,6 +2956,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           document.getElementById("batchResultsTabContents")
         );
         this.initEventListeners();
+        this.initializeRuleSystem();
       }
       
       initEventListeners() {
@@ -2885,6 +3071,44 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         });
         document.getElementById("exportDiagnosticsBtn").addEventListener("click", () => {
           this.exportDiagnosticsReport();
+        });
+        
+        // Rule configuration event listeners
+        document.getElementById("configureRulesBtn").addEventListener("click", () => {
+          this.showRuleConfigDialog();
+        });
+        document.getElementById("closeRuleConfigBtn").addEventListener("click", () => {
+          this.hideRuleConfigDialog();
+        });
+        document.getElementById("selectAllRulesBtn").addEventListener("click", () => {
+          this.selectAllRules(true);
+        });
+        document.getElementById("deselectAllRulesBtn").addEventListener("click", () => {
+          this.selectAllRules(false);
+        });
+        document.getElementById("resetToDefaultRulesBtn").addEventListener("click", () => {
+          this.resetToDefaultRules();
+        });
+        document.getElementById("saveRuleProfileBtn").addEventListener("click", () => {
+          this.saveRuleProfile();
+        });
+        document.getElementById("loadRuleProfileBtn").addEventListener("click", () => {
+          this.loadRuleProfile();
+        });
+        document.getElementById("deleteRuleProfileBtn").addEventListener("click", () => {
+          this.deleteRuleProfile();
+        });
+        document.getElementById("clearAllProfilesBtn").addEventListener("click", () => {
+          this.clearAllProfiles();
+        });
+        document.getElementById("applyRuleConfigBtn").addEventListener("click", () => {
+          this.applyRuleConfiguration();
+        });
+        document.getElementById("cancelRuleConfigBtn").addEventListener("click", () => {
+          this.hideRuleConfigDialog();
+        });
+        document.getElementById("ruleSearchInput").addEventListener("input", () => {
+          this.filterRules();
         });
         
         // Advanced filtering event listeners
@@ -6424,7 +6648,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.showDiagnosticsProgress();
         
         try {
-          const diagnosticsEngine = new DXFDiagnosticsEngine(activeTab.originalTreeData, activeTab.fileName);
+          const diagnosticsEngine = new DXFDiagnosticsEngine(activeTab.originalTreeData, activeTab.fileName, this.ruleConfiguration);
           const results = await diagnosticsEngine.runFullDiagnostics((progress, message) => {
             this.updateDiagnosticsProgress(progress, message);
           });
@@ -7047,6 +7271,792 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         
         return report;
       }
+
+      // ===== RULE CONFIGURATION SYSTEM =====
+      
+      initializeRuleSystem() {
+        this.diagnosticRules = this.getComprehensiveRuleDefinitions();
+        this.ruleConfiguration = this.loadRuleConfiguration();
+        this.loadProfileList();
+      }
+
+      getComprehensiveRuleDefinitions() {
+        return {
+          structural: {
+            name: "Structural Issues",
+            description: "Critical structural problems that can cause file corruption or prevent proper loading",
+            rules: {
+              requiredSections: {
+                name: "Required Sections Check",
+                description: "Verifies that essential DXF sections (HEADER, TABLES, ENTITIES) are present",
+                severity: "critical",
+                enabled: true,
+                method: "checkRequiredSections"
+              },
+              sectionStructure: {
+                name: "Section Structure Validation",
+                description: "Checks proper section start/end markers and nesting",
+                severity: "error",
+                enabled: true,
+                method: "checkSectionStructure"
+              },
+              endMarkers: {
+                name: "End Markers Validation",
+                description: "Ensures all sections have proper ending markers",
+                severity: "error",
+                enabled: true,
+                method: "checkEndMarkers"
+              },
+              blockDefinitions: {
+                name: "Block Definition Integrity",
+                description: "Validates block start/end markers and structure",
+                severity: "error",
+                enabled: true,
+                method: "checkBlockDefinitions"
+              },
+              tableStructure: {
+                name: "Table Structure Check",
+                description: "Verifies proper table definitions and entries",
+                severity: "warning",
+                enabled: true,
+                method: "checkTableStructure"
+              }
+            }
+          },
+          integrity: {
+            name: "Data Integrity",
+            description: "Data corruption, invalid values, and reference problems",
+            rules: {
+              handleReferences: {
+                name: "Handle Reference Validation",
+                description: "Checks for broken or circular handle references",
+                severity: "error",
+                enabled: true,
+                method: "checkHandleReferences"
+              },
+              groupCodes: {
+                name: "Group Code Validation",
+                description: "Validates group codes are within acceptable ranges",
+                severity: "warning",
+                enabled: true,
+                method: "checkGroupCodes"
+              },
+              coordinateValues: {
+                name: "Coordinate Value Check",
+                description: "Detects invalid coordinate values (NaN, infinity)",
+                severity: "error",
+                enabled: true,
+                method: "checkCoordinateValues"
+              },
+              textEncoding: {
+                name: "Text Encoding Validation",
+                description: "Checks for invalid text encoding and characters",
+                severity: "warning",
+                enabled: true,
+                method: "checkTextEncoding"
+              },
+              binaryData: {
+                name: "Binary Data Integrity",
+                description: "Validates embedded binary data and checksums",
+                severity: "warning",
+                enabled: true,
+                method: "checkBinaryData"
+              }
+            }
+          },
+          rendering: {
+            name: "Rendering Issues",
+            description: "Problems that affect visual rendering and display quality",
+            rules: {
+              geometryValidity: {
+                name: "Geometry Validity Check",
+                description: "Validates geometric entities for rendering issues",
+                severity: "error",
+                enabled: true,
+                method: "checkGeometryValidity"
+              },
+              colorAndVisibility: {
+                name: "Color and Visibility Check",
+                description: "Detects invisible or problematic color assignments",
+                severity: "warning",
+                enabled: true,
+                method: "checkColorAndVisibility"
+              },
+              viewportSettings: {
+                name: "Viewport Configuration",
+                description: "Validates viewport settings and scale factors",
+                severity: "warning",
+                enabled: true,
+                method: "checkViewportSettings"
+              },
+              layerRendering: {
+                name: "Layer Rendering Issues",
+                description: "Checks layer properties affecting rendering",
+                severity: "warning",
+                enabled: true,
+                method: "checkLayerRenderingIssues"
+              },
+              blockRendering: {
+                name: "Block Rendering Problems",
+                description: "Validates block references and insertion parameters",
+                severity: "warning",
+                enabled: true,
+                method: "checkBlockRenderingIssues"
+              },
+              lineTypeRendering: {
+                name: "Line Type Rendering",
+                description: "Checks line type definitions and scaling",
+                severity: "info",
+                enabled: true,
+                method: "checkLineTypeRendering"
+              },
+              hatchPatterns: {
+                name: "Hatch Pattern Validation",
+                description: "Validates hatch patterns and boundaries",
+                severity: "warning",
+                enabled: true,
+                method: "checkHatchPatterns"
+              },
+              dimensionRendering: {
+                name: "Dimension Rendering Check",
+                description: "Checks dimension display and arrow rendering",
+                severity: "warning",
+                enabled: true,
+                method: "checkDimensionRendering"
+              },
+              splineValidity: {
+                name: "Spline Geometry Validation",
+                description: "Validates spline control points and curves",
+                severity: "warning",
+                enabled: true,
+                method: "checkSplineValidity"
+              },
+              extrusionDirections: {
+                name: "Extrusion Direction Check",
+                description: "Validates 3D extrusion directions and normals",
+                severity: "info",
+                enabled: true,
+                method: "checkExtrusionDirections"
+              },
+              zOrderIssues: {
+                name: "Z-Order and Depth Issues",
+                description: "Detects overlapping entities and depth conflicts",
+                severity: "info",
+                enabled: true,
+                method: "checkZOrderIssues"
+              },
+              scaleFactors: {
+                name: "Scale Factor Problems",
+                description: "Checks for extreme or invalid scale factors",
+                severity: "warning",
+                enabled: true,
+                method: "checkScaleFactors"
+              },
+              materialProperties: {
+                name: "Material and Rendering Properties",
+                description: "Validates material assignments and properties",
+                severity: "info",
+                enabled: true,
+                method: "checkMaterialProperties"
+              },
+              lightingIssues: {
+                name: "Lighting Configuration",
+                description: "Checks lighting setup and shadows",
+                severity: "info",
+                enabled: true,
+                method: "checkLightingIssues"
+              },
+              transparency: {
+                name: "Transparency and Alpha Issues",
+                description: "Validates transparency settings and alpha values",
+                severity: "info",
+                enabled: true,
+                method: "checkTransparencyIssues"
+              }
+            }
+          },
+          text: {
+            name: "Text Issues",
+            description: "Text rendering, formatting, and font-related problems",
+            rules: {
+              textGeometry: {
+                name: "Text Geometry Validation",
+                description: "Checks text positioning and size parameters",
+                severity: "warning",
+                enabled: true,
+                method: "checkTextGeometry"
+              },
+              textStyles: {
+                name: "Text Style Validation",
+                description: "Validates text style definitions and references",
+                severity: "warning",
+                enabled: true,
+                method: "checkTextStyles"
+              },
+              textFormatting: {
+                name: "Text Formatting Check",
+                description: "Validates basic text formatting and properties",
+                severity: "warning",
+                enabled: true,
+                method: "checkTextFormatting"
+              },
+              mtextFormatting: {
+                name: "MTEXT Formatting Validation",
+                description: "Checks multi-line text formatting codes",
+                severity: "warning",
+                enabled: true,
+                method: "checkMTextFormatting"
+              },
+              fontAvailability: {
+                name: "Font Availability Check",
+                description: "Validates font file references and availability",
+                severity: "info",
+                enabled: true,
+                method: "checkFontAvailability"
+              },
+              textAlignment: {
+                name: "Text Alignment Validation",
+                description: "Checks text alignment and justification settings",
+                severity: "warning",
+                enabled: true,
+                method: "checkTextAlignment"
+              },
+              textUnicode: {
+                name: "Unicode and Encoding Check",
+                description: "Validates Unicode characters and encoding",
+                severity: "info",
+                enabled: true,
+                method: "checkTextUnicode"
+              },
+              textVisibility: {
+                name: "Text Visibility Issues",
+                description: "Detects invisible or hard-to-read text",
+                severity: "info",
+                enabled: true,
+                method: "checkTextVisibility"
+              },
+              dimensionText: {
+                name: "Dimension Text Validation",
+                description: "Checks dimension text formatting and display",
+                severity: "warning",
+                enabled: true,
+                method: "checkDimensionText"
+              },
+              textOverlap: {
+                name: "Text Overlap Detection",
+                description: "Identifies overlapping text entities",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkTextOverlap"
+              },
+              textReadability: {
+                name: "Text Readability Analysis",
+                description: "Checks text size relative to drawing scale",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkTextReadability"
+              }
+            }
+          },
+          performance: {
+            name: "Performance Issues",
+            description: "Problems that can affect file loading speed and memory usage",
+            rules: {
+              fileSize: {
+                name: "File Size Analysis",
+                description: "Warns about large files that may cause performance issues",
+                severity: "info",
+                enabled: true,
+                method: "checkFileSize"
+              },
+              entityCount: {
+                name: "Entity Count Check",
+                description: "Detects excessive entity counts",
+                severity: "warning",
+                enabled: true,
+                method: "checkEntityCount"
+              },
+              nestingDepth: {
+                name: "Nesting Depth Analysis",
+                description: "Checks for excessive nesting in blocks and groups",
+                severity: "warning",
+                enabled: true,
+                method: "checkNestingDepth"
+              },
+              duplicateData: {
+                name: "Duplicate Data Detection",
+                description: "Identifies redundant or duplicate entities",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkDuplicateData"
+              },
+              unusedDefinitions: {
+                name: "Unused Definition Check",
+                description: "Finds unused layers, blocks, and styles",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkUnusedDefinitions"
+              },
+              complexGeometry: {
+                name: "Complex Geometry Analysis",
+                description: "Identifies overly complex geometric entities",
+                severity: "info",
+                enabled: true,
+                method: "checkComplexGeometry"
+              },
+              memoryUsage: {
+                name: "Memory Usage Estimation",
+                description: "Estimates memory requirements for loading",
+                severity: "info",
+                enabled: true,
+                method: "checkMemoryUsage"
+              }
+            }
+          },
+          compliance: {
+            name: "DXF Compliance",
+            description: "Compliance with DXF format specifications and standards",
+            rules: {
+              dxfVersion: {
+                name: "DXF Version Compliance",
+                description: "Validates DXF version and format compliance",
+                severity: "warning",
+                enabled: true,
+                method: "checkDXFVersion"
+              },
+              requiredVariables: {
+                name: "Required Variables Check",
+                description: "Ensures essential header variables are present",
+                severity: "warning",
+                enabled: true,
+                method: "checkRequiredVariables"
+              },
+              entityTypes: {
+                name: "Entity Type Validation",
+                description: "Validates entity types against DXF specifications",
+                severity: "error",
+                enabled: true,
+                method: "checkEntityTypes"
+              },
+              propertyValues: {
+                name: "Property Value Compliance",
+                description: "Checks property values against valid ranges",
+                severity: "warning",
+                enabled: true,
+                method: "checkPropertyValues"
+              },
+              units: {
+                name: "Units and Measurement Check",
+                description: "Validates unit definitions and consistency",
+                severity: "info",
+                enabled: true,
+                method: "checkUnits"
+              }
+            }
+          },
+          bestPractices: {
+            name: "Best Practices",
+            description: "Recommendations for optimal DXF file organization and structure",
+            rules: {
+              layerUsage: {
+                name: "Layer Organization",
+                description: "Evaluates layer naming and organization practices",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkLayerUsage"
+              },
+              blockUsage: {
+                name: "Block Usage Optimization",
+                description: "Checks for efficient block usage and organization",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkBlockUsage"
+              },
+              textStyleUsage: {
+                name: "Text Style Management",
+                description: "Evaluates text style usage and standardization",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkTextStyles"
+              },
+              lineTypeUsage: {
+                name: "Line Type Organization",
+                description: "Checks line type definitions and usage patterns",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkLineTypes"
+              },
+              namingConventions: {
+                name: "Naming Convention Analysis",
+                description: "Evaluates naming conventions for consistency",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkNamingConventions"
+              },
+              drawingOrganization: {
+                name: "Drawing Organization",
+                description: "Analyzes overall drawing structure and organization",
+                severity: "suggestion",
+                enabled: true,
+                method: "checkDrawingOrganization"
+              }
+            }
+          },
+          security: {
+            name: "Security Issues",
+            description: "Potential security risks and malicious content detection",
+            rules: {
+              externalReferences: {
+                name: "External Reference Check",
+                description: "Identifies potentially unsafe external references",
+                severity: "warning",
+                enabled: true,
+                method: "checkExternalReferences"
+              },
+              scriptContent: {
+                name: "Script Content Detection",
+                description: "Detects embedded scripts or executable content",
+                severity: "critical",
+                enabled: true,
+                method: "checkScriptContent"
+              },
+              binaryContent: {
+                name: "Binary Content Analysis",
+                description: "Analyzes embedded binary content for threats",
+                severity: "warning",
+                enabled: true,
+                method: "checkBinaryContent"
+              },
+              suspiciousPatterns: {
+                name: "Suspicious Pattern Detection",
+                description: "Identifies potentially malicious patterns in data",
+                severity: "warning",
+                enabled: true,
+                method: "checkSuspiciousPatterns"
+              }
+            }
+          }
+        };
+      }
+
+      // Rule Configuration Management
+      showRuleConfigDialog() {
+        this.populateRuleConfigDialog();
+        document.getElementById("ruleConfigOverlay").style.display = "block";
+      }
+
+      hideRuleConfigDialog() {
+        document.getElementById("ruleConfigOverlay").style.display = "none";
+      }
+
+      populateRuleConfigDialog() {
+        const content = document.getElementById("ruleConfigContent");
+        content.innerHTML = "";
+        
+        Object.keys(this.diagnosticRules).forEach(categoryKey => {
+          const category = this.diagnosticRules[categoryKey];
+          const categoryDiv = document.createElement("div");
+          categoryDiv.className = "rule-category";
+          categoryDiv.dataset.category = categoryKey;
+          
+          const headerDiv = document.createElement("div");
+          headerDiv.className = "rule-category-header";
+          headerDiv.innerHTML = `
+            <span><strong>${category.name}</strong> - ${category.description}</span>
+            <span id="categoryToggle_${categoryKey}">▼</span>
+          `;
+          
+          const bodyDiv = document.createElement("div");
+          bodyDiv.className = "rule-category-body expanded";
+          bodyDiv.id = `categoryBody_${categoryKey}`;
+          
+          // Category controls
+          const controlsDiv = document.createElement("div");
+          controlsDiv.className = "rule-category-controls";
+          controlsDiv.innerHTML = `
+            <button onclick="app.selectCategoryRules('${categoryKey}', true)">Select All</button>
+            <button onclick="app.selectCategoryRules('${categoryKey}', false)">Deselect All</button>
+          `;
+          bodyDiv.appendChild(controlsDiv);
+          
+          // Rules
+          Object.keys(category.rules).forEach(ruleKey => {
+            const rule = category.rules[ruleKey];
+            const isEnabled = this.ruleConfiguration[categoryKey]?.[ruleKey] !== false;
+            
+            const ruleDiv = document.createElement("div");
+            ruleDiv.className = `rule-item ${isEnabled ? '' : 'disabled'}`;
+            ruleDiv.dataset.rule = ruleKey;
+            ruleDiv.dataset.category = categoryKey;
+            
+            ruleDiv.innerHTML = `
+              <input type="checkbox" class="rule-checkbox" 
+                     id="rule_${categoryKey}_${ruleKey}" 
+                     ${isEnabled ? 'checked' : ''}>
+              <div class="rule-info">
+                <div class="rule-title">${rule.name}</div>
+                <div class="rule-description">${rule.description}</div>
+                <div class="rule-severity ${rule.severity}">${rule.severity.toUpperCase()}</div>
+              </div>
+            `;
+            
+            bodyDiv.appendChild(ruleDiv);
+          });
+          
+          categoryDiv.appendChild(headerDiv);
+          categoryDiv.appendChild(bodyDiv);
+          content.appendChild(categoryDiv);
+          
+          // Add toggle functionality
+          headerDiv.addEventListener("click", () => {
+            bodyDiv.classList.toggle("expanded");
+            const toggle = document.getElementById(`categoryToggle_${categoryKey}`);
+            toggle.textContent = bodyDiv.classList.contains("expanded") ? "▼" : "▶";
+          });
+        });
+        
+        // Add event listeners to checkboxes
+        content.querySelectorAll('.rule-checkbox').forEach(checkbox => {
+          checkbox.addEventListener('change', () => {
+            const ruleItem = checkbox.closest('.rule-item');
+            if (checkbox.checked) {
+              ruleItem.classList.remove('disabled');
+            } else {
+              ruleItem.classList.add('disabled');
+            }
+          });
+        });
+      }
+
+      selectAllRules(enabled) {
+        document.querySelectorAll('.rule-checkbox').forEach(checkbox => {
+          checkbox.checked = enabled;
+          const ruleItem = checkbox.closest('.rule-item');
+          if (enabled) {
+            ruleItem.classList.remove('disabled');
+          } else {
+            ruleItem.classList.add('disabled');
+          }
+        });
+      }
+
+      selectCategoryRules(categoryKey, enabled) {
+        document.querySelectorAll(`[data-category="${categoryKey}"] .rule-checkbox`).forEach(checkbox => {
+          checkbox.checked = enabled;
+          const ruleItem = checkbox.closest('.rule-item');
+          if (enabled) {
+            ruleItem.classList.remove('disabled');
+          } else {
+            ruleItem.classList.add('disabled');
+          }
+        });
+      }
+
+      resetToDefaultRules() {
+        Object.keys(this.diagnosticRules).forEach(categoryKey => {
+          const category = this.diagnosticRules[categoryKey];
+          Object.keys(category.rules).forEach(ruleKey => {
+            const checkbox = document.getElementById(`rule_${categoryKey}_${ruleKey}`);
+            if (checkbox) {
+              checkbox.checked = category.rules[ruleKey].enabled;
+              const ruleItem = checkbox.closest('.rule-item');
+              if (checkbox.checked) {
+                ruleItem.classList.remove('disabled');
+              } else {
+                ruleItem.classList.add('disabled');
+              }
+            }
+          });
+        });
+      }
+
+      filterRules() {
+        const searchTerm = document.getElementById("ruleSearchInput").value.toLowerCase();
+        document.querySelectorAll('.rule-item').forEach(item => {
+          const title = item.querySelector('.rule-title').textContent.toLowerCase();
+          const description = item.querySelector('.rule-description').textContent.toLowerCase();
+          const matches = title.includes(searchTerm) || description.includes(searchTerm);
+          
+          if (matches) {
+            item.classList.remove('hidden');
+          } else {
+            item.classList.add('hidden');
+          }
+        });
+        
+        // Hide empty categories
+        document.querySelectorAll('.rule-category').forEach(category => {
+          const visibleRules = category.querySelectorAll('.rule-item:not(.hidden)');
+          if (visibleRules.length === 0 && searchTerm) {
+            category.style.display = 'none';
+          } else {
+            category.style.display = 'block';
+          }
+        });
+      }
+
+      applyRuleConfiguration() {
+        const config = {};
+        
+        document.querySelectorAll('.rule-item').forEach(item => {
+          const categoryKey = item.dataset.category;
+          const ruleKey = item.dataset.rule;
+          const checkbox = item.querySelector('.rule-checkbox');
+          
+          if (!config[categoryKey]) {
+            config[categoryKey] = {};
+          }
+          
+          config[categoryKey][ruleKey] = checkbox.checked;
+        });
+        
+        this.ruleConfiguration = config;
+        this.saveRuleConfiguration();
+        this.hideRuleConfigDialog();
+        alert("Rule configuration applied successfully!");
+      }
+
+      // Profile Management
+      saveRuleProfile() {
+        const profileName = prompt("Enter profile name:");
+        if (!profileName || profileName.trim() === "") {
+          alert("Profile name cannot be empty.");
+          return;
+        }
+        
+        const config = {};
+        document.querySelectorAll('.rule-item').forEach(item => {
+          const categoryKey = item.dataset.category;
+          const ruleKey = item.dataset.rule;
+          const checkbox = item.querySelector('.rule-checkbox');
+          
+          if (!config[categoryKey]) {
+            config[categoryKey] = {};
+          }
+          
+          config[categoryKey][ruleKey] = checkbox.checked;
+        });
+        
+        const profiles = this.getRuleProfiles();
+        profiles[profileName.trim()] = {
+          name: profileName.trim(),
+          config: config,
+          created: new Date().toISOString()
+        };
+        
+        localStorage.setItem("dxfDiagnosticProfiles", JSON.stringify(profiles));
+        this.loadProfileList();
+        alert(`Profile "${profileName}" saved successfully!`);
+      }
+
+      loadRuleProfile() {
+        const select = document.getElementById("ruleProfileSelect");
+        const profileName = select.value;
+        
+        if (!profileName) {
+          alert("Please select a profile to load.");
+          return;
+        }
+        
+        const profiles = this.getRuleProfiles();
+        const profile = profiles[profileName];
+        
+        if (!profile) {
+          alert("Profile not found.");
+          return;
+        }
+        
+        // Apply the profile configuration to checkboxes
+        Object.keys(profile.config).forEach(categoryKey => {
+          Object.keys(profile.config[categoryKey]).forEach(ruleKey => {
+            const checkbox = document.getElementById(`rule_${categoryKey}_${ruleKey}`);
+            if (checkbox) {
+              checkbox.checked = profile.config[categoryKey][ruleKey];
+              const ruleItem = checkbox.closest('.rule-item');
+              if (checkbox.checked) {
+                ruleItem.classList.remove('disabled');
+              } else {
+                ruleItem.classList.add('disabled');
+              }
+            }
+          });
+        });
+        
+        alert(`Profile "${profileName}" loaded successfully!`);
+      }
+
+      deleteRuleProfile() {
+        const select = document.getElementById("ruleProfileSelect");
+        const profileName = select.value;
+        
+        if (!profileName) {
+          alert("Please select a profile to delete.");
+          return;
+        }
+        
+        if (!confirm(`Are you sure you want to delete profile "${profileName}"?`)) {
+          return;
+        }
+        
+        const profiles = this.getRuleProfiles();
+        delete profiles[profileName];
+        
+        localStorage.setItem("dxfDiagnosticProfiles", JSON.stringify(profiles));
+        this.loadProfileList();
+        alert(`Profile "${profileName}" deleted successfully!`);
+      }
+
+      clearAllProfiles() {
+        if (!confirm("Are you sure you want to delete ALL saved profiles? This cannot be undone.")) {
+          return;
+        }
+        
+        localStorage.removeItem("dxfDiagnosticProfiles");
+        this.loadProfileList();
+        alert("All profiles cleared successfully!");
+      }
+
+      getRuleProfiles() {
+        const stored = localStorage.getItem("dxfDiagnosticProfiles");
+        return stored ? JSON.parse(stored) : {};
+      }
+
+      loadProfileList() {
+        const select = document.getElementById("ruleProfileSelect");
+        const profiles = this.getRuleProfiles();
+        
+        select.innerHTML = '<option value="">Select Profile...</option>';
+        
+        Object.keys(profiles).forEach(profileName => {
+          const option = document.createElement("option");
+          option.value = profileName;
+          option.textContent = `${profileName} (${new Date(profiles[profileName].created).toLocaleDateString()})`;
+          select.appendChild(option);
+        });
+      }
+
+      // Configuration Storage
+      loadRuleConfiguration() {
+        const stored = localStorage.getItem("dxfDiagnosticRuleConfig");
+        if (stored) {
+          return JSON.parse(stored);
+        }
+        
+        // Default configuration - all rules enabled
+        const defaultConfig = {};
+        Object.keys(this.diagnosticRules).forEach(categoryKey => {
+          defaultConfig[categoryKey] = {};
+          Object.keys(this.diagnosticRules[categoryKey].rules).forEach(ruleKey => {
+            defaultConfig[categoryKey][ruleKey] = this.diagnosticRules[categoryKey].rules[ruleKey].enabled;
+          });
+        });
+        
+        return defaultConfig;
+      }
+
+      saveRuleConfiguration() {
+        localStorage.setItem("dxfDiagnosticRuleConfig", JSON.stringify(this.ruleConfiguration));
+      }
     }
 
     // ============================================
@@ -7054,9 +8064,10 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
     // ============================================
     
     class DXFDiagnosticsEngine {
-      constructor(dxfTree, fileName) {
+      constructor(dxfTree, fileName, ruleConfiguration = null) {
         this.dxfTree = dxfTree;
         this.fileName = fileName;
+        this.ruleConfiguration = ruleConfiguration || {};
         this.issues = {
           structural: [],
           integrity: [],
@@ -7078,6 +8089,14 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.nodeMap = new Map();
         this.handleMap = new Map();
         this.objectTypeStats = new Map();
+      }
+
+      // Helper method to check if a rule is enabled
+      isRuleEnabled(category, ruleId) {
+        if (!this.ruleConfiguration || !this.ruleConfiguration[category]) {
+          return true; // Default to enabled if no configuration
+        }
+        return this.ruleConfiguration[category][ruleId] !== false;
       }
 
       async runFullDiagnostics(progressCallback) {
@@ -7338,6 +8357,11 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.checkDimensionRendering();
         this.checkSplineValidity();
         this.checkExtrusionDirections();
+        this.checkZOrderIssues();
+        this.checkScaleFactors();
+        this.checkMaterialProperties();
+        this.checkLightingIssues();
+        this.checkTransparencyIssues();
       }
 
       async analyzeTextIssues() {
@@ -7350,6 +8374,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.checkTextUnicode();
         this.checkTextVisibility();
         this.checkDimensionText();
+        this.checkTextOverlap();
+        this.checkTextReadability();
       }
 
       checkHandleReferences() {
@@ -8004,6 +9030,448 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
          });
        }
 
+       // Additional Rendering Analysis Methods
+       checkZOrderIssues() {
+         if (!this.isRuleEnabled('rendering', 'zOrderIssues')) return;
+         
+         const entities = [];
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type && ['LINE', 'CIRCLE', 'ARC', 'POLYLINE', 'LWPOLYLINE', 'SPLINE', 'ELLIPSE'].includes(node.type)) {
+             const z = this.getPropertyValue(node, 30) || 0;
+             const layer = this.getPropertyValue(node, 8);
+             entities.push({ node, z, layer });
+           }
+         });
+         
+         // Check for overlapping entities at same Z level
+         for (let i = 0; i < entities.length; i++) {
+           let overlappingCount = 0;
+           for (let j = i + 1; j < entities.length; j++) {
+             if (Math.abs(entities[i].z - entities[j].z) < 1e-6 && entities[i].layer === entities[j].layer) {
+               overlappingCount++;
+             }
+           }
+           
+           if (overlappingCount > 10) {
+             this.addIssue('rendering', {
+               severity: 'info',
+               title: 'Many Overlapping Entities',
+               description: `${overlappingCount} entities overlap at Z=${entities[i].z} on layer ${entities[i].layer}, may cause Z-fighting.`,
+               category: 'Z-Order Issues',
+               location: `Line ${entities[i].node.line}`,
+               actions: [{ type: 'navigate', data: entities[i].node.id, label: 'Go to Entity' }]
+             });
+           }
+         }
+       }
+
+       checkScaleFactors() {
+         if (!this.isRuleEnabled('rendering', 'scaleFactors')) return;
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'INSERT') {
+             const xScale = this.getPropertyValue(node, 41) || 1;
+             const yScale = this.getPropertyValue(node, 42) || 1;
+             const zScale = this.getPropertyValue(node, 43) || 1;
+             
+             if (xScale <= 0 || yScale <= 0 || zScale <= 0) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Scale Factor',
+                 description: `Block insert has invalid scale factors: X=${xScale}, Y=${yScale}, Z=${zScale}`,
+                 category: 'Scale Factors',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Insert' }]
+               });
+             }
+             
+             if (xScale > 1000 || yScale > 1000 || zScale > 1000) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Extreme Scale Factor',
+                 description: `Block insert has very large scale factors: X=${xScale}, Y=${yScale}, Z=${zScale}`,
+                 category: 'Scale Factors',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Insert' }]
+               });
+             }
+             
+             if (xScale < 0.001 || yScale < 0.001 || zScale < 0.001) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Very Small Scale Factor',
+                 description: `Block insert has very small scale factors: X=${xScale}, Y=${yScale}, Z=${zScale}`,
+                 category: 'Scale Factors',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Insert' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkMaterialProperties() {
+         if (!this.isRuleEnabled('rendering', 'materialProperties')) return;
+         
+         const materials = new Set();
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'MATERIAL') {
+             const name = this.getPropertyValue(node, 1);
+             if (name) materials.add(name);
+           }
+           
+           const materialHandle = this.getPropertyValue(node, 347);
+           if (materialHandle && !this.handleMap.has(materialHandle)) {
+             this.addIssue('rendering', {
+               severity: 'warning',
+               title: 'Broken Material Reference',
+               description: `Entity references non-existent material handle: ${materialHandle}`,
+               category: 'Material Properties',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+             });
+           }
+         });
+         
+         if (materials.size > 50) {
+           this.addIssue('rendering', {
+             severity: 'suggestion',
+             title: 'Many Materials Defined',
+             description: `Drawing defines ${materials.size} materials, consider consolidating for better performance.`,
+             category: 'Material Properties',
+             location: 'OBJECTS section'
+           });
+         }
+       }
+
+       checkLightingIssues() {
+         if (!this.isRuleEnabled('rendering', 'lightingIssues')) return;
+         
+         let lightCount = 0;
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'LIGHT') {
+             lightCount++;
+             const intensity = this.getPropertyValue(node, 40);
+             const attenuation = this.getPropertyValue(node, 50);
+             
+             if (intensity !== null && intensity <= 0) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Zero Light Intensity',
+                 description: 'Light has zero or negative intensity and will not illuminate.',
+                 category: 'Lighting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Light' }]
+               });
+             }
+             
+             if (intensity !== null && intensity > 10000) {
+               this.addIssue('rendering', {
+                 severity: 'warning',
+                 title: 'Very High Light Intensity',
+                 description: `Light intensity (${intensity}) is very high and may cause rendering issues.`,
+                 category: 'Lighting',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Light' }]
+               });
+             }
+           }
+         });
+         
+         if (lightCount > 100) {
+           this.addIssue('rendering', {
+             severity: 'warning',
+             title: 'Excessive Light Count',
+             description: `Drawing contains ${lightCount} lights, which may impact rendering performance.`,
+             category: 'Lighting',
+             location: 'Overall lighting'
+           });
+         }
+       }
+
+       checkTransparencyIssues() {
+         if (!this.isRuleEnabled('rendering', 'transparency')) return;
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           const transparency = this.getPropertyValue(node, 440);
+           const alpha = this.getPropertyValue(node, 440);
+           
+           if (transparency !== null) {
+             if (transparency < 0 || transparency > 255) {
+               this.addIssue('rendering', {
+                 severity: 'error',
+                 title: 'Invalid Transparency Value',
+                 description: `Transparency value (${transparency}) must be between 0-255.`,
+                 category: 'Transparency',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+               });
+             }
+           }
+           
+           // Check for very high transparency that makes entities invisible
+           if (transparency !== null && transparency > 240) {
+             this.addIssue('rendering', {
+               severity: 'info',
+               title: 'Nearly Invisible Entity',
+               description: `Entity has very high transparency (${transparency}) and may be difficult to see.`,
+               category: 'Transparency',
+               location: `Line ${node.line}`,
+               actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+             });
+           }
+         });
+       }
+
+       // Additional Performance Analysis Methods
+       checkComplexGeometry() {
+         if (!this.isRuleEnabled('performance', 'complexGeometry')) return;
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type === 'POLYLINE' || node.type === 'LWPOLYLINE') {
+             let vertexCount = 0;
+             if (node.children) {
+               vertexCount = node.children.filter(child => child.type === 'VERTEX').length;
+             }
+             
+             if (vertexCount > 10000) {
+               this.addIssue('performance', {
+                 severity: 'warning',
+                 title: 'Very Complex Polyline',
+                 description: `Polyline has ${vertexCount} vertices, which may impact performance.`,
+                 category: 'Complex Geometry',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Polyline' }]
+               });
+             }
+           }
+           
+           if (node.type === 'SPLINE') {
+             const degreeValue = this.getPropertyValue(node, 71);
+             const controlPointCount = this.getPropertyValue(node, 73);
+             const knotCount = this.getPropertyValue(node, 74);
+             
+             if (controlPointCount > 1000) {
+               this.addIssue('performance', {
+                 severity: 'warning',
+                 title: 'Very Complex Spline',
+                 description: `Spline has ${controlPointCount} control points, which may impact performance.`,
+                 category: 'Complex Geometry',
+                 location: `Line ${node.line}`,
+                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Spline' }]
+               });
+             }
+           }
+         });
+       }
+
+       checkMemoryUsage() {
+         if (!this.isRuleEnabled('performance', 'memoryUsage')) return;
+         
+         let totalEntities = 0;
+         let totalProperties = 0;
+         let estimatedSize = 0;
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           totalEntities++;
+           if (node.properties) {
+             totalProperties += node.properties.length;
+             node.properties.forEach(prop => {
+               if (prop.value) {
+                 estimatedSize += prop.value.toString().length * 2; // Rough UTF-16 estimate
+               }
+             });
+           }
+         });
+         
+         const estimatedMB = estimatedSize / (1024 * 1024);
+         
+         if (estimatedMB > 100) {
+           this.addIssue('performance', {
+             severity: 'warning',
+             title: 'High Memory Usage',
+             description: `Estimated memory usage is ${estimatedMB.toFixed(1)} MB, which may cause performance issues.`,
+             category: 'Memory Usage',
+             location: 'Overall file'
+           });
+         }
+         
+         if (totalEntities > 100000) {
+           this.addIssue('performance', {
+             severity: 'info',
+             title: 'Very Large Entity Count',
+             description: `Drawing contains ${totalEntities} entities, consider optimizing for better performance.`,
+             category: 'Memory Usage',
+             location: 'Overall file'
+           });
+         }
+       }
+
+       // Additional Text Analysis Methods
+       checkTextOverlap() {
+         if (!this.isRuleEnabled('text', 'textOverlap')) return;
+         
+         const textEntities = [];
+         this.traverseTree(this.dxfTree, (node) => {
+           if (['TEXT', 'MTEXT'].includes(node.type)) {
+             const x = this.getPropertyValue(node, 10);
+             const y = this.getPropertyValue(node, 20);
+             const height = this.getPropertyValue(node, 40);
+             const text = this.getPropertyValue(node, 1);
+             
+             if (x !== null && y !== null && height !== null && text) {
+               textEntities.push({ node, x, y, height, text });
+             }
+           }
+         });
+         
+         for (let i = 0; i < textEntities.length; i++) {
+           for (let j = i + 1; j < textEntities.length; j++) {
+             const text1 = textEntities[i];
+             const text2 = textEntities[j];
+             
+             const distance = Math.sqrt(
+               Math.pow(text1.x - text2.x, 2) + Math.pow(text1.y - text2.y, 2)
+             );
+             
+             const avgHeight = (text1.height + text2.height) / 2;
+             
+             if (distance < avgHeight) {
+               this.addIssue('text', {
+                 severity: 'suggestion',
+                 title: 'Overlapping Text Entities',
+                 description: `Text entities may overlap (distance: ${distance.toFixed(2)}, avg height: ${avgHeight.toFixed(2)}).`,
+                 category: 'Text Overlap',
+                 location: `Line ${text1.node.line}`,
+                 actions: [{ type: 'navigate', data: text1.node.id, label: 'Go to Text' }]
+               });
+               break; // Only report once per text entity
+             }
+           }
+         }
+       }
+
+       checkTextReadability() {
+         if (!this.isRuleEnabled('text', 'textReadability')) return;
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (['TEXT', 'MTEXT'].includes(node.type)) {
+             const height = this.getPropertyValue(node, 40);
+             
+             if (height !== null) {
+               if (height < 0.1) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: 'Very Small Text',
+                   description: `Text height (${height}) may be too small to read when printed.`,
+                   category: 'Text Readability',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+               
+               if (height > 1000) {
+                 this.addIssue('text', {
+                   severity: 'warning',
+                   title: 'Very Large Text',
+                   description: `Text height (${height}) is extremely large and may cause display issues.`,
+                   category: 'Text Readability',
+                   location: `Line ${node.line}`,
+                   actions: [{ type: 'navigate', data: node.id, label: 'Go to Text' }]
+                 });
+               }
+             }
+           }
+         });
+       }
+
+       // Additional Security Analysis Methods
+       checkSuspiciousPatterns() {
+         if (!this.isRuleEnabled('security', 'suspiciousPatterns')) return;
+         
+         const suspiciousPatterns = [
+           /javascript:/i,
+           /vbscript:/i,
+           /data:text\/html/i,
+           /data:application\/octet-stream/i,
+           /<script/i,
+           /eval\(/i,
+           /document\.write/i,
+           /\.exe$/i,
+           /\.bat$/i,
+           /\.cmd$/i,
+           /\.scr$/i,
+           /\.pif$/i
+         ];
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.properties) {
+             node.properties.forEach(prop => {
+               if (prop.value && typeof prop.value === 'string') {
+                 suspiciousPatterns.forEach(pattern => {
+                   if (pattern.test(prop.value)) {
+                     this.addIssue('security', {
+                       severity: 'warning',
+                       title: 'Suspicious Content Pattern',
+                       description: `Potentially suspicious content found: "${prop.value.substring(0, 100)}..."`,
+                       category: 'Suspicious Patterns',
+                       location: `Line ${node.line}`,
+                       actions: [{ type: 'navigate', data: node.id, label: 'Go to Entity' }]
+                     });
+                   }
+                 });
+               }
+             });
+           }
+         });
+       }
+
+       // Additional Best Practices Analysis
+       checkDrawingOrganization() {
+         if (!this.isRuleEnabled('bestPractices', 'drawingOrganization')) return;
+         
+         let entitiesInModelSpace = 0;
+         let entitiesInPaperSpace = 0;
+         let entitiesOnLayer0 = 0;
+         
+         this.traverseTree(this.dxfTree, (node) => {
+           if (node.type && ['LINE', 'CIRCLE', 'ARC', 'POLYLINE', 'TEXT', 'MTEXT'].includes(node.type)) {
+             const layer = this.getPropertyValue(node, 8);
+             const paperSpace = this.getPropertyValue(node, 67);
+             
+             if (paperSpace === 1) {
+               entitiesInPaperSpace++;
+             } else {
+               entitiesInModelSpace++;
+             }
+             
+             if (layer === '0') {
+               entitiesOnLayer0++;
+             }
+           }
+         });
+         
+         if (entitiesOnLayer0 > entitiesInModelSpace * 0.5) {
+           this.addIssue('bestPractices', {
+             severity: 'suggestion',
+             title: 'Too Many Entities on Layer 0',
+             description: `${entitiesOnLayer0} entities are on layer 0. Consider organizing entities onto meaningful layers.`,
+             category: 'Drawing Organization',
+             location: 'Layer organization'
+           });
+         }
+         
+         if (entitiesInModelSpace > 0 && entitiesInPaperSpace > 0) {
+           this.addIssue('bestPractices', {
+             severity: 'info',
+             title: 'Mixed Model and Paper Space Usage',
+             description: 'Drawing contains entities in both model space and paper space.',
+             category: 'Drawing Organization',
+             location: 'Space organization'
+           });
+         }
+       }
+
               // ====================================
        // TEXT ISSUES ANALYSIS
        // ====================================
@@ -8534,6 +10002,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
          this.checkNestingDepth();
          this.checkDuplicateData();
          this.checkUnusedDefinitions();
+         this.checkComplexGeometry();
+         this.checkMemoryUsage();
        }
 
       checkFileSize() {
@@ -8854,6 +10324,7 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         this.checkTextStyles();
         this.checkLineTypes();
         this.checkNamingConventions();
+        this.checkDrawingOrganization();
       }
 
       checkLayerUsage() {
@@ -9051,8 +10522,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
       async securityAssessment() {
         this.checkExternalReferences();
         this.checkScriptContent();
-        this.checkFileSize();
         this.checkBinaryContent();
+        this.checkSuspiciousPatterns();
       }
 
       checkExternalReferences() {
