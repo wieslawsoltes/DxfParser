@@ -61,12 +61,24 @@
       padding: 0.5em;
       box-sizing: border-box;
     }
+
     /* File input row */
     .file-input-row {
       display: flex;
-      justify-content: flex-start;
+      justify-content: space-between;
       align-items: center;
       margin-bottom: 1em;
+    }
+    
+    .left-part {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+    
+    .right-part {
+      display: flex;
+      align-items: center;
     }
     /* Navigation Controls – a single row combining Go to Handle and navigation history */
     #navControls {
@@ -1059,6 +1071,9 @@
               Use Streamed Parsing
             </label>
             <button id="parseBtn">Parse File(s)</button>
+          </div>
+          <div class="right-part">
+            <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
           </div>
         </div>
         <!-- Combined Navigation Row -->
@@ -3023,9 +3038,206 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
     let gOldText = "";
     let gNewText = "";
 
+    // State Management Class
+    class StateManager {
+      constructor() {
+        this.storageKey = 'dxf_parser_state';
+        this.tabStatePrefix = 'dxf_tab_';
+      }
+
+      // Save the complete application state
+      saveAppState(tabs, activeTabId, columnWidths) {
+        try {
+          const appState = {
+            activeTabId: activeTabId,
+            columnWidths: columnWidths,
+            tabIds: tabs.map(tab => tab.id),
+            timestamp: Date.now()
+          };
+          localStorage.setItem(this.storageKey, JSON.stringify(appState));
+          
+          // Save each tab's state separately for efficiency
+          tabs.forEach(tab => {
+            this.saveTabState(tab);
+          });
+        } catch (error) {
+          console.warn('Failed to save app state:', error);
+        }
+      }
+
+      // Save individual tab state
+      saveTabState(tab) {
+        try {
+          // Create a serializable version of the tab state
+          const tabState = {
+            id: tab.id,
+            name: tab.name,
+            codeSearchTerms: tab.codeSearchTerms || [],
+            dataSearchTerms: tab.dataSearchTerms || [],
+            currentSortField: tab.currentSortField || 'line',
+            currentSortAscending: tab.currentSortAscending !== undefined ? tab.currentSortAscending : true,
+            minLine: tab.minLine,
+            maxLine: tab.maxLine,
+            dataExact: tab.dataExact || false,
+            dataCase: tab.dataCase || false,
+            selectedObjectTypes: tab.selectedObjectTypes || [],
+            navigationHistory: tab.navigationHistory || [],
+            currentHistoryIndex: tab.currentHistoryIndex || -1,
+            classIdToName: tab.classIdToName || {},
+            // Store the original file content for reconstruction
+            originalTreeDataSerialized: tab.originalTreeData ? this.serializeTreeData(tab.originalTreeData) : null,
+            expandedNodeIds: tab.originalTreeData ? this.getExpandedNodeIds(tab.originalTreeData) : [],
+            timestamp: Date.now()
+          };
+          
+          localStorage.setItem(this.tabStatePrefix + tab.id, JSON.stringify(tabState));
+        } catch (error) {
+          console.warn('Failed to save tab state:', error);
+        }
+      }
+
+      // Serialize tree data to a compact format
+      serializeTreeData(treeData) {
+        try {
+          return JSON.stringify(treeData, (key, value) => {
+            // Skip large or redundant properties for serialization
+            if (key === 'expanded' || key === 'currentTreeData') {
+              return undefined;
+            }
+            return value;
+          });
+        } catch (error) {
+          console.warn('Failed to serialize tree data:', error);
+          return null;
+        }
+      }
+
+      // Get list of expanded node IDs for state restoration
+      getExpandedNodeIds(nodes) {
+        const expandedIds = [];
+        const traverse = (nodeList) => {
+          nodeList.forEach(node => {
+            if (node.expanded) {
+              expandedIds.push(node.id);
+            }
+            if (node.children && node.children.length > 0) {
+              traverse(node.children);
+            }
+          });
+        };
+        traverse(nodes);
+        return expandedIds;
+      }
+
+      // Restore expanded state from saved IDs
+      restoreExpandedState(nodes, expandedIds) {
+        const traverse = (nodeList) => {
+          nodeList.forEach(node => {
+            node.expanded = expandedIds.includes(node.id);
+            if (node.children && node.children.length > 0) {
+              traverse(node.children);
+            }
+          });
+        };
+        traverse(nodes);
+      }
+
+      // Load the complete application state
+      loadAppState() {
+        try {
+          const appStateJson = localStorage.getItem(this.storageKey);
+          if (!appStateJson) return null;
+          
+          const appState = JSON.parse(appStateJson);
+          
+          // Check if state is not too old (older than 7 days)
+          const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+          if (Date.now() - appState.timestamp > maxAge) {
+            console.log('App state expired, clearing...');
+            this.clearAllState();
+            return null;
+          }
+
+          return appState;
+        } catch (error) {
+          console.warn('Failed to load app state:', error);
+          return null;
+        }
+      }
+
+      // Load individual tab state
+      loadTabState(tabId) {
+        try {
+          const tabStateJson = localStorage.getItem(this.tabStatePrefix + tabId);
+          if (!tabStateJson) return null;
+          
+          const tabState = JSON.parse(tabStateJson);
+          
+          // Deserialize tree data if present
+          if (tabState.originalTreeDataSerialized) {
+            tabState.originalTreeData = JSON.parse(tabState.originalTreeDataSerialized);
+            delete tabState.originalTreeDataSerialized; // Clean up
+          }
+
+          return tabState;
+        } catch (error) {
+          console.warn('Failed to load tab state:', error);
+          return null;
+        }
+      }
+
+      // Remove tab state when tab is closed
+      removeTabState(tabId) {
+        try {
+          localStorage.removeItem(this.tabStatePrefix + tabId);
+        } catch (error) {
+          console.warn('Failed to remove tab state:', error);
+        }
+      }
+
+      // Clear all state
+      clearAllState() {
+        try {
+          // Remove main app state
+          localStorage.removeItem(this.storageKey);
+          
+          // Remove all tab states
+          const keys = Object.keys(localStorage);
+          keys.forEach(key => {
+            if (key.startsWith(this.tabStatePrefix)) {
+              localStorage.removeItem(key);
+            }
+          });
+          
+          console.log('All state cleared');
+        } catch (error) {
+          console.warn('Failed to clear state:', error);
+        }
+      }
+
+      // Get all saved tab IDs
+      getSavedTabIds() {
+        try {
+          const appState = this.loadAppState();
+          return appState ? appState.tabIds || [] : [];
+        } catch (error) {
+          console.warn('Failed to get saved tab IDs:', error);
+          return [];
+        }
+      }
+
+      // Check if we have saved state
+      hasSavedState() {
+        return localStorage.getItem(this.storageKey) !== null;
+      }
+    }
+
     class App {
       
       constructor() {
+        // Initialize state manager
+        this.stateManager = new StateManager();
+        
         // Define column widths – these will be passed into the TreeDataGrid constructor.
         this.columnWidths = {
           line: 130,
@@ -3061,12 +3273,151 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         );
         this.initEventListeners();
         this.initializeRuleSystem();
+        
+        // Initialize state management
+        this.initializeStateManagement();
+      }
+      
+      // Initialize state management and restore saved state
+      initializeStateManagement() {
+        // Attempt to restore state on app startup
+        setTimeout(() => {
+          this.restoreAppState();
+        }, 100); // Small delay to ensure DOM is ready
+        
+        // Auto-save state periodically
+        setInterval(() => {
+          this.saveCurrentState();
+        }, 5000); // Save every 5 seconds
+        
+        // Save state before page unload
+        window.addEventListener('beforeunload', () => {
+          this.saveCurrentState();
+        });
+      }
+      
+      // Save current state to localStorage
+      saveCurrentState() {
+        if (this.tabs.length > 0) {
+          this.stateManager.saveAppState(this.tabs, this.activeTabId, this.columnWidths);
+        }
+      }
+      
+      // Restore application state from localStorage
+      restoreAppState() {
+        try {
+          const appState = this.stateManager.loadAppState();
+          if (!appState) {
+            console.log('No saved state found');
+            return;
+          }
+          
+          console.log('Restoring app state...');
+          
+          // Restore column widths
+          if (appState.columnWidths) {
+            this.columnWidths = { ...this.columnWidths, ...appState.columnWidths };
+          }
+          
+          // Restore tabs
+          const restoredTabs = [];
+          for (const tabId of appState.tabIds || []) {
+            const tabState = this.stateManager.loadTabState(tabId);
+            if (tabState && tabState.originalTreeData) {
+              // Restore expanded state
+              if (tabState.expandedNodeIds && tabState.expandedNodeIds.length > 0) {
+                this.stateManager.restoreExpandedState(tabState.originalTreeData, tabState.expandedNodeIds);
+              }
+              
+              // Create the restored tab
+              const restoredTab = {
+                id: tabState.id,
+                name: tabState.name,
+                originalTreeData: tabState.originalTreeData,
+                currentTreeData: tabState.originalTreeData, // Will be re-filtered
+                codeSearchTerms: tabState.codeSearchTerms || [],
+                dataSearchTerms: tabState.dataSearchTerms || [],
+                currentSortField: tabState.currentSortField || 'line',
+                currentSortAscending: tabState.currentSortAscending !== undefined ? tabState.currentSortAscending : true,
+                minLine: tabState.minLine,
+                maxLine: tabState.maxLine,
+                dataExact: tabState.dataExact || false,
+                dataCase: tabState.dataCase || false,
+                selectedObjectTypes: tabState.selectedObjectTypes || [],
+                navigationHistory: tabState.navigationHistory || [],
+                currentHistoryIndex: tabState.currentHistoryIndex || -1,
+                classIdToName: tabState.classIdToName || {}
+              };
+              
+              restoredTabs.push(restoredTab);
+            }
+          }
+          
+          // Update the app with restored tabs
+          this.tabs = restoredTabs;
+          this.activeTabId = appState.activeTabId;
+          
+          // Ensure we have a valid active tab
+          if (this.tabs.length > 0) {
+            if (!this.activeTabId || !this.tabs.find(t => t.id === this.activeTabId)) {
+              this.activeTabId = this.tabs[0].id;
+            }
+            
+            // Update UI
+            this.updateTabUI();
+            
+            // Apply filters and update tree
+            const activeTab = this.getActiveTab();
+            if (activeTab) {
+              this.applyTabFilters(activeTab);
+            }
+          }
+          
+          console.log(`Restored ${restoredTabs.length} tabs`);
+          
+        } catch (error) {
+          console.error('Failed to restore app state:', error);
+          // Clear corrupted state
+          this.stateManager.clearAllState();
+        }
+      }
+      
+      // Apply filters to a tab and update tree display
+      applyTabFilters(tab) {
+        // Apply sorting if needed
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        
+        // Apply filters
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms,
+          tab.dataSearchTerms,
+          tab.dataExact,
+          tab.dataCase,
+          tab.minLine,
+          tab.maxLine,
+          tab.selectedObjectTypes
+        );
+        
+        // Update tree display
+        this.myTreeGrid.setData(tab.currentTreeData);
+        
+        // Update UI elements
+        this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
+        this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
+        document.getElementById("dataExactCheckbox").checked = tab.dataExact;
+        document.getElementById("dataCaseCheckbox").checked = tab.dataCase;
+        document.getElementById("minLineInput").value = tab.minLine || "";
+        document.getElementById("maxLineInput").value = tab.maxLine || "";
       }
       
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
+        document.getElementById("resetStateBtn").addEventListener("click", () => this.handleResetState());
         document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
         document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
         document.getElementById("downloadDxfBtn").addEventListener("click", () => this.handleDownloadDxf());
@@ -3441,6 +3792,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
+        // Save state after search terms change
+        this.saveCurrentState();
       }
       
       handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
@@ -3555,11 +3908,21 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
           closeBtn.textContent = "×";
           closeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
+            // Remove state for the closed tab
+            this.stateManager.removeTabState(tab.id);
+            
             this.tabs = this.tabs.filter(t => t.id !== tab.id);
             if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
             this.updateTabUI();
-            if (this.activeTabId) { this.myTreeGrid.setData(this.getActiveTab().currentTreeData); }
+            if (this.activeTabId) { 
+              this.myTreeGrid.setData(this.getActiveTab().currentTreeData); 
+              // Apply filters for the new active tab
+              this.applyTabFilters(this.getActiveTab());
+            }
             else { this.myTreeGrid.setData([]); }
+            
+            // Save state after tab closure
+            this.saveCurrentState();
           });
           tabElem.appendChild(closeBtn);
           tabContainer.appendChild(tabElem);
@@ -3604,6 +3967,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
+        // Save state after expanding/collapsing
+        this.saveCurrentState();
       }
       
       handleCollapseAll() {
@@ -3625,6 +3990,38 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
         this.treeViewContainer.scrollTop = 0;
+        // Save state after expanding/collapsing
+        this.saveCurrentState();
+      }
+      
+      // Handle reset state button click
+      handleResetState() {
+        if (confirm('Are you sure you want to reset all state and close all tabs? This action cannot be undone.')) {
+          // Clear all state from localStorage
+          this.stateManager.clearAllState();
+          
+          // Clear current app state
+          this.tabs = [];
+          this.activeTabId = null;
+          
+          // Clear UI
+          this.updateTabUI();
+          this.myTreeGrid.setData([]);
+          
+          // Clear search inputs
+          document.getElementById("codeSearchInput").value = "";
+          document.getElementById("dataSearchInput").value = "";
+          document.getElementById("minLineInput").value = "";
+          document.getElementById("maxLineInput").value = "";
+          document.getElementById("dataExactCheckbox").checked = false;
+          document.getElementById("dataCaseCheckbox").checked = false;
+          
+          // Clear tag containers
+          this.updateTagContainer("codeSearchTags", [], "code");
+          this.updateTagContainer("dataSearchTags", [], "data");
+          
+          console.log('All state has been reset');
+        }
       }
       
       handleToggleExpand(nodeId) {
@@ -3647,6 +4044,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
             activeTab.selectedObjectTypes
           );
           this.myTreeGrid.setData(activeTab.currentTreeData);
+          // Save state after node expansion change
+          this.saveCurrentState();
         }
       }
       
@@ -4056,6 +4455,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
                   this.updateClasses();
                   this.updateTabUI();
                   this.myTreeGrid.setData(newTab.currentTreeData);
+                  // Save state after new tab creation
+                  this.saveCurrentState();
                 })
               .catch(err => {
                 console.error("Error during streamed parsing:", err);
@@ -4089,6 +4490,8 @@ groupObjectsIterative(tags, startIndex = 0, endMarker = null, containerStartLine
               this.updateClasses();
               this.updateTabUI();
               this.myTreeGrid.setData(newTab.currentTreeData);
+              // Save state after new tab creation
+              this.saveCurrentState();
             };
             reader.readAsText(file, "ascii");
           }
