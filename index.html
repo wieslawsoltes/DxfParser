@@ -21,14 +21,27 @@
 </head>
 <body>
   <div class="main-container">
+    <!-- Top Header spanning sidebar and main content -->
+    <div class="top-header">
+      <div class="top-header-left">
+        <button id="toggleSidebarBtn" class="sidebar-toggle" title="Show/Hide sidebar" aria-label="Toggle sidebar" aria-pressed="false">☰</button>
+        <div class="app-title">DXF Parser</div>
+      </div>
+      <div class="top-header-right">
+        <input type="file" id="fileInput" accept=".dxf" multiple>
+          <button id="parseBtn">Parse File(s)</button>
+        <label>
+          <input type="checkbox" id="useStreamCheckbox">
+          Use Streamed Parsing
+        </label>
+        <button id="createNewDxfBtn">Create New</button>
+        <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
+      </div>
+    </div>
     <!-- Main content wrapper with sidebar and main content -->
     <div class="content-wrapper">
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
-        <!-- Sidebar logo -->
-        <div class="sidebar-logo">
-          <h1>DXF Parser</h1>
-        </div>
         <div class="sidebar-buttons">
           <button id="expandAllBtn">Expand All</button>
           <button id="collapseAllBtn">Collapse All</button>
@@ -44,7 +57,7 @@
           <button id="showBlocksOverlayBtn">Blocks & Inserts</button>
           <button id="showLineTypesOverlayBtn">Line Types</button>
           <button id="showTextsOverlayBtn">Texts</button>
-          <button id="showDiagnosticsOverlayBtn">DXF Diagnostics</button>
+          <button id="showDiagnosticsOverlayBtn">Diagnostics</button>
           <button id="showBatchProcessOverlayBtn">Batch Process</button>
           <button id="showDiffOverlayBtn">Diff DXF</button>
         </div>
@@ -99,42 +112,31 @@
       <div class="pane-resizer"></div>
       <!-- Main Content Area -->
       <div class="main-content">
-        <!-- File input row -->
-        <div class="file-input-row">
-          <div class="left-part">
-            <input type="file" id="fileInput" accept=".dxf" multiple>
-            <label>
-              <input type="checkbox" id="useStreamCheckbox">
-              Use Streamed Parsing
-            </label>
-            <button id="parseBtn">Parse File(s)</button>
-            <button id="createNewDxfBtn">Create New DXF</button>
-          </div>
-          <div class="right-part">
-            <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
-          </div>
-        </div>
-        <!-- Combined Navigation Row -->
-        <div id="navControls">
-          <div id="handleNavBar">
-            <input type="text" id="handleSearchInput" placeholder="Go to Handle">
-            <button id="goToHandleBtn">Go</button>
-          </div>
-          <div id="navHistoryContainer">
-            <div id="navHistoryControls">
-              <button id="backBtn" disabled>Back</button>
-              <button id="forwardBtn" disabled>Forward</button>
-              <button id="clearHistoryBtn">Clear</button>
-            </div>
-            <div id="navHistoryList"></div>
-          </div>
-        </div>
-        <!-- Row add/remove controls -->
+        
+        <!-- Toolbar: Row controls (left) + Handle navigation (right) -->
         <div id="rowControls" class="row-controls">
-          <button id="addRowBtn">Add Row</button>
-          <button id="removeRowBtn">Remove Row</button>
-          <button id="downloadDxfBtn">Download DXF</button>
-          <button id="downloadTreeExcelBtn">Download Tree as Excel</button>
+          <div class="row-controls-left">
+            <button id="addRowBtn">Add Row</button>
+            <button id="removeRowBtn">Remove Row</button>
+            <button id="downloadDxfBtn">Download DXF</button>
+            <button id="downloadTreeExcelBtn">Download Tree as Excel</button>
+          </div>
+          <div class="row-controls-right">
+            <div id="navControls">
+              <div id="handleNavBar">
+                <input type="text" id="handleSearchInput" placeholder="Go to Handle">
+                <button id="goToHandleBtn">Go</button>
+              </div>
+              <div id="navHistoryContainer">
+                <div id="navHistoryControls">
+                  <button id="backBtn" disabled>Back</button>
+                  <button id="forwardBtn" disabled>Forward</button>
+                  <button id="clearHistoryBtn">Clear</button>
+                </div>
+                <div id="navHistoryList"></div>
+              </div>
+            </div>
+          </div>
         </div>
         <!-- Tabs -->
         <div id="tabContainer"></div>
@@ -684,5 +686,67 @@
   <!-- TreeDataGrid Control -->
   <!-- BatchDataGrid Control -->
   <!-- Application Code -->
+  <script>
+    (function() {
+      const contentWrapper = document.querySelector('.content-wrapper');
+      const toggleBtn = document.getElementById('toggleSidebarBtn');
+      if (!contentWrapper || !toggleBtn) return;
+
+      const sidebarEl = document.querySelector('.sidebar');
+
+      function scheduleGridRelayout() {
+        // Prefer calling the app grid directly; fallback to a window resize event
+        const run = () => {
+          if (window.app && window.app.myTreeGrid) {
+            // Run twice to ensure after layout settles
+            window.app.myTreeGrid.updateVisibleNodes();
+            requestAnimationFrame(() => window.app.myTreeGrid.updateVisibleNodes());
+          } else {
+            window.dispatchEvent(new Event('resize'));
+          }
+        };
+        // Give CSS transitions a moment to complete
+        setTimeout(run, 0);
+        setTimeout(run, 200);
+      }
+
+      function setSidebarCollapsed(collapsed) {
+        if (collapsed) {
+          contentWrapper.classList.add('sidebar-collapsed');
+          toggleBtn.setAttribute('aria-pressed', 'true');
+        } else {
+          contentWrapper.classList.remove('sidebar-collapsed');
+          toggleBtn.setAttribute('aria-pressed', 'false');
+        }
+        try { localStorage.setItem('sidebarCollapsed', String(collapsed)); } catch (e) {}
+        scheduleGridRelayout();
+      }
+
+      // Initialize from saved state (migrate old key if present)
+      const savedCollapsed = (function() {
+        try {
+          const legacyHidden = localStorage.getItem('sidebarHidden') === 'true';
+          const newCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+          return newCollapsed || legacyHidden;
+        } catch (e) { return false; }
+      })();
+      setSidebarCollapsed(savedCollapsed);
+
+      // Toggle handler
+      toggleBtn.addEventListener('click', function(){
+        const willCollapse = !contentWrapper.classList.contains('sidebar-collapsed');
+        setSidebarCollapsed(willCollapse);
+      });
+
+      // Also relayout on the end of the sidebar width transition
+      if (sidebarEl) {
+        sidebarEl.addEventListener('transitionend', (e) => {
+          if (e.propertyName === 'width' || e.propertyName === 'padding' || e.propertyName === 'border') {
+            scheduleGridRelayout();
+          }
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

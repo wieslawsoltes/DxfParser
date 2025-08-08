@@ -8,6 +8,48 @@ body { font-family: sans-serif; }
   height: 100vh;
   padding: 1em;
 }
+/* Top header spanning full width */
+.top-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75em;
+  padding: 0.5em 0.75em;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-bottom: 0.75em;
+  background: #f8f9fa;
+}
+.top-header-left,
+.top-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.top-header-right > button,
+.top-header-right > label,
+.top-header-right > input[type="file"] {
+  height: 34px;
+}
+.top-header-right > button,
+.top-header-right > label {
+  display: inline-flex;
+  align-items: center;
+}
+.top-header-right > button {
+  padding: 0 10px;
+}
+.top-header-right input[type="file"]::-webkit-file-upload-button {
+  height: 34px;
+}
+.top-header-right input[type="file"]::file-selector-button {
+  height: 34px;
+}
+.app-title {
+  font-size: 1.1em;
+  font-weight: 700;
+}
+.top-header-right label { display: inline-flex; align-items: center; gap: 0.3em; }
 /* Layout for two‐column main content with fixed sidebar */
 .content-wrapper {
   display: flex;
@@ -19,11 +61,24 @@ body { font-family: sans-serif; }
   padding: 1em;
   border-right: 1px solid #ccc;
   overflow: visible;
-}
+ }
 /* Sidebar Logo */
 .sidebar-logo h1 {
   margin: 0 0 1em 0;
   font-size: 1.5em;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 1em;
+  justify-content: space-between;
+}
+
+.sidebar-title {
+  font-size: 1.2em;
+  font-weight: 600;
 }
 .pane-resizer {
   width: 5px;
@@ -52,10 +107,7 @@ body { font-family: sans-serif; }
 
 /* File input row */
 .file-input-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1em;
+  display: none;
 }
 
 .left-part {
@@ -68,19 +120,32 @@ body { font-family: sans-serif; }
   display: flex;
   align-items: center;
 }
-/* Navigation Controls – a single row combining Go to Handle and navigation history */
-#navControls {
+/* Toolbar: Row controls (left) + navigation (right) */
+.row-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5em;
   margin-bottom: 1em;
 }
-/* Row add/remove controls */
-.row-controls {
+.row-controls-left {
   display: flex;
-  margin-bottom: 1em;
+  align-items: center;
+  gap: 0.5em;
 }
-.row-controls button { margin-right: 4px; }
+.row-controls-right {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.row-controls button { margin-right: 0; }
+/* Navigation Controls – placed on the right inside toolbar */
+#navControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0;
+}
 /* Left part: Handle Navigation */
 #handleNavBar {
   display: flex;
@@ -1032,6 +1097,9 @@ body { font-family: sans-serif; }
 }
 /* Responsive adjustments for mobile */
 @media (max-width: 600px) {
+  .row-controls { flex-direction: column; align-items: flex-start; gap: 0.5em; }
+  .row-controls-right { margin-left: 0; width: 100%; }
+  #navControls { flex-direction: column; align-items: flex-start; width: 100%; }
   .filter-content .filter-row {
     flex-direction: column;
   }
@@ -1055,3 +1123,50 @@ body { font-family: sans-serif; }
   #navControls { flex-direction: column; align-items: flex-start; }
   #handleNavBar, #navHistoryContainer { margin-bottom: 0.5em; }
 } 
+
+/* Hamburger toggle button */
+.hamburger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+.hamburger-btn:hover { background: #f2f2f2; }
+
+/* Sidebar collapse state - classic off-canvas behavior */
+
+/* Sidebar toggle button (in header area) */
+.sidebar-toggle-main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 18px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+.sidebar-toggle-main:hover { background: #f2f2f2; }
+
+.sidebar { transition: width 0.25s ease, padding 0.25s ease; }
+
+/* Collapsed: keep a narrow rail with only the toggle visible */
+.content-wrapper.sidebar-collapsed .sidebar {
+  width: 0;
+  padding: 0;
+  border: none;
+}
+.content-wrapper.sidebar-collapsed .sidebar-header,
+.content-wrapper.sidebar-collapsed .sidebar-title,
+.content-wrapper.sidebar-collapsed .sidebar-buttons,
+.content-wrapper.sidebar-collapsed .filter-panel { display: none; }
+.content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
