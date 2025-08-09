@@ -29,8 +29,6 @@
         <div class="app-title">DXF Parser</div>
       </div>
       <div class="top-header-right">
-        <input type="file" id="fileInput" accept=".dxf" multiple>
-          <button id="parseBtn">Parse File(s)</button>
         <label>
           <input type="checkbox" id="useStreamCheckbox">
           Use Streamed Parsing
@@ -153,7 +151,8 @@
           <div class="panel" id="panelLeft" style="flex:1; display:flex; flex-direction:column; min-width:0;">
             <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
               <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
-              <label style="white-space:nowrap; font-size:12px;">Load into: <button id="parseLeftBtn">Left</button></label>
+              <input type="file" id="fileInputLeft" accept=".dxf" multiple>
+              <button id="parseLeftBtn">Parse</button>
             </div>
             <div id="treeGridHeaderLeft" class="tree-header">
               <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
@@ -187,7 +186,8 @@
           <div class="panel" id="panelRight" style="flex:1; display:flex; flex-direction:column; min-width:0;">
             <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
               <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
-              <label style="white-space:nowrap; font-size:12px;">Load into: <button id="parseRightBtn">Right</button></label>
+              <input type="file" id="fileInputRight" accept=".dxf" multiple>
+              <button id="parseRightBtn">Parse</button>
             </div>
             <div id="treeGridHeaderRight" class="tree-header">
               <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">

@@ -201,18 +201,17 @@
       }
       
       initEventListeners() {
-        document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
         const parseLeftBtn = document.getElementById("parseLeftBtn");
         const parseRightBtn = document.getElementById("parseRightBtn");
         if (parseLeftBtn) {
           parseLeftBtn.addEventListener("click", () => {
-            const fileInput = document.getElementById("fileInput");
+            const fileInput = document.getElementById("fileInputLeft");
             this.handleFiles(fileInput.files, 'left');
           });
         }
         if (parseRightBtn) {
           parseRightBtn.addEventListener("click", () => {
-            const fileInput = document.getElementById("fileInput");
+            const fileInput = document.getElementById("fileInputRight");
             this.handleFiles(fileInput.files, 'right');
           });
         }
@@ -619,24 +618,84 @@
 
       clearSideBySideDiff() {
         this.currentDiffMap = null;
-        if (this.myTreeGrid && this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
-        if (this.myTreeGridRight && this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
-        if (this.myTreeGrid && this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
-        if (this.myTreeGridRight && this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
+        // 1) Clear all diff-related providers and alignment on both grids
+        if (this.myTreeGrid) {
+          if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
+          if (this.myTreeGrid.setCellClassProvider) this.myTreeGrid.setCellClassProvider(null);
+          if (this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
+          if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(null);
+        }
+        if (this.myTreeGridRight) {
+          if (this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
+          if (this.myTreeGridRight.setCellClassProvider) this.myTreeGridRight.setCellClassProvider(null);
+          if (this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
+          if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(null);
+        }
+
+        // 2) Restore each panel's view to its own filtered/sorted state
+        const leftTab = this.getActiveTab();
+        const rightTab = this.getActiveTabRight();
+
+        if (leftTab) {
+          // Re-apply the saved filters/sort on left and update grid
+          this.applyTabFilters(leftTab);
+        } else if (this.myTreeGrid) {
+          this.myTreeGrid.setData([]);
+        }
+
+        if (rightTab) {
+          // Manually filter/sort right side without touching left UI controls
+          if (rightTab.currentSortField) {
+            this.sortTreeNodes(rightTab.originalTreeData, rightTab.currentSortField, rightTab.currentSortAscending);
+          }
+          rightTab.currentTreeData = this.filterTree(
+            rightTab.originalTreeData,
+            rightTab.codeSearchTerms || [],
+            rightTab.dataSearchTerms || [],
+            rightTab.dataExact || false,
+            rightTab.dataCase || false,
+            rightTab.minLine || null,
+            rightTab.maxLine || null,
+            rightTab.selectedObjectTypes || []
+          );
+          if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
+        } else if (this.myTreeGridRight) {
+          this.myTreeGridRight.setData([]);
+        }
+
+        // 3) Force re-render
+        if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+        if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
       }
 
       computeAndApplySideBySideDiff() {
         const leftTab = this.getActiveTab();
         const rightTab = this.getActiveTabRight();
         if (!leftTab || !rightTab) {
-          alert('Tree Diff requires an active tab on both Left and Right panels.');
+          // If one side is missing, silently skip instead of alerting (auto-update paths call this often)
           return;
         }
-        // Expand all nodes in both tabs for full-structure diff
-        this.expandAllForTab(leftTab);
-        this.expandAllForTab(rightTab);
-        this.myTreeGrid.setData(leftTab.currentTreeData);
-        this.myTreeGridRight.setData(rightTab.currentTreeData);
+        // 1) Reset both grids to a clean state (clear any previous diff overlays)
+        if (this.myTreeGrid) {
+          if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
+          if (this.myTreeGrid.setCellClassProvider) this.myTreeGrid.setCellClassProvider(null);
+          if (this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
+          if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(null);
+        }
+        if (this.myTreeGridRight) {
+          if (this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
+          if (this.myTreeGridRight.setCellClassProvider) this.myTreeGridRight.setCellClassProvider(null);
+          if (this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
+          if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(null);
+        }
+
+        // 2) Expand all nodes and ignore filters to ensure full-structure diff
+        this.expandAllNodes(leftTab.originalTreeData);
+        this.expandAllNodes(rightTab.originalTreeData);
+        leftTab.currentTreeData = leftTab.originalTreeData;
+        rightTab.currentTreeData = rightTab.originalTreeData;
+        if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
+        if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
         // Build flattened lists of display strings per row using current flat data generation
         const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData);
         const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData);
@@ -711,9 +770,9 @@
         if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(leftIndexMap);
         if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(rightIndexMap);
         this.syncVerticalScroll();
-        // Force re-render
-        this.myTreeGrid.updateVisibleNodes();
-        this.myTreeGridRight.updateVisibleNodes();
+        // 4) Force re-render and reset scroll for consistent visuals
+        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); this.treeViewContainer.scrollTop = 0; }
+        if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); this.treeViewContainerRight.scrollTop = 0; }
       }
 
       // splitValueIntoCells moved to TreeDiffEngine
@@ -1542,11 +1601,18 @@
               document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
               document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
               this.myTreeGrid.setData(tab.currentTreeData);
+              this.treeViewContainer.scrollTop = 0;
+              // Update left header sort indicators to reflect active tab if needed
+              // (optional; not strictly required for diff)
             } else {
               this.activeTabIdRight = tab.id;
               if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+              this.treeViewContainerRight.scrollTop = 0;
             }
             this.updateTabUI();
+            if (this.sideBySideDiffEnabled) {
+              this.computeAndApplySideBySideDiff();
+            }
           });
           const closeBtn = document.createElement("span");
           closeBtn.className = "close-tab";
@@ -1565,6 +1631,15 @@
                 this.myTreeGrid.setData([]);
               }
               this.saveCurrentState();
+              if (this.sideBySideDiffEnabled) {
+                const hasLeft = !!this.getActiveTab();
+                const hasRight = !!this.getActiveTabRight();
+                if (hasLeft && hasRight) {
+                  this.computeAndApplySideBySideDiff();
+                } else {
+                  this.clearSideBySideDiff();
+                }
+              }
             } else {
               this.tabsRight = this.tabsRight.filter(t => t.id !== tab.id);
               if (this.activeTabIdRight === tab.id) { this.activeTabIdRight = this.tabsRight.length ? this.tabsRight[0].id : null; }
@@ -1574,6 +1649,15 @@
                 if (this.myTreeGridRight) this.myTreeGridRight.setData(t ? t.currentTreeData : []);
               } else {
                 if (this.myTreeGridRight) this.myTreeGridRight.setData([]);
+              }
+              if (this.sideBySideDiffEnabled) {
+                const hasLeft = !!this.getActiveTab();
+                const hasRight = !!this.getActiveTabRight();
+                if (hasLeft && hasRight) {
+                  this.computeAndApplySideBySideDiff();
+                } else {
+                  this.clearSideBySideDiff();
+                }
               }
             }
           });
@@ -2183,11 +2267,15 @@
                     currentHistoryIndex: -1,
                     classIdToName: {}
                   };
-                  if (panel === 'right') {
+              if (panel === 'right') {
                     this.tabsRight.push(newTab);
                     this.activeTabIdRight = newTab.id;
                     this.updateTabUI();
                     this.myTreeGridRight.setData(newTab.currentTreeData);
+                if (this.sideBySideDiffEnabled) {
+                  // recompute diff when new right file is loaded
+                  this.computeAndApplySideBySideDiff();
+                }
                   } else {
                     this.tabs.push(newTab);
                     this.activeTabId = newTab.id;
@@ -2197,6 +2285,10 @@
                     this.myTreeGrid.setData(newTab.currentTreeData);
                     // Save state after new tab creation
                     this.saveCurrentState();
+                if (this.sideBySideDiffEnabled) {
+                  // recompute diff when new left file is loaded
+                  this.computeAndApplySideBySideDiff();
+                }
                   }
                 })
               .catch(err => {
@@ -2246,10 +2338,7 @@
         });
       }
       
-      handleParse() {
-        const fileInput = document.getElementById("fileInput");
-        this.handleFiles(fileInput.files, 'left');
-      }
+      handleParse() { /* removed global parser; per-panel parsers are used */ }
       
       // Create a new empty DXF file with minimum valid structure
       handleCreateNewDxf() {
@@ -2281,6 +2370,9 @@
         this.myTreeGrid.setData(newTab.currentTreeData);
         // Save state after new tab creation
         this.saveCurrentState();
+        if (this.sideBySideDiffEnabled) {
+          this.computeAndApplySideBySideDiff();
+        }
       }
       
       // Generate a minimal valid DXF file template
