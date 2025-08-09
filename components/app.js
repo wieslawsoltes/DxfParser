@@ -1004,6 +1004,7 @@
         const menu = document.getElementById('contextMenu');
         if (!menu) return;
         let currentRow = null;
+        let currentSide = 'left'; // 'left' or 'right'
 
         const openMenuAt = (x, y) => {
           menu.style.left = x + 'px';
@@ -1085,6 +1086,9 @@
             const row = e.target.closest('.tree-row');
             if (!row) return;
             currentRow = row;
+            // Detect which side triggered the context menu
+            const isRight = !!row.closest('#treeViewContainerRight');
+            currentSide = isRight ? 'right' : 'left';
             buildMenu(row);
             openMenuAt(e.clientX, e.clientY);
           });
@@ -1105,7 +1109,7 @@
           const cmd = item.dataset.cmd;
           const arg = item.dataset.arg;
           if (!cmd || !currentRow) { hideMenu(); return; }
-          this._executeContextCommand(cmd, arg, currentRow);
+          this._executeContextCommand(cmd, arg, currentRow, currentSide);
           hideMenu();
         });
 
@@ -1134,22 +1138,27 @@
         });
       }
 
-      _executeContextCommand(cmd, arg, row) {
-        const activeTab = this.getActiveTab();
+      _executeContextCommand(cmd, arg, row, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab || !row) return;
         const node = row._nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, row.dataset.id);
         if (!node) return;
+        // If invoked on a property row for certain commands, redirect to the owning node
+        const insertionTarget = (node.isProperty && (cmd === 'add-section' || cmd === 'add-entity' || cmd === 'add-table' || cmd === 'add-object' || cmd === 'add-child'))
+          ? node.parentNode
+          : node;
         switch (cmd) {
-          case 'add-above': this.addRowAbove(node); break;
-          case 'add-below': this.addRowBelow(node); break;
-          case 'add-child': this.addChildRow(node); break;
-          case 'remove': this.removeRow(node); break;
-          case 'add-section': this.addDxfSection(node, arg); break;
-          case 'add-entity': this.addDxfEntity(node, arg); break;
-          case 'add-table': this.addTableEntry(node, arg); break;
-          case 'add-object': this.addDxfObject(node, arg); break;
+          case 'add-above': this.addRowAbove(insertionTarget, side); break;
+          case 'add-below': this.addRowBelow(insertionTarget, side); break;
+          case 'add-child': if (!insertionTarget.isProperty) this.addChildRow(insertionTarget); break;
+          case 'remove': this.removeRow(node, side); break; // remove respects property vs node internally
+          case 'add-section': this.addDxfSection(insertionTarget, arg, side); break;
+          case 'add-entity': this.addDxfEntity(insertionTarget, arg, side); break;
+          case 'add-table': this.addTableEntry(insertionTarget, arg, side); break;
+          case 'add-object': this.addDxfObject(insertionTarget, arg, side); break;
         }
-        this.updateEffectiveSearchTerms('left');
+        this.updateEffectiveSearchTerms(side);
         this.saveCurrentState();
       }
       
@@ -1178,51 +1187,56 @@
         if (fly) fly.style.display = 'none';
       }
       
-      // Handle context menu actions
+      // Handle context menu actions (legacy path) – route to correct side based on row location
       handleContextMenuAction(action, type, targetRow) {
-        const activeTab = this.getActiveTab();
+        const side = targetRow && targetRow.closest('#treeViewContainerRight') ? 'right' : 'left';
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
-        
+
         const nodeRef = targetRow && targetRow._nodeRef ? targetRow._nodeRef : null;
         const nodeId = targetRow.dataset.id;
         const node = nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
         if (!node) return;
-        
+
+        const insertionTarget = (node.isProperty && (action === 'add-section' || action === 'add-entity' || action === 'add-table' || action === 'add-object' || action === 'add-child'))
+          ? node.parentNode
+          : node;
         switch (action) {
           case 'add-above':
-            this.addRowAbove(node);
+            this.addRowAbove(insertionTarget, side);
             break;
           case 'add-below':
-            this.addRowBelow(node);
+            this.addRowBelow(insertionTarget, side);
             break;
           case 'add-child':
-            this.addChildRow(node);
+            if (!insertionTarget.isProperty) this.addChildRow(insertionTarget);
             break;
           case 'remove':
-            this.removeRow(node);
+            this.removeRow(node, side);
             break;
           case 'add-section':
-            this.addDxfSection(node, type);
+            this.addDxfSection(insertionTarget, type, side);
             break;
           case 'add-entity':
-            this.addDxfEntity(node, type);
+            this.addDxfEntity(insertionTarget, type, side);
             break;
           case 'add-table':
-            this.addTableEntry(node, type);
+            this.addTableEntry(insertionTarget, type, side);
             break;
           case 'add-object':
-            this.addDxfObject(node, type);
+            this.addDxfObject(insertionTarget, type, side);
             break;
         }
-        
-        // Refresh tree and save state (left by default)
-        this.updateEffectiveSearchTerms('left');
+
+        this.updateEffectiveSearchTerms(side);
         this.saveCurrentState();
       }
       
       // Add row above the selected node
-      addRowAbove(targetNode) {
-        const activeTab = this.getActiveTab();
+      addRowAbove(targetNode, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         
         if (targetNode.isProperty) {
@@ -1237,7 +1251,7 @@
           // Add node above current node
           const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
           const newNode = this.createNewNode('NEW');
-          
+
           if (parent) {
             const index = parent.children.indexOf(targetNode);
             parent.children.splice(index, 0, newNode);
@@ -1249,8 +1263,9 @@
       }
       
       // Add row below the selected node
-      addRowBelow(targetNode) {
-        const activeTab = this.getActiveTab();
+      addRowBelow(targetNode, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         
         if (targetNode.isProperty) {
@@ -1265,7 +1280,7 @@
           // Add node below current node
           const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
           const newNode = this.createNewNode('NEW');
-          
+
           if (parent) {
             const index = parent.children.indexOf(targetNode);
             parent.children.splice(index + 1, 0, newNode);
@@ -1289,8 +1304,9 @@
       }
       
       // Remove the selected row
-      removeRow(targetNode) {
-        const activeTab = this.getActiveTab();
+      removeRow(targetNode, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         
         if (targetNode.isProperty) {
@@ -1327,7 +1343,7 @@
       }
       
       // Add DXF Section
-      addDxfSection(targetNode, sectionType) {
+      addDxfSection(targetNode, sectionType, side = 'left') {
         const newSection = this.createNewNode('SECTION');
         newSection.properties = [
           { line: '', code: 2, value: sectionType }
@@ -1336,9 +1352,10 @@
           this.createNewNode('ENDSEC')
         ];
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our section
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -1350,16 +1367,17 @@
       }
       
       // Add DXF Entity
-      addDxfEntity(targetNode, entityType) {
+      addDxfEntity(targetNode, entityType, side = 'left') {
         const templates = this.getDxfEntityTemplates();
         const template = templates[entityType] || templates['LINE']; // Default to LINE
         
         const newEntity = this.createNewNode(entityType);
         newEntity.properties = template.map(prop => ({ ...prop })); // Clone properties
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our entity
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -1371,16 +1389,17 @@
       }
       
       // Add Table Entry
-      addTableEntry(targetNode, tableType) {
+      addTableEntry(targetNode, tableType, side = 'left') {
         const templates = this.getDxfTableTemplates();
         const template = templates[tableType] || templates['LAYER']; // Default to LAYER
         
         const newEntry = this.createNewNode(tableType);
         newEntry.properties = template.map(prop => ({ ...prop })); // Clone properties
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our table entry
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -1392,16 +1411,17 @@
       }
       
       // Add DXF Object
-      addDxfObject(targetNode, objectType) {
+      addDxfObject(targetNode, objectType, side = 'left') {
         const templates = this.getDxfObjectTemplates();
         const template = templates[objectType] || templates['DICTIONARY']; // Default to DICTIONARY
         
         const newObject = this.createNewNode(objectType);
         newObject.properties = template.map(prop => ({ ...prop })); // Clone properties
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our object
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
