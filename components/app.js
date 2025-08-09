@@ -614,6 +614,7 @@
         } else {
           this.clearSideBySideDiff();
         }
+        this.updateDiffIndicator();
       }
 
       clearSideBySideDiff() {
@@ -666,13 +667,16 @@
         // 3) Force re-render
         if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
         if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        this.updateDiffIndicator();
       }
 
       computeAndApplySideBySideDiff() {
         const leftTab = this.getActiveTab();
         const rightTab = this.getActiveTabRight();
         if (!leftTab || !rightTab) {
-          // If one side is missing, silently skip instead of alerting (auto-update paths call this often)
+          // If one side is missing, skip compute but keep the toggle state as-is.
+          // Indicator will hide automatically until both sides are present.
+          this.updateDiffIndicator();
           return;
         }
         // 1) Reset both grids to a clean state (clear any previous diff overlays)
@@ -773,6 +777,16 @@
         // 4) Force re-render and reset scroll for consistent visuals
         if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); this.treeViewContainer.scrollTop = 0; }
         if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); this.treeViewContainerRight.scrollTop = 0; }
+        this.updateDiffIndicator();
+      }
+
+      updateDiffIndicator() {
+        const indicator = document.getElementById('diffIndicator');
+        if (!indicator) return;
+        const hasLeft = !!this.getActiveTab();
+        const hasRight = !!this.getActiveTabRight();
+        const on = !!this.sideBySideDiffEnabled && hasLeft && hasRight;
+        indicator.style.display = on ? 'inline-block' : 'none';
       }
 
       // splitValueIntoCells moved to TreeDiffEngine
