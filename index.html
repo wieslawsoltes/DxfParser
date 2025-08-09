@@ -15,6 +15,7 @@
   <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>
   <script src="components/state-manager.js"></script>
+  <script src="components/tree-diff-engine.js"></script>
   <script src="components/dxf-diagnostics-engine.js"></script>
   <script src="components/app.js"></script>
   <link rel="stylesheet" href="styles.css">
@@ -26,14 +27,14 @@
       <div class="top-header-left">
         <button id="toggleSidebarBtn" class="sidebar-toggle" title="Show/Hide sidebar" aria-label="Toggle sidebar" aria-pressed="false">☰</button>
         <div class="app-title">DXF Parser</div>
+        <span id="diffIndicator" class="diff-indicator" title="Tree Diff enabled" style="display:none;"></span>
       </div>
       <div class="top-header-right">
-        <input type="file" id="fileInput" accept=".dxf" multiple>
-          <button id="parseBtn">Parse File(s)</button>
         <label>
           <input type="checkbox" id="useStreamCheckbox">
           Use Streamed Parsing
         </label>
+        <button id="toggleRightPanelBtn" title="Show/Hide right panel">Toggle Right Panel</button>
         <button id="createNewDxfBtn">Create New</button>
         <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
       </div>
@@ -42,9 +43,7 @@
     <div class="content-wrapper">
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
-        <div class="sidebar-buttons">
-          <button id="expandAllBtn">Expand All</button>
-          <button id="collapseAllBtn">Collapse All</button>
+        <div class="sidebar-buttons" style="grid-template-columns: 1fr;">
           <button id="showCloudOverlayBtn">Cloud Data</button>
           <button id="showStatsOverlayBtn">Statistics</button>
           <button id="showDepsOverlayBtn">Dependencies</button>
@@ -59,61 +58,15 @@
           <button id="showTextsOverlayBtn">Texts</button>
           <button id="showDiagnosticsOverlayBtn">Diagnostics</button>
           <button id="showBatchProcessOverlayBtn">Batch Process</button>
-          <button id="showDiffOverlayBtn">Diff DXF</button>
+        <button id="toggleSideBySideDiffBtn" title="Toggle side-by-side tree diff coloring">Tree Diff</button>
         </div>
-        <div class="filter-panel" id="filterPanel">
-          <h2>Filters</h2>
-          <div class="filter-content">
-            <div class="filter-row">
-              <div id="codeSearchTags" class="tag-container">
-                <input type="text" id="codeSearchInput" placeholder="Search by Code">
-              </div>
-            </div>
-            <div class="filter-row">
-              <div id="dataSearchTags" class="tag-container">
-                <input type="text" id="dataSearchInput" placeholder="Search by Data value">
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>Object Types:</label>
-              <div id="objectTypeDropdown" class="dropdown">
-                <button id="objectTypeDropdownButton">All Types</button>
-                <div id="objectTypeDropdownContent" class="dropdown-content">
-                  <!-- Options with checkboxes will be populated dynamically -->
-                </div>
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>
-                <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
-              </label>
-            </div>
-            <div class="filter-row">
-              <label>
-                <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
-              </label>
-            </div>
-            <div class="filter-row">
-              <label for="minLineInput">Min Line:</label>
-              <input type="number" id="minLineInput" style="width:80px;">
-            </div>
-            <div class="filter-row">
-              <label for="maxLineInput">Max Line:</label>
-              <input type="number" id="maxLineInput" style="width:80px;">
-            </div>
-            <div class="filter-row">
-              <button id="searchBtn">Search</button>
-              <button id="clearSearchBtn">Clear Search</button>
-            </div>
-          </div>
-        </div>
+        <div class="filter-panel" id="filterPanel" style="display:none;"></div>
       </div>
       <!-- Resizer between sidebar and main content -->
       <div class="pane-resizer"></div>
       <!-- Main Content Area -->
       <div class="main-content">
-        
-        <!-- Toolbar: Row controls (left) + Handle navigation (right) -->
+        <!-- Row: global controls and split load buttons -->
         <div id="rowControls" class="row-controls">
           <div class="row-controls-left">
             <button id="addRowBtn">Add Row</button>
@@ -138,34 +91,187 @@
             </div>
           </div>
         </div>
-        <!-- Tabs -->
-        <div id="tabContainer"></div>
-        <!-- Tree Grid Header -->
-        <div id="treeGridHeader" class="tree-header">
-          <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
-            Line <span class="sort-indicator"></span>
-            <div class="resizer"></div>
+        <!-- Two panel compare layout -->
+        <div id="compareContainer" style="display:flex; gap: 8px; height: calc(100% - 60px);">
+          <!-- Left Panel -->
+          <div class="panel" id="panelLeft" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+            <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
+              <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
+              <input type="file" id="fileInputLeft" accept=".dxf" multiple style="display:none">
+              <button id="openLeftBtn" title="Open DXF on left">Open</button>
+              <button id="expandAllLeftBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
+              </button>
+              <button id="collapseAllLeftBtn" class="icon-button has-tooltip" title="Collapse All" aria-label="Collapse All" data-tooltip="Collapse all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5H7z"/></svg>
+              </button>
+              <button id="filtersLeftBtn" class="icon-button filters-button has-tooltip" title="Filters" aria-label="Filters" data-tooltip="Open filters">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5z"/></svg>
+              </button>
+            </div>
+            <div id="treeGridHeaderLeft" class="tree-header">
+              <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
+                Line <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+                Code <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+                Data <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
+                Object Count <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
+                Data Size <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+            </div>
+            <div id="treeViewContainerLeft" style="position: relative; flex:1; overflow:auto; border:1px solid #ccc; clip-path: inset(0);">
+              <div id="treeViewContentLeft" style="position: relative; overflow: hidden;"></div>
+            </div>
           </div>
-          <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
-            Code <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
-            Data <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
-            Object Count <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
-            Data Size <span class="sort-indicator"></span>
-            <div class="resizer"></div>
+          <!-- Splitter between panels -->
+          <div id="compareSplitter" class="compare-splitter" style="width:6px; cursor: ew-resize; background:#ccc; flex: none;"></div>
+          <!-- Right Panel -->
+          <div class="panel" id="panelRight" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+            <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
+              <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
+              <input type="file" id="fileInputRight" accept=".dxf" multiple style="display:none">
+              <button id="openRightBtn" title="Open DXF on right">Open</button>
+              <button id="expandAllRightBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
+              </button>
+              <button id="collapseAllRightBtn" class="icon-button has-tooltip" title="Collapse All" aria-label="Collapse All" data-tooltip="Collapse all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5H7z"/></svg>
+              </button>
+              <button id="filtersRightBtn" class="icon-button filters-button has-tooltip" title="Filters" aria-label="Filters" data-tooltip="Open filters">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5z"/></svg>
+              </button>
+            </div>
+            <div id="treeGridHeaderRight" class="tree-header">
+              <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
+                Line <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+                Code <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+                Data <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
+                Object Count <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
+                Data Size <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+            </div>
+            <div id="treeViewContainerRight" style="position: relative; flex:1; overflow:auto; border:1px solid #ccc; clip-path: inset(0);">
+              <div id="treeViewContentRight" style="position: relative; overflow: hidden;"></div>
+            </div>
           </div>
         </div>
-        <!-- Tree View Container -->
-        <div id="treeViewContainer">
-          <div id="treeViewContent"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Filters Popup Overlay (Left) -->
+  <div id="filtersOverlayLeft" class="filters-overlay" style="display:none;">
+    <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Filters (Left Tab)</h2>
+        <button id="closeFiltersOverlayLeft">Close</button>
+      </div>
+      <div class="filter-content">
+        <div class="filter-row">
+          <div id="codeSearchTagsLeft" class="tag-container">
+            <input type="text" id="codeSearchInputLeft" placeholder="Search by Code">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div id="dataSearchTagsLeft" class="tag-container">
+            <input type="text" id="dataSearchInputLeft" placeholder="Search by Data value">
+          </div>
+        </div>
+        <div class="filter-row">
+          <label>Object Types:</label>
+          <div id="objectTypeDropdownLeft" class="dropdown">
+            <button id="objectTypeDropdownButtonLeft">All Types</button>
+            <div id="objectTypeDropdownContentLeft" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataExactCheckboxLeft"> Exact Data Match</label>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataCaseCheckboxLeft"> Case Sensitive</label>
+        </div>
+        <div class="filter-row">
+          <label for="minLineInputLeft">Min Line:</label>
+          <input type="number" id="minLineInputLeft" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <label for="maxLineInputLeft">Max Line:</label>
+          <input type="number" id="maxLineInputLeft" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <button id="searchBtnLeft">Apply</button>
+          <button id="clearSearchBtnLeft">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters Popup Overlay (Right) -->
+  <div id="filtersOverlayRight" class="filters-overlay" style="display:none;">
+    <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Filters (Right Tab)</h2>
+        <button id="closeFiltersOverlayRight">Close</button>
+      </div>
+      <div class="filter-content">
+        <div class="filter-row">
+          <div id="codeSearchTagsRight" class="tag-container">
+            <input type="text" id="codeSearchInputRight" placeholder="Search by Code">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div id="dataSearchTagsRight" class="tag-container">
+            <input type="text" id="dataSearchInputRight" placeholder="Search by Data value">
+          </div>
+        </div>
+        <div class="filter-row">
+          <label>Object Types:</label>
+          <div id="objectTypeDropdownRight" class="dropdown">
+            <button id="objectTypeDropdownButtonRight">All Types</button>
+            <div id="objectTypeDropdownContentRight" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataExactCheckboxRight"> Exact Data Match</label>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataCaseCheckboxRight"> Case Sensitive</label>
+        </div>
+        <div class="filter-row">
+          <label for="minLineInputRight">Min Line:</label>
+          <input type="number" id="minLineInputRight" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <label for="maxLineInputRight">Max Line:</label>
+          <input type="number" id="maxLineInputRight" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <button id="searchBtnRight">Apply</button>
+          <button id="clearSearchBtnRight">Clear</button>
         </div>
       </div>
     </div>
@@ -564,122 +670,10 @@
       </div>
     </div>
   </div>
-  <div id="diffOverlay">
-    <div class="overlay-content">
-      <button id="closeDiffOverlay">Close</button>
-      <h2>DXF Diff Mode</h2>
-      <div id="diffInputContainer" style="margin-bottom:1em;">
-        <label>Old Version:
-          <input type="file" id="oldDxfInput" accept=".dxf">
-        </label>
-        <label style="margin-left:1em;">New Version:
-          <input type="file" id="newDxfInput" accept=".dxf">
-        </label>
-        <button id="runDiffBtn" style="margin-left:1em;">Run Diff</button>
-      </div>
-      <div id="diffContent" style="overflow:auto; max-height: calc(100% - 120px); border:1px solid #ccc; padding:1em;"></div>
-    </div>
-  </div>
+  
 
-  <!-- Context Menu -->
-  <div id="contextMenu" class="context-menu">
-    <button class="context-menu-item" data-action="add-above">Add Row Above</button>
-    <button class="context-menu-item" data-action="add-below">Add Row Below</button>
-    <button class="context-menu-item" data-action="add-child">Add Child Row</button>
-    <div class="context-menu-separator"></div>
-    <button class="context-menu-item" data-action="remove">Remove Row</button>
-    <div class="context-menu-separator"></div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add DXF Section</button>
-      <div class="context-submenu" id="sectionsSubmenu">
-        <button class="context-menu-item" data-action="add-section" data-type="HEADER">HEADER Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="CLASSES">CLASSES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="TABLES">TABLES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="BLOCKS">BLOCKS Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="ENTITIES">ENTITIES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="OBJECTS">OBJECTS Section</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Entity</button>
-      <div class="context-submenu" id="entitiesSubmenu">
-        <button class="context-menu-item" data-action="add-entity" data-type="LINE">LINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="CIRCLE">CIRCLE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="ARC">ARC</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="POLYLINE">POLYLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="LWPOLYLINE">LWPOLYLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="POINT">POINT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TEXT">TEXT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MTEXT">MTEXT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="INSERT">INSERT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="ELLIPSE">ELLIPSE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SPLINE">SPLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SOLID">SOLID</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="HATCH">HATCH</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="DIMENSION">DIMENSION</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="LEADER">LEADER</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MLEADER">MLEADER</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="3DFACE">3DFACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="3DSOLID">3DSOLID</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="REGION">REGION</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="BODY">BODY</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MESH">MESH</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SURFACE">SURFACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TOLERANCE">TOLERANCE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MLINE">MLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TRACE">TRACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SHAPE">SHAPE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="VIEWPORT">VIEWPORT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="IMAGE">IMAGE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="WIPEOUT">WIPEOUT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="OLE2FRAME">OLE2FRAME</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="OLEFRAME">OLEFRAME</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="XLINE">XLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="RAY">RAY</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Table Entry</button>
-      <div class="context-submenu" id="tablesSubmenu">
-        <button class="context-menu-item" data-action="add-table" data-type="LAYER">LAYER</button>
-        <button class="context-menu-item" data-action="add-table" data-type="LTYPE">LTYPE (Line Type)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="STYLE">STYLE (Text Style)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="VIEW">VIEW</button>
-        <button class="context-menu-item" data-action="add-table" data-type="UCS">UCS</button>
-        <button class="context-menu-item" data-action="add-table" data-type="VPORT">VPORT (Viewport)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="DIMSTYLE">DIMSTYLE</button>
-        <button class="context-menu-item" data-action="add-table" data-type="APPID">APPID</button>
-        <button class="context-menu-item" data-action="add-table" data-type="BLOCK_RECORD">BLOCK_RECORD</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Object</button>
-      <div class="context-submenu" id="objectsSubmenu">
-        <button class="context-menu-item" data-action="add-object" data-type="DICTIONARY">DICTIONARY</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYOUT">LAYOUT</button>
-        <button class="context-menu-item" data-action="add-object" data-type="PLOTSETTINGS">PLOTSETTINGS</button>
-        <button class="context-menu-item" data-action="add-object" data-type="GROUP">GROUP</button>
-        <button class="context-menu-item" data-action="add-object" data-type="MLINESTYLE">MLINESTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF">IMAGEDEF</button>
-        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF_REACTOR">IMAGEDEF_REACTOR</button>
-        <button class="context-menu-item" data-action="add-object" data-type="RASTERVARIABLES">RASTERVARIABLES</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SORTENTSTABLE">SORTENTSTABLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_FILTER">SPATIAL_FILTER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_INDEX">SPATIAL_INDEX</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYER_FILTER">LAYER_FILTER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYER_INDEX">LAYER_INDEX</button>
-        <button class="context-menu-item" data-action="add-object" data-type="XRECORD">XRECORD</button>
-        <button class="context-menu-item" data-action="add-object" data-type="PLACEHOLDER">PLACEHOLDER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="VBA_PROJECT">VBA_PROJECT</button>
-        <button class="context-menu-item" data-action="add-object" data-type="MATERIAL">MATERIAL</button>
-        <button class="context-menu-item" data-action="add-object" data-type="VISUALSTYLE">VISUALSTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="TABLESTYLE">TABLESTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SECTION">SECTION</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SECTIONVIEWSTYLE">SECTIONVIEWSTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="DETAILVIEWSTYLE">DETAILVIEWSTYLE</button>
-      </div>
-    </div>
-  </div>
+  <!-- Context Menu root (built dynamically in JS) -->
+  <nav id="contextMenu" class="menu" role="menu" aria-hidden="true"></nav>
 
   <!-- Utility Functions -->
   <!-- JavaScript Classes -->
@@ -697,10 +691,16 @@
       function scheduleGridRelayout() {
         // Prefer calling the app grid directly; fallback to a window resize event
         const run = () => {
-          if (window.app && window.app.myTreeGrid) {
+          if (window.app) {
             // Run twice to ensure after layout settles
-            window.app.myTreeGrid.updateVisibleNodes();
-            requestAnimationFrame(() => window.app.myTreeGrid.updateVisibleNodes());
+            if (window.app.myTreeGridLeft) {
+              window.app.myTreeGridLeft.updateVisibleNodes();
+              requestAnimationFrame(() => window.app.myTreeGridLeft.updateVisibleNodes());
+            }
+            if (window.app.myTreeGridRight) {
+              window.app.myTreeGridRight.updateVisibleNodes();
+              requestAnimationFrame(() => window.app.myTreeGridRight.updateVisibleNodes());
+            }
           } else {
             window.dispatchEvent(new Event('resize'));
           }

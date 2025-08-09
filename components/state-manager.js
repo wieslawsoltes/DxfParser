@@ -4,21 +4,23 @@
         this.tabStatePrefix = 'dxf_tab_';
       }
 
-      // Save the complete application state
-      saveAppState(tabs, activeTabId, columnWidths) {
+      // Save the complete application state (both panels)
+      saveAppState(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
         try {
           const appState = {
-            activeTabId: activeTabId,
+            // New multi-panel layout
+            activeTabIdLeft: activeTabIdLeft,
+            activeTabIdRight: activeTabIdRight,
             columnWidths: columnWidths,
-            tabIds: tabs.map(tab => tab.id),
+            tabIdsLeft: (tabsLeft || []).map(tab => tab.id),
+            tabIdsRight: (tabsRight || []).map(tab => tab.id),
             timestamp: Date.now()
           };
           localStorage.setItem(this.storageKey, JSON.stringify(appState));
           
           // Save each tab's state separately for efficiency
-          tabs.forEach(tab => {
-            this.saveTabState(tab);
-          });
+          (tabsLeft || []).forEach(tab => { this.saveTabState(tab); });
+          (tabsRight || []).forEach(tab => { this.saveTabState(tab); });
         } catch (error) {
           console.warn('Failed to save app state:', error);
         }
@@ -174,16 +176,7 @@
         }
       }
 
-      // Get all saved tab IDs
-      getSavedTabIds() {
-        try {
-          const appState = this.loadAppState();
-          return appState ? appState.tabIds || [] : [];
-        } catch (error) {
-          console.warn('Failed to get saved tab IDs:', error);
-          return [];
-        }
-      }
+      
 
       // Check if we have saved state
       hasSavedState() {

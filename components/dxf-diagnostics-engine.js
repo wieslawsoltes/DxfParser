@@ -2667,6 +2667,7 @@
         e.stopPropagation();
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
+          // Drop files into the LEFT panel by default
           window.app.handleFiles(files);
         }
       }, false);
