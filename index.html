@@ -58,7 +58,6 @@
           <button id="showTextsOverlayBtn">Texts</button>
           <button id="showDiagnosticsOverlayBtn">Diagnostics</button>
           <button id="showBatchProcessOverlayBtn">Batch Process</button>
-        <button id="showDiffOverlayBtn">Diff DXF</button>
         <button id="toggleSideBySideDiffBtn" title="Toggle side-by-side tree diff coloring">Tree Diff</button>
         </div>
         <div class="filter-panel" id="filterPanel" style="display:none;"></div>
@@ -671,122 +670,10 @@
       </div>
     </div>
   </div>
-  <div id="diffOverlay">
-    <div class="overlay-content">
-      <button id="closeDiffOverlay">Close</button>
-      <h2>DXF Diff Mode</h2>
-      <div id="diffInputContainer" style="margin-bottom:1em;">
-        <label>Old Version:
-          <input type="file" id="oldDxfInput" accept=".dxf">
-        </label>
-        <label style="margin-left:1em;">New Version:
-          <input type="file" id="newDxfInput" accept=".dxf">
-        </label>
-        <button id="runDiffBtn" style="margin-left:1em;">Run Diff</button>
-      </div>
-      <div id="diffContent" style="overflow:auto; max-height: calc(100% - 120px); border:1px solid #ccc; padding:1em;"></div>
-    </div>
-  </div>
+  
 
-  <!-- Context Menu -->
-  <div id="contextMenu" class="context-menu">
-    <button class="context-menu-item" data-action="add-above">Add Row Above</button>
-    <button class="context-menu-item" data-action="add-below">Add Row Below</button>
-    <button class="context-menu-item" data-action="add-child">Add Child Row</button>
-    <div class="context-menu-separator"></div>
-    <button class="context-menu-item" data-action="remove">Remove Row</button>
-    <div class="context-menu-separator"></div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add DXF Section</button>
-      <div class="context-submenu" id="sectionsSubmenu">
-        <button class="context-menu-item" data-action="add-section" data-type="HEADER">HEADER Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="CLASSES">CLASSES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="TABLES">TABLES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="BLOCKS">BLOCKS Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="ENTITIES">ENTITIES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="OBJECTS">OBJECTS Section</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Entity</button>
-      <div class="context-submenu" id="entitiesSubmenu">
-        <button class="context-menu-item" data-action="add-entity" data-type="LINE">LINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="CIRCLE">CIRCLE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="ARC">ARC</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="POLYLINE">POLYLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="LWPOLYLINE">LWPOLYLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="POINT">POINT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TEXT">TEXT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MTEXT">MTEXT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="INSERT">INSERT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="ELLIPSE">ELLIPSE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SPLINE">SPLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SOLID">SOLID</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="HATCH">HATCH</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="DIMENSION">DIMENSION</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="LEADER">LEADER</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MLEADER">MLEADER</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="3DFACE">3DFACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="3DSOLID">3DSOLID</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="REGION">REGION</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="BODY">BODY</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MESH">MESH</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SURFACE">SURFACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TOLERANCE">TOLERANCE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MLINE">MLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TRACE">TRACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SHAPE">SHAPE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="VIEWPORT">VIEWPORT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="IMAGE">IMAGE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="WIPEOUT">WIPEOUT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="OLE2FRAME">OLE2FRAME</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="OLEFRAME">OLEFRAME</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="XLINE">XLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="RAY">RAY</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Table Entry</button>
-      <div class="context-submenu" id="tablesSubmenu">
-        <button class="context-menu-item" data-action="add-table" data-type="LAYER">LAYER</button>
-        <button class="context-menu-item" data-action="add-table" data-type="LTYPE">LTYPE (Line Type)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="STYLE">STYLE (Text Style)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="VIEW">VIEW</button>
-        <button class="context-menu-item" data-action="add-table" data-type="UCS">UCS</button>
-        <button class="context-menu-item" data-action="add-table" data-type="VPORT">VPORT (Viewport)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="DIMSTYLE">DIMSTYLE</button>
-        <button class="context-menu-item" data-action="add-table" data-type="APPID">APPID</button>
-        <button class="context-menu-item" data-action="add-table" data-type="BLOCK_RECORD">BLOCK_RECORD</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Object</button>
-      <div class="context-submenu" id="objectsSubmenu">
-        <button class="context-menu-item" data-action="add-object" data-type="DICTIONARY">DICTIONARY</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYOUT">LAYOUT</button>
-        <button class="context-menu-item" data-action="add-object" data-type="PLOTSETTINGS">PLOTSETTINGS</button>
-        <button class="context-menu-item" data-action="add-object" data-type="GROUP">GROUP</button>
-        <button class="context-menu-item" data-action="add-object" data-type="MLINESTYLE">MLINESTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF">IMAGEDEF</button>
-        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF_REACTOR">IMAGEDEF_REACTOR</button>
-        <button class="context-menu-item" data-action="add-object" data-type="RASTERVARIABLES">RASTERVARIABLES</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SORTENTSTABLE">SORTENTSTABLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_FILTER">SPATIAL_FILTER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_INDEX">SPATIAL_INDEX</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYER_FILTER">LAYER_FILTER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYER_INDEX">LAYER_INDEX</button>
-        <button class="context-menu-item" data-action="add-object" data-type="XRECORD">XRECORD</button>
-        <button class="context-menu-item" data-action="add-object" data-type="PLACEHOLDER">PLACEHOLDER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="VBA_PROJECT">VBA_PROJECT</button>
-        <button class="context-menu-item" data-action="add-object" data-type="MATERIAL">MATERIAL</button>
-        <button class="context-menu-item" data-action="add-object" data-type="VISUALSTYLE">VISUALSTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="TABLESTYLE">TABLESTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SECTION">SECTION</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SECTIONVIEWSTYLE">SECTIONVIEWSTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="DETAILVIEWSTYLE">DETAILVIEWSTYLE</button>
-      </div>
-    </div>
-  </div>
+  <!-- Context Menu root (built dynamically in JS) -->
+  <nav id="contextMenu" class="menu" role="menu" aria-hidden="true"></nav>
 
   <!-- Utility Functions -->
   <!-- JavaScript Classes -->

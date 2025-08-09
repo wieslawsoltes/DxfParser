@@ -382,6 +382,8 @@
           if (hasItem) {
             ({ node, level } = this.flatData[mappedIndex]);
             row.dataset.id = node.id;
+            // Keep a direct reference to the rendered node for context actions
+            row._nodeRef = node;
             if (String(node.id) === String(this.selectedRowId)) {
               row.classList.add("selected");
             }

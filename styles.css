@@ -488,7 +488,6 @@ body { font-family: sans-serif; }
 #blocksOverlay,
 #lineTypesOverlay,
 #textsOverlay,
-#diffOverlay,
 #ruleConfigOverlay,
 #diagnosticsOverlay {
   display: none;
@@ -502,7 +501,6 @@ body { font-family: sans-serif; }
 /* Z-index layering for overlays */
 #ruleConfigOverlay { z-index: 1200; }
 #hexViewerOverlay { z-index: 1100; }
-#diffOverlay { z-index: 1100; }
 /* All other overlays get z-index: 1000 */
 #batchProcessingOverlay,
 #cloudOverlay,
@@ -590,7 +588,6 @@ body { font-family: sans-serif; }
 #closeBlocksOverlay,
 #closeLineTypesOverlay,
 #closeTextsOverlay,
-#closeDiffOverlay,
 #closeBatchOverlay,
 #closeRuleConfigBtn,
 #saveBinaryBtn,
@@ -612,7 +609,6 @@ body { font-family: sans-serif; }
 #closeBlocksOverlay,
 #closeLineTypesOverlay,
 #closeTextsOverlay,
-#closeDiffOverlay,
 #closeBatchOverlay,
 #closeRuleConfigBtn { right: 10px; }
 #saveBinaryBtn { right: 80px; }
@@ -1139,74 +1135,17 @@ body { font-family: sans-serif; }
   }
 }
 
-/* Context Menu Styles */
-.context-menu {
-  position: fixed;
-  background: #fff;
-  border: 1px solid #ccc;
-  box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
-  border-radius: 4px;
-  padding: 0;
-  z-index: 10000;
-  min-width: 200px;
-  max-height: 400px;
-  overflow-y: auto;
-  display: none;
-}
-
-.context-menu-item {
-  padding: 8px 16px;
-  cursor: pointer;
-  border: none;
-  background: none;
-  width: 100%;
-  text-align: left;
-  font-size: 14px;
-  border-bottom: 1px solid #eee;
-}
-
-.context-menu-item:hover {
-  background: #f0f0f0;
-}
-
-.context-menu-item:last-child {
-  border-bottom: none;
-}
-
-.context-menu-separator {
-  height: 1px;
-  background: #ccc;
-  margin: 4px 0;
-}
-
-.context-menu-submenu {
-  position: relative;
-}
-
-.context-menu-submenu::after {
-  content: "▶";
-  float: right;
-  font-size: 12px;
-}
-
-.context-submenu {
-  position: absolute;
-  left: 100%;
-  top: 0;
-  background: #fff;
-  border: 1px solid #ccc;
-  box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
-  border-radius: 4px;
-  padding: 0;
-  min-width: 180px;
-  max-height: 300px;
-  overflow-y: auto;
-  display: none;
-}
-
-.context-menu-submenu:hover .context-submenu {
-  display: block;
-}
+/* Modern menu styling (replaces old context-menu) */
+.menu { position: absolute; display: none; min-width: 200px; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; box-shadow: 0 8px 24px rgba(140,149,159,.2); padding: 6px; z-index: 10000; user-select: none; }
+.menu[aria-hidden="false"] { display: block; }
+.menu ul { list-style: none; padding: 0; margin: 0; }
+.menu-sep { height: 1px; background: #d0d7de; margin: 6px; }
+.menu-item { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: default; white-space: nowrap; }
+.menu-item:hover { background: #f6f8fa; }
+.menu-item[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.submenu-trigger::after { content: '▶'; font-size: 10px; margin-left: auto; opacity: .6; }
+.submenu { position: absolute; top: 0; left: 100%; margin-left: 6px; min-width: 200px; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; box-shadow: 0 8px 24px rgba(140,149,159,.2); padding: 6px; display: none; z-index: 10001; }
+.menu-item.open > .submenu { display: block; }
 /* Responsive adjustments for mobile */
 @media (max-width: 600px) {
   .row-controls { flex-direction: column; align-items: flex-start; gap: 0.5em; }

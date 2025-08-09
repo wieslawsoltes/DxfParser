@@ -625,13 +625,7 @@
         });
         document.getElementById("downloadExcelBtn").addEventListener("click", () => this.downloadBatchResultsAsExcel());
         document.getElementById("downloadTreeExcelBtn").addEventListener("click", () => this.downloadTreeAsExcel());
-        document.getElementById("showDiffOverlayBtn").addEventListener("click", () => {
-        document.getElementById("diffOverlay").style.display = "block";
-        });
-        document.getElementById("closeDiffOverlay").addEventListener("click", () => {
-          document.getElementById("diffOverlay").style.display = "none";
-        });
-        document.getElementById("runDiffBtn").addEventListener("click", () => this.handleDiff());
+        // Removed old Diff overlay and handlers
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
         document.getElementById("backBtn").addEventListener("click", () => this.navigateBack());
         document.getElementById("forwardBtn").addEventListener("click", () => this.navigateForward());
@@ -1005,48 +999,158 @@
         };
       }
       
-      // Initialize context menu functionality
+      // Initialize modern, accessible context menu with submenus
       initContextMenu() {
-        const contextMenu = document.getElementById('contextMenu');
-        let currentContextTarget = null;
-        
-        // Right-click on tree rows to show context menu
-        this.treeViewContainer.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          const row = e.target.closest('.tree-row');
-          if (row) {
-            currentContextTarget = row;
-            this.showContextMenu(e.clientX, e.clientY);
+        const menu = document.getElementById('contextMenu');
+        if (!menu) return;
+        let currentRow = null;
+
+        const openMenuAt = (x, y) => {
+          menu.style.left = x + 'px';
+          menu.style.top = y + 'px';
+          menu.setAttribute('aria-hidden', 'false');
+          // keep in viewport
+          const r = menu.getBoundingClientRect();
+          let dx = 0, dy = 0;
+          if (r.right > window.innerWidth) dx = window.innerWidth - r.right - 8;
+          if (r.bottom > window.innerHeight) dy = window.innerHeight - r.bottom - 8;
+          if (r.left < 0) dx += (0 - r.left + 8);
+          if (r.top < 0) dy += (0 - r.top + 8);
+          menu.style.transform = `translate(${dx}px, ${dy}px)`;
+        };
+        const hideMenu = () => {
+          menu.setAttribute('aria-hidden', 'true');
+          menu.querySelectorAll('.menu-item.open').forEach(el => {
+            el.classList.remove('open');
+            el.setAttribute('aria-expanded', 'false');
+          });
+        };
+
+        const buildMenu = (row) => {
+          const node = row?._nodeRef;
+          const canAddChild = !!node && !node.isProperty;
+          const sections = ['HEADER','CLASSES','TABLES','BLOCKS','ENTITIES','OBJECTS'];
+          const entities = ['LINE','CIRCLE','ARC','POLYLINE','LWPOLYLINE','POINT','TEXT','MTEXT','INSERT','ELLIPSE','SPLINE','SOLID','HATCH','DIMENSION','LEADER','MLEADER','3DFACE','3DSOLID','REGION','BODY','MESH','SURFACE','TOLERANCE','MLINE','TRACE','SHAPE','VIEWPORT','IMAGE','WIPEOUT','OLE2FRAME','OLEFRAME','XLINE','RAY'];
+          const tables = ['LAYER','LTYPE','STYLE','VIEW','UCS','VPORT','DIMSTYLE','APPID','BLOCK_RECORD'];
+          const objects = ['DICTIONARY','LAYOUT','PLOTSETTINGS','GROUP','MLINESTYLE','IMAGEDEF','IMAGEDEF_REACTOR','RASTERVARIABLES','SORTENTSTABLE','SPATIAL_FILTER','SPATIAL_INDEX','LAYER_FILTER','LAYER_INDEX','XRECORD','PLACEHOLDER','VBA_PROJECT','MATERIAL','VISUALSTYLE','TABLESTYLE','SECTION','SECTIONVIEWSTYLE','DETAILVIEWSTYLE'];
+
+          // Helper builders
+          const li = (text, cmd, arg, disabled) => {
+            const el = document.createElement('li');
+            el.className = 'menu-item';
+            el.role = 'menuitem';
+            if (cmd) el.dataset.cmd = cmd;
+            if (arg) el.dataset.arg = arg;
+            el.textContent = text;
+            if (disabled) el.setAttribute('aria-disabled', 'true');
+            return el;
+          };
+          const sep = () => { const d = document.createElement('li'); d.className = 'menu-sep'; d.role = 'separator'; return d; };
+          const submenu = (label, items) => {
+            const trigger = document.createElement('li');
+            trigger.className = 'menu-item submenu-trigger';
+            trigger.role = 'menuitem';
+            trigger.setAttribute('aria-haspopup', 'true');
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.textContent = label;
+            const sub = document.createElement('div');
+            sub.className = 'submenu';
+            sub.role = 'menu';
+            const ul = document.createElement('ul');
+            for (const it of items) ul.appendChild(li(it.label, it.cmd, it.arg));
+            sub.appendChild(ul);
+            trigger.appendChild(sub);
+            return trigger;
+          };
+
+          const root = document.createElement('ul');
+          root.appendChild(li('Add Row Above', 'add-above'));
+          root.appendChild(li('Add Row Below', 'add-below'));
+          root.appendChild(li('Add Child Row', canAddChild ? 'add-child' : null, null, !canAddChild));
+          root.appendChild(sep());
+          root.appendChild(li('Remove Row', 'remove'));
+          root.appendChild(sep());
+          root.appendChild(submenu('Add DXF Section', sections.map(s => ({ label: s + ' Section', cmd: 'add-section', arg: s }))));
+          root.appendChild(submenu('Add Entity', entities.map(s => ({ label: s, cmd: 'add-entity', arg: s }))));
+          root.appendChild(submenu('Add Table Entry', tables.map(s => ({ label: s, cmd: 'add-table', arg: s }))));
+          root.appendChild(submenu('Add Object', objects.map(s => ({ label: s, cmd: 'add-object', arg: s }))));
+          menu.innerHTML = '';
+          menu.appendChild(root);
+        };
+
+        const bind = (container) => {
+          if (!container) return;
+          container.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const row = e.target.closest('.tree-row');
+            if (!row) return;
+            currentRow = row;
+            buildMenu(row);
+            openMenuAt(e.clientX, e.clientY);
+          });
+        };
+        bind(this.treeViewContainer);
+        bind(this.treeViewContainerRight);
+
+        // Command dispatch
+        menu.addEventListener('click', (e) => {
+          const item = e.target.closest('.menu-item');
+          if (!item) return;
+          if (item.classList.contains('submenu-trigger')) {
+            const isOpen = item.classList.contains('open');
+            menu.querySelectorAll('.menu-item.open').forEach(el => { el.classList.remove('open'); el.setAttribute('aria-expanded', 'false'); });
+            if (!isOpen) { item.classList.add('open'); item.setAttribute('aria-expanded', 'true'); }
+            return;
           }
+          const cmd = item.dataset.cmd;
+          const arg = item.dataset.arg;
+          if (!cmd || !currentRow) { hideMenu(); return; }
+          this._executeContextCommand(cmd, arg, currentRow);
+          hideMenu();
         });
-        
-        // Handle context menu item clicks
-        contextMenu.addEventListener('click', (e) => {
-          const item = e.target.closest('.context-menu-item');
-          if (item && currentContextTarget) {
-            const action = item.getAttribute('data-action');
-            const type = item.getAttribute('data-type');
-            
-            if (action) {
-              this.handleContextMenuAction(action, type, currentContextTarget);
-              this.hideContextMenu();
+
+        // Hover intent to open submenus
+        let hoverTimer;
+        menu.addEventListener('mousemove', (e) => {
+          const trigger = e.target.closest('.submenu-trigger');
+          if (!trigger) return;
+          clearTimeout(hoverTimer);
+          hoverTimer = setTimeout(() => {
+            if (!trigger.classList.contains('open')) {
+              menu.querySelectorAll('.menu-item.open').forEach(el => { el.classList.remove('open'); el.setAttribute('aria-expanded', 'false'); });
+              trigger.classList.add('open');
+              trigger.setAttribute('aria-expanded', 'true');
             }
-          }
+          }, 120);
         });
-        
-        // Hide context menu when clicking elsewhere
-        document.addEventListener('click', (e) => {
-          if (!contextMenu.contains(e.target)) {
-            this.hideContextMenu();
-          }
-        });
-        
-        // Hide context menu on escape key
+
+        // Global dismissal
+        document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); });
+        window.addEventListener('blur', hideMenu);
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') {
-            this.hideContextMenu();
-          }
+          if (e.key === 'Escape') hideMenu();
+          if (e.key === 'ArrowRight') { const t = document.activeElement?.closest('.submenu-trigger'); if (t) { t.classList.add('open'); t.setAttribute('aria-expanded', 'true'); } }
+          if (e.key === 'ArrowLeft') { const o = menu.querySelector('.menu-item.open'); if (o) { o.classList.remove('open'); o.setAttribute('aria-expanded', 'false'); } }
         });
+      }
+
+      _executeContextCommand(cmd, arg, row) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab || !row) return;
+        const node = row._nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, row.dataset.id);
+        if (!node) return;
+        switch (cmd) {
+          case 'add-above': this.addRowAbove(node); break;
+          case 'add-below': this.addRowBelow(node); break;
+          case 'add-child': this.addChildRow(node); break;
+          case 'remove': this.removeRow(node); break;
+          case 'add-section': this.addDxfSection(node, arg); break;
+          case 'add-entity': this.addDxfEntity(node, arg); break;
+          case 'add-table': this.addTableEntry(node, arg); break;
+          case 'add-object': this.addDxfObject(node, arg); break;
+        }
+        this.updateEffectiveSearchTerms('left');
+        this.saveCurrentState();
       }
       
       // Show context menu at specified position
@@ -1068,7 +1172,10 @@
       
       // Hide context menu
       hideContextMenu() {
-        document.getElementById('contextMenu').style.display = 'none';
+        const menu = document.getElementById('contextMenu');
+        if (menu) menu.style.display = 'none';
+        const fly = document.getElementById('contextMenuFlyout');
+        if (fly) fly.style.display = 'none';
       }
       
       // Handle context menu actions
@@ -1076,8 +1183,9 @@
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         
+        const nodeRef = targetRow && targetRow._nodeRef ? targetRow._nodeRef : null;
         const nodeId = targetRow.dataset.id;
-        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        const node = nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
         if (!node) return;
         
         switch (action) {
@@ -5208,11 +5316,7 @@ EOF`;
       /**
        * When the user clicks a collapsed marker, re-render the diff with full context.
        */
-      expandDiffView() {
-        // Recompute the diff with full=true.
-        const fullHtml = this.computeLineDiff(gOldText, gNewText, 3, true);
-        document.getElementById("diffContent").innerHTML = fullHtml;
-      }
+      // expandDiffView removed with legacy diff overlay
 
       // Recursively render the diff object as HTML.
       // Added nodes appear in green, removed nodes in red, and modified nodes in yellow.
@@ -5283,7 +5387,7 @@ EOF`;
       }
 
       // -------------------------------
-      // Updated Diff Handler Method
+      // Updated Diff Handler Method (removed legacy overlay-based diff UI)
       // -------------------------------
 
       // Helper to read a file as text.
@@ -5296,30 +5400,7 @@ EOF`;
         });
       }
 
-      // New diff handler. Reads two DXF files, computes the diff,
-      // and displays the results in the #diffContent container.
-      handleDiff() {
-        const oldFile = document.getElementById("oldDxfInput").files[0];
-        const newFile = document.getElementById("newDxfInput").files[0];
-        if (!oldFile || !newFile) {
-          alert("Please select both an old and a new DXF file.");
-          return;
-        }
-        Promise.all([this.readFile(oldFile), this.readFile(newFile)])
-          .then(([oldText, newText]) => {
-            // Parse the DXF texts (using your existing dxfParser instance).
-            const oldObjects = this.dxfParser.parse(oldText);
-            const newObjects = this.dxfParser.parse(newText);
-            // Compute the diff.
-            const diffResult = this.diffDxfTrees(oldObjects, newObjects);
-            // Render the diff HTML.
-            const diffHtml = this.renderDiffHtml(diffResult);
-            document.getElementById("diffContent").innerHTML = diffHtml;
-          })
-          .catch(err => {
-            alert("Error reading files: " + err);
-          });
-      }
+      // handleDiff removed along with old overlay UI
 
       // ====================================
       // COMPREHENSIVE DXF DIAGNOSTICS ENGINE
