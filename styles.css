@@ -113,7 +113,7 @@ body { font-family: sans-serif; }
 /* Sidebar header buttons – stacked vertically and fill width */
 .sidebar-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0.3em;
   margin-bottom: 0.5em;
 }
@@ -359,6 +359,84 @@ body { font-family: sans-serif; }
 .filter-panel h2 {
   margin: 0 0 0.5em 0;
   font-size: 1.2em;
+}
+.filters-button {
+  position: relative;
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.icon-button:hover { background: #f2f2f2; }
+.icon-button svg { pointer-events: none; }
+
+/* Simple tooltip for icon buttons */
+.has-tooltip { position: relative; }
+.has-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+.has-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent transparent rgba(0,0,0,0.8) transparent;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+.has-tooltip:hover::after,
+.has-tooltip:hover::before {
+  opacity: 1;
+}
+.filters-button .active-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #28a745;
+  box-shadow: 0 0 0 2px rgba(40,167,69,0.2);
+  display: none;
+}
+.filters-button.has-active .active-indicator { display: inline-block; }
+
+/* Filters overlay wrapper */
+.filters-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.5);
+  z-index: 1050;
 }
 .filter-content .filter-row {
   display: flex;

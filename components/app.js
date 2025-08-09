@@ -86,7 +86,7 @@
       // Save current state to localStorage
       saveCurrentState() {
         if (this.tabs.length > 0) {
-          this.stateManager.saveAppState(this.tabs, this.activeTabId, this.columnWidths);
+          this.stateManager.saveAppState(this.tabs, this.tabsRight, this.activeTabId, this.activeTabIdRight, this.columnWidths);
         }
       }
       
@@ -106,9 +106,10 @@
             this.columnWidths = { ...this.columnWidths, ...appState.columnWidths };
           }
           
-          // Restore tabs
+          // Restore tabs (left)
           const restoredTabs = [];
-          for (const tabId of appState.tabIds || []) {
+          const tabIdsLeft = appState.tabIdsLeft || appState.tabIds || [];
+          for (const tabId of tabIdsLeft) {
             const tabState = this.stateManager.loadTabState(tabId);
             if (tabState && tabState.originalTreeData) {
               // Restore expanded state
@@ -139,25 +140,68 @@
               restoredTabs.push(restoredTab);
             }
           }
+          // Restore tabs (right)
+          const restoredTabsRight = [];
+          const tabIdsRight = appState.tabIdsRight || [];
+          for (const tabId of tabIdsRight) {
+            const tabState = this.stateManager.loadTabState(tabId);
+            if (tabState && tabState.originalTreeData) {
+              if (tabState.expandedNodeIds && tabState.expandedNodeIds.length > 0) {
+                this.stateManager.restoreExpandedState(tabState.originalTreeData, tabState.expandedNodeIds);
+              }
+              const restoredTab = {
+                id: tabState.id,
+                name: tabState.name,
+                originalTreeData: tabState.originalTreeData,
+                currentTreeData: tabState.originalTreeData,
+                codeSearchTerms: tabState.codeSearchTerms || [],
+                dataSearchTerms: tabState.dataSearchTerms || [],
+                currentSortField: tabState.currentSortField || 'line',
+                currentSortAscending: tabState.currentSortAscending !== undefined ? tabState.currentSortAscending : true,
+                minLine: tabState.minLine,
+                maxLine: tabState.maxLine,
+                dataExact: tabState.dataExact || false,
+                dataCase: tabState.dataCase || false,
+                selectedObjectTypes: tabState.selectedObjectTypes || [],
+                navigationHistory: tabState.navigationHistory || [],
+                currentHistoryIndex: tabState.currentHistoryIndex || -1,
+                classIdToName: tabState.classIdToName || {}
+              };
+              restoredTabsRight.push(restoredTab);
+            }
+          }
           
           // Update the app with restored tabs
           this.tabs = restoredTabs;
-          this.activeTabId = appState.activeTabId;
+          this.tabsRight = restoredTabsRight;
+          this.activeTabId = appState.activeTabIdLeft || appState.activeTabId || (this.tabs[0] && this.tabs[0].id) || null;
+          this.activeTabIdRight = appState.activeTabIdRight || (this.tabsRight[0] && this.tabsRight[0].id) || null;
           
           // Ensure we have a valid active tab
-          if (this.tabs.length > 0) {
-            if (!this.activeTabId || !this.tabs.find(t => t.id === this.activeTabId)) {
-              this.activeTabId = this.tabs[0].id;
+          // Update UI
+          this.updateTabUI();
+          // Apply filters and update both trees if present
+          const activeLeft = this.getActiveTab();
+          if (activeLeft) {
+            this.applyTabFilters(activeLeft);
+          }
+          const activeRight = this.getActiveTabRight();
+          if (activeRight && this.myTreeGridRight) {
+            // Recompute right currentTreeData with its saved filters
+            if (activeRight.currentSortField) {
+              this.sortTreeNodes(activeRight.originalTreeData, activeRight.currentSortField, activeRight.currentSortAscending);
             }
-            
-            // Update UI
-            this.updateTabUI();
-            
-            // Apply filters and update tree
-            const activeTab = this.getActiveTab();
-            if (activeTab) {
-              this.applyTabFilters(activeTab);
-            }
+            activeRight.currentTreeData = this.filterTree(
+              activeRight.originalTreeData,
+              activeRight.codeSearchTerms || [],
+              activeRight.dataSearchTerms || [],
+              activeRight.dataExact || false,
+              activeRight.dataCase || false,
+              activeRight.minLine || null,
+              activeRight.maxLine || null,
+              activeRight.selectedObjectTypes || []
+            );
+            this.myTreeGridRight.setData(activeRight.currentTreeData);
           }
           
           console.log(`Restored ${restoredTabs.length} tabs`);
@@ -169,13 +213,12 @@
         }
       }
       
-      // Apply filters to a tab and update tree display
+      // Apply filters to a tab and update tree display (left panel by default)
       applyTabFilters(tab) {
         // Apply sorting if needed
         if (tab.currentSortField) {
           this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
         }
-        
         // Apply filters
         tab.currentTreeData = this.filterTree(
           tab.originalTreeData,
@@ -187,17 +230,12 @@
           tab.maxLine,
           tab.selectedObjectTypes
         );
-        
-        // Update tree display
-        this.myTreeGrid.setData(tab.currentTreeData);
-        
-        // Update UI elements
-        this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
-        this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
-        document.getElementById("dataExactCheckbox").checked = tab.dataExact;
-        document.getElementById("dataCaseCheckbox").checked = tab.dataCase;
-        document.getElementById("minLineInput").value = tab.minLine || "";
-        document.getElementById("maxLineInput").value = tab.maxLine || "";
+        // Update left tree display
+        if (this.myTreeGrid) {
+          this.myTreeGrid.setData(tab.currentTreeData);
+        }
+        // Refresh filter indicators on buttons
+        this.updateFiltersButtonIndicators();
       }
       
       initEventListeners() {
@@ -215,10 +253,14 @@
             this.handleFiles(fileInput.files, 'right');
           });
         }
-        document.getElementById("createNewDxfBtn").addEventListener("click", () => this.handleCreateNewDxf());
-        document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
-        document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
-        document.getElementById("resetStateBtn").addEventListener("click", () => this.handleResetState());
+        const createNewBtn = document.getElementById("createNewDxfBtn");
+        if (createNewBtn) createNewBtn.addEventListener("click", () => this.handleCreateNewDxf());
+        const expandAllBtn = document.getElementById("expandAllBtn");
+        if (expandAllBtn) expandAllBtn.addEventListener("click", () => this.handleExpandAll());
+        const collapseAllBtn = document.getElementById("collapseAllBtn");
+        if (collapseAllBtn) collapseAllBtn.addEventListener("click", () => this.handleCollapseAll());
+        const resetStateBtn = document.getElementById("resetStateBtn");
+        if (resetStateBtn) resetStateBtn.addEventListener("click", () => this.handleResetState());
         document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
         document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
         document.getElementById("downloadDxfBtn").addEventListener("click", () => this.handleDownloadDxf());
@@ -231,6 +273,15 @@
         if (toggleSxSBtn) {
           toggleSxSBtn.addEventListener('click', () => this.toggleSideBySideDiff());
         }
+        // Per-panel expand/collapse
+        const expandLeftBtn = document.getElementById('expandAllLeftBtn');
+        const collapseLeftBtn = document.getElementById('collapseAllLeftBtn');
+        const expandRightBtn = document.getElementById('expandAllRightBtn');
+        const collapseRightBtn = document.getElementById('collapseAllRightBtn');
+        if (expandLeftBtn) expandLeftBtn.addEventListener('click', () => this.handleExpandAllSide('left'));
+        if (collapseLeftBtn) collapseLeftBtn.addEventListener('click', () => this.handleCollapseAllSide('left'));
+        if (expandRightBtn) expandRightBtn.addEventListener('click', () => this.handleExpandAllSide('right'));
+        if (collapseRightBtn) collapseRightBtn.addEventListener('click', () => this.handleCollapseAllSide('right'));
         // Scope header click sorting to LEFT header only
         document.querySelectorAll('#treeGridHeaderLeft .header-cell').forEach(headerCell => {
           headerCell.addEventListener('click', (e) => {
@@ -251,38 +302,87 @@
         document.querySelectorAll('#treeGridHeaderRight .header-cell .resizer').forEach(resizer => {
           resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDownRight(e));
         });
-        this.setupTagInput("codeSearchInput", "code");
-        this.setupTagInput("dataSearchInput", "data");
-        document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
-        document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
-        // Filter target radio buttons
-        const radioLeft = document.getElementById("filterTargetLeft");
-        const radioRight = document.getElementById("filterTargetRight");
-        if (radioLeft && radioRight) {
-          const syncFilterUI = () => {
-            if (radioLeft.checked) {
-              const t = this.getActiveTab();
-              if (!t) return;
-              this.updateTagContainer("codeSearchTags", t.codeSearchTerms, "code");
-              this.updateTagContainer("dataSearchTags", t.dataSearchTerms, "data");
-              document.getElementById("minLineInput").value = t.minLine ?? "";
-              document.getElementById("maxLineInput").value = t.maxLine ?? "";
-              document.getElementById("dataExactCheckbox").checked = t.dataExact || false;
-              document.getElementById("dataCaseCheckbox").checked = t.dataCase || false;
-            } else {
-              const t = this.getActiveTabRight();
-              if (!t) return;
-              this.updateTagContainer("codeSearchTags", t.codeSearchTerms || [], "code");
-              this.updateTagContainer("dataSearchTags", t.dataSearchTerms || [], "data");
-              document.getElementById("minLineInput").value = t.minLine ?? "";
-              document.getElementById("maxLineInput").value = t.maxLine ?? "";
-              document.getElementById("dataExactCheckbox").checked = t.dataExact || false;
-              document.getElementById("dataCaseCheckbox").checked = t.dataCase || false;
-            }
-          };
-          radioLeft.addEventListener('change', syncFilterUI);
-          radioRight.addEventListener('change', syncFilterUI);
+        // Add Filters buttons and overlays
+        const filtersLeftBtn = document.getElementById('filtersLeftBtn');
+        const filtersRightBtn = document.getElementById('filtersRightBtn');
+        if (filtersLeftBtn) {
+          if (!filtersLeftBtn.querySelector('.active-indicator')) {
+            const dot = document.createElement('span');
+            dot.className = 'active-indicator';
+            filtersLeftBtn.appendChild(dot);
+          }
+          filtersLeftBtn.addEventListener('click', () => this.openFiltersOverlay('left'));
         }
+        if (filtersRightBtn) {
+          if (!filtersRightBtn.querySelector('.active-indicator')) {
+            const dot = document.createElement('span');
+            dot.className = 'active-indicator';
+            filtersRightBtn.appendChild(dot);
+          }
+          filtersRightBtn.addEventListener('click', () => this.openFiltersOverlay('right'));
+        }
+        const closeLeft = document.getElementById('closeFiltersOverlayLeft');
+        const closeRight = document.getElementById('closeFiltersOverlayRight');
+        if (closeLeft) closeLeft.addEventListener('click', () => this.closeFiltersOverlay('left'));
+        if (closeRight) closeRight.addEventListener('click', () => this.closeFiltersOverlay('right'));
+
+        // Per-panel filter inputs
+        if (document.getElementById('codeSearchInputLeft')) this.setupTagInput('codeSearchInputLeft', 'code', 'left');
+        if (document.getElementById('dataSearchInputLeft')) this.setupTagInput('dataSearchInputLeft', 'data', 'left');
+        if (document.getElementById('codeSearchInputRight')) this.setupTagInput('codeSearchInputRight', 'code', 'right');
+        if (document.getElementById('dataSearchInputRight')) this.setupTagInput('dataSearchInputRight', 'data', 'right');
+        const searchLeft = document.getElementById('searchBtnLeft');
+        const clearLeft = document.getElementById('clearSearchBtnLeft');
+        const searchRight = document.getElementById('searchBtnRight');
+        const clearRight = document.getElementById('clearSearchBtnRight');
+        if (searchLeft) searchLeft.addEventListener('click', () => this.handleSearch('left'));
+        if (clearLeft) clearLeft.addEventListener('click', () => this.handleClearSearch('left'));
+        if (searchRight) searchRight.addEventListener('click', () => this.handleSearch('right'));
+        if (clearRight) clearRight.addEventListener('click', () => this.handleClearSearch('right'));
+
+        // Options and range inputs per side
+        const optionSets = [
+          { side: 'left', exact: 'dataExactCheckboxLeft', case: 'dataCaseCheckboxLeft', min: 'minLineInputLeft', max: 'maxLineInputLeft' },
+          { side: 'right', exact: 'dataExactCheckboxRight', case: 'dataCaseCheckboxRight', min: 'minLineInputRight', max: 'maxLineInputRight' }
+        ];
+        optionSets.forEach(set => {
+          const exactEl = document.getElementById(set.exact);
+          const caseEl = document.getElementById(set.case);
+          const minEl = document.getElementById(set.min);
+          const maxEl = document.getElementById(set.max);
+          if (exactEl) exactEl.addEventListener('change', () => this.updateEffectiveSearchTerms(set.side));
+          if (caseEl) caseEl.addEventListener('change', () => this.updateEffectiveSearchTerms(set.side));
+          if (minEl) minEl.addEventListener('input', () => this.updateEffectiveSearchTerms(set.side));
+          if (maxEl) maxEl.addEventListener('input', () => this.updateEffectiveSearchTerms(set.side));
+        });
+
+        // Dropdown toggles (per side)
+        const dropdowns = [
+          { side: 'left', wrap: 'objectTypeDropdownLeft', button: 'objectTypeDropdownButtonLeft', content: 'objectTypeDropdownContentLeft' },
+          { side: 'right', wrap: 'objectTypeDropdownRight', button: 'objectTypeDropdownButtonRight', content: 'objectTypeDropdownContentRight' }
+        ];
+        dropdowns.forEach(d => {
+          const wrap = document.getElementById(d.wrap);
+          const btn = document.getElementById(d.button);
+          const content = document.getElementById(d.content);
+          if (!wrap || !btn || !content) return;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            content.style.display = (content.style.display === 'block') ? 'none' : 'block';
+          });
+          document.addEventListener('click', (e) => {
+            if (!wrap.contains(e.target)) content.style.display = 'none';
+          });
+        });
+
+        // Legacy sidebar filters (guarded if present)
+        if (document.getElementById("codeSearchInput")) this.setupTagInput("codeSearchInput", "code", 'left');
+        if (document.getElementById("dataSearchInput")) this.setupTagInput("dataSearchInput", "data", 'left');
+        const legacySearchBtn = document.getElementById("searchBtn");
+        if (legacySearchBtn) legacySearchBtn.addEventListener("click", () => this.handleSearch('left'));
+        const legacyClearBtn = document.getElementById("clearSearchBtn");
+        if (legacyClearBtn) legacyClearBtn.addEventListener("click", () => this.handleClearSearch('left'));
+        // Remove dependency on filter target radios (migrated to per-panel popups)
         document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
           this.updateClouds();
           document.getElementById("cloudOverlay").style.display = "block";
@@ -519,12 +619,6 @@
           document.getElementById("diffOverlay").style.display = "none";
         });
         document.getElementById("runDiffBtn").addEventListener("click", () => this.handleDiff());
-        document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
-        document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
-        document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        document.getElementById("minLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        document.getElementById("maxLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
         document.getElementById("backBtn").addEventListener("click", () => this.navigateBack());
         document.getElementById("forwardBtn").addEventListener("click", () => this.navigateForward());
@@ -999,8 +1093,8 @@
             break;
         }
         
-        // Refresh tree and save state
-        this.updateEffectiveSearchTerms();
+        // Refresh tree and save state (left by default)
+        this.updateEffectiveSearchTerms('left');
         this.saveCurrentState();
       }
       
@@ -1437,18 +1531,15 @@
         };
       }
 
-      updateEffectiveSearchTerms() {
-        const radioRight = document.getElementById("filterTargetRight");
-        const useRight = radioRight && radioRight.checked;
+      updateEffectiveSearchTerms(side = 'left') {
+        const useRight = side === 'right';
         const getTab = () => useRight ? this.getActiveTabRight() : this.getActiveTab();
         const setData = (data) => useRight ? this.myTreeGridRight.setData(data) : this.myTreeGrid.setData(data);
-        const setScrollTop = () => {
-          if (useRight) this.treeViewContainerRight.scrollTop = 0; else this.treeViewContainer.scrollTop = 0;
-        };
+        const setScrollTop = () => { if (useRight) this.treeViewContainerRight.scrollTop = 0; else this.treeViewContainer.scrollTop = 0; };
         const activeTab = getTab();
         if (!activeTab) return;
-        const codeInput = document.getElementById("codeSearchInput");
-        const dataInput = document.getElementById("dataSearchInput");
+        const codeInput = document.getElementById(useRight ? 'codeSearchInputRight' : 'codeSearchInputLeft') || { value: '' };
+        const dataInput = document.getElementById(useRight ? 'dataSearchInputRight' : 'dataSearchInputLeft') || { value: '' };
         const codeText = codeInput.value.trim();
         const dataText = dataInput.value.trim();
         const effectiveCodeSearchTerms = activeTab.codeSearchTerms.slice();
@@ -1459,19 +1550,24 @@
         if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
           effectiveDataSearchTerms.push(dataText);
         }
-        const minLine = document.getElementById("minLineInput").value.trim() !== ""
-          ? parseInt(document.getElementById("minLineInput").value.trim(), 10)
+        const minEl = document.getElementById(useRight ? 'minLineInputRight' : 'minLineInputLeft');
+        const maxEl = document.getElementById(useRight ? 'maxLineInputRight' : 'maxLineInputLeft');
+        const minLine = minEl && minEl.value.trim() !== ""
+          ? parseInt(minEl.value.trim(), 10)
           : null;
-        const maxLine = document.getElementById("maxLineInput").value.trim() !== ""
-          ? parseInt(document.getElementById("maxLineInput").value.trim(), 10)
+        const maxLine = maxEl && maxEl.value.trim() !== ""
+          ? parseInt(maxEl.value.trim(), 10)
           : null;
         activeTab.minLine = minLine;
         activeTab.maxLine = maxLine;
-        activeTab.dataExact = document.getElementById("dataExactCheckbox").checked;
-        activeTab.dataCase = document.getElementById("dataCaseCheckbox").checked;
+        const exactEl = document.getElementById(useRight ? 'dataExactCheckboxRight' : 'dataExactCheckboxLeft');
+        const caseEl = document.getElementById(useRight ? 'dataCaseCheckboxRight' : 'dataCaseCheckboxLeft');
+        activeTab.dataExact = !!(exactEl && exactEl.checked);
+        activeTab.dataCase = !!(caseEl && caseEl.checked);
 
         // Get the selected object types from the dropdown checkboxes.
-        const container = document.getElementById("objectTypeDropdownContent");
+        const container = document.getElementById(useRight ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft');
+        if (!container) return;
         const checkboxes = container.querySelectorAll("input[type='checkbox']");
         const selectedTypes = [];
         checkboxes.forEach(cb => {
@@ -1493,94 +1589,150 @@
         );
         setData(activeTab.currentTreeData);
         setScrollTop();
-        // Save state after search terms change
         this.saveCurrentState();
+        this.updateFiltersButtonIndicators();
       }
       
-      handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
+      handleSearchOptionChange(side = 'left') { this.updateEffectiveSearchTerms(side); }
       
       getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
 
       populateObjectTypeDropdown() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab) return;
-
-        // Build a count for each object type.
-        let typeCounts = {};
-        function traverse(nodes) {
-          nodes.forEach(node => {
-            if (!node.isProperty && node.type) {
-              typeCounts[node.type] = (typeCounts[node.type] || 0) + 1;
-            }
-            if (node.children && node.children.length > 0) {
-              traverse(node.children);
-            }
+        const leftTab = this.getActiveTab();
+        const rightTab = this.getActiveTabRight();
+        const buildCounts = (tab) => {
+          if (!tab) return {};
+          const counts = {};
+          const traverse = (nodes) => {
+            nodes.forEach(node => {
+              if (!node.isProperty && node.type) {
+                counts[node.type] = (counts[node.type] || 0) + 1;
+              }
+              if (node.children && node.children.length > 0) traverse(node.children);
+            });
+          };
+          tab.originalTreeData.forEach(node => traverse([node]));
+          return counts;
+        };
+        const leftCounts = buildCounts(leftTab);
+        const rightCounts = buildCounts(rightTab);
+        const buildSide = (counts, contentId, side) => {
+          const container = document.getElementById(contentId);
+          if (!container) return;
+          container.innerHTML = "";
+          const selectAllLabel = document.createElement("label");
+          selectAllLabel.style.fontWeight = "bold";
+          const selectAllCheckbox = document.createElement("input");
+          selectAllCheckbox.type = "checkbox";
+          selectAllCheckbox.checked = true;
+          selectAllCheckbox.addEventListener("change", () => {
+            container.querySelectorAll("input[type='checkbox']").forEach((cb, index) => { if (index > 0) cb.checked = selectAllCheckbox.checked; });
+            this.updateEffectiveSearchTerms(side);
+            this.updateObjectTypeDropdownButton(side);
           });
-        }
-        activeTab.originalTreeData.forEach(node => traverse([node]));
-
-        const container = document.getElementById("objectTypeDropdownContent");
-        container.innerHTML = ""; // Clear existing options
-
-        // Add a "Select All / Deselect All" header option.
-        const selectAllLabel = document.createElement("label");
-        selectAllLabel.style.fontWeight = "bold";
-        const selectAllCheckbox = document.createElement("input");
-        selectAllCheckbox.type = "checkbox";
-        selectAllCheckbox.checked = true; // Default: all types are selected.
-        selectAllCheckbox.addEventListener("change", () => {
-          // When toggled, set every type checkbox to the same state.
-          container.querySelectorAll("input[type='checkbox']").forEach((cb, index) => {
-            // Skip the first checkbox which is our "Select All"
-            if (index > 0) { cb.checked = selectAllCheckbox.checked; }
+          selectAllLabel.appendChild(selectAllCheckbox);
+          selectAllLabel.appendChild(document.createTextNode(" Select All"));
+          container.appendChild(selectAllLabel);
+          const sorted = Object.keys(counts).sort();
+          sorted.forEach(type => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.value = type;
+            checkbox.checked = true;
+            checkbox.addEventListener("change", () => {
+              const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
+              selectAllCheckbox.checked = allTypeCheckboxes.every(cb => cb.checked);
+              this.updateEffectiveSearchTerms(side);
+              this.updateObjectTypeDropdownButton(side);
+            });
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(" " + type + " (" + counts[type] + ")"));
+            container.appendChild(label);
           });
-          this.updateEffectiveSearchTerms();
-          this.updateObjectTypeDropdownButton();
-        });
-        selectAllLabel.appendChild(selectAllCheckbox);
-        selectAllLabel.appendChild(document.createTextNode(" Select All"));
-        container.appendChild(selectAllLabel);
-
-        // Sort the types alphabetically.
-        const sortedTypes = Object.keys(typeCounts).sort();
-
-        // Create a checkbox for each type with its count.
-        sortedTypes.forEach(type => {
-          const label = document.createElement("label");
-          const checkbox = document.createElement("input");
-          checkbox.type = "checkbox";
-          checkbox.value = type;
-          checkbox.checked = true; // Default to selected.
-          checkbox.addEventListener("change", () => {
-            // When any type is toggled, update the "Select All" checkbox.
-            const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
-            selectAllCheckbox.checked = allTypeCheckboxes.every(cb => cb.checked);
-            this.updateEffectiveSearchTerms();
-            this.updateObjectTypeDropdownButton();
-          });
-          label.appendChild(checkbox);
-          // Append the object type with its count, e.g. "LINE (30)"
-          label.appendChild(document.createTextNode(" " + type + " (" + typeCounts[type] + ")"));
-          container.appendChild(label);
-        });
-        this.updateObjectTypeDropdownButton();
+          this.updateObjectTypeDropdownButton(side);
+        };
+        buildSide(leftCounts, 'objectTypeDropdownContentLeft', 'left');
+        buildSide(rightCounts, 'objectTypeDropdownContentRight', 'right');
       }
 
-      updateObjectTypeDropdownButton() {
-        const container = document.getElementById("objectTypeDropdownContent");
+      updateObjectTypeDropdownButton(side = 'left') {
+        const container = document.getElementById(side === 'right' ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft');
+        const button = document.getElementById(side === 'right' ? 'objectTypeDropdownButtonRight' : 'objectTypeDropdownButtonLeft');
+        if (!container || !button) return;
         const checkboxes = container.querySelectorAll("input[type='checkbox']");
         const selected = [];
-        checkboxes.forEach(cb => {
-          if (cb.checked) selected.push(cb.value);
-        });
-        const button = document.getElementById("objectTypeDropdownButton");
-        if (selected.length === checkboxes.length) {
-          button.textContent = "All Types";
-        } else if (selected.length === 0) {
-          button.textContent = "None Selected";
-        } else {
-          button.textContent = selected.join(", ");
+        checkboxes.forEach(cb => { if (cb.checked) selected.push(cb.value); });
+        if (selected.length === checkboxes.length || checkboxes.length === 0) button.textContent = 'All Types';
+        else if (selected.length === 0) button.textContent = 'None Selected';
+        else button.textContent = selected.join(', ');
+      }
+
+      openFiltersOverlay(side = 'left') {
+        const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
+        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!overlay || !tab) return;
+        // Ensure dropdowns populated
+        this.populateObjectTypeDropdown();
+        // Sync tags
+        this.updateTagContainer(side === 'right' ? 'codeSearchTagsRight' : 'codeSearchTagsLeft', tab.codeSearchTerms || [], 'code');
+        this.updateTagContainer(side === 'right' ? 'dataSearchTagsRight' : 'dataSearchTagsLeft', tab.dataSearchTerms || [], 'data');
+        // Sync inputs
+        const minEl = document.getElementById(side === 'right' ? 'minLineInputRight' : 'minLineInputLeft');
+        const maxEl = document.getElementById(side === 'right' ? 'maxLineInputRight' : 'maxLineInputLeft');
+        const exactEl = document.getElementById(side === 'right' ? 'dataExactCheckboxRight' : 'dataExactCheckboxLeft');
+        const caseEl = document.getElementById(side === 'right' ? 'dataCaseCheckboxRight' : 'dataCaseCheckboxLeft');
+        if (minEl) minEl.value = tab.minLine ?? '';
+        if (maxEl) maxEl.value = tab.maxLine ?? '';
+        if (exactEl) exactEl.checked = !!tab.dataExact;
+        if (caseEl) caseEl.checked = !!tab.dataCase;
+        // Sync object type checks to saved selection (if any)
+        const contentId = side === 'right' ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft';
+        const container = document.getElementById(contentId);
+        if (container) {
+          const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1); // skip Select All
+          if (tab.selectedObjectTypes && tab.selectedObjectTypes.length > 0) {
+            allTypeCheckboxes.forEach(cb => { cb.checked = tab.selectedObjectTypes.includes(cb.value); });
+          } else {
+            allTypeCheckboxes.forEach(cb => { cb.checked = true; });
+          }
+          // Update select-all and button text
+          const selectAllCb = container.querySelector("label input[type='checkbox']");
+          if (selectAllCb) selectAllCb.checked = allTypeCheckboxes.every(cb => cb.checked);
+          this.updateObjectTypeDropdownButton(side);
         }
+        overlay.style.display = 'block';
+      }
+
+      closeFiltersOverlay(side = 'left') {
+        const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
+        if (overlay) overlay.style.display = 'none';
+      }
+
+      updateFiltersButtonIndicators() {
+        const updateForSide = (side) => {
+          const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+          const btn = document.getElementById(side === 'right' ? 'filtersRightBtn' : 'filtersLeftBtn');
+          if (!btn) return;
+          if (!tab) { btn.classList.remove('has-active'); return; }
+          const hasTextFilters = (tab.codeSearchTerms && tab.codeSearchTerms.length > 0) || (tab.dataSearchTerms && tab.dataSearchTerms.length > 0);
+          const hasRangeOrFlags = (tab.minLine != null) || (tab.maxLine != null) || !!tab.dataExact || !!tab.dataCase;
+          // Object type selection: active only if not all selected
+          let hasTypeFilter = false;
+          const container = document.getElementById(side === 'right' ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft');
+          if (container) {
+            const typeBoxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
+            const totalTypes = typeBoxes.length;
+            const selectedTypesCount = tab.selectedObjectTypes ? tab.selectedObjectTypes.length : totalTypes;
+            hasTypeFilter = totalTypes > 0 && selectedTypesCount > 0 && selectedTypesCount < totalTypes;
+          } else if (tab.selectedObjectTypes && tab.selectedObjectTypes.length > 0) {
+            hasTypeFilter = true;
+          }
+          const hasActive = hasTextFilters || hasRangeOrFlags || hasTypeFilter;
+          if (hasActive) btn.classList.add('has-active'); else btn.classList.remove('has-active');
+        };
+        updateForSide('left');
+        updateForSide('right');
       }
  
       updateTabUI() {
@@ -1591,6 +1743,7 @@
         this.populateObjectTypeDropdown();
         this.updateNavHistoryUI();
         this.updateNavButtons();
+        this.updateFiltersButtonIndicators();
       }
 
       renderTabsInto(containerId, tabsArr, activeId, isLeftPanel) {
@@ -1605,15 +1758,17 @@
           tabElem.addEventListener("click", () => {
             if (isLeftPanel) {
               this.activeTabId = tab.id;
-              // Sync filter UI for left panel
-              document.getElementById("codeSearchInput").value = "";
-              document.getElementById("dataSearchInput").value = "";
-              this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
-              this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
-              document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
-              document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
-              document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
-              document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
+              // Sync filter UI for left popup (if open)
+              this.updateTagContainer("codeSearchTagsLeft", tab.codeSearchTerms, "code");
+              this.updateTagContainer("dataSearchTagsLeft", tab.dataSearchTerms, "data");
+              const minL = document.getElementById("minLineInputLeft");
+              const maxL = document.getElementById("maxLineInputLeft");
+              const exactL = document.getElementById("dataExactCheckboxLeft");
+              const caseL = document.getElementById("dataCaseCheckboxLeft");
+              if (minL) minL.value = tab.minLine ?? "";
+              if (maxL) maxL.value = tab.maxLine ?? "";
+              if (exactL) exactL.checked = !!tab.dataExact;
+              if (caseL) caseL.checked = !!tab.dataCase;
               this.myTreeGrid.setData(tab.currentTreeData);
               this.treeViewContainer.scrollTop = 0;
               // Update left header sort indicators to reflect active tab if needed
@@ -1719,6 +1874,33 @@
         this.saveCurrentState();
       }
       
+      handleExpandAllSide(side = 'left') {
+        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!tab) return;
+        this.expandAllNodes(tab.originalTreeData);
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms,
+          tab.dataSearchTerms,
+          tab.dataExact,
+          tab.dataCase,
+          tab.minLine,
+          tab.maxLine,
+          tab.selectedObjectTypes
+        );
+        if (side === 'right') {
+          if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+          if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
+        } else {
+          this.myTreeGrid.setData(tab.currentTreeData);
+          this.treeViewContainer.scrollTop = 0;
+        }
+        this.saveCurrentState();
+      }
+
       handleCollapseAll() {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
@@ -1741,6 +1923,33 @@
         // Save state after expanding/collapsing
         this.saveCurrentState();
       }
+
+      handleCollapseAllSide(side = 'left') {
+        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!tab) return;
+        this.collapseAllNodes(tab.originalTreeData);
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms,
+          tab.dataSearchTerms,
+          tab.dataExact,
+          tab.dataCase,
+          tab.minLine,
+          tab.maxLine,
+          tab.selectedObjectTypes
+        );
+        if (side === 'right') {
+          if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+          if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
+        } else {
+          this.myTreeGrid.setData(tab.currentTreeData);
+          this.treeViewContainer.scrollTop = 0;
+        }
+        this.saveCurrentState();
+      }
       
       // Handle reset state button click
       handleResetState() {
@@ -1756,17 +1965,25 @@
           this.updateTabUI();
           this.myTreeGrid.setData([]);
           
-          // Clear search inputs
-          document.getElementById("codeSearchInput").value = "";
-          document.getElementById("dataSearchInput").value = "";
-          document.getElementById("minLineInput").value = "";
-          document.getElementById("maxLineInput").value = "";
-          document.getElementById("dataExactCheckbox").checked = false;
-          document.getElementById("dataCaseCheckbox").checked = false;
+          // Clear sidebar legacy inputs if present
+          const legCode = document.getElementById("codeSearchInput");
+          const legData = document.getElementById("dataSearchInput");
+          const legMin = document.getElementById("minLineInput");
+          const legMax = document.getElementById("maxLineInput");
+          const legExact = document.getElementById("dataExactCheckbox");
+          const legCase = document.getElementById("dataCaseCheckbox");
+          if (legCode) legCode.value = "";
+          if (legData) legData.value = "";
+          if (legMin) legMin.value = "";
+          if (legMax) legMax.value = "";
+          if (legExact) legExact.checked = false;
+          if (legCase) legCase.checked = false;
           
-          // Clear tag containers
-          this.updateTagContainer("codeSearchTags", [], "code");
-          this.updateTagContainer("dataSearchTags", [], "data");
+          // Clear tag containers (legacy sidebar if present)
+          const legacyCodeTags = document.getElementById("codeSearchTags");
+          const legacyDataTags = document.getElementById("dataSearchTags");
+          if (legacyCodeTags) this.updateTagContainer("codeSearchTags", [], "code");
+          if (legacyDataTags) this.updateTagContainer("dataSearchTags", [], "data");
           
           console.log('All state has been reset');
         }
@@ -2185,7 +2402,7 @@
             activeTab.originalTreeData.splice(idx + 1, 0, newNode);
           }
         }
-        this.updateEffectiveSearchTerms();
+        this.updateEffectiveSearchTerms('left');
       }
 
       handleRemoveRow() {
@@ -2209,7 +2426,7 @@
           }
         }
         this.selectedNodeId = null;
-        this.updateEffectiveSearchTerms();
+        this.updateEffectiveSearchTerms('left');
       }
 
       handleDownloadDxf() {
@@ -2441,7 +2658,7 @@ ENDSEC
 EOF`;
       }
       
-      createTagElement(text, type) {
+      createTagElement(text, type, containerId = "codeSearchTagsLeft") {
         const tag = document.createElement("span");
         tag.className = "tag";
         tag.textContent = text;
@@ -2450,14 +2667,15 @@ EOF`;
         removeBtn.textContent = "×";
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const activeTab = this.getActiveTab();
+          const isRight = /Right$/.test(containerId);
+          const activeTab = isRight ? this.getActiveTabRight() : this.getActiveTab();
           if (!activeTab) return;
           if (type === "code") {
             activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
-            this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+            this.updateTagContainer(containerId, activeTab.codeSearchTerms, "code");
           } else if (type === "data") {
             activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
-            this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+            this.updateTagContainer(containerId, activeTab.dataSearchTerms, "data");
           }
           activeTab.currentTreeData = this.filterTree(
             activeTab.originalTreeData,
@@ -2469,8 +2687,14 @@ EOF`;
             activeTab.maxLine,
             activeTab.selectedObjectTypes
           );
-          this.myTreeGrid.setData(activeTab.currentTreeData);
-          this.treeViewContainer.scrollTop = 0;
+          if (isRight) {
+            if (this.myTreeGridRight) this.myTreeGridRight.setData(activeTab.currentTreeData);
+            if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
+          } else {
+            this.myTreeGrid.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+          }
+          this.updateFiltersButtonIndicators();
         });
         tag.appendChild(removeBtn);
         return tag;
@@ -2478,72 +2702,73 @@ EOF`;
       
       updateTagContainer(containerId, termsArray, type) {
         const container = document.getElementById(containerId);
+        if (!container) return;
         Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
         termsArray.forEach(term => {
-          const tagElem = this.createTagElement(term, type);
+          const tagElem = this.createTagElement(term, type, containerId);
           container.insertBefore(tagElem, container.querySelector("input"));
         });
       }
       
-      setupTagInput(inputId, type) {
+      setupTagInput(inputId, type, side = 'left') {
         const input = document.getElementById(inputId);
         input.addEventListener("keydown", (e) => {
           if (e.key === "Enter" || e.key === ",") {
             e.preventDefault();
             const text = input.value.trim();
             if (text !== "") {
-              const activeTab = this.getActiveTab();
+              const activeTab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
               if (!activeTab) return;
               if (type === "code") {
                 if (!activeTab.codeSearchTerms.includes(text)) {
                   activeTab.codeSearchTerms.push(text);
                 }
-                this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+                this.updateTagContainer(side === 'right' ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
               } else {
                 if (!activeTab.dataSearchTerms.includes(text)) {
                   activeTab.dataSearchTerms.push(text);
                 }
-                this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+                this.updateTagContainer(side === 'right' ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
               }
               input.value = "";
-              this.updateEffectiveSearchTerms();
+              this.updateEffectiveSearchTerms(side);
             }
           }
         });
         input.addEventListener("blur", () => {
           const text = input.value.trim();
           if (text !== "") {
-            const activeTab = this.getActiveTab();
+            const activeTab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
             if (!activeTab) return;
             if (type === "code") {
               if (!activeTab.codeSearchTerms.includes(text)) {
                 activeTab.codeSearchTerms.push(text);
               }
-              this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+              this.updateTagContainer(side === 'right' ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
             } else {
               if (!activeTab.dataSearchTerms.includes(text)) {
                 activeTab.dataSearchTerms.push(text);
               }
-              this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+              this.updateTagContainer(side === 'right' ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
             }
             input.value = "";
-            this.updateEffectiveSearchTerms();
+            this.updateEffectiveSearchTerms(side);
           }
         });
       }
       
-      handleSearch() {
-        const targetRight = document.getElementById("filterTargetRight")?.checked;
-        const activeTab = targetRight ? this.getActiveTabRight() : this.getActiveTab();
+      handleSearch(side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
-        const codeInput = document.getElementById("codeSearchInput");
-        const dataInput = document.getElementById("dataSearchInput");
+        const codeInput = document.getElementById(useRight ? "codeSearchInputRight" : "codeSearchInputLeft");
+        const dataInput = document.getElementById(useRight ? "dataSearchInputRight" : "dataSearchInputLeft");
         if (codeInput.value.trim() !== "") {
           const text = codeInput.value.trim();
           if (!activeTab.codeSearchTerms.includes(text)) {
             activeTab.codeSearchTerms.push(text);
           }
-          this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+          this.updateTagContainer(useRight ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
           codeInput.value = "";
         }
         if (dataInput.value.trim() !== "") {
@@ -2551,15 +2776,15 @@ EOF`;
           if (!activeTab.dataSearchTerms.includes(text)) {
             activeTab.dataSearchTerms.push(text);
           }
-          this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+          this.updateTagContainer(useRight ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
           dataInput.value = "";
         }
-        this.updateEffectiveSearchTerms();
+        this.updateEffectiveSearchTerms(side);
       }
       
-      handleClearSearch() {
-        const targetRight = document.getElementById("filterTargetRight")?.checked;
-        const activeTab = targetRight ? this.getActiveTabRight() : this.getActiveTab();
+      handleClearSearch(side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
 
         // Clear search-related terms
@@ -2570,7 +2795,7 @@ EOF`;
 
         // Reset the object type filter:
         // Get the container holding the checkboxes and set them all to checked.
-        const objectTypeContainer = document.getElementById("objectTypeDropdownContent");
+        const objectTypeContainer = document.getElementById(useRight ? "objectTypeDropdownContentRight" : "objectTypeDropdownContentLeft");
         const checkboxes = objectTypeContainer.querySelectorAll("input[type='checkbox']");
         checkboxes.forEach(cb => cb.checked = true);
 
@@ -2578,15 +2803,21 @@ EOF`;
         activeTab.selectedObjectTypes = Array.from(checkboxes).map(cb => cb.value);
 
         // Update the UI for the tag containers and dropdown button.
-        this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-        this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-        document.getElementById("codeSearchInput").value = "";
-        document.getElementById("dataSearchInput").value = "";
-        document.getElementById("dataExactCheckbox").checked = false;
-        document.getElementById("dataCaseCheckbox").checked = false;
-        document.getElementById("minLineInput").value = "";
-        document.getElementById("maxLineInput").value = "";
-        this.updateObjectTypeDropdownButton();
+        this.updateTagContainer(useRight ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
+        this.updateTagContainer(useRight ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
+        const codeInput = document.getElementById(useRight ? "codeSearchInputRight" : "codeSearchInputLeft");
+        const dataInput = document.getElementById(useRight ? "dataSearchInputRight" : "dataSearchInputLeft");
+        const exactEl = document.getElementById(useRight ? "dataExactCheckboxRight" : "dataExactCheckboxLeft");
+        const caseEl = document.getElementById(useRight ? "dataCaseCheckboxRight" : "dataCaseCheckboxLeft");
+        const minEl = document.getElementById(useRight ? "minLineInputRight" : "minLineInputLeft");
+        const maxEl = document.getElementById(useRight ? "maxLineInputRight" : "maxLineInputLeft");
+        if (codeInput) codeInput.value = "";
+        if (dataInput) dataInput.value = "";
+        if (exactEl) exactEl.checked = false;
+        if (caseEl) caseEl.checked = false;
+        if (minEl) minEl.value = "";
+        if (maxEl) maxEl.value = "";
+        this.updateObjectTypeDropdownButton(side);
 
         // Re-filter the tree including the reset object type filter.
         activeTab.currentTreeData = this.filterTree(
@@ -2599,13 +2830,14 @@ EOF`;
           null,
           activeTab.selectedObjectTypes
         );
-        if (targetRight) {
+        if (useRight) {
           this.myTreeGridRight.setData(activeTab.currentTreeData);
           this.treeViewContainerRight.scrollTop = 0;
         } else {
           this.myTreeGrid.setData(activeTab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
         }
+        this.updateFiltersButtonIndicators();
       }
       
       findPathByHandle(nodes, handle) {

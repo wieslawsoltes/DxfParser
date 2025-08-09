@@ -43,9 +43,7 @@
     <div class="content-wrapper">
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
-        <div class="sidebar-buttons">
-          <button id="expandAllBtn">Expand All</button>
-          <button id="collapseAllBtn">Collapse All</button>
+        <div class="sidebar-buttons" style="grid-template-columns: 1fr;">
           <button id="showCloudOverlayBtn">Cloud Data</button>
           <button id="showStatsOverlayBtn">Statistics</button>
           <button id="showDepsOverlayBtn">Dependencies</button>
@@ -63,59 +61,7 @@
         <button id="showDiffOverlayBtn">Diff DXF</button>
         <button id="toggleSideBySideDiffBtn" title="Toggle side-by-side tree diff coloring">Tree Diff</button>
         </div>
-        <div class="filter-panel" id="filterPanel">
-          <h2>Filters</h2>
-          <div class="filter-row" style="margin-top: 0.25em;">
-            <label style="font-weight:600;">Apply to:</label>
-            <div style="display:flex; gap:1em; align-items:center;">
-              <label><input type="radio" name="filterTarget" id="filterTargetLeft" checked> Left</label>
-              <label><input type="radio" name="filterTarget" id="filterTargetRight"> Right</label>
-            </div>
-          </div>
-          <div class="filter-content">
-            <div class="filter-row">
-              <div id="codeSearchTags" class="tag-container">
-                <input type="text" id="codeSearchInput" placeholder="Search by Code">
-              </div>
-            </div>
-            <div class="filter-row">
-              <div id="dataSearchTags" class="tag-container">
-                <input type="text" id="dataSearchInput" placeholder="Search by Data value">
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>Object Types:</label>
-              <div id="objectTypeDropdown" class="dropdown">
-                <button id="objectTypeDropdownButton">All Types</button>
-                <div id="objectTypeDropdownContent" class="dropdown-content">
-                  <!-- Options with checkboxes will be populated dynamically -->
-                </div>
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>
-                <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
-              </label>
-            </div>
-            <div class="filter-row">
-              <label>
-                <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
-              </label>
-            </div>
-            <div class="filter-row">
-              <label for="minLineInput">Min Line:</label>
-              <input type="number" id="minLineInput" style="width:80px;">
-            </div>
-            <div class="filter-row">
-              <label for="maxLineInput">Max Line:</label>
-              <input type="number" id="maxLineInput" style="width:80px;">
-            </div>
-            <div class="filter-row">
-              <button id="searchBtn">Search</button>
-              <button id="clearSearchBtn">Clear Search</button>
-            </div>
-          </div>
-        </div>
+        <div class="filter-panel" id="filterPanel" style="display:none;"></div>
       </div>
       <!-- Resizer between sidebar and main content -->
       <div class="pane-resizer"></div>
@@ -154,6 +100,15 @@
               <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
               <input type="file" id="fileInputLeft" accept=".dxf" multiple>
               <button id="parseLeftBtn">Parse</button>
+              <button id="expandAllLeftBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
+              </button>
+              <button id="collapseAllLeftBtn" class="icon-button has-tooltip" title="Collapse All" aria-label="Collapse All" data-tooltip="Collapse all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5H7z"/></svg>
+              </button>
+              <button id="filtersLeftBtn" class="icon-button filters-button has-tooltip" title="Filters" aria-label="Filters" data-tooltip="Open filters">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5z"/></svg>
+              </button>
             </div>
             <div id="treeGridHeaderLeft" class="tree-header">
               <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
@@ -189,6 +144,15 @@
               <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
               <input type="file" id="fileInputRight" accept=".dxf" multiple>
               <button id="parseRightBtn">Parse</button>
+              <button id="expandAllRightBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
+              </button>
+              <button id="collapseAllRightBtn" class="icon-button has-tooltip" title="Collapse All" aria-label="Collapse All" data-tooltip="Collapse all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5H7z"/></svg>
+              </button>
+              <button id="filtersRightBtn" class="icon-button filters-button has-tooltip" title="Filters" aria-label="Filters" data-tooltip="Open filters">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5z"/></svg>
+              </button>
             </div>
             <div id="treeGridHeaderRight" class="tree-header">
               <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
@@ -216,6 +180,99 @@
               <div id="treeViewContentRight" style="position: relative; overflow: hidden;"></div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Filters Popup Overlay (Left) -->
+  <div id="filtersOverlayLeft" class="filters-overlay" style="display:none;">
+    <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Filters (Left Tab)</h2>
+        <button id="closeFiltersOverlayLeft">Close</button>
+      </div>
+      <div class="filter-content">
+        <div class="filter-row">
+          <div id="codeSearchTagsLeft" class="tag-container">
+            <input type="text" id="codeSearchInputLeft" placeholder="Search by Code">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div id="dataSearchTagsLeft" class="tag-container">
+            <input type="text" id="dataSearchInputLeft" placeholder="Search by Data value">
+          </div>
+        </div>
+        <div class="filter-row">
+          <label>Object Types:</label>
+          <div id="objectTypeDropdownLeft" class="dropdown">
+            <button id="objectTypeDropdownButtonLeft">All Types</button>
+            <div id="objectTypeDropdownContentLeft" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataExactCheckboxLeft"> Exact Data Match</label>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataCaseCheckboxLeft"> Case Sensitive</label>
+        </div>
+        <div class="filter-row">
+          <label for="minLineInputLeft">Min Line:</label>
+          <input type="number" id="minLineInputLeft" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <label for="maxLineInputLeft">Max Line:</label>
+          <input type="number" id="maxLineInputLeft" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <button id="searchBtnLeft">Apply</button>
+          <button id="clearSearchBtnLeft">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters Popup Overlay (Right) -->
+  <div id="filtersOverlayRight" class="filters-overlay" style="display:none;">
+    <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Filters (Right Tab)</h2>
+        <button id="closeFiltersOverlayRight">Close</button>
+      </div>
+      <div class="filter-content">
+        <div class="filter-row">
+          <div id="codeSearchTagsRight" class="tag-container">
+            <input type="text" id="codeSearchInputRight" placeholder="Search by Code">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div id="dataSearchTagsRight" class="tag-container">
+            <input type="text" id="dataSearchInputRight" placeholder="Search by Data value">
+          </div>
+        </div>
+        <div class="filter-row">
+          <label>Object Types:</label>
+          <div id="objectTypeDropdownRight" class="dropdown">
+            <button id="objectTypeDropdownButtonRight">All Types</button>
+            <div id="objectTypeDropdownContentRight" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataExactCheckboxRight"> Exact Data Match</label>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataCaseCheckboxRight"> Case Sensitive</label>
+        </div>
+        <div class="filter-row">
+          <label for="minLineInputRight">Min Line:</label>
+          <input type="number" id="minLineInputRight" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <label for="maxLineInputRight">Max Line:</label>
+          <input type="number" id="maxLineInputRight" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <button id="searchBtnRight">Apply</button>
+          <button id="clearSearchBtnRight">Clear</button>
         </div>
       </div>
     </div>
