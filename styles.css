@@ -85,6 +85,15 @@ body { font-family: sans-serif; }
   cursor: ew-resize;
   background-color: #ccc;
 }
+
+/* Compare view splitter */
+.compare-splitter {
+  background: #ccc;
+  transition: background-color 0.2s ease;
+}
+.compare-splitter:hover {
+  background: #bbb;
+}
 .main-content {
   flex: 1;
   padding-left: 1em;
@@ -169,7 +178,9 @@ body { font-family: sans-serif; }
 }
 #parseBtn { padding: 0.3em 0.6em; white-space: nowrap; }
 /* Tabs */
-#tabContainer {
+#tabContainer,
+#tabContainerLeft,
+#tabContainerRight {
   display: flex;
   flex-wrap: wrap;
   border-bottom: 1px solid #ccc;
@@ -194,7 +205,8 @@ body { font-family: sans-serif; }
   padding: 0 4px;
 }
 /* Tree Grid Header */
-#treeGridHeader {
+#treeGridHeader,
+.tree-header {
   display: flex;
   align-items: center;
   height: 24px;
@@ -258,14 +270,16 @@ body { font-family: sans-serif; }
 .tree-object-count:last-child,
 .tree-data-size:last-child { border-right: none; }
 /* Tree View Container */
-#treeViewContainer {
+#treeViewContainer,
+#treeViewContainerLeft,
+#treeViewContainerRight {
   position: relative;
   flex: 1;
   overflow: auto;
   border: 1px solid #ccc;
   clip-path: inset(0);
 }
-#treeViewContent { position: relative; overflow: hidden; }
+#treeViewContent, #treeViewContentLeft, #treeViewContentRight { position: relative; overflow: hidden; }
 /* Tree row styling – with row selection support */
 .tree-row {
   display: flex;
@@ -278,6 +292,17 @@ body { font-family: sans-serif; }
 .tree-row.selected {
   background-color: #bde4ff;
 }
+.tree-row.placeholder {
+  background: repeating-linear-gradient(45deg, #f8f9fa, #f8f9fa 10px, #f3f4f6 10px, #f3f4f6 20px);
+}
+.tree-row.diff-added { background-color: #e6ffed; }
+.tree-row.diff-removed { background-color: #ffeef0; }
+.tree-row.diff-changed { background-color: #fff5b1; }
+
+/* Cell-level diff highlighting */
+.cell-added { background-color: #e6ffed !important; }
+.cell-removed { background-color: #ffeef0 !important; }
+.cell-changed { background-color: #fff5b1 !important; }
 .toggle {
   display: inline-block;
   width: 16px;

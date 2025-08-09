@@ -13,16 +13,24 @@
           dataSize: 130
         };
         this.dxfParser = new DxfParser();
-        this.treeViewContainer = document.getElementById("treeViewContainer");
-        this.treeViewContent = document.getElementById("treeViewContent");
+        // Left panel DOM
+        this.treeViewContainer = document.getElementById("treeViewContainerLeft");
+        this.treeViewContent = document.getElementById("treeViewContentLeft");
+        // Left panel state
         this.tabs = [];
         this.activeTabId = null;
+        // Right panel DOM
+        this.treeViewContainerRight = document.getElementById("treeViewContainerRight");
+        this.treeViewContentRight = document.getElementById("treeViewContentRight");
+        // Right panel state
+        this.tabsRight = [];
+        this.activeTabIdRight = null;
         this.currentBinaryData = null;
         this.currentDetectedType = null;
         this.selectedNodeId = null;
             // We'll cache the measured hex line height here.
     this.hexLineHeight = null;
-        // Create the TreeDataGrid instance and pass columnWidths via the constructor.
+        // Create the TreeDataGrid instances and pass columnWidths via the constructor.
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -31,12 +39,25 @@
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => { this.selectedNodeId = nodeId; },
           columnWidths: this.columnWidths,
+          headerRootId: "treeGridHeaderLeft",
           hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
+        });
+        this.myTreeGridLeft = this.myTreeGrid; // alias for clarity
+        this.myTreeGridRight = new TreeDataGrid(this.treeViewContainerRight, this.treeViewContentRight, {
+          itemHeight: 24,
+          // Enable expand in right panel
+          onToggleExpand: (nodeId) => this.handleToggleExpandRight(nodeId),
+          onHandleClick: (handle) => this.handleLinkToHandle(handle),
+          columnWidths: { ...this.columnWidths },
+          headerRootId: "treeGridHeaderRight",
         });
         this.batchDataGrid = new BatchDataGrid(
           document.getElementById("batchResultsTabHeaders"),
           document.getElementById("batchResultsTabContents")
         );
+        // Side-by-side diff state
+        this.sideBySideDiffEnabled = false;
+        this.currentDiffMap = null; // { leftRowClasses: Map(index->class), rightRowClasses: Map(index->class), totalRows }
         this.initEventListeners();
         this.initializeRuleSystem();
         
@@ -181,6 +202,20 @@
       
       initEventListeners() {
         document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
+        const parseLeftBtn = document.getElementById("parseLeftBtn");
+        const parseRightBtn = document.getElementById("parseRightBtn");
+        if (parseLeftBtn) {
+          parseLeftBtn.addEventListener("click", () => {
+            const fileInput = document.getElementById("fileInput");
+            this.handleFiles(fileInput.files, 'left');
+          });
+        }
+        if (parseRightBtn) {
+          parseRightBtn.addEventListener("click", () => {
+            const fileInput = document.getElementById("fileInput");
+            this.handleFiles(fileInput.files, 'right');
+          });
+        }
         document.getElementById("createNewDxfBtn").addEventListener("click", () => this.handleCreateNewDxf());
         document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
         document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
@@ -188,19 +223,67 @@
         document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
         document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
         document.getElementById("downloadDxfBtn").addEventListener("click", () => this.handleDownloadDxf());
-        document.querySelectorAll('.header-cell').forEach(headerCell => {
+        // Toggle right panel visibility
+        const toggleRightBtn = document.getElementById('toggleRightPanelBtn');
+        if (toggleRightBtn) {
+          toggleRightBtn.addEventListener('click', () => this.toggleRightPanel());
+        }
+        const toggleSxSBtn = document.getElementById('toggleSideBySideDiffBtn');
+        if (toggleSxSBtn) {
+          toggleSxSBtn.addEventListener('click', () => this.toggleSideBySideDiff());
+        }
+        // Scope header click sorting to LEFT header only
+        document.querySelectorAll('#treeGridHeaderLeft .header-cell').forEach(headerCell => {
           headerCell.addEventListener('click', (e) => {
             if (e.target.classList.contains('resizer')) return;
             this.handleHeaderClick(headerCell);
           });
         });
-        document.querySelectorAll('.header-cell .resizer').forEach(resizer => {
+        document.querySelectorAll('#treeGridHeaderLeft .header-cell .resizer').forEach(resizer => {
           resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDown(e));
+        });
+        // Add right header sort/resizer wiring
+        document.querySelectorAll('#treeGridHeaderRight .header-cell').forEach(headerCell => {
+          headerCell.addEventListener('click', (e) => {
+            if (e.target.classList.contains('resizer')) return;
+            this.handleHeaderClickRight(headerCell);
+          });
+        });
+        document.querySelectorAll('#treeGridHeaderRight .header-cell .resizer').forEach(resizer => {
+          resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDownRight(e));
         });
         this.setupTagInput("codeSearchInput", "code");
         this.setupTagInput("dataSearchInput", "data");
         document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
         document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
+        // Filter target radio buttons
+        const radioLeft = document.getElementById("filterTargetLeft");
+        const radioRight = document.getElementById("filterTargetRight");
+        if (radioLeft && radioRight) {
+          const syncFilterUI = () => {
+            if (radioLeft.checked) {
+              const t = this.getActiveTab();
+              if (!t) return;
+              this.updateTagContainer("codeSearchTags", t.codeSearchTerms, "code");
+              this.updateTagContainer("dataSearchTags", t.dataSearchTerms, "data");
+              document.getElementById("minLineInput").value = t.minLine ?? "";
+              document.getElementById("maxLineInput").value = t.maxLine ?? "";
+              document.getElementById("dataExactCheckbox").checked = t.dataExact || false;
+              document.getElementById("dataCaseCheckbox").checked = t.dataCase || false;
+            } else {
+              const t = this.getActiveTabRight();
+              if (!t) return;
+              this.updateTagContainer("codeSearchTags", t.codeSearchTerms || [], "code");
+              this.updateTagContainer("dataSearchTags", t.dataSearchTerms || [], "data");
+              document.getElementById("minLineInput").value = t.minLine ?? "";
+              document.getElementById("maxLineInput").value = t.maxLine ?? "";
+              document.getElementById("dataExactCheckbox").checked = t.dataExact || false;
+              document.getElementById("dataCaseCheckbox").checked = t.dataCase || false;
+            }
+          };
+          radioLeft.addEventListener('change', syncFilterUI);
+          radioRight.addEventListener('change', syncFilterUI);
+        }
         document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
           this.updateClouds();
           document.getElementById("cloudOverlay").style.display = "block";
@@ -449,9 +532,18 @@
         document.getElementById("clearHistoryBtn").addEventListener("click", () => this.clearNavigationHistory());
         this.treeViewContainer.addEventListener("scroll", (e) => {
           const scrollLeft = e.target.scrollLeft;
-          document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
+          const hdr = document.getElementById("treeGridHeaderLeft");
+          if (hdr) hdr.style.transform = "translateX(-" + scrollLeft + "px)";
         });
-        window.addEventListener("resize", () => { this.myTreeGrid.updateVisibleNodes(); });
+        this.treeViewContainerRight.addEventListener("scroll", (e) => {
+          const scrollLeft = e.target.scrollLeft;
+          const hdr = document.getElementById("treeGridHeaderRight");
+          if (hdr) hdr.style.transform = "translateX(-" + scrollLeft + "px)";
+        });
+        window.addEventListener("resize", () => { 
+          this.myTreeGrid.updateVisibleNodes();
+          this.myTreeGridRight.updateVisibleNodes();
+        });
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
           document.getElementById("imagePreviewContainer").innerHTML = "";
@@ -511,6 +603,225 @@
         
         // Context menu functionality
         this.initContextMenu();
+
+        // Compare splitter drag between left and right panels
+        this.initCompareSplitter();
+      }
+
+      toggleSideBySideDiff() {
+        this.sideBySideDiffEnabled = !this.sideBySideDiffEnabled;
+        if (this.sideBySideDiffEnabled) {
+          this.computeAndApplySideBySideDiff();
+        } else {
+          this.clearSideBySideDiff();
+        }
+      }
+
+      clearSideBySideDiff() {
+        this.currentDiffMap = null;
+        if (this.myTreeGrid && this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
+        if (this.myTreeGridRight && this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
+        if (this.myTreeGrid && this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
+        if (this.myTreeGridRight && this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
+      }
+
+      computeAndApplySideBySideDiff() {
+        const leftTab = this.getActiveTab();
+        const rightTab = this.getActiveTabRight();
+        if (!leftTab || !rightTab) {
+          alert('Tree Diff requires an active tab on both Left and Right panels.');
+          return;
+        }
+        // Expand all nodes in both tabs for full-structure diff
+        this.expandAllForTab(leftTab);
+        this.expandAllForTab(rightTab);
+        this.myTreeGrid.setData(leftTab.currentTreeData);
+        this.myTreeGridRight.setData(rightTab.currentTreeData);
+        // Build flattened lists of display strings per row using current flat data generation
+        const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData);
+        const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData);
+        const keysLeft = leftFlat.map(r => r.key);
+        const keysRight = rightFlat.map(r => r.key);
+        const aligned = window.TreeDiffEngine.alignByKeysLCS(keysLeft, keysRight);
+        // Determine row and cell classes by comparing values for aligned pairs
+        const leftClasses = new Map();
+        const rightClasses = new Map();
+        const leftCellClasses = new Map(); // index -> {colKey: class}
+        const rightCellClasses = new Map();
+        const totalRows = aligned.length;
+        for (let idx = 0; idx < aligned.length; idx++) {
+          const pair = aligned[idx];
+          const lIdx = pair.leftIndex;
+          const rIdx = pair.rightIndex;
+          if (lIdx != null && rIdx != null) {
+            const l = leftFlat[lIdx];
+            const r = rightFlat[rIdx];
+            if (l.value !== r.value) {
+              leftClasses.set(idx, 'diff-changed');
+              rightClasses.set(idx, 'diff-changed');
+            }
+            // cell-level diffs
+            const lParts = window.TreeDiffEngine.splitValueIntoCells(l);
+            const rParts = window.TreeDiffEngine.splitValueIntoCells(r);
+            const cols = ['line','code','type','objectCount','dataSize'];
+            const lMap = {}; const rMap = {};
+            // Compare line
+            if (lParts.line !== rParts.line) { lMap.line = 'cell-changed'; rMap.line = 'cell-changed'; }
+            // Compare code (properties and end markers show code)
+            if (lParts.code !== rParts.code) { lMap.code = 'cell-changed'; rMap.code = 'cell-changed'; }
+            // Compare type/data display
+            if (lParts.type !== rParts.type) { lMap.type = 'cell-changed'; rMap.type = 'cell-changed'; }
+            // Object count
+            if (lParts.objectCount !== rParts.objectCount) { lMap.objectCount = 'cell-changed'; rMap.objectCount = 'cell-changed'; }
+            // Data size
+            if (lParts.dataSize !== rParts.dataSize) { lMap.dataSize = 'cell-changed'; rMap.dataSize = 'cell-changed'; }
+            if (Object.keys(lMap).length) leftCellClasses.set(idx, lMap);
+            if (Object.keys(rMap).length) rightCellClasses.set(idx, rMap);
+          } else if (lIdx != null) {
+            leftClasses.set(idx, 'diff-removed');
+            leftCellClasses.set(idx, { line: 'cell-removed', code: 'cell-removed', type: 'cell-removed', objectCount: 'cell-removed', dataSize: 'cell-removed' });
+          } else if (rIdx != null) {
+            rightClasses.set(idx, 'diff-added');
+            rightCellClasses.set(idx, { line: 'cell-added', code: 'cell-added', type: 'cell-added', objectCount: 'cell-added', dataSize: 'cell-added' });
+          }
+        }
+        this.currentDiffMap = { leftRowClasses: leftClasses, rightRowClasses: rightClasses, leftCellClasses, rightCellClasses, totalRows };
+        this.myTreeGrid.setRowClassProvider((index, item) => this.currentDiffMap.leftRowClasses.get(index) || null);
+        this.myTreeGridRight.setRowClassProvider((index, item) => this.currentDiffMap.rightRowClasses.get(index) || null);
+        this.myTreeGrid.setCellClassProvider((index, item, key) => {
+          const map = this.currentDiffMap.leftCellClasses.get(index);
+          return map ? map[key] || null : null;
+        });
+        this.myTreeGridRight.setCellClassProvider((index, item, key) => {
+          const map = this.currentDiffMap.rightCellClasses.get(index);
+          return map ? map[key] || null : null;
+        });
+        this.myTreeGrid.setOverrideTotalRows(totalRows);
+        this.myTreeGridRight.setOverrideTotalRows(totalRows);
+        // Build index maps so placeholders are rendered at unmatched positions
+        const leftIndexMap = new Array(totalRows).fill(null);
+        const rightIndexMap = new Array(totalRows).fill(null);
+        for (let idx = 0; idx < totalRows; idx++) {
+          const pair = aligned[idx];
+          if (pair) {
+            if (pair.leftIndex != null) leftIndexMap[idx] = pair.leftIndex;
+            if (pair.rightIndex != null) rightIndexMap[idx] = pair.rightIndex;
+          }
+        }
+        if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(leftIndexMap);
+        if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(rightIndexMap);
+        this.syncVerticalScroll();
+        // Force re-render
+        this.myTreeGrid.updateVisibleNodes();
+        this.myTreeGridRight.updateVisibleNodes();
+      }
+
+      // splitValueIntoCells moved to TreeDiffEngine
+
+      expandAllForTab(tab) {
+        if (!tab) return;
+        this.expandAllNodes(tab.originalTreeData);
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms || [],
+          tab.dataSearchTerms || [],
+          tab.dataExact || false,
+          tab.dataCase || false,
+          tab.minLine || null,
+          tab.maxLine || null,
+          tab.selectedObjectTypes || []
+        );
+      }
+
+
+      syncVerticalScroll() {
+        if (this._scrollSyncAttached) return;
+        const leftC = this.treeViewContainer;
+        const rightC = this.treeViewContainerRight;
+        if (!leftC || !rightC) return;
+        let syncing = false;
+        const onLeft = () => {
+          if (syncing) return; syncing = true;
+          rightC.scrollTop = leftC.scrollTop;
+          syncing = false;
+        };
+        const onRight = () => {
+          if (syncing) return; syncing = true;
+          leftC.scrollTop = rightC.scrollTop;
+          syncing = false;
+        };
+        leftC.addEventListener('scroll', onLeft);
+        rightC.addEventListener('scroll', onRight);
+        this._scrollSyncAttached = true;
+      }
+
+      toggleRightPanel() {
+        const right = document.getElementById('panelRight');
+        const splitter = document.getElementById('compareSplitter');
+        if (!right || !splitter) return;
+        const hidden = right.style.display === 'none';
+        if (hidden) {
+          right.style.display = 'flex';
+          splitter.style.display = 'block';
+        } else {
+          right.style.display = 'none';
+          splitter.style.display = 'none';
+        }
+        // Relayout grids
+        setTimeout(() => {
+          this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        }, 0);
+      }
+
+      initCompareSplitter() {
+        const splitter = document.getElementById('compareSplitter');
+        const left = document.getElementById('panelLeft');
+        const right = document.getElementById('panelRight');
+        const container = document.getElementById('compareContainer');
+        if (!splitter || !left || !right || !container) return;
+
+        let isDragging = false;
+        let startX = 0;
+        let startLeftWidth = 0;
+        splitter.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          isDragging = true;
+          startX = e.clientX;
+          startLeftWidth = left.getBoundingClientRect().width;
+          document.body.style.cursor = 'ew-resize';
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+        });
+        const onMouseMove = (e) => {
+          if (!isDragging) return;
+          const dx = e.clientX - startX;
+          const containerWidth = container.getBoundingClientRect().width;
+          let newLeftWidth = startLeftWidth + dx;
+          const min = 150;
+          const max = containerWidth - 150;
+          if (newLeftWidth < min) newLeftWidth = min;
+          if (newLeftWidth > max) newLeftWidth = max;
+          left.style.flex = 'none';
+          right.style.flex = 'none';
+          left.style.width = newLeftWidth + 'px';
+          right.style.width = (containerWidth - newLeftWidth - splitter.getBoundingClientRect().width - 8 /*gap approx*/) + 'px';
+          // Update grids during drag for responsiveness
+          this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        };
+        const onMouseUp = () => {
+          isDragging = false;
+          document.body.style.cursor = '';
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+          // Final relayout
+          this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        };
       }
       
       // Initialize context menu functionality
@@ -1054,7 +1365,14 @@
       }
 
       updateEffectiveSearchTerms() {
-        const activeTab = this.getActiveTab();
+        const radioRight = document.getElementById("filterTargetRight");
+        const useRight = radioRight && radioRight.checked;
+        const getTab = () => useRight ? this.getActiveTabRight() : this.getActiveTab();
+        const setData = (data) => useRight ? this.myTreeGridRight.setData(data) : this.myTreeGrid.setData(data);
+        const setScrollTop = () => {
+          if (useRight) this.treeViewContainerRight.scrollTop = 0; else this.treeViewContainer.scrollTop = 0;
+        };
+        const activeTab = getTab();
         if (!activeTab) return;
         const codeInput = document.getElementById("codeSearchInput");
         const dataInput = document.getElementById("dataSearchInput");
@@ -1100,8 +1418,8 @@
           activeTab.maxLine,
           selectedTypes // Pass selected types into the filter
         );
-        this.myTreeGrid.setData(activeTab.currentTreeData);
-        this.treeViewContainer.scrollTop = 0;
+        setData(activeTab.currentTreeData);
+        setScrollTop();
         // Save state after search terms change
         this.saveCurrentState();
       }
@@ -1193,24 +1511,41 @@
       }
  
       updateTabUI() {
-        const tabContainer = document.getElementById("tabContainer");
-        tabContainer.innerHTML = "";
-        this.tabs.forEach(tab => {
+        // Left panel tabs
+        this.renderTabsInto('tabContainerLeft', this.tabs, this.activeTabId, true);
+        // Right panel tabs
+        this.renderTabsInto('tabContainerRight', this.tabsRight, this.activeTabIdRight, false);
+        this.populateObjectTypeDropdown();
+        this.updateNavHistoryUI();
+        this.updateNavButtons();
+      }
+
+      renderTabsInto(containerId, tabsArr, activeId, isLeftPanel) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.innerHTML = "";
+        tabsArr.forEach(tab => {
           const tabElem = document.createElement("div");
-          tabElem.className = "tab" + (tab.id === this.activeTabId ? " active" : "");
+          tabElem.className = "tab" + (tab.id === activeId ? " active" : "");
           tabElem.textContent = tab.name;
           tabElem.dataset.tabId = tab.id;
           tabElem.addEventListener("click", () => {
-            this.activeTabId = tab.id;
-            document.getElementById("codeSearchInput").value = "";
-            document.getElementById("dataSearchInput").value = "";
-            this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
-            this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
-            document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
-            document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
-            document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
-            document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
-            this.myTreeGrid.setData(tab.currentTreeData);
+            if (isLeftPanel) {
+              this.activeTabId = tab.id;
+              // Sync filter UI for left panel
+              document.getElementById("codeSearchInput").value = "";
+              document.getElementById("dataSearchInput").value = "";
+              this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
+              this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
+              document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
+              document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
+              document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
+              document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
+              this.myTreeGrid.setData(tab.currentTreeData);
+            } else {
+              this.activeTabIdRight = tab.id;
+              if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+            }
             this.updateTabUI();
           });
           const closeBtn = document.createElement("span");
@@ -1218,28 +1553,33 @@
           closeBtn.textContent = "×";
           closeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            // Remove state for the closed tab
-            this.stateManager.removeTabState(tab.id);
-            
-            this.tabs = this.tabs.filter(t => t.id !== tab.id);
-            if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
-            this.updateTabUI();
-            if (this.activeTabId) { 
-              this.myTreeGrid.setData(this.getActiveTab().currentTreeData); 
-              // Apply filters for the new active tab
-              this.applyTabFilters(this.getActiveTab());
+            if (isLeftPanel) {
+              this.stateManager.removeTabState(tab.id);
+              this.tabs = this.tabs.filter(t => t.id !== tab.id);
+              if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
+              this.updateTabUI();
+              if (this.activeTabId) {
+                this.myTreeGrid.setData(this.getActiveTab().currentTreeData);
+                this.applyTabFilters(this.getActiveTab());
+              } else {
+                this.myTreeGrid.setData([]);
+              }
+              this.saveCurrentState();
+            } else {
+              this.tabsRight = this.tabsRight.filter(t => t.id !== tab.id);
+              if (this.activeTabIdRight === tab.id) { this.activeTabIdRight = this.tabsRight.length ? this.tabsRight[0].id : null; }
+              this.updateTabUI();
+              if (this.activeTabIdRight) {
+                const t = this.tabsRight.find(t => t.id === this.activeTabIdRight);
+                if (this.myTreeGridRight) this.myTreeGridRight.setData(t ? t.currentTreeData : []);
+              } else {
+                if (this.myTreeGridRight) this.myTreeGridRight.setData([]);
+              }
             }
-            else { this.myTreeGrid.setData([]); }
-            
-            // Save state after tab closure
-            this.saveCurrentState();
           });
           tabElem.appendChild(closeBtn);
-          tabContainer.appendChild(tabElem);
+          container.appendChild(tabElem);
         });
-        this.populateObjectTypeDropdown();
-        this.updateNavHistoryUI();
-        this.updateNavButtons();
       }
       
       expandAllNodes(nodes) {
@@ -1358,6 +1698,31 @@
           this.saveCurrentState();
         }
       }
+
+      getActiveTabRight() { return this.tabsRight.find(t => t.id === this.activeTabIdRight); }
+
+      handleToggleExpandRight(nodeId) {
+        const activeTab = this.getActiveTabRight();
+        if (!activeTab) return;
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (node) {
+          node.expanded = !node.expanded;
+          if (activeTab.currentSortField) {
+            this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
+          }
+          activeTab.currentTreeData = this.filterTree(
+            activeTab.originalTreeData,
+            activeTab.codeSearchTerms || [],
+            activeTab.dataSearchTerms || [],
+            activeTab.dataExact || false,
+            activeTab.dataCase || false,
+            activeTab.minLine || null,
+            activeTab.maxLine || null,
+            activeTab.selectedObjectTypes || []
+          );
+          this.myTreeGridRight.setData(activeTab.currentTreeData);
+        }
+      }
       
       getSortValue(node, field) {
         if (field === "line") { return node.line ? Number(node.line) : 0; }
@@ -1468,6 +1833,44 @@
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
       }
+
+      handleHeaderClickRight(headerCell) {
+        const field = headerCell.getAttribute('data-field');
+        const activeTab = this.getActiveTabRight();
+        if (!activeTab) return;
+        let currentSort = headerCell.getAttribute('data-sort');
+        let ascending = true;
+        if (currentSort === 'asc') {
+          ascending = false;
+          headerCell.setAttribute('data-sort', 'desc');
+          headerCell.querySelector('.sort-indicator').textContent = ' ▼';
+        } else {
+          ascending = true;
+          headerCell.setAttribute('data-sort', 'asc');
+          headerCell.querySelector('.sort-indicator').textContent = ' ▲';
+        }
+        activeTab.currentSortField = field;
+        activeTab.currentSortAscending = ascending;
+        document.querySelectorAll('#treeGridHeaderRight .header-cell').forEach(cell => {
+          if (cell !== headerCell) {
+            cell.setAttribute('data-sort', 'none');
+            const si = cell.querySelector('.sort-indicator');
+            if (si) si.textContent = '';
+          }
+        });
+        this.sortTreeNodes(activeTab.originalTreeData, field, ascending);
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          activeTab.codeSearchTerms || [],
+          activeTab.dataSearchTerms || [],
+          activeTab.dataExact || false,
+          activeTab.dataCase || false,
+          activeTab.minLine || null,
+          activeTab.maxLine || null,
+          activeTab.selectedObjectTypes || []
+        );
+        this.myTreeGridRight.setData(activeTab.currentTreeData);
+      }
       
       handleResizerMouseDown(e) {
         e.stopPropagation();
@@ -1481,6 +1884,27 @@
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
           this.myTreeGrid.updateVisibleNodes();
+        };
+        const onMouseUp = () => {
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onMouseUp);
+        };
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      }
+
+      handleResizerMouseDownRight(e) {
+        e.stopPropagation();
+        const headerCell = e.target.parentElement;
+        const field = headerCell.getAttribute('data-field');
+        const startX = e.clientX;
+        const startWidth = headerCell.offsetWidth;
+        const onMouseMove = (eMove) => {
+          const newWidth = startWidth + (eMove.clientX - startX);
+          this.columnWidths[field] = newWidth;
+          headerCell.style.width = newWidth + "px";
+          headerCell.style.flex = "none";
+          this.myTreeGridRight.updateVisibleNodes();
         };
         const onMouseUp = () => {
           document.removeEventListener("mousemove", onMouseMove);
@@ -1728,7 +2152,7 @@
         return grouped.objects;
       }
       
-      handleFiles(files) {
+      handleFiles(files, panel = 'left') {
         const useStream = document.getElementById("useStreamCheckbox").checked;
         if (!files || files.length === 0) {
           alert("Please select (or drop) at least one DXF file.");
@@ -1759,14 +2183,21 @@
                     currentHistoryIndex: -1,
                     classIdToName: {}
                   };
-                  this.tabs.push(newTab);
-                  this.activeTabId = newTab.id;
-                  // Initialize class mapping before displaying data
-                  this.updateClasses();
-                  this.updateTabUI();
-                  this.myTreeGrid.setData(newTab.currentTreeData);
-                  // Save state after new tab creation
-                  this.saveCurrentState();
+                  if (panel === 'right') {
+                    this.tabsRight.push(newTab);
+                    this.activeTabIdRight = newTab.id;
+                    this.updateTabUI();
+                    this.myTreeGridRight.setData(newTab.currentTreeData);
+                  } else {
+                    this.tabs.push(newTab);
+                    this.activeTabId = newTab.id;
+                    // Initialize class mapping before displaying data
+                    this.updateClasses();
+                    this.updateTabUI();
+                    this.myTreeGrid.setData(newTab.currentTreeData);
+                    // Save state after new tab creation
+                    this.saveCurrentState();
+                  }
                 })
               .catch(err => {
                 console.error("Error during streamed parsing:", err);
@@ -1794,14 +2225,21 @@
                   currentHistoryIndex: -1,
                   classIdToName: {}
                 };
-              this.tabs.push(newTab);
-              this.activeTabId = newTab.id;
-              // Call updateClasses() now so that CLASS nodes get their classId set.
-              this.updateClasses();
-              this.updateTabUI();
-              this.myTreeGrid.setData(newTab.currentTreeData);
-              // Save state after new tab creation
-              this.saveCurrentState();
+              if (panel === 'right') {
+                this.tabsRight.push(newTab);
+                this.activeTabIdRight = newTab.id;
+                this.updateTabUI();
+                this.myTreeGridRight.setData(newTab.currentTreeData);
+              } else {
+                this.tabs.push(newTab);
+                this.activeTabId = newTab.id;
+                // Call updateClasses() now so that CLASS nodes get their classId set.
+                this.updateClasses();
+                this.updateTabUI();
+                this.myTreeGrid.setData(newTab.currentTreeData);
+                // Save state after new tab creation
+                this.saveCurrentState();
+              }
             };
             reader.readAsText(file, "ascii");
           }
@@ -1810,7 +2248,7 @@
       
       handleParse() {
         const fileInput = document.getElementById("fileInput");
-        this.handleFiles(fileInput.files);
+        this.handleFiles(fileInput.files, 'left');
       }
       
       // Create a new empty DXF file with minimum valid structure
@@ -1989,7 +2427,8 @@ EOF`;
       }
       
       handleSearch() {
-        const activeTab = this.getActiveTab();
+        const targetRight = document.getElementById("filterTargetRight")?.checked;
+        const activeTab = targetRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         const codeInput = document.getElementById("codeSearchInput");
         const dataInput = document.getElementById("dataSearchInput");
@@ -2013,7 +2452,8 @@ EOF`;
       }
       
       handleClearSearch() {
-        const activeTab = this.getActiveTab();
+        const targetRight = document.getElementById("filterTargetRight")?.checked;
+        const activeTab = targetRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
 
         // Clear search-related terms
@@ -2053,8 +2493,13 @@ EOF`;
           null,
           activeTab.selectedObjectTypes
         );
-        this.myTreeGrid.setData(activeTab.currentTreeData);
-        this.treeViewContainer.scrollTop = 0;
+        if (targetRight) {
+          this.myTreeGridRight.setData(activeTab.currentTreeData);
+          this.treeViewContainerRight.scrollTop = 0;
+        } else {
+          this.myTreeGrid.setData(activeTab.currentTreeData);
+          this.treeViewContainer.scrollTop = 0;
+        }
       }
       
       findPathByHandle(nodes, handle) {

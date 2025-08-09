@@ -15,6 +15,7 @@
   <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>
   <script src="components/state-manager.js"></script>
+  <script src="components/tree-diff-engine.js"></script>
   <script src="components/dxf-diagnostics-engine.js"></script>
   <script src="components/app.js"></script>
   <link rel="stylesheet" href="styles.css">
@@ -34,6 +35,7 @@
           <input type="checkbox" id="useStreamCheckbox">
           Use Streamed Parsing
         </label>
+        <button id="toggleRightPanelBtn" title="Show/Hide right panel">Toggle Right Panel</button>
         <button id="createNewDxfBtn">Create New</button>
         <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
       </div>
@@ -59,10 +61,18 @@
           <button id="showTextsOverlayBtn">Texts</button>
           <button id="showDiagnosticsOverlayBtn">Diagnostics</button>
           <button id="showBatchProcessOverlayBtn">Batch Process</button>
-          <button id="showDiffOverlayBtn">Diff DXF</button>
+        <button id="showDiffOverlayBtn">Diff DXF</button>
+        <button id="toggleSideBySideDiffBtn" title="Toggle side-by-side tree diff coloring">Tree Diff</button>
         </div>
         <div class="filter-panel" id="filterPanel">
           <h2>Filters</h2>
+          <div class="filter-row" style="margin-top: 0.25em;">
+            <label style="font-weight:600;">Apply to:</label>
+            <div style="display:flex; gap:1em; align-items:center;">
+              <label><input type="radio" name="filterTarget" id="filterTargetLeft" checked> Left</label>
+              <label><input type="radio" name="filterTarget" id="filterTargetRight"> Right</label>
+            </div>
+          </div>
           <div class="filter-content">
             <div class="filter-row">
               <div id="codeSearchTags" class="tag-container">
@@ -112,8 +122,7 @@
       <div class="pane-resizer"></div>
       <!-- Main Content Area -->
       <div class="main-content">
-        
-        <!-- Toolbar: Row controls (left) + Handle navigation (right) -->
+        <!-- Row: global controls and split load buttons -->
         <div id="rowControls" class="row-controls">
           <div class="row-controls-left">
             <button id="addRowBtn">Add Row</button>
@@ -138,34 +147,74 @@
             </div>
           </div>
         </div>
-        <!-- Tabs -->
-        <div id="tabContainer"></div>
-        <!-- Tree Grid Header -->
-        <div id="treeGridHeader" class="tree-header">
-          <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
-            Line <span class="sort-indicator"></span>
-            <div class="resizer"></div>
+        <!-- Two panel compare layout -->
+        <div id="compareContainer" style="display:flex; gap: 8px; height: calc(100% - 60px);">
+          <!-- Left Panel -->
+          <div class="panel" id="panelLeft" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+            <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
+              <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
+              <label style="white-space:nowrap; font-size:12px;">Load into: <button id="parseLeftBtn">Left</button></label>
+            </div>
+            <div id="treeGridHeaderLeft" class="tree-header">
+              <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
+                Line <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+                Code <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+                Data <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
+                Object Count <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
+                Data Size <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+            </div>
+            <div id="treeViewContainerLeft" style="position: relative; flex:1; overflow:auto; border:1px solid #ccc; clip-path: inset(0);">
+              <div id="treeViewContentLeft" style="position: relative; overflow: hidden;"></div>
+            </div>
           </div>
-          <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
-            Code <span class="sort-indicator"></span>
-            <div class="resizer"></div>
+          <!-- Splitter between panels -->
+          <div id="compareSplitter" class="compare-splitter" style="width:6px; cursor: ew-resize; background:#ccc; flex: none;"></div>
+          <!-- Right Panel -->
+          <div class="panel" id="panelRight" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+            <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
+              <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
+              <label style="white-space:nowrap; font-size:12px;">Load into: <button id="parseRightBtn">Right</button></label>
+            </div>
+            <div id="treeGridHeaderRight" class="tree-header">
+              <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
+                Line <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+                Code <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+                Data <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
+                Object Count <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
+                Data Size <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+            </div>
+            <div id="treeViewContainerRight" style="position: relative; flex:1; overflow:auto; border:1px solid #ccc; clip-path: inset(0);">
+              <div id="treeViewContentRight" style="position: relative; overflow: hidden;"></div>
+            </div>
           </div>
-          <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
-            Data <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
-            Object Count <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
-            Data Size <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-        </div>
-        <!-- Tree View Container -->
-        <div id="treeViewContainer">
-          <div id="treeViewContent"></div>
         </div>
       </div>
     </div>
@@ -697,10 +746,16 @@
       function scheduleGridRelayout() {
         // Prefer calling the app grid directly; fallback to a window resize event
         const run = () => {
-          if (window.app && window.app.myTreeGrid) {
+          if (window.app) {
             // Run twice to ensure after layout settles
-            window.app.myTreeGrid.updateVisibleNodes();
-            requestAnimationFrame(() => window.app.myTreeGrid.updateVisibleNodes());
+            if (window.app.myTreeGridLeft) {
+              window.app.myTreeGridLeft.updateVisibleNodes();
+              requestAnimationFrame(() => window.app.myTreeGridLeft.updateVisibleNodes());
+            }
+            if (window.app.myTreeGridRight) {
+              window.app.myTreeGridRight.updateVisibleNodes();
+              requestAnimationFrame(() => window.app.myTreeGridRight.updateVisibleNodes());
+            }
           } else {
             window.dispatchEvent(new Event('resize'));
           }
