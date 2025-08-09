@@ -98,8 +98,8 @@
           <div class="panel" id="panelLeft" style="flex:1; display:flex; flex-direction:column; min-width:0;">
             <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
               <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
-              <input type="file" id="fileInputLeft" accept=".dxf" multiple>
-              <button id="parseLeftBtn">Parse</button>
+              <input type="file" id="fileInputLeft" accept=".dxf" multiple style="display:none">
+              <button id="openLeftBtn" title="Open DXF on left">Open</button>
               <button id="expandAllLeftBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
               </button>
@@ -142,8 +142,8 @@
           <div class="panel" id="panelRight" style="flex:1; display:flex; flex-direction:column; min-width:0;">
             <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
               <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
-              <input type="file" id="fileInputRight" accept=".dxf" multiple>
-              <button id="parseRightBtn">Parse</button>
+              <input type="file" id="fileInputRight" accept=".dxf" multiple style="display:none">
+              <button id="openRightBtn" title="Open DXF on right">Open</button>
               <button id="expandAllRightBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
               </button>

@@ -239,18 +239,31 @@
       }
       
       initEventListeners() {
-        const parseLeftBtn = document.getElementById("parseLeftBtn");
-        const parseRightBtn = document.getElementById("parseRightBtn");
-        if (parseLeftBtn) {
+        const parseLeftBtn = document.getElementById("openLeftBtn");
+        const parseRightBtn = document.getElementById("openRightBtn");
+        const fileInputLeft = document.getElementById("fileInputLeft");
+        const fileInputRight = document.getElementById("fileInputRight");
+        // One-click add: clicking the button opens the picker; selection parses automatically
+        if (parseLeftBtn && fileInputLeft) {
           parseLeftBtn.addEventListener("click", () => {
-            const fileInput = document.getElementById("fileInputLeft");
-            this.handleFiles(fileInput.files, 'left');
+            fileInputLeft.value = ""; // allow re-selecting same file
+            fileInputLeft.click();
+          });
+          fileInputLeft.addEventListener("change", (e) => {
+            const files = e.target.files;
+            if (files && files.length) this.handleFiles(files, 'left');
+            e.target.value = ""; // reset for next selection
           });
         }
-        if (parseRightBtn) {
+        if (parseRightBtn && fileInputRight) {
           parseRightBtn.addEventListener("click", () => {
-            const fileInput = document.getElementById("fileInputRight");
-            this.handleFiles(fileInput.files, 'right');
+            fileInputRight.value = "";
+            fileInputRight.click();
+          });
+          fileInputRight.addEventListener("change", (e) => {
+            const files = e.target.files;
+            if (files && files.length) this.handleFiles(files, 'right');
+            e.target.value = "";
           });
         }
         const createNewBtn = document.getElementById("createNewDxfBtn");
