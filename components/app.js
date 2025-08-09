@@ -799,13 +799,14 @@
         const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData);
         const keysLeft = leftFlat.map(r => r.key);
         const keysRight = rightFlat.map(r => r.key);
-        const aligned = window.TreeDiffEngine.alignByKeysLCS(keysLeft, keysRight);
+        const aligned = window.TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
         // Determine row and cell classes by comparing values for aligned pairs
         const leftClasses = new Map();
         const rightClasses = new Map();
         const leftCellClasses = new Map(); // index -> {colKey: class}
         const rightCellClasses = new Map();
         const totalRows = aligned.length;
+        const caches = { objectCount: new Map(), dataSize: new Map() };
         for (let idx = 0; idx < aligned.length; idx++) {
           const pair = aligned[idx];
           const lIdx = pair.leftIndex;
@@ -818,8 +819,8 @@
               rightClasses.set(idx, 'diff-changed');
             }
             // cell-level diffs
-            const lParts = window.TreeDiffEngine.splitValueIntoCells(l);
-            const rParts = window.TreeDiffEngine.splitValueIntoCells(r);
+            const lParts = window.TreeDiffEngine.splitValueIntoCellsWithCache(l, caches);
+            const rParts = window.TreeDiffEngine.splitValueIntoCellsWithCache(r, caches);
             const cols = ['line','code','type','objectCount','dataSize'];
             const lMap = {}; const rMap = {};
             // Compare line
