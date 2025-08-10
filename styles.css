@@ -1273,7 +1273,7 @@ body { font-family: sans-serif; }
 
 /* Collapsed: keep a narrow rail with only the toggle visible */
 .content-wrapper.sidebar-collapsed .sidebar {
-  width: 40px; /* fixed narrow rail to avoid overlap */
+  width: 38px; /* ensure consistent collapsed rail across reloads */
   padding: 4px 6px;
   border-right: 1px solid #ccc;
 }

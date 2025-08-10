@@ -715,11 +715,13 @@
           toggleBtn.setAttribute('aria-pressed', 'true');
           // Let CSS control collapsed width; clear any inline width
           if (sidebarEl) sidebarEl.style.width = '';
+          try { localStorage.removeItem('sidebarWidthPx'); } catch (e) {}
         } else {
           contentWrapper.classList.remove('sidebar-collapsed');
           toggleBtn.setAttribute('aria-pressed', 'false');
           // Use natural content width (no persisted width)
           if (sidebarEl) sidebarEl.style.width = '';
+          try { localStorage.removeItem('sidebarWidthPx'); } catch (e) {}
         }
         try { localStorage.setItem('sidebarCollapsed', String(collapsed)); } catch (e) {}
         scheduleGridRelayout();
@@ -728,9 +730,16 @@
       // Initialize from saved state (migrate old key if present)
       const savedCollapsed = (function() {
         try {
-          const legacyHidden = localStorage.getItem('sidebarHidden') === 'true';
+          const legacy = localStorage.getItem('sidebarHidden');
+          if (legacy !== null) {
+            const collapsed = legacy === 'true';
+            // Migrate and clear legacy key
+            localStorage.setItem('sidebarCollapsed', String(collapsed));
+            localStorage.removeItem('sidebarHidden');
+            return collapsed;
+          }
           const newCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-          return newCollapsed || legacyHidden;
+          return newCollapsed;
         } catch (e) { return false; }
       })();
       setSidebarCollapsed(savedCollapsed);

@@ -5142,6 +5142,119 @@ EOF`;
 
       downloadTreeAsExcel() {
         const workbook = XLSX.utils.book_new();
+        const rightPanel = document.getElementById('panelRight');
+        const hasLeft = !!this.getActiveTab();
+        const hasRight = !!this.getActiveTabRight() && rightPanel && rightPanel.style.display !== 'none';
+
+        // Helper to style a cell with a background color (ARGB)
+        const setCellFill = (ws, r1based, c0based, argb) => {
+          const addr = { r: r1based - 1, c: c0based };
+          const ref = XLSX.utils.encode_cell(addr);
+          const cell = ws[ref];
+          if (!cell) return; // only style existing cells
+          ws[ref].s = ws[ref].s || {};
+          ws[ref].s.fill = { patternType: "solid", fgColor: { rgb: argb } };
+        };
+
+        if (hasLeft && hasRight) {
+          // Build side-by-side export
+          const leftTab = this.getActiveTab();
+          const rightTab = this.getActiveTabRight();
+          const leftTree = leftTab ? leftTab.currentTreeData : [];
+          const rightTree = rightTab ? rightTab.currentTreeData : [];
+
+          // Flatten with keys to align rows between panes
+          const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTree);
+          const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTree);
+          const keysLeft = leftFlat.map(r => r.key);
+          const keysRight = rightFlat.map(r => r.key);
+          const aligned = window.TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
+
+          // Optionally compute diff classes for styling
+          let diff = null;
+          if (this.sideBySideDiffEnabled) {
+            diff = window.TreeDiffEngine.computeDiff(leftTree, rightTree);
+          }
+
+          const ws_data = [[
+            "L: Line", "L: Code", "L: Data", "L: Object Count", "L: Data Size",
+            "",
+            "R: Line", "R: Code", "R: Data", "R: Object Count", "R: Data Size"
+          ]];
+
+          const caches = { objectCount: new Map(), dataSize: new Map() };
+
+          for (let idx = 0; idx < aligned.length; idx++) {
+            const { leftIndex: lIdx, rightIndex: rIdx } = aligned[idx];
+            let lCells = ["", "", "", "", ""];
+            let rCells = ["", "", "", "", ""];
+            if (lIdx != null) {
+              const row = leftFlat[lIdx];
+              const parts = window.TreeDiffEngine.splitValueIntoCellsWithCache(row, caches);
+              const indentedType = " ".repeat((row.level || 0) * 2) + (parts.type || "");
+              lCells = [parts.line || "", parts.code || "", indentedType, parts.objectCount || "", parts.dataSize || ""];
+            }
+            if (rIdx != null) {
+              const row = rightFlat[rIdx];
+              const parts = window.TreeDiffEngine.splitValueIntoCellsWithCache(row, caches);
+              const indentedType = " ".repeat((row.level || 0) * 2) + (parts.type || "");
+              rCells = [parts.line || "", parts.code || "", indentedType, parts.objectCount || "", parts.dataSize || ""];
+            }
+            ws_data.push([...lCells, "", ...rCells]);
+          }
+
+          const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
+          // Autofilter across both panes (K is column 10 zero-based -> 11 one-based)
+          const rangeRef = `A1:K${ws_data.length}`;
+          worksheet["!autofilter"] = { ref: rangeRef };
+
+          // Apply diff coloring if enabled
+          if (diff) {
+            const leftColOffset = 0; // A..E => 0..4
+            const rightColOffset = 6; // G..K => 6..10
+            const colorChanged = "FFFFFFB1"; // light yellow
+            const colorAdded = "FFE6FFED";  // light green
+            const colorRemoved = "FFFFEEF0"; // light red
+
+            // Row-level classes
+            for (let i = 0; i < diff.totalRows; i++) {
+              const excelRow = i + 2; // data starts at row 2
+              const leftRowClass = diff.leftRowClasses.get(i) || null;
+              const rightRowClass = diff.rightRowClasses.get(i) || null;
+              if (leftRowClass === 'diff-removed') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, leftColOffset + c, colorRemoved);
+              }
+              if (rightRowClass === 'diff-added') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, rightColOffset + c, colorAdded);
+              }
+            }
+
+            // Cell-level classes
+            const keys = ['line','code','type','objectCount','dataSize'];
+            const keyToLeftCol = { line:0, code:1, type:2, objectCount:3, dataSize:4 };
+            for (let i = 0; i < diff.totalRows; i++) {
+              const excelRow = i + 2;
+              const lMap = diff.leftCellClasses.get(i) || null;
+              const rMap = diff.rightCellClasses.get(i) || null;
+              if (lMap) {
+                for (const k of keys) {
+                  if (lMap[k]) setCellFill(worksheet, excelRow, leftColOffset + keyToLeftCol[k], colorChanged);
+                }
+              }
+              if (rMap) {
+                for (const k of keys) {
+                  if (rMap[k]) setCellFill(worksheet, excelRow, rightColOffset + keyToLeftCol[k], colorChanged);
+                }
+              }
+            }
+          }
+
+          XLSX.utils.book_append_sheet(workbook, worksheet, "Tree");
+          XLSX.writeFile(workbook, "tree_data.xlsx");
+          return;
+        }
+
+        // Fallback: only left panel
         const ws_data = [["Line", "Code", "Data", "Object Count", "Data Size"]];
         this.myTreeGrid.flatData.forEach(({ node, level }) => {
           const line = node.line || "";
