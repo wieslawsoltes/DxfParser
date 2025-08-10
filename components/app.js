@@ -5212,9 +5212,10 @@ EOF`;
           if (diff) {
             const leftColOffset = 0; // A..E => 0..4
             const rightColOffset = 6; // G..K => 6..10
-            const colorChanged = "FFFFFFB1"; // light yellow
-            const colorAdded = "FFE6FFED";  // light green
-            const colorRemoved = "FFFFEEF0"; // light red
+            // XLSX-js-style expects 8-digit ARGB. Match TDG CSS colors (#fff5b1, #e6ffed, #ffeef0).
+            const colorChanged = "FFFFF5B1"; // AARRGGBB: FF + F5B1
+            const colorAdded = "FFE6FFED";  // FF + E6FFED
+            const colorRemoved = "FFFFEEF0"; // FF + FFEEF0
 
             // Row-level classes
             for (let i = 0; i < diff.totalRows; i++) {
@@ -5227,6 +5228,12 @@ EOF`;
               if (rightRowClass === 'diff-added') {
                 for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, rightColOffset + c, colorAdded);
               }
+              if (leftRowClass === 'diff-changed') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, leftColOffset + c, colorChanged);
+              }
+              if (rightRowClass === 'diff-changed') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, rightColOffset + c, colorChanged);
+              }
             }
 
             // Cell-level classes
@@ -5238,12 +5245,22 @@ EOF`;
               const rMap = diff.rightCellClasses.get(i) || null;
               if (lMap) {
                 for (const k of keys) {
-                  if (lMap[k]) setCellFill(worksheet, excelRow, leftColOffset + keyToLeftCol[k], colorChanged);
+                  const cls = lMap[k];
+                  if (!cls) continue;
+                  const col = leftColOffset + keyToLeftCol[k];
+                  if (cls === 'cell-changed') setCellFill(worksheet, excelRow, col, colorChanged);
+                  else if (cls === 'cell-added') setCellFill(worksheet, excelRow, col, colorAdded);
+                  else if (cls === 'cell-removed') setCellFill(worksheet, excelRow, col, colorRemoved);
                 }
               }
               if (rMap) {
                 for (const k of keys) {
-                  if (rMap[k]) setCellFill(worksheet, excelRow, rightColOffset + keyToLeftCol[k], colorChanged);
+                  const cls = rMap[k];
+                  if (!cls) continue;
+                  const col = rightColOffset + keyToLeftCol[k];
+                  if (cls === 'cell-changed') setCellFill(worksheet, excelRow, col, colorChanged);
+                  else if (cls === 'cell-added') setCellFill(worksheet, excelRow, col, colorAdded);
+                  else if (cls === 'cell-removed') setCellFill(worksheet, excelRow, col, colorRemoved);
                 }
               }
             }
