@@ -34,9 +34,9 @@
           <input type="checkbox" id="useStreamCheckbox">
           Use Streamed Parsing
         </label>
-        <button id="toggleRightPanelBtn" title="Show/Hide right panel">Toggle Right Panel</button>
-        <button id="createNewDxfBtn">Create New</button>
-        <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
+        <button id="toggleRightPanelBtn" class="icon-button has-tooltip" title="Toggle Right Panel" aria-label="Toggle Right Panel" data-tooltip="Toggle Right Panel"><span aria-hidden="true">↔️</span></button>
+        <button id="createNewDxfBtn" class="icon-button has-tooltip" title="Create New DXF" aria-label="Create New DXF" data-tooltip="Create New DXF"><span aria-hidden="true">🆕</span></button>
+        <button id="resetStateBtn" class="icon-button has-tooltip" title="Reset State" aria-label="Reset State" data-tooltip="Reset State"><span aria-hidden="true">🔄</span></button>
       </div>
     </div>
     <!-- Main content wrapper with sidebar and main content -->
@@ -44,21 +44,21 @@
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
         <div class="sidebar-buttons">
-          <button id="showCloudOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">☁️</span><span>Cloud Data</span></button>
-          <button id="showStatsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">📊</span><span>Statistics</span></button>
-          <button id="showDepsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🔗</span><span>Dependencies</span></button>
-          <button id="showBinaryObjectsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🧱</span><span>Binary Objects</span></button>
-          <button id="showHandleMapOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🗺️</span><span>Handle Map</span></button>
-          <button id="showProxyObjectsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🪞</span><span>Proxy Objects</span></button>
-          <button id="showFontsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🔤</span><span>Fonts Used</span></button>
-          <button id="showClassesOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🏷️</span><span>Classes</span></button>
-          <button id="showObjectSizeOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">📏</span><span>Object Sizes</span></button>
-          <button id="showBlocksOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🧩</span><span>Blocks &amp; Inserts</span></button>
-          <button id="showLineTypesOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">⎯⎯</span><span>Line Types</span></button>
-          <button id="showTextsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">✎</span><span>Texts</span></button>
-          <button id="showDiagnosticsOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🩺</span><span>Diagnostics</span></button>
-          <button id="showBatchProcessOverlayBtn" class="fluent-button"><span class="fluent-icon" aria-hidden="true">🧰</span><span>Batch Process</span></button>
-          <button id="toggleSideBySideDiffBtn" class="fluent-button" title="Toggle side-by-side tree diff coloring"><span class="fluent-icon" aria-hidden="true">⇄</span><span>Tree Diff</span></button>
+          <button id="showCloudOverlayBtn" class="fluent-button has-tooltip" title="Cloud Data" data-tooltip="Cloud Data"><span class="fluent-icon" aria-hidden="true">☁️</span><span>Cloud Data</span></button>
+          <button id="showStatsOverlayBtn" class="fluent-button has-tooltip" title="Statistics" data-tooltip="Statistics"><span class="fluent-icon" aria-hidden="true">📊</span><span>Statistics</span></button>
+          <button id="showDepsOverlayBtn" class="fluent-button has-tooltip" title="Dependencies" data-tooltip="Dependencies"><span class="fluent-icon" aria-hidden="true">🔗</span><span>Dependencies</span></button>
+          <button id="showBinaryObjectsOverlayBtn" class="fluent-button has-tooltip" title="Binary Objects" data-tooltip="Binary Objects"><span class="fluent-icon" aria-hidden="true">🧱</span><span>Binary Objects</span></button>
+          <button id="showHandleMapOverlayBtn" class="fluent-button has-tooltip" title="Handle Map" data-tooltip="Handle Map"><span class="fluent-icon" aria-hidden="true">🗺️</span><span>Handle Map</span></button>
+          <button id="showProxyObjectsOverlayBtn" class="fluent-button has-tooltip" title="Proxy Objects" data-tooltip="Proxy Objects"><span class="fluent-icon" aria-hidden="true">🪞</span><span>Proxy Objects</span></button>
+          <button id="showFontsOverlayBtn" class="fluent-button has-tooltip" title="Fonts Used" data-tooltip="Fonts Used"><span class="fluent-icon" aria-hidden="true">🔤</span><span>Fonts Used</span></button>
+          <button id="showClassesOverlayBtn" class="fluent-button has-tooltip" title="Classes" data-tooltip="Classes"><span class="fluent-icon" aria-hidden="true">🏷️</span><span>Classes</span></button>
+          <button id="showObjectSizeOverlayBtn" class="fluent-button has-tooltip" title="Object Sizes" data-tooltip="Object Sizes"><span class="fluent-icon" aria-hidden="true">📏</span><span>Object Sizes</span></button>
+          <button id="showBlocksOverlayBtn" class="fluent-button has-tooltip" title="Blocks &amp; Inserts" data-tooltip="Blocks &amp; Inserts"><span class="fluent-icon" aria-hidden="true">🧩</span><span>Blocks &amp; Inserts</span></button>
+          <button id="showLineTypesOverlayBtn" class="fluent-button has-tooltip" title="Line Types" data-tooltip="Line Types"><span class="fluent-icon" aria-hidden="true">⎯⎯</span><span>Line Types</span></button>
+          <button id="showTextsOverlayBtn" class="fluent-button has-tooltip" title="Texts" data-tooltip="Texts"><span class="fluent-icon" aria-hidden="true">✎</span><span>Texts</span></button>
+          <button id="showDiagnosticsOverlayBtn" class="fluent-button has-tooltip" title="Diagnostics" data-tooltip="Diagnostics"><span class="fluent-icon" aria-hidden="true">🩺</span><span>Diagnostics</span></button>
+          <button id="showBatchProcessOverlayBtn" class="fluent-button has-tooltip" title="Batch Process" data-tooltip="Batch Process"><span class="fluent-icon" aria-hidden="true">🧰</span><span>Batch Process</span></button>
+          <button id="toggleSideBySideDiffBtn" class="fluent-button has-tooltip" title="Tree Diff" data-tooltip="Tree Diff"><span class="fluent-icon" aria-hidden="true">⇄</span><span>Tree Diff</span></button>
         </div>
         <div class="filter-panel" id="filterPanel" style="display:none;"></div>
       </div>
@@ -68,10 +68,10 @@
         <!-- Row: global controls and split load buttons -->
         <div id="rowControls" class="row-controls">
           <div class="row-controls-left">
-            <button id="addRowBtn">Add Row</button>
-            <button id="removeRowBtn">Remove Row</button>
-            <button id="downloadDxfBtn">Download DXF</button>
-            <button id="downloadTreeExcelBtn">Download Tree as Excel</button>
+            <button id="addRowBtn" class="icon-button has-tooltip" title="Add Row" aria-label="Add Row" data-tooltip="Add Row"><span aria-hidden="true">➕</span></button>
+            <button id="removeRowBtn" class="icon-button has-tooltip" title="Remove Row" aria-label="Remove Row" data-tooltip="Remove Row"><span aria-hidden="true">🗑️</span></button>
+            <button id="downloadDxfBtn" class="icon-button has-tooltip" title="Download DXF" aria-label="Download DXF" data-tooltip="Download DXF"><span aria-hidden="true">⬇️</span></button>
+            <button id="downloadTreeExcelBtn" class="icon-button has-tooltip" title="Download Tree as Excel" aria-label="Download Tree as Excel" data-tooltip="Download Tree as Excel"><span aria-hidden="true">📊</span></button>
           </div>
           <div class="row-controls-right">
             <div id="navControls">
@@ -713,24 +713,13 @@
         if (collapsed) {
           contentWrapper.classList.add('sidebar-collapsed');
           toggleBtn.setAttribute('aria-pressed', 'true');
-          // Persist current expanded width and clear inline width so CSS can shrink to icons
-          if (sidebarEl) {
-            try {
-              const w = sidebarEl.getBoundingClientRect().width;
-              if (w && w > 0) localStorage.setItem('sidebarWidthPx', String(Math.round(w)));
-            } catch (e) {}
-            sidebarEl.style.width = '';
-          }
+          // Let CSS control collapsed width; clear any inline width
+          if (sidebarEl) sidebarEl.style.width = '';
         } else {
           contentWrapper.classList.remove('sidebar-collapsed');
           toggleBtn.setAttribute('aria-pressed', 'false');
-          // Restore last saved width if available
-          if (sidebarEl) {
-            try {
-              const saved = localStorage.getItem('sidebarWidthPx');
-              if (saved) sidebarEl.style.width = `${parseInt(saved, 10)}px`;
-            } catch (e) {}
-          }
+          // Use natural content width (no persisted width)
+          if (sidebarEl) sidebarEl.style.width = '';
         }
         try { localStorage.setItem('sidebarCollapsed', String(collapsed)); } catch (e) {}
         scheduleGridRelayout();
