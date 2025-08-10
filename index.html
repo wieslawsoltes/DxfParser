@@ -44,6 +44,7 @@
     <div class="content-wrapper">
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
+        <button id="closeSidebarBtn" class="close-sidebar-btn icon-button" title="Close" aria-label="Close sidebar">✖</button>
         <div class="sidebar-buttons">
           <button id="showCloudOverlayBtn" class="fluent-button has-tooltip" title="Cloud Data" data-tooltip="Cloud Data"><span class="fluent-icon" aria-hidden="true">☁️</span><span>Cloud Data</span></button>
           <button id="showStatsOverlayBtn" class="fluent-button has-tooltip" title="Statistics" data-tooltip="Statistics"><span class="fluent-icon" aria-hidden="true">📊</span><span>Statistics</span></button>
@@ -182,6 +183,8 @@
         </div>
       </div>
     </div>
+    <!-- Backdrop for mobile off-canvas sidebar -->
+    <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
   </div>
   <!-- Filters Popup Overlay (Left) -->
   <div id="filtersOverlayLeft" class="filters-overlay" style="display:none;">
@@ -684,6 +687,8 @@
     (function() {
       const contentWrapper = document.querySelector('.content-wrapper');
       const toggleBtn = document.getElementById('toggleSidebarBtn');
+      const closeBtn = document.getElementById('closeSidebarBtn');
+      const backdropEl = document.getElementById('sidebarBackdrop');
       if (!contentWrapper || !toggleBtn) return;
 
       const sidebarEl = document.querySelector('.sidebar');
@@ -728,6 +733,22 @@
         scheduleGridRelayout();
       }
 
+      // Mobile drawer open/close
+      function openSidebarDrawer() {
+        contentWrapper.classList.add('sidebar-open');
+        if (backdropEl) backdropEl.setAttribute('aria-hidden', 'false');
+        // Prevent body scroll when open
+        document.body.style.overflow = 'hidden';
+      }
+      function closeSidebarDrawer() {
+        contentWrapper.classList.remove('sidebar-open');
+        if (backdropEl) backdropEl.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      }
+      function isMobile() {
+        return window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
+      }
+
       // Initialize from saved state (migrate old key if present)
       const savedCollapsed = (function() {
         try {
@@ -747,8 +768,33 @@
 
       // Toggle handler
       toggleBtn.addEventListener('click', function(){
-        const willCollapse = !contentWrapper.classList.contains('sidebar-collapsed');
-        setSidebarCollapsed(willCollapse);
+        if (isMobile()) {
+          // On mobile, act as drawer toggle
+          if (contentWrapper.classList.contains('sidebar-open')) {
+            closeSidebarDrawer();
+          } else {
+            openSidebarDrawer();
+          }
+        } else {
+          const willCollapse = !contentWrapper.classList.contains('sidebar-collapsed');
+          setSidebarCollapsed(willCollapse);
+        }
+      });
+
+      // Close button and backdrop handlers (mobile)
+      if (closeBtn) closeBtn.addEventListener('click', closeSidebarDrawer);
+      if (backdropEl) backdropEl.addEventListener('click', closeSidebarDrawer);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && contentWrapper.classList.contains('sidebar-open')) {
+          closeSidebarDrawer();
+        }
+      });
+
+      // When resizing from mobile to desktop, ensure drawer state doesn't linger
+      window.addEventListener('resize', () => {
+        if (!isMobile()) {
+          closeSidebarDrawer();
+        }
       });
 
       // Also relayout on the end of the sidebar width transition

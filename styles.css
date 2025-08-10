@@ -1285,3 +1285,61 @@ body { font-family: sans-serif; }
 .content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button span:not(.fluent-icon) { display: none; }
 .content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
 .content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
+ 
+/* Close button inside the sidebar (hidden by default, shown on mobile) */
+.close-sidebar-btn {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+
+/* Mobile off-canvas sidebar overlay */
+@media (max-width: 600px) {
+  /* Take sidebar out of the normal flow and turn it into a drawer */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 300px;
+    max-width: 85%;
+    background: #fff;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    border-right: 1px solid #ccc;
+    z-index: 1300;
+    box-shadow: none;
+    padding: 1em;
+    overflow-y: auto;
+  }
+  /* When open, slide in and add subtle shadow */
+  .content-wrapper.sidebar-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  }
+  /* Backdrop shown only when sidebar is open */
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1200;
+  }
+  /* Backdrop is placed right after .content-wrapper in DOM */
+  .content-wrapper.sidebar-open + .sidebar-backdrop { display: block; }
+
+  /* Ensure main content uses full width */
+  .main-content { padding-left: 0; }
+
+  /* Show the close button inside the drawer */
+  .close-sidebar-btn { display: inline-flex; }
+
+  /* Neutralize collapsed rail behavior on mobile (drawer controls width) */
+  .content-wrapper.sidebar-collapsed .sidebar {
+    width: 300px;
+    padding: 1em;
+    border-right: 1px solid #ccc;
+  }
+}
