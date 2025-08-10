@@ -51,6 +51,11 @@
           columnWidths: { ...this.columnWidths },
           headerRootId: "treeGridHeaderRight",
         });
+        // Restore right panel visibility state
+        try {
+          const rightHidden = localStorage.getItem('rightPanelHidden') === 'true';
+          this.setRightPanelHidden(rightHidden);
+        } catch (e) { /* ignore */ }
         this.batchDataGrid = new BatchDataGrid(
           document.getElementById("batchResultsTabHeaders"),
           document.getElementById("batchResultsTabContents")
@@ -348,10 +353,10 @@
         const clearLeft = document.getElementById('clearSearchBtnLeft');
         const searchRight = document.getElementById('searchBtnRight');
         const clearRight = document.getElementById('clearSearchBtnRight');
-        if (searchLeft) searchLeft.addEventListener('click', () => this.handleSearch('left'));
-        if (clearLeft) clearLeft.addEventListener('click', () => this.handleClearSearch('left'));
-        if (searchRight) searchRight.addEventListener('click', () => this.handleSearch('right'));
-        if (clearRight) clearRight.addEventListener('click', () => this.handleClearSearch('right'));
+        if (searchLeft) searchLeft.addEventListener('click', () => { this.handleSearch('left'); this.closeFiltersOverlay('left'); });
+        if (clearLeft) clearLeft.addEventListener('click', () => { this.handleClearSearch('left'); this.closeFiltersOverlay('left'); });
+        if (searchRight) searchRight.addEventListener('click', () => { this.handleSearch('right'); this.closeFiltersOverlay('right'); });
+        if (clearRight) clearRight.addEventListener('click', () => { this.handleClearSearch('right'); this.closeFiltersOverlay('right'); });
 
         // Options and range inputs per side
         const optionSets = [
@@ -682,24 +687,20 @@
             this.treeViewContainer.focus();
           });
         });
-        const resizer = document.querySelector('.pane-resizer');
         const sidebar = document.querySelector('.sidebar');
         const contentWrapper = document.querySelector('.content-wrapper');
-        resizer.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          document.addEventListener('mousemove', onMouseMove);
-          document.addEventListener('mouseup', onMouseUp);
-          function onMouseMove(e) {
-            const newWidth = e.clientX - contentWrapper.getBoundingClientRect().left;
-            if(newWidth > 150 && newWidth < contentWrapper.clientWidth - 100) {
-              sidebar.style.width = newWidth + 'px';
+        if (sidebar) {
+          // Restore saved sidebar width (if not collapsed)
+          try {
+            const savedCollapsed = contentWrapper && contentWrapper.classList.contains('sidebar-collapsed');
+            const savedWidth = localStorage.getItem('sidebarWidthPx');
+            if (!savedCollapsed && savedWidth) {
+              const widthNum = parseInt(savedWidth, 10);
+              if (!Number.isNaN(widthNum)) sidebar.style.width = `${widthNum}px`;
             }
-          }
-          function onMouseUp() {
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-          }
-        });
+          } catch (e) { /* ignore */ }
+        }
+        // Pane resizer removed; rely on hamburger collapse/expand instead.
         
         // Context menu functionality
         this.initContextMenu();
@@ -933,23 +934,28 @@
         this._scrollSyncAttached = true;
       }
 
-      toggleRightPanel() {
+      setRightPanelHidden(hidden) {
         const right = document.getElementById('panelRight');
         const splitter = document.getElementById('compareSplitter');
+        const toggleBtn = document.getElementById('toggleRightPanelBtn');
         if (!right || !splitter) return;
-        const hidden = right.style.display === 'none';
-        if (hidden) {
-          right.style.display = 'flex';
-          splitter.style.display = 'block';
-        } else {
-          right.style.display = 'none';
-          splitter.style.display = 'none';
-        }
+        right.style.display = hidden ? 'none' : 'flex';
+        splitter.style.display = hidden ? 'none' : 'block';
+        if (toggleBtn) toggleBtn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
         // Relayout grids
         setTimeout(() => {
-          this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
           if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
         }, 0);
+      }
+
+      toggleRightPanel() {
+        const right = document.getElementById('panelRight');
+        if (!right) return;
+        const currentlyHidden = right.style.display === 'none';
+        const nextHidden = !currentlyHidden;
+        this.setRightPanelHidden(nextHidden);
+        try { localStorage.setItem('rightPanelHidden', String(nextHidden)); } catch (e) {}
       }
 
       initCompareSplitter() {
@@ -1844,11 +1850,79 @@
           this.updateObjectTypeDropdownButton(side);
         }
         overlay.style.display = 'block';
+        // Position overlay content under the corresponding Filters button
+        const btn = document.getElementById(side === 'right' ? 'filtersRightBtn' : 'filtersLeftBtn');
+        const content = overlay.querySelector('.overlay-content');
+        if (btn && content) {
+          const rect = btn.getBoundingClientRect();
+          const viewportPadding = 8;
+          const contentRect = content.getBoundingClientRect(); // initial size
+          let top = rect.bottom + window.scrollY + 6; // a bit below the button
+          let left = rect.left + window.scrollX;
+          // If off right edge, shift left
+          const maxLeft = window.scrollX + document.documentElement.clientWidth - contentRect.width - viewportPadding;
+          if (left > maxLeft) left = Math.max(viewportPadding + window.scrollX, maxLeft);
+          // If off bottom edge, place above button
+          const maxTop = window.scrollY + document.documentElement.clientHeight - contentRect.height - viewportPadding;
+          if (top > maxTop) top = rect.top + window.scrollY - contentRect.height - 6;
+          // Clamp
+          top = Math.max(window.scrollY + viewportPadding, top);
+          left = Math.max(window.scrollX + viewportPadding, left);
+          content.style.top = `${top}px`;
+          content.style.left = `${left}px`;
+        }
+        // Make filter dialog draggable
+        this.enableDraggableFilter(overlay);
       }
 
       closeFiltersOverlay(side = 'left') {
         const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
-        if (overlay) overlay.style.display = 'none';
+        if (overlay) {
+          overlay.style.display = 'none';
+          const header = overlay.querySelector('.filter-dialog-header');
+          if (header && header._dragHandlers) {
+            const { move, up } = header._dragHandlers;
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            header._dragHandlers = null;
+          }
+        }
+      }
+
+      enableDraggableFilter(overlay) {
+        const content = overlay.querySelector('.overlay-content');
+        const header = overlay.querySelector('.filter-dialog-header');
+        if (!content || !header) return;
+        let startX = 0, startY = 0, startLeft = 0, startTop = 0, dragging = false;
+        const onMouseMove = (e) => {
+          if (!dragging) return;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          let nextLeft = startLeft + dx;
+          let nextTop = startTop + dy;
+          const pad = 4;
+          const maxLeft = window.scrollX + document.documentElement.clientWidth - content.offsetWidth - pad;
+          const maxTop = window.scrollY + document.documentElement.clientHeight - content.offsetHeight - pad;
+          nextLeft = Math.min(Math.max(window.scrollX + pad, nextLeft), maxLeft);
+          nextTop = Math.min(Math.max(window.scrollY + pad, nextTop), maxTop);
+          content.style.left = `${nextLeft}px`;
+          content.style.top = `${nextTop}px`;
+        };
+        const onMouseUp = () => { dragging = false; document.body.style.userSelect = ''; };
+        const onMouseDown = (e) => {
+          if (e.button !== 0) return;
+          dragging = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          const rect = content.getBoundingClientRect();
+          startLeft = rect.left + window.scrollX;
+          startTop = rect.top + window.scrollY;
+          document.body.style.userSelect = 'none';
+        };
+        header.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        header._dragHandlers = { move: onMouseMove, up: onMouseUp };
       }
 
       updateFiltersButtonIndicators() {
@@ -2098,14 +2172,20 @@
         if (confirm('Are you sure you want to reset all state and close all tabs? This action cannot be undone.')) {
           // Clear all state from localStorage
           this.stateManager.clearAllState();
+          try { localStorage.removeItem('rightPanelHidden'); } catch (e) {}
           
           // Clear current app state
           this.tabs = [];
           this.activeTabId = null;
+          this.tabsRight = [];
+          this.activeTabIdRight = null;
           
           // Clear UI
           this.updateTabUI();
           this.myTreeGrid.setData([]);
+          if (this.myTreeGridRight) this.myTreeGridRight.setData([]);
+          // Ensure right panel is visible after reset
+          if (typeof this.setRightPanelHidden === 'function') this.setRightPanelHidden(false);
           
           // Clear sidebar legacy inputs if present
           const legCode = document.getElementById("codeSearchInput");

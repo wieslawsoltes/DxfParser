@@ -66,7 +66,8 @@ body { font-family: sans-serif; }
   overflow: hidden;
 }
  .sidebar {
-  width: 270px;
+  flex: none;
+  width: max-content;
   padding: 1em;
   border-right: 1px solid #ccc;
   overflow: visible;
@@ -89,11 +90,7 @@ body { font-family: sans-serif; }
   font-size: 1.2em;
   font-weight: 600;
 }
-.pane-resizer {
-  width: 5px;
-  cursor: ew-resize;
-  background-color: #ccc;
-}
+/* .pane-resizer removed */
 
 /* Compare view splitter */
 .compare-splitter {
@@ -113,15 +110,52 @@ body { font-family: sans-serif; }
 /* Sidebar header buttons – stacked vertically and fill width */
 .sidebar-buttons {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: max-content;
   gap: 0.3em;
   margin-bottom: 0.5em;
+  justify-items: start; /* keep items sized to content */
 }
 .sidebar-buttons button {
-  width: 100%;
-  padding: 0.5em;
+  justify-self: start; /* align grid item to start */
+  width: auto; /* shrink to fit content */
+  max-width: 100%;
+  white-space: nowrap; /* keep text on one line */
+  padding: 6px 10px;
   box-sizing: border-box;
 }
+
+/* Fluent-style icon + text buttons for the sidebar */
+.sidebar-buttons .fluent-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #242424;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button { gap: 0; width: 28px; min-width: 28px; justify-content: center; }
+.sidebar-buttons .fluent-button:hover { background: #f3f2f1; border-color: #e1dfdd; }
+.sidebar-buttons .fluent-button:active { background: #e1dfdd; }
+.sidebar-buttons .fluent-button:focus-visible {
+  outline: 2px solid #115ea3;
+  outline-offset: 2px;
+}
+.sidebar-buttons .fluent-button .fluent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 16px;
+  min-width: 16px;
+}
+.sidebar-buttons .fluent-button span:not(.fluent-icon) { line-height: 16px; display: inline-block; }
 
 /* File input row */
 .file-input-row {
@@ -438,6 +472,33 @@ body { font-family: sans-serif; }
   background-color: rgba(0,0,0,0.5);
   z-index: 1050;
 }
+/* Filter overlay: make compact and remove background for filter dialogs */
+#filtersOverlayLeft,
+#filtersOverlayRight { background-color: transparent; z-index: 2000; }
+#filtersOverlayLeft .overlay-content,
+#filtersOverlayRight .overlay-content {
+  position: fixed;
+  margin: 0;
+  width: auto;
+  height: auto;
+  max-width: 520px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+}
+#filtersOverlayLeft .overlay-content h2,
+#filtersOverlayRight .overlay-content h2 { font-size: 1em; margin: 0 0 0.5em 0; }
+#filtersOverlayLeft .overlay-content .filter-content .filter-row,
+#filtersOverlayRight .overlay-content .filter-content .filter-row { gap: 0.4em; margin-bottom: 0.4em; }
+#filtersOverlayLeft .overlay-content .tag-container,
+#filtersOverlayRight .overlay-content .tag-container { margin-bottom: 0.4em; }
+
+/* Drag cursor for header */
+#filtersOverlayLeft .overlay-content .filter-dialog-header,
+#filtersOverlayRight .overlay-content .filter-dialog-header { cursor: move; }
 .filter-content .filter-row {
   display: flex;
   flex-direction: column;
@@ -1212,12 +1273,15 @@ body { font-family: sans-serif; }
 
 /* Collapsed: keep a narrow rail with only the toggle visible */
 .content-wrapper.sidebar-collapsed .sidebar {
-  width: 0;
-  padding: 0;
-  border: none;
+  width: auto; /* shrink to content (icons only) */
+  padding: 4px 6px;
+  border-right: 1px solid #ccc;
 }
 .content-wrapper.sidebar-collapsed .sidebar-header,
 .content-wrapper.sidebar-collapsed .sidebar-title,
-.content-wrapper.sidebar-collapsed .sidebar-buttons,
 .content-wrapper.sidebar-collapsed .filter-panel { display: none; }
+.content-wrapper.sidebar-collapsed .sidebar-buttons { display: grid; justify-items: center; }
+.content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button { padding: 4px; }
+.content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button span:not(.fluent-icon) { display: none; }
+.content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
 .content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
