@@ -95,7 +95,8 @@
       // Save current state to localStorage
       saveCurrentState() {
         if (this.tabs.length > 0) {
-          this.stateManager.saveAppState(this.tabs, this.tabsRight, this.activeTabId, this.activeTabIdRight, this.columnWidths);
+          // Use light save to reduce quota pressure (full export is available via Save to File)
+          this.stateManager.saveAppStateLight(this.tabs, this.tabsRight, this.activeTabId, this.activeTabIdRight, this.columnWidths);
         }
       }
       

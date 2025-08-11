@@ -30,6 +30,26 @@
         }
   }
 
+  // Save only app-level state; skip per-tab persistence (used to avoid quota on heavy tabs)
+  saveAppStateLight(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
+    try {
+      const appState = {
+        activeTabIdLeft,
+        activeTabIdRight,
+        columnWidths,
+        tabIdsLeft: (tabsLeft || []).map(tab => tab.id),
+        tabIdsRight: (tabsRight || []).map(tab => tab.id),
+        sidebarCollapsed: (function(){ try { return localStorage.getItem('sidebarCollapsed') === 'true'; } catch(e) { return false; } })(),
+        rightPanelHidden: (function(){ try { return localStorage.getItem('rightPanelHidden') === 'true'; } catch(e) { return false; } })(),
+        sideBySideDiffEnabled: (typeof window !== 'undefined' && window.app) ? !!window.app.sideBySideDiffEnabled : false,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(this.storageKey, JSON.stringify(appState));
+    } catch (error) {
+      console.warn('Failed to save app state (light):', error);
+    }
+  }
+
   // Build a single JSON snapshot of the entire app state for file export
   buildExportSnapshot(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
     const app = (typeof window !== 'undefined') ? window.app : null;
@@ -131,7 +151,32 @@
           
           localStorage.setItem(this.tabStatePrefix + tab.id, JSON.stringify(tabState));
         } catch (error) {
-          console.warn('Failed to save tab state:', error);
+      // Retry with a minimal tab state (without originalTreeData) to mitigate quota overflows
+      try {
+        const lite = {
+          id: tab.id,
+          name: tab.name,
+          codeSearchTerms: tab.codeSearchTerms || [],
+          dataSearchTerms: tab.dataSearchTerms || [],
+          currentSortField: tab.currentSortField || 'line',
+          currentSortAscending: tab.currentSortAscending !== undefined ? tab.currentSortAscending : true,
+          minLine: tab.minLine,
+          maxLine: tab.maxLine,
+          dataExact: tab.dataExact || false,
+          dataCase: tab.dataCase || false,
+          selectedObjectTypes: tab.selectedObjectTypes || [],
+          navigationHistory: tab.navigationHistory || [],
+          currentHistoryIndex: tab.currentHistoryIndex || -1,
+          classIdToName: tab.classIdToName || {},
+          originalTreeDataSerialized: null,
+          expandedNodeIds: tab.originalTreeData ? this.getExpandedNodeIds(tab.originalTreeData) : [],
+          timestamp: Date.now()
+        };
+        localStorage.setItem(this.tabStatePrefix + tab.id, JSON.stringify(lite));
+        console.warn('Saved minimal tab state due to quota limits for tab:', tab.name || tab.id);
+      } catch (e2) {
+        console.warn('Failed to save tab state:', error);
+      }
         }
       }
 
