@@ -31,8 +31,8 @@
         <span id="diffIndicator" class="diff-indicator" title="Tree Diff enabled" style="display:none;"></span>
       </div>
       <div class="top-header-right">
-        <label>
-          <input type="checkbox" id="useStreamCheckbox">
+        <label class="has-tooltip" title="Use streamed parsing" data-tooltip="Use streamed parsing for DXF files (lower memory usage)">
+          <input type="checkbox" id="useStreamCheckbox" aria-label="Use streamed parsing">
           Use Streamed Parsing
         </label>
         <button id="toggleRightPanelBtn" class="icon-button has-tooltip" title="Toggle Right Panel" aria-label="Toggle Right Panel" data-tooltip="Toggle Right Panel"><span aria-hidden="true">↔️</span></button>
@@ -885,10 +885,11 @@
         }, 30);
       }
 
-      document.addEventListener('mouseenter', handleEnter, true);
+      // Use mouseover/mouseout for delegation (mouseenter/leave don't bubble)
+      document.addEventListener('mouseover', handleEnter, true);
       document.addEventListener('focusin', handleEnter, true);
       document.addEventListener('mousemove', handleMove, true);
-      document.addEventListener('mouseleave', handleLeave, true);
+      document.addEventListener('mouseout', handleLeave, true);
       document.addEventListener('focusout', handleLeave, true);
       window.addEventListener('scroll', () => { if (currentTarget) showTooltip(currentTarget); }, true);
       window.addEventListener('resize', () => { if (currentTarget) showTooltip(currentTarget); });
