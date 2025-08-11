@@ -944,8 +944,8 @@
         if (nav) nav.style.display = on ? 'inline-flex' : 'none';
       }
 
-      // Navigate to next diff row of a given kind: 'added', 'removed', 'changed'
-      // For 'changed', navigate to next DATA change (type column), not line-only changes.
+      // Navigate to next block (contiguous run) of a given kind: 'added', 'removed', 'changed'
+      // For 'changed', navigate to blocks where DATA changes (type column), not line-only changes.
       navigateDiff(kind) {
         if (!this.sideBySideDiffEnabled || !this.currentDiffMap) return;
         const total = this.currentDiffMap.totalRows || 0;
@@ -968,6 +968,11 @@
           if (kind === 'changed') return isDataChanged(i);
           return true;
         };
+        const isBlockStart = (i) => {
+          if (!isMatch(i)) return false;
+          const prev = i - 1;
+          return prev < 0 || !isMatch(prev);
+        };
         const jumpTo = (i) => {
           const top = i * rowHeight;
           if (this.treeViewContainer) this.treeViewContainer.scrollTop = top;
@@ -985,8 +990,9 @@
           if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
           if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
         };
-        for (let i = start; i < total; i++) { if (isMatch(i)) { jumpTo(i); return; } }
-        for (let i = 0; i < start; i++) { if (isMatch(i)) { jumpTo(i); return; } }
+        // Search forward for the next block start, then wrap around
+        for (let i = start; i < total; i++) { if (isBlockStart(i)) { jumpTo(i); return; } }
+        for (let i = 0; i < start; i++) { if (isBlockStart(i)) { jumpTo(i); return; } }
       }
 
       // splitValueIntoCells moved to TreeDiffEngine
