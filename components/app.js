@@ -721,6 +721,43 @@
       toggleSideBySideDiff() {
         this.sideBySideDiffEnabled = !this.sideBySideDiffEnabled;
         if (this.sideBySideDiffEnabled) {
+          // On enabling diff, expand all nodes first on both sides, then apply current filters
+          const leftTab = this.getActiveTab();
+          const rightTab = this.getActiveTabRight();
+          if (leftTab) {
+            this.expandAllNodes(leftTab.originalTreeData);
+            if (leftTab.currentSortField) {
+              this.sortTreeNodes(leftTab.originalTreeData, leftTab.currentSortField, leftTab.currentSortAscending);
+            }
+            leftTab.currentTreeData = this.filterTree(
+              leftTab.originalTreeData,
+              leftTab.codeSearchTerms || [],
+              leftTab.dataSearchTerms || [],
+              leftTab.dataExact || false,
+              leftTab.dataCase || false,
+              leftTab.minLine || null,
+              leftTab.maxLine || null,
+              leftTab.selectedObjectTypes || []
+            );
+            if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
+          }
+          if (rightTab) {
+            this.expandAllNodes(rightTab.originalTreeData);
+            if (rightTab.currentSortField) {
+              this.sortTreeNodes(rightTab.originalTreeData, rightTab.currentSortField, rightTab.currentSortAscending);
+            }
+            rightTab.currentTreeData = this.filterTree(
+              rightTab.originalTreeData,
+              rightTab.codeSearchTerms || [],
+              rightTab.dataSearchTerms || [],
+              rightTab.dataExact || false,
+              rightTab.dataCase || false,
+              rightTab.minLine || null,
+              rightTab.maxLine || null,
+              rightTab.selectedObjectTypes || []
+            );
+            if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
+          }
           this.computeAndApplySideBySideDiff();
         } else {
           this.clearSideBySideDiff();
@@ -803,12 +840,8 @@
           if (this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
           if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(null);
         }
-
-        // 2) Expand all nodes and ignore filters to ensure full-structure diff
-        this.expandAllNodes(leftTab.originalTreeData);
-        this.expandAllNodes(rightTab.originalTreeData);
-        leftTab.currentTreeData = leftTab.originalTreeData;
-        rightTab.currentTreeData = rightTab.originalTreeData;
+        // 2) Use currently filtered/sorted trees as the diff source
+        // Do not overwrite currentTreeData with original; respect active filters.
         if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
         if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
         // Build flattened lists using semantic keys that ignore DXF handles for better alignment
@@ -1818,6 +1851,10 @@
         setScrollTop();
         this.saveCurrentState();
         this.updateFiltersButtonIndicators();
+        // If diff mode is active and both panels are present, recompute diff on filter changes
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
       }
       
       handleSearchOptionChange(side = 'left') { this.updateEffectiveSearchTerms(side); }
@@ -2179,10 +2216,7 @@
       }
       
       handleExpandAll() {
-        if (this.sideBySideDiffEnabled) {
-          // Ignore bulk expand while diff mode is active to keep alignment stable
-          return;
-        }
+        // Allow expand-all even in diff mode; recompute diff if active
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         this.expandAllNodes(activeTab.originalTreeData);
@@ -2200,15 +2234,16 @@
           activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
+        if (this.sideBySideDiffEnabled && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
         this.treeViewContainer.scrollTop = 0;
         // Save state after expanding/collapsing
         this.saveCurrentState();
       }
       
       handleExpandAllSide(side = 'left') {
-        if (this.sideBySideDiffEnabled) {
-          return;
-        }
+        // Allow expand-all per side in diff mode; recompute if active
         const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
         if (!tab) return;
         this.expandAllNodes(tab.originalTreeData);
@@ -2232,14 +2267,14 @@
           this.myTreeGrid.setData(tab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
         }
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
         this.saveCurrentState();
       }
 
       handleCollapseAll() {
-        if (this.sideBySideDiffEnabled) {
-          // Ignore bulk collapse while diff mode is active to keep alignment stable
-          return;
-        }
+        // Allow collapse-all even in diff mode; recompute diff if active
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         this.collapseAllNodes(activeTab.originalTreeData);
@@ -2257,15 +2292,16 @@
           activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
+        if (this.sideBySideDiffEnabled && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
         this.treeViewContainer.scrollTop = 0;
         // Save state after expanding/collapsing
         this.saveCurrentState();
       }
 
       handleCollapseAllSide(side = 'left') {
-        if (this.sideBySideDiffEnabled) {
-          return;
-        }
+        // Allow collapse-all per side in diff mode; recompute if active
         const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
         if (!tab) return;
         this.collapseAllNodes(tab.originalTreeData);
@@ -2288,6 +2324,9 @@
         } else {
           this.myTreeGrid.setData(tab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
+        }
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
         }
         this.saveCurrentState();
       }
@@ -2366,11 +2405,7 @@
       }
       
       handleToggleExpand(nodeId) {
-        // When side-by-side diff is active, ignore expand/collapse to preserve
-        // alignment and diff coloring between panels.
-        if (this.sideBySideDiffEnabled) {
-          return;
-        }
+        // Allow expand/collapse in diff mode; recompute diff to keep alignment/colors consistent
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
@@ -2390,6 +2425,9 @@
             activeTab.selectedObjectTypes
           );
           this.myTreeGrid.setData(activeTab.currentTreeData);
+          if (this.sideBySideDiffEnabled && this.getActiveTabRight()) {
+            this.computeAndApplySideBySideDiff();
+          }
           // Save state after node expansion change
           this.saveCurrentState();
         }
@@ -2398,11 +2436,7 @@
       getActiveTabRight() { return this.tabsRight.find(t => t.id === this.activeTabIdRight); }
 
       handleToggleExpandRight(nodeId) {
-        // When side-by-side diff is active, ignore expand/collapse to preserve
-        // alignment and diff coloring between panels.
-        if (this.sideBySideDiffEnabled) {
-          return;
-        }
+        // Allow expand/collapse in diff mode; recompute diff to keep alignment/colors consistent
         const activeTab = this.getActiveTabRight();
         if (!activeTab) return;
         const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
@@ -2422,6 +2456,9 @@
             activeTab.selectedObjectTypes || []
           );
           this.myTreeGridRight.setData(activeTab.currentTreeData);
+          if (this.sideBySideDiffEnabled && this.getActiveTab()) {
+            this.computeAndApplySideBySideDiff();
+          }
         }
       }
       
@@ -3252,6 +3289,9 @@ EOF`;
         } else {
           this.myTreeGrid.setData(activeTab.currentTreeData);
           this.treeViewContainer.scrollTop = 0;
+        }
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
         }
         this.updateFiltersButtonIndicators();
       }
