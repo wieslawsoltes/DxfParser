@@ -48,6 +48,7 @@
           // Enable expand in right panel
           onToggleExpand: (nodeId) => this.handleToggleExpandRight(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
+          openCallback: (nodeId) => this.handleOpenRight(nodeId),
           columnWidths: { ...this.columnWidths },
           headerRootId: "treeGridHeaderRight",
         });
@@ -2624,6 +2625,36 @@
         this.activeTabId = newTab.id;
         this.updateTabUI();
         this.myTreeGrid.setData(newTab.currentTreeData);
+      }
+
+      handleOpenRight(nodeId) {
+        const activeTab = this.getActiveTabRight();
+        if (!activeTab) return;
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (!node) {
+          alert("Node not found.");
+          return;
+        }
+        const newTab = {
+          id: Date.now() + Math.random(),
+          name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
+          originalTreeData: [node],
+          currentTreeData: [node],
+          codeSearchTerms: [],
+          dataSearchTerms: [],
+          currentSortField: "line",
+          currentSortAscending: true,
+          minLine: null,
+          maxLine: null,
+          dataExact: false,
+          dataCase: false,
+          navigationHistory: [],
+          currentHistoryIndex: -1
+        };
+        this.tabsRight.push(newTab);
+        this.activeTabIdRight = newTab.id;
+        this.updateTabUI();
+        if (this.myTreeGridRight) this.myTreeGridRight.setData(newTab.currentTreeData);
       }
 
       handleAddRow() {
