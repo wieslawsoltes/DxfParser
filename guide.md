@@ -9,17 +9,18 @@ Below is a comprehensive guide to using all the features in the application, as 
 ## **1. Overview of the Interface**
 
 1. **Main Layout**  
-   - **Sidebar (Left Pane)**: Contains buttons for global actions (e.g., expand/collapse all, show overlays like Statistics, Cloud, Dependencies, etc.) and filtering options.  
-   - **Main Content (Right Pane)**: Contains file input controls, a navigation bar, and the detailed “Tree View” of the DXF data.  
+   - **Top Header**: Global controls including sidebar toggle, streamed parsing toggle, right panel toggle, create new DXF, reset/save/load app state, and a Tree Diff indicator with navigation buttons.  
+   - **Sidebar (Left)**: Buttons to open analysis overlays (Cloud, Statistics, Dependencies, etc.) and a Tree Diff toggle.  
+   - **Two-Panel Compare Layout**: Left and right panels, each with their own tab strip, open button, expand/collapse all, and Filters button. A central splitter lets you resize the panels.  
    - **Pane Resizer**: A draggable vertical bar between the sidebar and the main content lets you resize the sidebar width.
 
 2. **Tabs**  
-   - You can open multiple DXF files, each in its own “tab” across the top of the main content area. Switch between tabs to quickly view different loaded files.  
-   - Each tab retains its own search and filter settings.
+   - Each panel (Left and Right) supports multiple tabs. Opening files or sub-entities creates new tabs within that panel.  
+   - Each tab retains independent search, filter, sort, and expansion state.
 
 3. **Tree View**  
    - Displays the parsed structure of the DXF file in a hierarchical manner.  
-   - Each row shows the line number in the original file, the group code, the data, object count, and data size.  
+   - Columns: Line, Code, Data, Object Count, Data Size. Column widths are resizable via header drag handles.  
    - Properties are shown as nested rows underneath each parent entity when expanded.
 
 4. **Overlays**  
@@ -36,6 +37,7 @@ Below is a comprehensive guide to using all the features in the application, as 
      - **Blocks & Inserts**  
      - **Line Types**  
      - **Texts**  
+     - **Diagnostics**  
      - **Batch Process**  
    - Overlays can be closed via a “Close” button or by clicking a “Back to Tree” button.
 
@@ -64,6 +66,15 @@ Below is a comprehensive guide to using all the features in the application, as 
 **How it Helps**:
 - Enhances user experience by reducing clicks and providing a quick way to open files.
 
+### 2.3. Create a New DXF and Basic Editing
+- Click **Create New DXF** in the top header to start with an empty document.  
+- Use the row controls above the tree to **Add Row** or **Remove Row** in the current tab.  
+- Double-click a property’s Code or Data cell to edit it inline. Press Enter to commit, or Escape to cancel.
+
+### 2.4. Exporting Your Work
+- Click **Download DXF** to export the current tab’s tree back to DXF text.  
+- Click **Download Tree as Excel** to export a tabular snapshot of the visible tree.
+
 ---
 
 ## **3. Navigating the Tree View**
@@ -71,9 +82,10 @@ Below is a comprehensive guide to using all the features in the application, as 
 ### 3.1. Tree Columns
 - **Line**: The line number in the DXF file from which this entity or property originated.  
 - **Code**: The group code for a given row. (For top-level entities, `0` indicates the start of an entity.)  
-- **Data**: The entity type (for entities) or the data string (for properties). For example, `SECTION`, `LINE`, `LTYPE`, etc.  
+- **Data**: The entity type (for entities) or the data string (for properties). For example, `SECTION`, `LINE`, `LTYPE`, etc. For `CLASS` nodes, class name and ID are displayed. For `ACAD_PROXY_OBJECT`, a clickable Class ID link navigates to the corresponding `CLASS`.  
 - **Object Count**: If an entity has child objects, the total number of descendant objects is shown.  
-- **Data Size**: The total length of all text data within the entity (including properties and nested children).
+- **Data Size**: The total length of all text data within the entity (including properties and nested children).  
+- Columns are resizable via the header drag handles.
 
 ### 3.2. Row Expansion
 - **Arrow Icons (► / ▼)**: Click the small arrow in the “Line” column to expand or collapse child items. Entities like `SECTION`, `BLOCK`, or `TABLE` contain children and can be expanded further.
@@ -86,7 +98,11 @@ Below is a comprehensive guide to using all the features in the application, as 
 - When you expand an entity, its properties appear directly below in the tree.  
 - Handles (codes `5, 105, 330, 350, 360`) appear as clickable links if you hover over them, so you can jump to related entities.
 
-### 3.5. Expand/Collapse All
+### 3.5. Editing Properties Inline
+- Double-click a property’s **Code** or **Data** cell to edit it.  
+- Press Enter to apply, or blur the field to commit. Press Escape to cancel.
+
+### 3.6. Expand/Collapse All
 - **Expand All**: Button in the left sidebar that recursively expands every entity in the current tab.  
 - **Collapse All**: Collapses every entity in the current tab.
 
@@ -101,9 +117,11 @@ Below is a comprehensive guide to using all the features in the application, as 
 
 ## **4. Searching and Filtering**
 
-### 4.1. Filters Panel (Sidebar)
+### 4.1. Filters Overlay (per panel)
+- Open the Filters dialog using the **Filters** button above each panel.  
 - **Code Search**: Enter one or multiple group codes you want to filter on.  
 - **Data Search**: Enter one or multiple text queries to filter the “Data” portion.  
+- **Object Types**: Use the dropdown to restrict to specific entity types (e.g., only `LINE`, `CIRCLE`).  
 - **Exact Data Match**: If checked, the data must match exactly (case-sensitive or insensitive, depending on your other setting).  
 - **Case Sensitive**: If unchecked, searching is case-insensitive.  
 - **Min/Max Line**: Numeric range filters that restrict visible rows by their original DXF line number.  
@@ -155,6 +173,10 @@ Below is a comprehensive guide to using all the features in the application, as 
 
 **How it Helps**:
 - Avoids losing your place in complex cross-references. Acts like a “browser history” for DXF entities.
+
+### 6.3. Panel and Layout Controls
+- **Toggle Right Panel**: Quickly collapse/expand the right compare panel from the top header.  
+- **Toggle Sidebar**: Show/hide the sidebar; on mobile it behaves as a drawer.
 
 ---
 
@@ -307,6 +329,13 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 **How it Helps**:
 - Makes it easy to see all textual data and decode special formatting commands.
 
+### 8.13. Diagnostics
+- Run comprehensive rule-based analysis across categories: Structural, Data Integrity, Rendering, Text, Performance, DXF Compliance, Best Practices, Security.  
+- Use severity filters (Critical, Error, Warning, Info, Suggestion) and category tabs to focus results.  
+- Search issues with the inline search box; keyboard shortcuts: Ctrl+F to focus search, 1–5 to toggle severities, Ctrl+E to export.  
+- Configure which rules run via the Rule Configuration dialog; save/load rule profiles, and export/import profiles to file.  
+- Export diagnostics to a report file.
+
 ---
 
 ## **9. Batch Processing**
@@ -323,6 +352,11 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 6. **Start Batch Process**: Parses each DXF in turn, searching for matches.  
 7. **View Results**: The results appear in a “batch results” tab. Each row shows file name, line number, and data matched.  
 8. **Download as Excel**: One-click generation of an XLSX file containing all result tabs.
+
+### 9.3. Advanced Queries
+- **Predefined Query Templates**: Start from common patterns (e.g., nodes with code 310, all LINEs, regex matches).  
+- **JavaScript Query**: Provide a predicate like `node => node.type === 'LINE'` to fully customize selection.  
+- Click a result entry to open that file and jump directly to the matching line.
 
 **Use Case Example**:
 - You have 100 DXF files in a directory, each possibly containing certain `MTEXT` codes or special layers. Enter `MTEXT` as the object type and `8` as the search code with data `MySpecialLayer` to find references across all files.
@@ -352,7 +386,25 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 
 ---
 
-## **11. Additional Tips and Tricks**
+## **11. Tree Diff and Two-Panel Compare**
+
+- Click **Tree Diff** in the sidebar to enable side-by-side alignment between the Left and Right tabs.  
+- A diff indicator appears in the top header with navigation buttons for next Addition, Removal, and Change blocks.  
+- Rows are aligned using semantic keys (handles, names, and structure) and highlighted: additions, removals, and changes are visually distinguished.  
+- Per-cell highlights show differences in Line, Code, Data text, Object Count, and Data Size.
+
+---
+
+## **12. State Management**
+
+- **Auto-Persist**: App and tab state persist in the browser for up to 7 days.  
+- **Save State to File**: Export the entire app snapshot (both panels and tabs) to a JSON file.  
+- **Load State from File**: Restore a previously saved snapshot.  
+- **Reset State**: Clear all saved state and UI preferences.
+
+---
+
+## **13. Additional Tips and Tricks**
 
 1. **Multiple Tabs**: You can open multiple DXF files concurrently. Each tab preserves its own expand/collapse state and filters.  
 2. **Copy Node to Clipboard**: If you only want the raw DXF code for an object or a block definition, use the **Copy** button in the tree.  
@@ -360,10 +412,12 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 4. **Sorting**: Sorting by “Line” is closest to the original file order. However, note that the actual DXF might have sections out of typical order.  
 5. **Case Sensitivity**: By default, data searches are case-insensitive unless you explicitly enable “Case Sensitive.”  
 6. **Navigation**: Use the handle-based navigation to jump among cross-referenced entities quickly (layer definitions, block references, etc.).
+7. **Resizing Columns**: Drag header dividers to resize columns; widths persist per session.  
+8. **Right Panel Toggle**: Hide the right panel when focusing on a single file; re-enable for compare and diff.
 
 ---
 
-## **12. Example Workflows**
+## **14. Example Workflows**
 
 1. **Finding a Missing Block**  
    - **Load**: Open your file (with “Parse File(s)”).  
@@ -387,7 +441,7 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 
 ---
 
-## **13. Troubleshooting & FAQ**
+## **15. Troubleshooting & FAQ**
 
 1. **Why do some “handles” not jump anywhere?**  
    - The handle might not exist or is referencing something outside the scope of the file. Make sure the reference is valid or check if it’s from an external XREF.
@@ -406,7 +460,7 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 
 ---
 
-## **14. Conclusion**
+## **16. Conclusion**
 
 The **DXF Parser** application brings a powerful suite of tools for dissecting, visualizing, and troubleshooting DXF files of all sizes. From single-file debugging to multi-file batch search across directories, it offers detailed insights into everything from high-level structure to raw binary payloads.
 
