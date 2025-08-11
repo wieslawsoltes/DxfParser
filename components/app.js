@@ -2068,6 +2068,10 @@
       }
       
       handleExpandAll() {
+        if (this.sideBySideDiffEnabled) {
+          // Ignore bulk expand while diff mode is active to keep alignment stable
+          return;
+        }
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         this.expandAllNodes(activeTab.originalTreeData);
@@ -2091,6 +2095,9 @@
       }
       
       handleExpandAllSide(side = 'left') {
+        if (this.sideBySideDiffEnabled) {
+          return;
+        }
         const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
         if (!tab) return;
         this.expandAllNodes(tab.originalTreeData);
@@ -2118,6 +2125,10 @@
       }
 
       handleCollapseAll() {
+        if (this.sideBySideDiffEnabled) {
+          // Ignore bulk collapse while diff mode is active to keep alignment stable
+          return;
+        }
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         this.collapseAllNodes(activeTab.originalTreeData);
@@ -2141,6 +2152,9 @@
       }
 
       handleCollapseAllSide(side = 'left') {
+        if (this.sideBySideDiffEnabled) {
+          return;
+        }
         const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
         if (!tab) return;
         this.collapseAllNodes(tab.originalTreeData);
@@ -2212,6 +2226,11 @@
       }
       
       handleToggleExpand(nodeId) {
+        // When side-by-side diff is active, ignore expand/collapse to preserve
+        // alignment and diff coloring between panels.
+        if (this.sideBySideDiffEnabled) {
+          return;
+        }
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
@@ -2239,6 +2258,11 @@
       getActiveTabRight() { return this.tabsRight.find(t => t.id === this.activeTabIdRight); }
 
       handleToggleExpandRight(nodeId) {
+        // When side-by-side diff is active, ignore expand/collapse to preserve
+        // alignment and diff coloring between panels.
+        if (this.sideBySideDiffEnabled) {
+          return;
+        }
         const activeTab = this.getActiveTabRight();
         if (!activeTab) return;
         const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
