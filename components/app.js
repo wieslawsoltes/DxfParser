@@ -1899,6 +1899,9 @@
         const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
         const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
         if (!overlay || !tab) return;
+        // Close any open dropdowns and opposite side overlay
+        this._closeFloatingDropdown();
+        this.closeFiltersOverlay(side === 'left' ? 'right' : 'left');
         // Ensure dropdowns populated
         this.populateObjectTypeDropdown();
         // Sync tags
@@ -1950,6 +1953,8 @@
           content.style.top = `${top}px`;
           content.style.left = `${left}px`;
         }
+        // Install outside click/Escape dismissal shortly after opening
+        setTimeout(() => { this._installFiltersOverlayDismiss(overlay, side); }, 0);
         // Make filter dialog draggable
         this.enableDraggableFilter(overlay);
       }
@@ -1959,6 +1964,13 @@
         if (overlay) {
           this._closeFloatingDropdown();
           overlay.style.display = 'none';
+          // Remove outside click/Escape handlers if present
+          if (overlay._dismissHandlers) {
+            const { onDocClick, onKeyDown } = overlay._dismissHandlers;
+            document.removeEventListener('click', onDocClick, true);
+            document.removeEventListener('keydown', onKeyDown);
+            overlay._dismissHandlers = null;
+          }
           const header = overlay.querySelector('.filter-dialog-header');
           if (header && header._dragHandlers) {
             const { move, up } = header._dragHandlers;
@@ -1967,6 +1979,25 @@
             header._dragHandlers = null;
           }
         }
+      }
+
+      _installFiltersOverlayDismiss(overlay, side) {
+        const content = overlay.querySelector('.overlay-content');
+        if (!content) return;
+        const onDocClick = (e) => {
+          const dd = this._currentFloatingDropdown && this._currentFloatingDropdown.content;
+          const clickedInOverlay = content.contains(e.target);
+          const clickedInDropdown = dd && dd.contains(e.target);
+          if (!clickedInOverlay && !clickedInDropdown) {
+            this.closeFiltersOverlay(side);
+          }
+        };
+        const onKeyDown = (e) => { if (e.key === 'Escape') this.closeFiltersOverlay(side); };
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onKeyDown);
+        overlay._dismissHandlers = { onDocClick, onKeyDown };
+        // Also allow clicking on the overlay background to close
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) this.closeFiltersOverlay(side); });
       }
 
       enableDraggableFilter(overlay) {
