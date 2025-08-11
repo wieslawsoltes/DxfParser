@@ -23,6 +23,9 @@ Below is a comprehensive guide to using all the features in the application, as 
    - Columns: Line, Code, Data, Object Count, Data Size. Column widths are resizable via header drag handles.  
    - Properties are shown as nested rows underneath each parent entity when expanded.
 
+5. **Tooltips**  
+   - Most interactive controls show helpful tooltips on hover. Tooltips auto-position within the viewport and replace the default browser title bubble for consistency.
+
 4. **Overlays**  
    - The application features numerous overlays (pop-up panels) for advanced analysis:  
      - **Cloud Data**  
@@ -73,7 +76,11 @@ Below is a comprehensive guide to using all the features in the application, as 
 
 ### 2.4. Exporting Your Work
 - Click **Download DXF** to export the current tab’s tree back to DXF text.  
-- Click **Download Tree as Excel** to export a tabular snapshot of the visible tree.
+- Click **Download Tree as Excel** to export a tabular snapshot of the visible tree (styled Excel supported).
+
+### 2.5. Mobile and Small Screens
+- The sidebar becomes an off-canvas drawer. Use the top-left menu button to open/close it.  
+- Layout automatically adapts; the two-panel compare remains usable with horizontal space prioritized for the active panel.
 
 ---
 
@@ -86,6 +93,10 @@ Below is a comprehensive guide to using all the features in the application, as 
 - **Object Count**: If an entity has child objects, the total number of descendant objects is shown.  
 - **Data Size**: The total length of all text data within the entity (including properties and nested children).  
 - Columns are resizable via the header drag handles.
+  
+Notes:  
+- End markers (e.g., `ENDSEC`, `ENDBLK`, `ENDTAB`, `ENDOBJ`, `SEQEND`) appear in the tree when present; an `EOF` marker is shown when found.  
+- If a container’s closing marker is missing in the source, a synthetic end marker may be shown to preserve structure.
 
 ### 3.2. Row Expansion
 - **Arrow Icons (► / ▼)**: Click the small arrow in the “Line” column to expand or collapse child items. Entities like `SECTION`, `BLOCK`, or `TABLE` contain children and can be expanded further.
@@ -177,6 +188,8 @@ Below is a comprehensive guide to using all the features in the application, as 
 ### 6.3. Panel and Layout Controls
 - **Toggle Right Panel**: Quickly collapse/expand the right compare panel from the top header.  
 - **Toggle Sidebar**: Show/hide the sidebar; on mobile it behaves as a drawer.
+  
+State: Right panel visibility and sidebar collapsed state persist between sessions.
 
 ---
 
@@ -358,6 +371,22 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 - **JavaScript Query**: Provide a predicate like `node => node.type === 'LINE'` to fully customize selection.  
 - Click a result entry to open that file and jump directly to the matching line.
 
+Templates available:  
+- All Nodes  
+- All Lines  
+- Nodes with Code 310  
+- Nodes without Code 310  
+- Circles or Arcs  
+- Nodes with type matching `/LINE/i`  
+- Nodes with a Child of type `BLOCK`  
+- Nodes with property value matching `/circle/i`  
+- Nodes with Child having property 2 equal to `INSERT`
+
+Results Grid:  
+- Virtualized for performance; row number, relative file path (clickable), line, data columns.  
+- Columns are resizable; horizontal scrolling supported.  
+- Multiple result tabs supported; export all as a single Excel file.
+
 **Use Case Example**:
 - You have 100 DXF files in a directory, each possibly containing certain `MTEXT` codes or special layers. Enter `MTEXT` as the object type and `8` as the search code with data `MySpecialLayer` to find references across all files.
 
@@ -384,6 +413,9 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 **How it Helps**:
 - Eliminates guesswork around embedded data, letting you confirm file signatures or extract them entirely for separate analysis.
 
+### 10.3. Recognized Headers
+- BMP, PNG, GIF, JPEG, PDF, ZIP, RAR (v4/v5), 7z, ELF (plus generic fallback).
+
 ---
 
 ## **11. Tree Diff and Two-Panel Compare**
@@ -402,6 +434,19 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 - **Load State from File**: Restore a previously saved snapshot.  
 - **Reset State**: Clear all saved state and UI preferences.
 
+What’s saved per tab:  
+- Tab name and ID  
+- Code and Data search tags, object type filters  
+- Sort field and order  
+- Min/Max line filters, exact/case options  
+- Navigation history and current index  
+- Class ID to Name map (for proxy object resolution)  
+- Expanded node IDs and, when possible, a serialized version of the original tree for restoration  
+
+Notes:  
+- When storage quota is tight, a lighter tab state is saved without the full tree; expanded state is restored best-effort.  
+- App-level state includes active tabs for Left/Right panels, column widths, sidebar and right-panel visibility, and Tree Diff toggle.
+
 ---
 
 ## **13. Additional Tips and Tricks**
@@ -414,6 +459,7 @@ Below is a summary of each advanced overlay (accessible via sidebar buttons). Al
 6. **Navigation**: Use the handle-based navigation to jump among cross-referenced entities quickly (layer definitions, block references, etc.).
 7. **Resizing Columns**: Drag header dividers to resize columns; widths persist per session.  
 8. **Right Panel Toggle**: Hide the right panel when focusing on a single file; re-enable for compare and diff.
+9. **Tooltips Everywhere**: Hover over controls to discover actions; tooltips auto-fit in the viewport for readability.
 
 ---
 
