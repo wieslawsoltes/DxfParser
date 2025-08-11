@@ -7,14 +7,18 @@
       // Save the complete application state (both panels)
       saveAppState(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
         try {
-          const appState = {
+      const appState = {
             // New multi-panel layout
             activeTabIdLeft: activeTabIdLeft,
             activeTabIdRight: activeTabIdRight,
             columnWidths: columnWidths,
             tabIdsLeft: (tabsLeft || []).map(tab => tab.id),
             tabIdsRight: (tabsRight || []).map(tab => tab.id),
-            timestamp: Date.now()
+        // UI toggles persisted outside of App to also export
+        sidebarCollapsed: (function(){ try { return localStorage.getItem('sidebarCollapsed') === 'true'; } catch(e) { return false; } })(),
+        rightPanelHidden: (function(){ try { return localStorage.getItem('rightPanelHidden') === 'true'; } catch(e) { return false; } })(),
+        sideBySideDiffEnabled: (typeof window !== 'undefined' && window.app) ? !!window.app.sideBySideDiffEnabled : false,
+        timestamp: Date.now()
           };
           localStorage.setItem(this.storageKey, JSON.stringify(appState));
           
@@ -24,7 +28,81 @@
         } catch (error) {
           console.warn('Failed to save app state:', error);
         }
+  }
+
+  // Build a single JSON snapshot of the entire app state for file export
+  buildExportSnapshot(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
+    const app = (typeof window !== 'undefined') ? window.app : null;
+    const safe = (fn, fallback) => { try { return fn(); } catch(e) { return fallback; } };
+    const snapshot = {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      app: {
+        activeTabIdLeft,
+        activeTabIdRight,
+        columnWidths,
+        sidebarCollapsed: safe(() => localStorage.getItem('sidebarCollapsed') === 'true', false),
+        rightPanelHidden: safe(() => localStorage.getItem('rightPanelHidden') === 'true', false),
+        sideBySideDiffEnabled: app ? !!app.sideBySideDiffEnabled : false
+      },
+      leftTabs: (tabsLeft || []).map(t => this._serializeTabForExport(t)),
+      rightTabs: (tabsRight || []).map(t => this._serializeTabForExport(t))
+    };
+    return snapshot;
+  }
+
+  _serializeTabForExport(tab) {
+    return {
+      id: tab.id,
+      name: tab.name,
+      codeSearchTerms: tab.codeSearchTerms || [],
+      dataSearchTerms: tab.dataSearchTerms || [],
+      currentSortField: tab.currentSortField || 'line',
+      currentSortAscending: tab.currentSortAscending !== undefined ? tab.currentSortAscending : true,
+      minLine: tab.minLine ?? null,
+      maxLine: tab.maxLine ?? null,
+      dataExact: !!tab.dataExact,
+      dataCase: !!tab.dataCase,
+      selectedObjectTypes: tab.selectedObjectTypes || [],
+      navigationHistory: tab.navigationHistory || [],
+      currentHistoryIndex: tab.currentHistoryIndex ?? -1,
+      classIdToName: tab.classIdToName || {},
+      expandedNodeIds: tab.originalTreeData ? this.getExpandedNodeIds(tab.originalTreeData) : [],
+      originalTreeData: tab.originalTreeData || null
+    };
+  }
+
+  // Restore from a snapshot object (not reading/writing localStorage by itself)
+  // Returns { app, leftTabs, rightTabs }
+  restoreFromSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return null;
+    const app = snapshot.app || {};
+    const left = Array.isArray(snapshot.leftTabs) ? snapshot.leftTabs : [];
+    const right = Array.isArray(snapshot.rightTabs) ? snapshot.rightTabs : [];
+    // Ensure tree nodes have expanded flags per expandedNodeIds
+    const applyExpanded = (tabsArr) => {
+      for (const t of tabsArr) {
+        if (t.originalTreeData && t.expandedNodeIds && t.expandedNodeIds.length) {
+          try { this.restoreExpandedState(t.originalTreeData, t.expandedNodeIds); } catch(e) {}
+        }
       }
+    };
+    applyExpanded(left);
+    applyExpanded(right);
+    return {
+      app: {
+        activeTabIdLeft: app.activeTabIdLeft || null,
+        activeTabIdRight: app.activeTabIdRight || null,
+        columnWidths: app.columnWidths || null,
+        sidebarCollapsed: !!app.sidebarCollapsed,
+        rightPanelHidden: !!app.rightPanelHidden,
+        sideBySideDiffEnabled: !!app.sideBySideDiffEnabled
+      },
+      leftTabs: left,
+      rightTabs: right
+    };
+  }
+
 
       // Save individual tab state
       saveTabState(tab) {

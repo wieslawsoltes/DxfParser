@@ -69,6 +69,9 @@
         
         // Initialize state management
         this.initializeStateManagement();
+
+    // Wire file import/export buttons
+    this.initStateFileIO();
       }
       
       // Initialize state management and restore saved state
@@ -280,6 +283,10 @@
         if (collapseAllBtn) collapseAllBtn.addEventListener("click", () => this.handleCollapseAll());
         const resetStateBtn = document.getElementById("resetStateBtn");
         if (resetStateBtn) resetStateBtn.addEventListener("click", () => this.handleResetState());
+    const saveStateBtn = document.getElementById('saveStateToFileBtn');
+    if (saveStateBtn) saveStateBtn.addEventListener('click', () => this.handleSaveStateToFile());
+    const loadStateBtn = document.getElementById('loadStateFromFileBtn');
+    if (loadStateBtn) loadStateBtn.addEventListener('click', () => this.triggerLoadStateFromFile());
         document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
         document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
         document.getElementById("downloadDxfBtn").addEventListener("click", () => this.handleDownloadDxf());
@@ -2189,12 +2196,29 @@
           // Clear all state from localStorage
           this.stateManager.clearAllState();
           try { localStorage.removeItem('rightPanelHidden'); } catch (e) {}
+          try { localStorage.removeItem('sidebarCollapsed'); } catch (e) {}
           
           // Clear current app state
           this.tabs = [];
           this.activeTabId = null;
           this.tabsRight = [];
           this.activeTabIdRight = null;
+
+          // Reset filters and options for both sides
+          const resetTabFilters = (tab) => {
+            if (!tab) return;
+            tab.codeSearchTerms = [];
+            tab.dataSearchTerms = [];
+            tab.currentSortField = 'line';
+            tab.currentSortAscending = true;
+            tab.minLine = null;
+            tab.maxLine = null;
+            tab.dataExact = false;
+            tab.dataCase = false;
+            tab.selectedObjectTypes = [];
+          };
+          resetTabFilters(this.getActiveTab());
+          resetTabFilters(this.getActiveTabRight());
           
           // Clear UI
           this.updateTabUI();
@@ -2202,6 +2226,18 @@
           if (this.myTreeGridRight) this.myTreeGridRight.setData([]);
           // Ensure right panel is visible after reset
           if (typeof this.setRightPanelHidden === 'function') this.setRightPanelHidden(false);
+          // Ensure sidebar is expanded after reset
+          const contentWrapper = document.querySelector('.content-wrapper');
+          const toggleBtn = document.getElementById('toggleSidebarBtn');
+          if (contentWrapper && toggleBtn) {
+            contentWrapper.classList.remove('sidebar-collapsed');
+            toggleBtn.setAttribute('aria-pressed', 'false');
+          }
+          // Disable side-by-side diff mode
+          if (this.sideBySideDiffEnabled) {
+            this.sideBySideDiffEnabled = false;
+            this.clearSideBySideDiff();
+          }
           
           // Clear sidebar legacy inputs if present
           const legCode = document.getElementById("codeSearchInput");
@@ -3527,23 +3563,179 @@ EOF`;
       }
       
       renderHexLine(lineNumber, binaryArray) {
-  const bytesPerLine = 16;
-  const offset = lineNumber * bytesPerLine;
-  const lineBytes = binaryArray.slice(offset, offset + bytesPerLine);
-  let hex = '';
-  let ascii = '';
-  for (let i = 0; i < lineBytes.length; i++) {
-    const byte = lineBytes[i];
-    // Convert the byte to a two-digit hexadecimal value.
-    hex += byte.toString(16).padStart(2, '0') + ' ';
-    // Build the ASCII representation.
-    ascii += (byte >= 32 && byte < 127) ? String.fromCharCode(byte) : '.';
+        const bytesPerLine = 16;
+        const offset = lineNumber * bytesPerLine;
+        const lineBytes = binaryArray.slice(offset, offset + bytesPerLine);
+        let hex = '';
+        let ascii = '';
+        for (let i = 0; i < lineBytes.length; i++) {
+          const byte = lineBytes[i];
+          hex += byte.toString(16).padStart(2, '0') + ' ';
+          ascii += (byte >= 32 && byte < 127) ? String.fromCharCode(byte) : '.';
+        }
+        // Pad the hex section if the last line is shorter than bytesPerLine.
+        hex = hex.padEnd(bytesPerLine * 3, ' ');
+        // Return a string that shows the offset, the hex values, and the ASCII characters.
+        return offset.toString(16).padStart(8, '0') + '  ' + hex + '  ' + ascii;
+      }
+
+  initStateFileIO() {
+    const input = document.getElementById('appStateFileInput');
+    if (input) {
+      input.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const snapshot = JSON.parse(text);
+          this.handleApplyStateSnapshot(snapshot);
+        } catch (err) {
+          alert('Failed to load state file.');
+          console.error(err);
+        } finally {
+          e.target.value = '';
+        }
+      });
+    }
   }
-  // Pad the hex section if the last line is shorter than bytesPerLine.
-  hex = hex.padEnd(bytesPerLine * 3, ' ');
-  // Return a string that shows the offset, the hex values, and the ASCII characters.
-  return offset.toString(16).padStart(8, '0') + '  ' + hex + '  ' + ascii;
-}
+
+  handleSaveStateToFile() {
+    try {
+      // Build a snapshot and download it
+      const snapshot = this.stateManager.buildExportSnapshot(
+        this.tabs,
+        this.tabsRight,
+        this.activeTabId,
+        this.activeTabIdRight,
+        this.columnWidths
+      );
+      const blob = new Blob([JSON.stringify(snapshot)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `dxf_parser_state_${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to save state to file', e);
+      alert('Failed to save state to file.');
+    }
+  }
+
+  triggerLoadStateFromFile() {
+    const input = document.getElementById('appStateFileInput');
+    if (input) input.click();
+  }
+
+  handleApplyStateSnapshot(snapshot) {
+    try {
+      const restored = this.stateManager.restoreFromSnapshot(snapshot);
+      if (!restored) { alert('Invalid state file.'); return; }
+
+      // Clear existing UI first
+      this.tabs = [];
+      this.activeTabId = null;
+      this.tabsRight = [];
+      this.activeTabIdRight = null;
+
+      // Apply tabs
+      const mapTab = (t) => ({
+        id: t.id,
+        name: t.name,
+        originalTreeData: t.originalTreeData,
+        currentTreeData: t.originalTreeData,
+        codeSearchTerms: t.codeSearchTerms || [],
+        dataSearchTerms: t.dataSearchTerms || [],
+        currentSortField: t.currentSortField || 'line',
+        currentSortAscending: t.currentSortAscending !== undefined ? t.currentSortAscending : true,
+        minLine: t.minLine ?? null,
+        maxLine: t.maxLine ?? null,
+        dataExact: !!t.dataExact,
+        dataCase: !!t.dataCase,
+        selectedObjectTypes: t.selectedObjectTypes || [],
+        navigationHistory: t.navigationHistory || [],
+        currentHistoryIndex: t.currentHistoryIndex ?? -1,
+        classIdToName: t.classIdToName || {}
+      });
+      this.tabs = (restored.leftTabs || []).map(mapTab);
+      this.tabsRight = (restored.rightTabs || []).map(mapTab);
+
+      // Apply app-level settings
+      if (restored.app.columnWidths) {
+        this.columnWidths = { ...this.columnWidths, ...restored.app.columnWidths };
+      }
+      this.activeTabId = restored.app.activeTabIdLeft || (this.tabs[0] && this.tabs[0].id) || null;
+      this.activeTabIdRight = restored.app.activeTabIdRight || (this.tabsRight[0] && this.tabsRight[0].id) || null;
+
+      try { localStorage.setItem('sidebarCollapsed', String(!!restored.app.sidebarCollapsed)); } catch(e) {}
+      try { localStorage.setItem('rightPanelHidden', String(!!restored.app.rightPanelHidden)); } catch(e) {}
+
+      // Apply sidebar collapsed UI state immediately
+      const contentWrapper = document.querySelector('.content-wrapper');
+      const toggleBtn = document.getElementById('toggleSidebarBtn');
+      if (contentWrapper && toggleBtn) {
+        const collapsed = !!restored.app.sidebarCollapsed;
+        if (collapsed) {
+          contentWrapper.classList.add('sidebar-collapsed');
+          toggleBtn.setAttribute('aria-pressed', 'true');
+        } else {
+          contentWrapper.classList.remove('sidebar-collapsed');
+          toggleBtn.setAttribute('aria-pressed', 'false');
+        }
+      }
+
+      // Render UI
+      this.updateTabUI();
+      const left = this.getActiveTab();
+      if (left) { this.applyTabFilters(left); }
+      const right = this.getActiveTabRight();
+      if (right && this.myTreeGridRight) {
+        if (right.currentSortField) {
+          this.sortTreeNodes(right.originalTreeData, right.currentSortField, right.currentSortAscending);
+        }
+        right.currentTreeData = this.filterTree(
+          right.originalTreeData,
+          right.codeSearchTerms || [],
+          right.dataSearchTerms || [],
+          right.dataExact || false,
+          right.dataCase || false,
+          right.minLine || null,
+          right.maxLine || null,
+          right.selectedObjectTypes || []
+        );
+        this.myTreeGridRight.setData(right.currentTreeData);
+      }
+
+      // Apply panel visibility
+      if (typeof this.setRightPanelHidden === 'function') {
+        this.setRightPanelHidden(!!restored.app.rightPanelHidden);
+      }
+
+      // Apply diff toggle
+      const prevDiff = !!this.sideBySideDiffEnabled;
+      this.sideBySideDiffEnabled = !!restored.app.sideBySideDiffEnabled;
+      if (this.sideBySideDiffEnabled) {
+        this.computeAndApplySideBySideDiff();
+      } else if (prevDiff) {
+        // Ensure normal views are refreshed
+        if (left) this.myTreeGrid.setData(left.currentTreeData || left.originalTreeData || []);
+        if (right) this.myTreeGridRight.setData(right.currentTreeData || right.originalTreeData || []);
+      }
+
+      // Nudge grids to relayout
+      if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+      if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+
+      // Persist to localStorage for normal auto-restore too
+      this.saveCurrentState();
+    } catch (e) {
+      console.error('Failed to apply state snapshot', e);
+      alert('Failed to apply state file.');
+    }
+  }
       
       virtualizeHexViewer(binaryArray) {
         const container = document.getElementById("hexContent");
