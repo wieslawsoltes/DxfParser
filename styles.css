@@ -476,6 +476,7 @@ body.tooltip-enhanced .has-tooltip::before {
 
 .global-tooltip[aria-hidden="true"] {
   opacity: 0;
+  pointer-events: none;
 }
 
 .global-tooltip[aria-hidden="false"] {

@@ -854,10 +854,17 @@
       function handleEnter(e) {
         const target = e.target.closest('.has-tooltip');
         if (!target) return;
+        if (currentTarget === target) {
+          // Already showing for this target; just ensure visible and positioned
+          clearTimeout(hideTimer);
+          showTooltip(currentTarget);
+          return;
+        }
         currentTarget = target;
         // If element uses native title, suppress native bubble to avoid double tooltips
         if (currentTarget.hasAttribute('title')) {
-          currentTarget.setAttribute('data-tooltip', currentTarget.getAttribute('title'));
+          const t = currentTarget.getAttribute('title');
+          if (t) currentTarget.setAttribute('data-tooltip', t);
           currentTarget.setAttribute('data-title-suppressed', 'true');
           currentTarget.setAttribute('title', '');
         }
@@ -873,6 +880,13 @@
 
       function handleLeave(e) {
         if (!currentTarget) return;
+        const leaving = e.target.closest('.has-tooltip');
+        if (leaving !== currentTarget) return; // ignore leaves from other elements
+        const related = e.relatedTarget;
+        if (related && currentTarget.contains(related)) {
+          // Still inside the same tooltip target; do not hide
+          return;
+        }
         hideTimer = setTimeout(() => {
           hideTooltip();
           // Restore title if we suppressed it
@@ -890,7 +904,18 @@
       document.addEventListener('focusin', handleEnter, true);
       document.addEventListener('mousemove', handleMove, true);
       document.addEventListener('mouseout', handleLeave, true);
-      document.addEventListener('focusout', handleLeave, true);
+      document.addEventListener('focusout', (e) => {
+        if (!currentTarget) return;
+        const leaving = e.target.closest('.has-tooltip');
+        if (leaving !== currentTarget) return;
+        hideTooltip();
+        if (currentTarget && currentTarget.getAttribute('data-title-suppressed') === 'true') {
+          const text = currentTarget.getAttribute('data-tooltip');
+          if (text) currentTarget.setAttribute('title', text);
+          currentTarget.removeAttribute('data-title-suppressed');
+        }
+        currentTarget = null;
+      }, true);
       window.addEventListener('scroll', () => { if (currentTarget) showTooltip(currentTarget); }, true);
       window.addEventListener('resize', () => { if (currentTarget) showTooltip(currentTarget); });
     })();
