@@ -803,9 +803,10 @@
         rightTab.currentTreeData = rightTab.originalTreeData;
         if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
         if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
-        // Build flattened lists of display strings per row using current flat data generation
-        const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData);
-        const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData);
+        // Build flattened lists using semantic keys that ignore DXF handles for better alignment
+        const diffOptions = { ignoreHandles: true };
+        const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData, diffOptions);
+        const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData, diffOptions);
         const keysLeft = leftFlat.map(r => r.key);
         const keysRight = rightFlat.map(r => r.key);
         const aligned = window.TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
@@ -5218,9 +5219,10 @@ EOF`;
           const leftTree = leftTab ? leftTab.currentTreeData : [];
           const rightTree = rightTab ? rightTab.currentTreeData : [];
 
-          // Flatten with keys to align rows between panes
-          const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTree);
-          const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTree);
+          // Flatten with keys (ignore handles) to align rows between panes
+          const diffOptions = { ignoreHandles: true };
+          const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTree, diffOptions);
+          const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTree, diffOptions);
           const keysLeft = leftFlat.map(r => r.key);
           const keysRight = rightFlat.map(r => r.key);
           const aligned = window.TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
@@ -5228,7 +5230,7 @@ EOF`;
           // Optionally compute diff classes for styling
           let diff = null;
           if (this.sideBySideDiffEnabled) {
-            diff = window.TreeDiffEngine.computeDiff(leftTree, rightTree);
+            diff = window.TreeDiffEngine.computeDiff(leftTree, rightTree, diffOptions);
           }
 
           const ws_data = [[

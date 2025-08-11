@@ -7,11 +7,14 @@
         });
       }
 
-      static getNodeSemanticId(node) {
+      static getNodeSemanticId(node, options = {}) {
         if (!node || node.isProperty) return '';
-        if (node.handle) return `H:${node.handle}`;
+        const ignoreHandles = !!options.ignoreHandles;
+        const includePropertyCodesInId = !!options.includePropertyCodesInId;
+        if (!ignoreHandles && node.handle) return `H:${node.handle}`;
         const type = node.type ? node.type.toUpperCase() : '';
         let name = '';
+        // Named containers keep stable names across files
         if (type === 'SECTION' || type === 'BLOCK' || type === 'TABLE' || (node.parentType && node.parentType.toUpperCase() === 'TABLE')) {
           if (node.properties) {
             const p2 = node.properties.find(p => Number(p.code) === 2);
@@ -20,6 +23,16 @@
         }
         if (type === 'CLASS' && node.classId !== undefined) {
           name = `CLASSID:${node.classId}`;
+        }
+        // For generic entities without a name
+        if (!name && ignoreHandles) {
+          if (includePropertyCodesInId) {
+            const codes = (node.properties || []).map(p => Number(p.code) || 0).sort((a,b) => a-b);
+            const codesKey = codes.length ? `C:${codes.join(',')}` : '';
+            return `${type}|${codesKey}`;
+          }
+          // Lenient: use only type; sibling indexing in flatten keeps ordering distinct
+          return `${type}`;
         }
         return `${type}|${name}`;
       }
@@ -32,18 +45,30 @@
         return `${level}|${type}|${props}`;
       }
 
-      static flattenTreeWithKeys(nodes) {
+      static flattenTreeWithKeys(nodes, options = {}) {
         const rows = [];
         const traverse = (list, level, parentPath) => {
+          // For each sibling list, keep counts to make IDs stable when ignoring handles
+          const siblingCounts = new Map();
           for (const n of list || []) {
-            const id = TreeDiffEngine.getNodeSemanticId(n);
+            let baseId = TreeDiffEngine.getNodeSemanticId(n, options);
+            let id = baseId;
+            if (options && options.ignoreHandles) {
+              const count = (siblingCounts.get(baseId) || 0) + 1;
+              siblingCounts.set(baseId, count);
+              id = `${baseId}#${count}`;
+            }
             const path = parentPath ? `${parentPath}/${id}` : id;
             rows.push({ key: `N|${path}`, value: TreeDiffEngine.stringifyNodeValue(n, level), node: n, level });
             if (n.properties && n.properties.length) {
-              const propsSorted = TreeDiffEngine.sortProps(n.properties);
-              for (const p of propsSorted) {
-                const pKey = `P|${path}|${p.code}`;
-                rows.push({ key: pKey, value: `P|${p.code}|${p.value ?? ''}`, node: { isProperty: true, code: p.code, data: p.value }, level: level + 1 });
+              // Preserve original property order and disambiguate duplicates with an occurrence index
+              const propCounts = new Map();
+              for (const p of n.properties) {
+                const codeStr = String(p.code);
+                const occ = (propCounts.get(codeStr) || 0) + 1;
+                propCounts.set(codeStr, occ);
+                const pKey = `P|${path}|${codeStr}#${occ}`;
+                rows.push({ key: pKey, value: `P|${codeStr}|${p.value ?? ''}`, node: { isProperty: true, code: p.code, data: p.value }, level: level + 1 });
               }
             }
             if (n.children && n.children.length) {
@@ -304,9 +329,9 @@
         return out;
       }
 
-      static computeDiff(leftTree, rightTree) {
-        const leftFlat = TreeDiffEngine.flattenTreeWithKeys(leftTree);
-        const rightFlat = TreeDiffEngine.flattenTreeWithKeys(rightTree);
+      static computeDiff(leftTree, rightTree, options = {}) {
+        const leftFlat = TreeDiffEngine.flattenTreeWithKeys(leftTree, options);
+        const rightFlat = TreeDiffEngine.flattenTreeWithKeys(rightTree, options);
         const keysLeft = leftFlat.map(r => r.key);
         const keysRight = rightFlat.map(r => r.key);
         const aligned = TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
