@@ -300,6 +300,13 @@
         if (toggleSxSBtn) {
           toggleSxSBtn.addEventListener('click', () => this.toggleSideBySideDiff());
         }
+        // Diff navigation buttons
+        const nextAddBtn = document.getElementById('nextAdditionBtn');
+        const nextRemBtn = document.getElementById('nextRemovalBtn');
+        const nextChgBtn = document.getElementById('nextChangeBtn');
+        if (nextAddBtn) nextAddBtn.addEventListener('click', () => this.navigateDiff('added'));
+        if (nextRemBtn) nextRemBtn.addEventListener('click', () => this.navigateDiff('removed'));
+        if (nextChgBtn) nextChgBtn.addEventListener('click', () => this.navigateDiff('changed'));
         // Per-panel expand/collapse
         const expandLeftBtn = document.getElementById('expandAllLeftBtn');
         const collapseLeftBtn = document.getElementById('collapseAllLeftBtn');
@@ -928,11 +935,58 @@
 
       updateDiffIndicator() {
         const indicator = document.getElementById('diffIndicator');
+        const nav = document.getElementById('diffNavButtons');
         if (!indicator) return;
         const hasLeft = !!this.getActiveTab();
         const hasRight = !!this.getActiveTabRight();
         const on = !!this.sideBySideDiffEnabled && hasLeft && hasRight;
         indicator.style.display = on ? 'inline-block' : 'none';
+        if (nav) nav.style.display = on ? 'inline-flex' : 'none';
+      }
+
+      // Navigate to next diff row of a given kind: 'added', 'removed', 'changed'
+      // For 'changed', navigate to next DATA change (type column), not line-only changes.
+      navigateDiff(kind) {
+        if (!this.sideBySideDiffEnabled || !this.currentDiffMap) return;
+        const total = this.currentDiffMap.totalRows || 0;
+        if (total <= 0) return;
+        // Determine current virtual index from left scroll position
+        const rowHeight = this.myTreeGrid?.itemHeight || 24;
+        const container = this.treeViewContainer; // left as reference
+        const currentIndex = Math.floor((container?.scrollTop || 0) / rowHeight);
+        const start = Math.max(0, currentIndex + 1);
+        const matchClass = kind === 'added' ? 'diff-added' : kind === 'removed' ? 'diff-removed' : 'diff-changed';
+        const isDataChanged = (i) => {
+          const l = this.currentDiffMap.leftCellClasses.get(i);
+          const r = this.currentDiffMap.rightCellClasses.get(i);
+          // Treat changes in the 'type' cell as data changes (node type/name/props summary), not line-only
+          return (l && l.type === 'cell-changed') || (r && r.type === 'cell-changed');
+        };
+        const isMatch = (i) => {
+          const rowHas = (this.currentDiffMap.leftRowClasses.get(i) === matchClass) || (this.currentDiffMap.rightRowClasses.get(i) === matchClass);
+          if (!rowHas) return false;
+          if (kind === 'changed') return isDataChanged(i);
+          return true;
+        };
+        const jumpTo = (i) => {
+          const top = i * rowHeight;
+          if (this.treeViewContainer) this.treeViewContainer.scrollTop = top;
+          if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = top;
+          if (this.myTreeGrid && this.myTreeGrid.indexMap) {
+            const mapped = this.myTreeGrid.indexMap[i];
+            if (mapped != null && mapped >= 0 && mapped < this.myTreeGrid.flatData.length) {
+              const node = this.myTreeGrid.flatData[mapped]?.node;
+              if (node && node.id) {
+                this.selectedNodeId = node.id;
+                this.myTreeGrid.selectedRowId = node.id;
+              }
+            }
+          }
+          if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        };
+        for (let i = start; i < total; i++) { if (isMatch(i)) { jumpTo(i); return; } }
+        for (let i = 0; i < start; i++) { if (isMatch(i)) { jumpTo(i); return; } }
       }
 
       // splitValueIntoCells moved to TreeDiffEngine

@@ -29,6 +29,12 @@
         <button id="toggleSidebarBtn" class="sidebar-toggle" title="Show/Hide sidebar" aria-label="Toggle sidebar" aria-pressed="false">☰</button>
         <div class="app-title">DXF Parser</div>
         <span id="diffIndicator" class="diff-indicator" title="Tree Diff enabled" style="display:none;"></span>
+        <!-- Diff navigation buttons (visible only in Tree Diff mode) -->
+        <div id="diffNavButtons" style="display:none; gap:4px; margin-left:8px;">
+          <button id="nextAdditionBtn" class="icon-button has-tooltip" title="Next addition" aria-label="Next addition" data-tooltip="Next addition">➕</button>
+          <button id="nextRemovalBtn" class="icon-button has-tooltip" title="Next removal" aria-label="Next removal" data-tooltip="Next removal">➖</button>
+          <button id="nextChangeBtn" class="icon-button has-tooltip" title="Next data change" aria-label="Next data change" data-tooltip="Next data change">✳️</button>
+        </div>
       </div>
       <div class="top-header-right">
         <label class="has-tooltip" title="Use streamed parsing" data-tooltip="Use streamed parsing for DXF files (lower memory usage)">
