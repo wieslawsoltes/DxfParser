@@ -186,6 +186,8 @@
     <!-- Backdrop for mobile off-canvas sidebar -->
     <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
   </div>
+  <!-- Global tooltip element appended at body level to avoid clipping -->
+  <div id="globalTooltip" class="global-tooltip" role="tooltip" aria-hidden="true"></div>
   <!-- Filters Popup Overlay (Left) -->
   <div id="filtersOverlayLeft" class="filters-overlay" style="display:none;">
     <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
@@ -805,6 +807,91 @@
           }
         });
       }
+    })();
+    
+    // Global tooltip logic: position a single fixed tooltip near hovered elements with `.has-tooltip`
+    (function() {
+      const tooltipEl = document.getElementById('globalTooltip');
+      if (!tooltipEl) return;
+      document.body.classList.add('tooltip-enhanced');
+
+      let currentTarget = null;
+      let hideTimer = null;
+
+      function showTooltip(target) {
+        const text = target.getAttribute('data-tooltip') || target.getAttribute('title');
+        if (!text) return;
+        tooltipEl.textContent = text;
+        tooltipEl.setAttribute('aria-hidden', 'false');
+
+        // Compute preferred position above the element; flip if needed
+        const rect = target.getBoundingClientRect();
+        const spacing = 8;
+        const tooltipRect = tooltipEl.getBoundingClientRect();
+
+        let x = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        let y = rect.top - tooltipRect.height - spacing;
+
+        // Constrain within viewport
+        const vw = document.documentElement.clientWidth;
+        const vh = document.documentElement.clientHeight;
+        if (x < 6) x = 6;
+        if (x + tooltipRect.width > vw - 6) x = Math.max(6, vw - tooltipRect.width - 6);
+        if (y < 6) {
+          // Place below if not enough space above
+          y = rect.bottom + spacing;
+        }
+
+        tooltipEl.style.transform = 'translateY(0)';
+        tooltipEl.style.top = `${Math.round(y)}px`;
+        tooltipEl.style.left = `${Math.round(x)}px`;
+      }
+
+      function hideTooltip() {
+        tooltipEl.setAttribute('aria-hidden', 'true');
+      }
+
+      function handleEnter(e) {
+        const target = e.target.closest('.has-tooltip');
+        if (!target) return;
+        currentTarget = target;
+        // If element uses native title, suppress native bubble to avoid double tooltips
+        if (currentTarget.hasAttribute('title')) {
+          currentTarget.setAttribute('data-tooltip', currentTarget.getAttribute('title'));
+          currentTarget.setAttribute('data-title-suppressed', 'true');
+          currentTarget.setAttribute('title', '');
+        }
+        clearTimeout(hideTimer);
+        showTooltip(currentTarget);
+      }
+
+      function handleMove(e) {
+        if (!currentTarget) return;
+        // Reposition on move to adapt near edges or when layout changes
+        showTooltip(currentTarget);
+      }
+
+      function handleLeave(e) {
+        if (!currentTarget) return;
+        hideTimer = setTimeout(() => {
+          hideTooltip();
+          // Restore title if we suppressed it
+          if (currentTarget && currentTarget.getAttribute('data-title-suppressed') === 'true') {
+            const text = currentTarget.getAttribute('data-tooltip');
+            if (text) currentTarget.setAttribute('title', text);
+            currentTarget.removeAttribute('data-title-suppressed');
+          }
+          currentTarget = null;
+        }, 30);
+      }
+
+      document.addEventListener('mouseenter', handleEnter, true);
+      document.addEventListener('focusin', handleEnter, true);
+      document.addEventListener('mousemove', handleMove, true);
+      document.addEventListener('mouseleave', handleLeave, true);
+      document.addEventListener('focusout', handleLeave, true);
+      window.addEventListener('scroll', () => { if (currentTarget) showTooltip(currentTarget); }, true);
+      window.addEventListener('resize', () => { if (currentTarget) showTooltip(currentTarget); });
     })();
   </script>
 </body>

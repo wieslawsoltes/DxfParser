@@ -448,6 +448,40 @@ body { font-family: sans-serif; }
 .has-tooltip:hover::before {
   opacity: 1;
 }
+
+/* Global, fixed-position tooltip to avoid clipping by overflow/clip-path ancestors */
+body.tooltip-enhanced .has-tooltip::after,
+body.tooltip-enhanced .has-tooltip::before {
+  display: none !important;
+}
+
+.global-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20000; /* Above overlays and menus */
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+  max-width: 60vw;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.global-tooltip[aria-hidden="true"] {
+  opacity: 0;
+}
+
+.global-tooltip[aria-hidden="false"] {
+  opacity: 1;
+  transform: translateY(0);
+}
 .filters-button .active-indicator {
   position: absolute;
   top: -2px;
