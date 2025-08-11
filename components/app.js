@@ -383,22 +383,22 @@
           if (maxEl) maxEl.addEventListener('input', () => this.updateEffectiveSearchTerms(set.side));
         });
 
-        // Dropdown toggles (per side)
+        // Object Types dropdowns use floating, viewport-clamped menu like context menu
         const dropdowns = [
-          { side: 'left', wrap: 'objectTypeDropdownLeft', button: 'objectTypeDropdownButtonLeft', content: 'objectTypeDropdownContentLeft' },
-          { side: 'right', wrap: 'objectTypeDropdownRight', button: 'objectTypeDropdownButtonRight', content: 'objectTypeDropdownContentRight' }
+          { side: 'left', button: 'objectTypeDropdownButtonLeft', content: 'objectTypeDropdownContentLeft' },
+          { side: 'right', button: 'objectTypeDropdownButtonRight', content: 'objectTypeDropdownContentRight' }
         ];
         dropdowns.forEach(d => {
-          const wrap = document.getElementById(d.wrap);
           const btn = document.getElementById(d.button);
           const content = document.getElementById(d.content);
-          if (!wrap || !btn || !content) return;
+          if (!btn || !content) return;
           btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            content.style.display = (content.style.display === 'block') ? 'none' : 'block';
-          });
-          document.addEventListener('click', (e) => {
-            if (!wrap.contains(e.target)) content.style.display = 'none';
+            if (this._currentFloatingDropdown && this._currentFloatingDropdown.content === content) {
+              this._closeFloatingDropdown();
+            } else {
+              this._openFloatingDropdown(btn, content);
+            }
           });
         });
 
@@ -1154,6 +1154,75 @@
         });
       }
 
+      _openFloatingDropdown(buttonEl, contentEl) {
+        // Close any open dropdown first
+        this._closeFloatingDropdown();
+        // Mark as floating and append to body for fixed positioning
+        contentEl.classList.add('floating');
+        document.body.appendChild(contentEl);
+        contentEl.style.display = 'block';
+        contentEl.style.transform = 'translate(0,0)';
+
+        // Base position: under the button
+        const rect = buttonEl.getBoundingClientRect();
+        const vw = document.documentElement.clientWidth;
+        const vh = document.documentElement.clientHeight;
+        const pad = 8;
+
+        // Ensure width at least button width
+        const minWidth = Math.max(240, rect.width);
+        contentEl.style.minWidth = minWidth + 'px';
+
+        // Measure after display
+        const cr = contentEl.getBoundingClientRect();
+        let left = rect.left;
+        let top = rect.bottom + 6;
+
+        // Clamp horizontally
+        if (left + cr.width + pad > vw) {
+          left = Math.max(pad, vw - cr.width - pad);
+        }
+        if (left < pad) left = pad;
+
+        // If bottom clips, place above button
+        if (top + cr.height + pad > vh) {
+          top = rect.top - cr.height - 6;
+          if (top < pad) top = Math.max(pad, vh - cr.height - pad);
+        }
+
+        contentEl.style.left = left + 'px';
+        contentEl.style.top = top + 'px';
+
+        const onDocClick = (e) => {
+          if (!contentEl.contains(e.target) && e.target !== buttonEl) {
+            this._closeFloatingDropdown();
+          }
+        };
+        const onEsc = (e) => { if (e.key === 'Escape') this._closeFloatingDropdown(); };
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onEsc);
+        this._currentFloatingDropdown = { content: contentEl, onDocClick, onEsc };
+      }
+
+      _closeFloatingDropdown() {
+        const cur = this._currentFloatingDropdown;
+        if (!cur) return;
+        const { content, onDocClick, onEsc } = cur;
+        document.removeEventListener('click', onDocClick, true);
+        document.removeEventListener('keydown', onEsc);
+        content.style.display = 'none';
+        content.classList.remove('floating');
+        // Move back next to its button container if it still exists
+        const id = content.id;
+        const originalWrapLeft = document.getElementById('objectTypeDropdownLeft');
+        const originalWrapRight = document.getElementById('objectTypeDropdownRight');
+        if (id && (originalWrapLeft || originalWrapRight)) {
+          if (id.endsWith('Left') && originalWrapLeft) originalWrapLeft.appendChild(content);
+          else if (id.endsWith('Right') && originalWrapRight) originalWrapRight.appendChild(content);
+        }
+        this._currentFloatingDropdown = null;
+      }
+
       _executeContextCommand(cmd, arg, row, side = 'left') {
         const useRight = side === 'right';
         const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
@@ -1888,6 +1957,7 @@
       closeFiltersOverlay(side = 'left') {
         const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
         if (overlay) {
+          this._closeFloatingDropdown();
           overlay.style.display = 'none';
           const header = overlay.querySelector('.filter-dialog-header');
           if (header && header._dragHandlers) {

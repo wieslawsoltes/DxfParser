@@ -749,16 +749,27 @@ body.tooltip-enhanced .has-tooltip::before {
 }
 
 .dropdown-content {
-  position: absolute;
   display: none;
   position: absolute;
-  background-color: #fff;
+  top: 100%;
+  left: 0;
+  background: #fff;
   min-width: 100%;
-  max-height: 200px;
+  max-height: 280px;
   overflow-y: auto;
-  border: 1px solid #ccc;
-  top: 100%;  /* Position immediately below the button */left: 0;
-  z-index: 1000;  /* Bring it above other elements */
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(140,149,159,.2);
+  z-index: 1000;
+  padding: 6px;
+}
+
+/* When elevated to viewport level, use fixed positioning to avoid clipping */
+.dropdown-content.floating {
+  position: fixed;
+  min-width: 240px; /* JS will raise to button width when needed */
+  max-height: 60vh;
+  z-index: 10050; /* above overlays content, close to .menu */
 }
 
 .dropdown-content label {
