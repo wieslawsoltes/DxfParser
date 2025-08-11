@@ -2635,16 +2635,19 @@
 
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
-      
-      document.getElementById("objectTypeDropdownButton").addEventListener("click", (e) => {
-        e.stopPropagation();
-        const dropdownContent = document.getElementById("objectTypeDropdownContent");
-        dropdownContent.style.display = (dropdownContent.style.display === "block") ? "none" : "block";
-      });
-      document.addEventListener("click", () => {
-        const dropdownContent = document.getElementById("objectTypeDropdownContent");
-        dropdownContent.style.display = "none";
-      });
+
+      // Legacy single dropdown support (guarded). New UI uses Left/Right IDs.
+      const legacyBtn = document.getElementById("objectTypeDropdownButton");
+      const legacyContent = document.getElementById("objectTypeDropdownContent");
+      if (legacyBtn && legacyContent) {
+        legacyBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          legacyContent.style.display = (legacyContent.style.display === "block") ? "none" : "block";
+        });
+        document.addEventListener("click", () => {
+          legacyContent.style.display = "none";
+        });
+      }
       
       // DRAG & DROP SUPPORT:
       // Prevent default drag behaviors on document
@@ -2667,6 +2670,7 @@
         e.stopPropagation();
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
+          // Drop files into the LEFT panel by default
           window.app.handleFiles(files);
         }
       }, false);

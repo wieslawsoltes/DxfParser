@@ -4,25 +4,125 @@
         this.tabStatePrefix = 'dxf_tab_';
       }
 
-      // Save the complete application state
-      saveAppState(tabs, activeTabId, columnWidths) {
+      // Save the complete application state (both panels)
+      saveAppState(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
         try {
-          const appState = {
-            activeTabId: activeTabId,
+      const appState = {
+            // New multi-panel layout
+            activeTabIdLeft: activeTabIdLeft,
+            activeTabIdRight: activeTabIdRight,
             columnWidths: columnWidths,
-            tabIds: tabs.map(tab => tab.id),
-            timestamp: Date.now()
+            tabIdsLeft: (tabsLeft || []).map(tab => tab.id),
+            tabIdsRight: (tabsRight || []).map(tab => tab.id),
+        // UI toggles persisted outside of App to also export
+        sidebarCollapsed: (function(){ try { return localStorage.getItem('sidebarCollapsed') === 'true'; } catch(e) { return false; } })(),
+        rightPanelHidden: (function(){ try { return localStorage.getItem('rightPanelHidden') === 'true'; } catch(e) { return false; } })(),
+        sideBySideDiffEnabled: (typeof window !== 'undefined' && window.app) ? !!window.app.sideBySideDiffEnabled : false,
+        timestamp: Date.now()
           };
           localStorage.setItem(this.storageKey, JSON.stringify(appState));
           
           // Save each tab's state separately for efficiency
-          tabs.forEach(tab => {
-            this.saveTabState(tab);
-          });
+          (tabsLeft || []).forEach(tab => { this.saveTabState(tab); });
+          (tabsRight || []).forEach(tab => { this.saveTabState(tab); });
         } catch (error) {
           console.warn('Failed to save app state:', error);
         }
+  }
+
+  // Save only app-level state; skip per-tab persistence (used to avoid quota on heavy tabs)
+  saveAppStateLight(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
+    try {
+      const appState = {
+        activeTabIdLeft,
+        activeTabIdRight,
+        columnWidths,
+        tabIdsLeft: (tabsLeft || []).map(tab => tab.id),
+        tabIdsRight: (tabsRight || []).map(tab => tab.id),
+        sidebarCollapsed: (function(){ try { return localStorage.getItem('sidebarCollapsed') === 'true'; } catch(e) { return false; } })(),
+        rightPanelHidden: (function(){ try { return localStorage.getItem('rightPanelHidden') === 'true'; } catch(e) { return false; } })(),
+        sideBySideDiffEnabled: (typeof window !== 'undefined' && window.app) ? !!window.app.sideBySideDiffEnabled : false,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(this.storageKey, JSON.stringify(appState));
+    } catch (error) {
+      console.warn('Failed to save app state (light):', error);
+    }
+  }
+
+  // Build a single JSON snapshot of the entire app state for file export
+  buildExportSnapshot(tabsLeft, tabsRight, activeTabIdLeft, activeTabIdRight, columnWidths) {
+    const app = (typeof window !== 'undefined') ? window.app : null;
+    const safe = (fn, fallback) => { try { return fn(); } catch(e) { return fallback; } };
+    const snapshot = {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      app: {
+        activeTabIdLeft,
+        activeTabIdRight,
+        columnWidths,
+        sidebarCollapsed: safe(() => localStorage.getItem('sidebarCollapsed') === 'true', false),
+        rightPanelHidden: safe(() => localStorage.getItem('rightPanelHidden') === 'true', false),
+        sideBySideDiffEnabled: app ? !!app.sideBySideDiffEnabled : false
+      },
+      leftTabs: (tabsLeft || []).map(t => this._serializeTabForExport(t)),
+      rightTabs: (tabsRight || []).map(t => this._serializeTabForExport(t))
+    };
+    return snapshot;
+  }
+
+  _serializeTabForExport(tab) {
+    return {
+      id: tab.id,
+      name: tab.name,
+      codeSearchTerms: tab.codeSearchTerms || [],
+      dataSearchTerms: tab.dataSearchTerms || [],
+      currentSortField: tab.currentSortField || 'line',
+      currentSortAscending: tab.currentSortAscending !== undefined ? tab.currentSortAscending : true,
+      minLine: tab.minLine ?? null,
+      maxLine: tab.maxLine ?? null,
+      dataExact: !!tab.dataExact,
+      dataCase: !!tab.dataCase,
+      selectedObjectTypes: tab.selectedObjectTypes || [],
+      navigationHistory: tab.navigationHistory || [],
+      currentHistoryIndex: tab.currentHistoryIndex ?? -1,
+      classIdToName: tab.classIdToName || {},
+      expandedNodeIds: tab.originalTreeData ? this.getExpandedNodeIds(tab.originalTreeData) : [],
+      originalTreeData: tab.originalTreeData || null
+    };
+  }
+
+  // Restore from a snapshot object (not reading/writing localStorage by itself)
+  // Returns { app, leftTabs, rightTabs }
+  restoreFromSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return null;
+    const app = snapshot.app || {};
+    const left = Array.isArray(snapshot.leftTabs) ? snapshot.leftTabs : [];
+    const right = Array.isArray(snapshot.rightTabs) ? snapshot.rightTabs : [];
+    // Ensure tree nodes have expanded flags per expandedNodeIds
+    const applyExpanded = (tabsArr) => {
+      for (const t of tabsArr) {
+        if (t.originalTreeData && t.expandedNodeIds && t.expandedNodeIds.length) {
+          try { this.restoreExpandedState(t.originalTreeData, t.expandedNodeIds); } catch(e) {}
+        }
       }
+    };
+    applyExpanded(left);
+    applyExpanded(right);
+    return {
+      app: {
+        activeTabIdLeft: app.activeTabIdLeft || null,
+        activeTabIdRight: app.activeTabIdRight || null,
+        columnWidths: app.columnWidths || null,
+        sidebarCollapsed: !!app.sidebarCollapsed,
+        rightPanelHidden: !!app.rightPanelHidden,
+        sideBySideDiffEnabled: !!app.sideBySideDiffEnabled
+      },
+      leftTabs: left,
+      rightTabs: right
+    };
+  }
+
 
       // Save individual tab state
       saveTabState(tab) {
@@ -51,7 +151,32 @@
           
           localStorage.setItem(this.tabStatePrefix + tab.id, JSON.stringify(tabState));
         } catch (error) {
-          console.warn('Failed to save tab state:', error);
+      // Retry with a minimal tab state (without originalTreeData) to mitigate quota overflows
+      try {
+        const lite = {
+          id: tab.id,
+          name: tab.name,
+          codeSearchTerms: tab.codeSearchTerms || [],
+          dataSearchTerms: tab.dataSearchTerms || [],
+          currentSortField: tab.currentSortField || 'line',
+          currentSortAscending: tab.currentSortAscending !== undefined ? tab.currentSortAscending : true,
+          minLine: tab.minLine,
+          maxLine: tab.maxLine,
+          dataExact: tab.dataExact || false,
+          dataCase: tab.dataCase || false,
+          selectedObjectTypes: tab.selectedObjectTypes || [],
+          navigationHistory: tab.navigationHistory || [],
+          currentHistoryIndex: tab.currentHistoryIndex || -1,
+          classIdToName: tab.classIdToName || {},
+          originalTreeDataSerialized: null,
+          expandedNodeIds: tab.originalTreeData ? this.getExpandedNodeIds(tab.originalTreeData) : [],
+          timestamp: Date.now()
+        };
+        localStorage.setItem(this.tabStatePrefix + tab.id, JSON.stringify(lite));
+        console.warn('Saved minimal tab state due to quota limits for tab:', tab.name || tab.id);
+      } catch (e2) {
+        console.warn('Failed to save tab state:', error);
+      }
         }
       }
 
@@ -174,16 +299,7 @@
         }
       }
 
-      // Get all saved tab IDs
-      getSavedTabIds() {
-        try {
-          const appState = this.loadAppState();
-          return appState ? appState.tabIds || [] : [];
-        } catch (error) {
-          console.warn('Failed to get saved tab IDs:', error);
-          return [];
-        }
-      }
+      
 
       // Check if we have saved state
       hasSavedState() {

@@ -49,6 +49,19 @@ body { font-family: sans-serif; }
   font-size: 1.1em;
   font-weight: 700;
 }
+.diff-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: #ff9900;
+  box-shadow: 0 0 0 2px rgba(255,153,0,0.2);
+}
+
+/* Diff nav buttons next to indicator */
+#diffNavButtons { display: inline-flex; }
+#diffNavButtons .icon-button { padding: 2px 6px; }
 .top-header-right label { display: inline-flex; align-items: center; gap: 0.3em; }
 /* Layout for two‐column main content with fixed sidebar */
 .content-wrapper {
@@ -57,7 +70,8 @@ body { font-family: sans-serif; }
   overflow: hidden;
 }
  .sidebar {
-  width: 270px;
+  flex: none;
+  width: max-content;
   padding: 1em;
   border-right: 1px solid #ccc;
   overflow: visible;
@@ -80,10 +94,15 @@ body { font-family: sans-serif; }
   font-size: 1.2em;
   font-weight: 600;
 }
-.pane-resizer {
-  width: 5px;
-  cursor: ew-resize;
-  background-color: #ccc;
+/* .pane-resizer removed */
+
+/* Compare view splitter */
+.compare-splitter {
+  background: #ccc;
+  transition: background-color 0.2s ease;
+}
+.compare-splitter:hover {
+  background: #bbb;
 }
 .main-content {
   flex: 1;
@@ -95,15 +114,52 @@ body { font-family: sans-serif; }
 /* Sidebar header buttons – stacked vertically and fill width */
 .sidebar-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: max-content;
   gap: 0.3em;
   margin-bottom: 0.5em;
+  justify-items: start; /* keep items sized to content */
 }
 .sidebar-buttons button {
-  width: 100%;
-  padding: 0.5em;
+  justify-self: start; /* align grid item to start */
+  width: auto; /* shrink to fit content */
+  max-width: 100%;
+  white-space: nowrap; /* keep text on one line */
+  padding: 6px 10px;
   box-sizing: border-box;
 }
+
+/* Fluent-style icon + text buttons for the sidebar */
+.sidebar-buttons .fluent-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #242424;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button { gap: 0; width: 28px; min-width: 28px; justify-content: center; }
+.sidebar-buttons .fluent-button:hover { background: #f3f2f1; border-color: #e1dfdd; }
+.sidebar-buttons .fluent-button:active { background: #e1dfdd; }
+.sidebar-buttons .fluent-button:focus-visible {
+  outline: 2px solid #115ea3;
+  outline-offset: 2px;
+}
+.sidebar-buttons .fluent-button .fluent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 16px;
+  min-width: 16px;
+}
+.sidebar-buttons .fluent-button span:not(.fluent-icon) { line-height: 16px; display: inline-block; }
 
 /* File input row */
 .file-input-row {
@@ -169,7 +225,9 @@ body { font-family: sans-serif; }
 }
 #parseBtn { padding: 0.3em 0.6em; white-space: nowrap; }
 /* Tabs */
-#tabContainer {
+#tabContainer,
+#tabContainerLeft,
+#tabContainerRight {
   display: flex;
   flex-wrap: wrap;
   border-bottom: 1px solid #ccc;
@@ -194,7 +252,8 @@ body { font-family: sans-serif; }
   padding: 0 4px;
 }
 /* Tree Grid Header */
-#treeGridHeader {
+#treeGridHeader,
+.tree-header {
   display: flex;
   align-items: center;
   height: 24px;
@@ -258,14 +317,16 @@ body { font-family: sans-serif; }
 .tree-object-count:last-child,
 .tree-data-size:last-child { border-right: none; }
 /* Tree View Container */
-#treeViewContainer {
+#treeViewContainer,
+#treeViewContainerLeft,
+#treeViewContainerRight {
   position: relative;
   flex: 1;
   overflow: auto;
   border: 1px solid #ccc;
   clip-path: inset(0);
 }
-#treeViewContent { position: relative; overflow: hidden; }
+#treeViewContent, #treeViewContentLeft, #treeViewContentRight { position: relative; overflow: hidden; }
 /* Tree row styling – with row selection support */
 .tree-row {
   display: flex;
@@ -278,6 +339,17 @@ body { font-family: sans-serif; }
 .tree-row.selected {
   background-color: #bde4ff;
 }
+.tree-row.placeholder {
+  background: repeating-linear-gradient(45deg, #f8f9fa, #f8f9fa 10px, #f3f4f6 10px, #f3f4f6 20px);
+}
+.tree-row.diff-added { background-color: #e6ffed; }
+.tree-row.diff-removed { background-color: #ffeef0; }
+.tree-row.diff-changed { background-color: #fff5b1; }
+
+/* Cell-level diff highlighting */
+.cell-added { background-color: #e6ffed !important; }
+.cell-removed { background-color: #ffeef0 !important; }
+.cell-changed { background-color: #fff5b1 !important; }
 .toggle {
   display: inline-block;
   width: 16px;
@@ -326,6 +398,146 @@ body { font-family: sans-serif; }
   margin: 0 0 0.5em 0;
   font-size: 1.2em;
 }
+.filters-button {
+  position: relative;
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.icon-button:hover { background: #f2f2f2; }
+.icon-button svg { pointer-events: none; }
+
+/* Simple tooltip for icon buttons */
+.has-tooltip { position: relative; }
+.has-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+.has-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent transparent rgba(0,0,0,0.8) transparent;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+.has-tooltip:hover::after,
+.has-tooltip:hover::before {
+  opacity: 1;
+}
+
+/* Global, fixed-position tooltip to avoid clipping by overflow/clip-path ancestors */
+body.tooltip-enhanced .has-tooltip::after,
+body.tooltip-enhanced .has-tooltip::before {
+  display: none !important;
+}
+
+.global-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20000; /* Above overlays and menus */
+  background: rgba(0,0,0,0.85);
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+  max-width: 60vw;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.global-tooltip[aria-hidden="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.global-tooltip[aria-hidden="false"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+.filters-button .active-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #28a745;
+  box-shadow: 0 0 0 2px rgba(40,167,69,0.2);
+  display: none;
+}
+.filters-button.has-active .active-indicator { display: inline-block; }
+
+/* Filters overlay wrapper */
+.filters-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.5);
+  z-index: 1050;
+}
+/* Filter overlay: make compact and remove background for filter dialogs */
+#filtersOverlayLeft,
+#filtersOverlayRight { background-color: transparent; z-index: 2000; }
+#filtersOverlayLeft .overlay-content,
+#filtersOverlayRight .overlay-content {
+  position: fixed;
+  margin: 0;
+  width: auto;
+  height: auto;
+  max-width: 520px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+}
+#filtersOverlayLeft .overlay-content h2,
+#filtersOverlayRight .overlay-content h2 { font-size: 1em; margin: 0 0 0.5em 0; }
+#filtersOverlayLeft .overlay-content .filter-content .filter-row,
+#filtersOverlayRight .overlay-content .filter-content .filter-row { gap: 0.4em; margin-bottom: 0.4em; }
+#filtersOverlayLeft .overlay-content .tag-container,
+#filtersOverlayRight .overlay-content .tag-container { margin-bottom: 0.4em; }
+
+/* Drag cursor for header */
+#filtersOverlayLeft .overlay-content .filter-dialog-header,
+#filtersOverlayRight .overlay-content .filter-dialog-header { cursor: move; }
 .filter-content .filter-row {
   display: flex;
   flex-direction: column;
@@ -376,7 +588,6 @@ body { font-family: sans-serif; }
 #blocksOverlay,
 #lineTypesOverlay,
 #textsOverlay,
-#diffOverlay,
 #ruleConfigOverlay,
 #diagnosticsOverlay {
   display: none;
@@ -390,7 +601,6 @@ body { font-family: sans-serif; }
 /* Z-index layering for overlays */
 #ruleConfigOverlay { z-index: 1200; }
 #hexViewerOverlay { z-index: 1100; }
-#diffOverlay { z-index: 1100; }
 /* All other overlays get z-index: 1000 */
 #batchProcessingOverlay,
 #cloudOverlay,
@@ -478,7 +688,6 @@ body { font-family: sans-serif; }
 #closeBlocksOverlay,
 #closeLineTypesOverlay,
 #closeTextsOverlay,
-#closeDiffOverlay,
 #closeBatchOverlay,
 #closeRuleConfigBtn,
 #saveBinaryBtn,
@@ -500,7 +709,6 @@ body { font-family: sans-serif; }
 #closeBlocksOverlay,
 #closeLineTypesOverlay,
 #closeTextsOverlay,
-#closeDiffOverlay,
 #closeBatchOverlay,
 #closeRuleConfigBtn { right: 10px; }
 #saveBinaryBtn { right: 80px; }
@@ -545,16 +753,27 @@ body { font-family: sans-serif; }
 }
 
 .dropdown-content {
-  position: absolute;
   display: none;
   position: absolute;
-  background-color: #fff;
+  top: 100%;
+  left: 0;
+  background: #fff;
   min-width: 100%;
-  max-height: 200px;
+  max-height: 280px;
   overflow-y: auto;
-  border: 1px solid #ccc;
-  top: 100%;  /* Position immediately below the button */left: 0;
-  z-index: 1000;  /* Bring it above other elements */
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(140,149,159,.2);
+  z-index: 1000;
+  padding: 6px;
+}
+
+/* When elevated to viewport level, use fixed positioning to avoid clipping */
+.dropdown-content.floating {
+  position: fixed;
+  min-width: 240px; /* JS will raise to button width when needed */
+  max-height: 60vh;
+  z-index: 10050; /* above overlays content, close to .menu */
 }
 
 .dropdown-content label {
@@ -1027,74 +1246,17 @@ body { font-family: sans-serif; }
   }
 }
 
-/* Context Menu Styles */
-.context-menu {
-  position: fixed;
-  background: #fff;
-  border: 1px solid #ccc;
-  box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
-  border-radius: 4px;
-  padding: 0;
-  z-index: 10000;
-  min-width: 200px;
-  max-height: 400px;
-  overflow-y: auto;
-  display: none;
-}
-
-.context-menu-item {
-  padding: 8px 16px;
-  cursor: pointer;
-  border: none;
-  background: none;
-  width: 100%;
-  text-align: left;
-  font-size: 14px;
-  border-bottom: 1px solid #eee;
-}
-
-.context-menu-item:hover {
-  background: #f0f0f0;
-}
-
-.context-menu-item:last-child {
-  border-bottom: none;
-}
-
-.context-menu-separator {
-  height: 1px;
-  background: #ccc;
-  margin: 4px 0;
-}
-
-.context-menu-submenu {
-  position: relative;
-}
-
-.context-menu-submenu::after {
-  content: "▶";
-  float: right;
-  font-size: 12px;
-}
-
-.context-submenu {
-  position: absolute;
-  left: 100%;
-  top: 0;
-  background: #fff;
-  border: 1px solid #ccc;
-  box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
-  border-radius: 4px;
-  padding: 0;
-  min-width: 180px;
-  max-height: 300px;
-  overflow-y: auto;
-  display: none;
-}
-
-.context-menu-submenu:hover .context-submenu {
-  display: block;
-}
+/* Modern menu styling (replaces old context-menu) */
+.menu { position: absolute; display: none; min-width: 200px; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; box-shadow: 0 8px 24px rgba(140,149,159,.2); padding: 6px; z-index: 10000; user-select: none; }
+.menu[aria-hidden="false"] { display: block; }
+.menu ul { list-style: none; padding: 0; margin: 0; }
+.menu-sep { height: 1px; background: #d0d7de; margin: 6px; }
+.menu-item { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: default; white-space: nowrap; }
+.menu-item:hover { background: #f6f8fa; }
+.menu-item[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.submenu-trigger::after { content: '▶'; font-size: 10px; margin-left: auto; opacity: .6; }
+.submenu { position: absolute; top: 0; left: 100%; margin-left: 6px; min-width: 200px; background: #fff; border: 1px solid #d0d7de; border-radius: 8px; box-shadow: 0 8px 24px rgba(140,149,159,.2); padding: 6px; display: none; z-index: 10001; }
+.menu-item.open > .submenu { display: block; }
 /* Responsive adjustments for mobile */
 @media (max-width: 600px) {
   .row-controls { flex-direction: column; align-items: flex-start; gap: 0.5em; }
@@ -1161,12 +1323,73 @@ body { font-family: sans-serif; }
 
 /* Collapsed: keep a narrow rail with only the toggle visible */
 .content-wrapper.sidebar-collapsed .sidebar {
-  width: 0;
-  padding: 0;
-  border: none;
+  width: 38px; /* ensure consistent collapsed rail across reloads */
+  padding: 4px 6px;
+  border-right: 1px solid #ccc;
 }
 .content-wrapper.sidebar-collapsed .sidebar-header,
 .content-wrapper.sidebar-collapsed .sidebar-title,
-.content-wrapper.sidebar-collapsed .sidebar-buttons,
 .content-wrapper.sidebar-collapsed .filter-panel { display: none; }
+.content-wrapper.sidebar-collapsed .sidebar-buttons { display: grid; justify-items: center; }
+.content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button { padding: 4px; }
+.content-wrapper.sidebar-collapsed .sidebar-buttons .fluent-button span:not(.fluent-icon) { display: none; }
 .content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
+.content-wrapper.sidebar-collapsed .pane-resizer { display: none; }
+ 
+/* Close button inside the sidebar (hidden by default, shown on mobile) */
+.close-sidebar-btn {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+
+/* Mobile off-canvas sidebar overlay */
+@media (max-width: 600px) {
+  /* Take sidebar out of the normal flow and turn it into a drawer */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 300px;
+    max-width: 85%;
+    background: #fff;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    border-right: 1px solid #ccc;
+    z-index: 1300;
+    box-shadow: none;
+    padding: 1em;
+    overflow-y: auto;
+  }
+  /* When open, slide in and add subtle shadow */
+  .content-wrapper.sidebar-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  }
+  /* Backdrop shown only when sidebar is open */
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1200;
+  }
+  /* Backdrop is placed right after .content-wrapper in DOM */
+  .content-wrapper.sidebar-open + .sidebar-backdrop { display: block; }
+
+  /* Ensure main content uses full width */
+  .main-content { padding-left: 0; }
+
+  /* Show the close button inside the drawer */
+  .close-sidebar-btn { display: inline-flex; }
+
+  /* Neutralize collapsed rail behavior on mobile (drawer controls width) */
+  .content-wrapper.sidebar-collapsed .sidebar {
+    width: 300px;
+    padding: 1em;
+    border-right: 1px solid #ccc;
+  }
+}

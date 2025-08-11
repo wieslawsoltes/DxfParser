@@ -9,6 +9,16 @@
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
         this.onRowSelect = options.onRowSelect || null;
+        // Optional: ID of the header root element this grid should sync with
+        this.headerRootId = options.headerRootId || null;
+        // Optional: per-row class provider for diff highlighting
+        this.rowClassProvider = options.rowClassProvider || null;
+        // Optional: per-cell class provider, signature (rowIndex, flatItem|null, columnKey) -> className|string|null
+        this.cellClassProvider = options.cellClassProvider || null;
+        // Optional: override total rows for virtualization (e.g., diff alignment)
+        this.overrideTotalRows = null;
+        // Optional: index map aligning virtual index -> flatData index (null for placeholder)
+        this.indexMap = null;
         this.columnWidths = options.columnWidths || {
           line: 100,
           code: 100,
@@ -34,9 +44,30 @@
           }
         });
       }
+
+      setRowClassProvider(provider) {
+        this.rowClassProvider = provider;
+        this.updateVisibleNodes();
+      }
+
+      setCellClassProvider(provider) {
+        this.cellClassProvider = provider;
+        this.updateVisibleNodes();
+      }
+
+      setOverrideTotalRows(totalRows) {
+        this.overrideTotalRows = (typeof totalRows === 'number') ? totalRows : null;
+        this.updateVisibleNodes();
+      }
+
+      setIndexMap(map) {
+        this.indexMap = Array.isArray(map) ? map : null;
+        this.updateVisibleNodes();
+      }
       
       attachHeaderResizerEvents() {
-        const headerResizers = document.querySelectorAll('#treeGridHeader .header-cell .resizer');
+        const scopeSelector = this.headerRootId ? `#${this.headerRootId}` : '#treeGridHeader';
+        const headerResizers = document.querySelectorAll(`${scopeSelector} .header-cell .resizer`);
         headerResizers.forEach(resizer => {
           resizer.addEventListener("mousedown", (e) => this.handleResizerMouseDown(e));
         });
@@ -113,7 +144,7 @@
       }
       
       syncHeaderWidths() {
-        const header = document.getElementById("treeGridHeader");
+        const header = this.headerRootId ? document.getElementById(this.headerRootId) : document.getElementById("treeGridHeader");
         if (!header) return;
         const colWidths = this.computeColumnFinalWidths();
         const lineCell = header.querySelector('.tree-line');
@@ -312,7 +343,9 @@
       updateVisibleNodes() {
         const scrollTop = this.container.scrollTop;
         const containerHeight = this.container.clientHeight;
-        const totalRows = this.flatData.length;
+        const totalRows = (typeof this.overrideTotalRows === 'number' && this.overrideTotalRows > 0)
+          ? this.overrideTotalRows
+          : this.flatData.length;
         const fullHeight = totalRows * this.itemHeight;
         this.content.style.height = fullHeight + "px";
 
@@ -337,28 +370,43 @@
 
         const fragment = document.createDocumentFragment();
         for (let i = startIndex; i < endIndex; i++) {
-          const { node, level } = this.flatData[i];
           const row = document.createElement("div");
           row.className = "tree-row tree-node";
           row.style.display = "flex";
           row.style.position = "relative";
           row.style.height = this.itemHeight + "px";
-          row.dataset.id = node.id;
-          if (String(node.id) === String(this.selectedRowId)) {
-            row.classList.add("selected");
+          const mappedIndex = (this.indexMap && i < this.indexMap.length) ? this.indexMap[i] : i;
+          const hasItem = (mappedIndex != null) && (mappedIndex >= 0) && (mappedIndex < this.flatData.length);
+          let node = null;
+          let level = 0;
+          if (hasItem) {
+            ({ node, level } = this.flatData[mappedIndex]);
+            row.dataset.id = node.id;
+            // Keep a direct reference to the rendered node for context actions
+            row._nodeRef = node;
+            if (String(node.id) === String(this.selectedRowId)) {
+              row.classList.add("selected");
+            }
+            row.addEventListener("click", (e) => {
+              if (window.getSelection().toString().length > 0) {
+                return;
+              }
+              this.selectedRowId = node.id;
+              this.updateVisibleNodes();
+              if (this.onRowSelect) {
+                this.onRowSelect(node.id);
+              }
+            });
+          } else {
+            row.classList.add("placeholder");
           }
-         row.addEventListener("click", (e) => {
-          // If the user is in the middle of selecting text, do nothing.
-          if (window.getSelection().toString().length > 0) {
-            return;
+          // Apply per-row class if provided (e.g., diff coloring)
+          if (this.rowClassProvider) {
+            try {
+              const extraClass = this.rowClassProvider(i, hasItem ? this.flatData[mappedIndex] : null);
+              if (extraClass) row.classList.add(extraClass);
+            } catch (e) {}
           }
-          // Otherwise, proceed with row selection.
-          this.selectedRowId = node.id;
-          this.updateVisibleNodes();
-          if (this.onRowSelect) {
-            this.onRowSelect(node.id);
-          }
-        });
 
           // Line column.
           const lineDiv = document.createElement("div");
@@ -368,7 +416,7 @@
           lineContent.style.display = "flex";
           lineContent.style.alignItems = "center";
           lineContent.style.marginLeft = (level * 20) + "px";
-          if (!node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
+          if (hasItem && !node.isProperty && ((node.properties && node.properties.length) || (node.children && node.children.length))) {
             const toggleSpan = document.createElement("span");
             toggleSpan.className = "toggle";
             toggleSpan.textContent = node.expanded ? "▼" : "►";
@@ -384,7 +432,7 @@
             lineContent.appendChild(spacer);
           }
           const lineNumberSpan = document.createElement("span");
-          lineNumberSpan.textContent = node.line || "";
+          lineNumberSpan.textContent = hasItem ? (node.line || "") : "";
           lineContent.appendChild(lineNumberSpan);
           lineDiv.appendChild(lineContent);
           row.appendChild(lineDiv);
@@ -394,17 +442,17 @@
           codeDiv.className = "tree-code";
           codeDiv.style.width = codeWidth + "px";
           codeDiv.style.textAlign = "left";
-          if (node.isProperty) {
+          if (hasItem && node.isProperty) {
             codeDiv.addEventListener("dblclick", (e) => {
               e.stopPropagation();
               this.makeCodeEditable(codeDiv, node);
             });
           }
           // For properties or end markers we normally display the code.
-          if (node.isProperty || node.isEndMarker) {
+          if (hasItem && (node.isProperty || node.isEndMarker)) {
             codeDiv.textContent = node.code;
           } else {
-            codeDiv.textContent = ((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "";
+            codeDiv.textContent = hasItem ? (((node.properties && node.properties.length) || (node.children && node.children.length)) ? "0" : "") : "";
           }
           row.appendChild(codeDiv);
 
@@ -413,14 +461,14 @@
           dataDiv.className = "tree-data";
           dataDiv.style.width = dataWidth + "px";
           dataDiv.style.flex = "0 0 auto";
-          if (node.isProperty) {
+          if (hasItem && node.isProperty) {
             dataDiv.addEventListener("dblclick", (e) => {
               e.stopPropagation();
               this.makeDataEditable(dataDiv, node);
             });
           }
           // When rendering a row…
-          if (node.isProperty) {
+          if (hasItem && node.isProperty) {
             // If this property’s code is one of the handle codes,
             // create a clickable span instead of plain text.
             if (isHandleCode(Number(node.code))) {
@@ -440,7 +488,7 @@
               // Otherwise, simply display the property data.
               dataDiv.textContent = node.data;
             }
-          } else {
+          } else if (hasItem) {
             // For non‑property nodes, show the node type.
             // If the node is a CLASS, append the (ID=…) text.
             if (node.type) {
@@ -565,7 +613,7 @@
           objectCountDiv.className = "tree-object-count";
           objectCountDiv.style.width = objectCountWidth + "px";
           objectCountDiv.style.textAlign = "right";
-          if (!node.isProperty && node.children && node.children.length) {
+          if (hasItem && !node.isProperty && node.children && node.children.length) {
             objectCountDiv.textContent = this.computeObjectCount(node);
           } else {
             objectCountDiv.textContent = "";
@@ -577,13 +625,28 @@
           dataSizeDiv.className = "tree-data-size";
           dataSizeDiv.style.width = dataSizeWidth + "px";
           dataSizeDiv.style.textAlign = "right";
-          dataSizeDiv.textContent = this.computeDataSize(node);
+          dataSizeDiv.textContent = hasItem ? this.computeDataSize(node) : "";
           row.appendChild(dataSizeDiv);
 
           // ★ If this node represents an EOF marker, adjust its display.
-          if (node.isEOF) {
+          if (hasItem && node.isEOF) {
             codeDiv.textContent = node.code;      // Should show "0"
             dataDiv.textContent = node.type;        // Will show "EOF"
+          }
+
+          // Apply per-cell classes if provided
+          if (this.cellClassProvider) {
+            try {
+              const applyCell = (elem, key) => {
+                const cls = this.cellClassProvider(i, hasItem ? this.flatData[mappedIndex] : null, key);
+                if (cls) elem.classList.add(cls);
+              };
+              applyCell(lineDiv, 'line');
+              applyCell(codeDiv, 'code');
+              applyCell(dataDiv, 'type');
+              applyCell(objectCountDiv, 'objectCount');
+              applyCell(dataSizeDiv, 'dataSize');
+            } catch (e) {}
           }
 
           fragment.appendChild(row);

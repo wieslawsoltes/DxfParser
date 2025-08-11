@@ -13,16 +13,24 @@
           dataSize: 130
         };
         this.dxfParser = new DxfParser();
-        this.treeViewContainer = document.getElementById("treeViewContainer");
-        this.treeViewContent = document.getElementById("treeViewContent");
+        // Left panel DOM
+        this.treeViewContainer = document.getElementById("treeViewContainerLeft");
+        this.treeViewContent = document.getElementById("treeViewContentLeft");
+        // Left panel state
         this.tabs = [];
         this.activeTabId = null;
+        // Right panel DOM
+        this.treeViewContainerRight = document.getElementById("treeViewContainerRight");
+        this.treeViewContentRight = document.getElementById("treeViewContentRight");
+        // Right panel state
+        this.tabsRight = [];
+        this.activeTabIdRight = null;
         this.currentBinaryData = null;
         this.currentDetectedType = null;
         this.selectedNodeId = null;
             // We'll cache the measured hex line height here.
     this.hexLineHeight = null;
-        // Create the TreeDataGrid instance and pass columnWidths via the constructor.
+        // Create the TreeDataGrid instances and pass columnWidths via the constructor.
         this.myTreeGrid = new TreeDataGrid(this.treeViewContainer, this.treeViewContent, {
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
@@ -31,17 +39,39 @@
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => { this.selectedNodeId = nodeId; },
           columnWidths: this.columnWidths,
+          headerRootId: "treeGridHeaderLeft",
           hexViewerCallback: (combinedHexString) => this.showHexViewer(combinedHexString)
         });
+        this.myTreeGridLeft = this.myTreeGrid; // alias for clarity
+        this.myTreeGridRight = new TreeDataGrid(this.treeViewContainerRight, this.treeViewContentRight, {
+          itemHeight: 24,
+          // Enable expand in right panel
+          onToggleExpand: (nodeId) => this.handleToggleExpandRight(nodeId),
+          onHandleClick: (handle) => this.handleLinkToHandle(handle),
+          openCallback: (nodeId) => this.handleOpenRight(nodeId),
+          columnWidths: { ...this.columnWidths },
+          headerRootId: "treeGridHeaderRight",
+        });
+        // Restore right panel visibility state
+        try {
+          const rightHidden = localStorage.getItem('rightPanelHidden') === 'true';
+          this.setRightPanelHidden(rightHidden);
+        } catch (e) { /* ignore */ }
         this.batchDataGrid = new BatchDataGrid(
           document.getElementById("batchResultsTabHeaders"),
           document.getElementById("batchResultsTabContents")
         );
+        // Side-by-side diff state
+        this.sideBySideDiffEnabled = false;
+        this.currentDiffMap = null; // { leftRowClasses: Map(index->class), rightRowClasses: Map(index->class), totalRows }
         this.initEventListeners();
         this.initializeRuleSystem();
         
         // Initialize state management
         this.initializeStateManagement();
+
+    // Wire file import/export buttons
+    this.initStateFileIO();
       }
       
       // Initialize state management and restore saved state
@@ -65,7 +95,8 @@
       // Save current state to localStorage
       saveCurrentState() {
         if (this.tabs.length > 0) {
-          this.stateManager.saveAppState(this.tabs, this.activeTabId, this.columnWidths);
+          // Use light save to reduce quota pressure (full export is available via Save to File)
+          this.stateManager.saveAppStateLight(this.tabs, this.tabsRight, this.activeTabId, this.activeTabIdRight, this.columnWidths);
         }
       }
       
@@ -85,9 +116,10 @@
             this.columnWidths = { ...this.columnWidths, ...appState.columnWidths };
           }
           
-          // Restore tabs
+          // Restore tabs (left)
           const restoredTabs = [];
-          for (const tabId of appState.tabIds || []) {
+          const tabIdsLeft = appState.tabIdsLeft || appState.tabIds || [];
+          for (const tabId of tabIdsLeft) {
             const tabState = this.stateManager.loadTabState(tabId);
             if (tabState && tabState.originalTreeData) {
               // Restore expanded state
@@ -118,25 +150,68 @@
               restoredTabs.push(restoredTab);
             }
           }
+          // Restore tabs (right)
+          const restoredTabsRight = [];
+          const tabIdsRight = appState.tabIdsRight || [];
+          for (const tabId of tabIdsRight) {
+            const tabState = this.stateManager.loadTabState(tabId);
+            if (tabState && tabState.originalTreeData) {
+              if (tabState.expandedNodeIds && tabState.expandedNodeIds.length > 0) {
+                this.stateManager.restoreExpandedState(tabState.originalTreeData, tabState.expandedNodeIds);
+              }
+              const restoredTab = {
+                id: tabState.id,
+                name: tabState.name,
+                originalTreeData: tabState.originalTreeData,
+                currentTreeData: tabState.originalTreeData,
+                codeSearchTerms: tabState.codeSearchTerms || [],
+                dataSearchTerms: tabState.dataSearchTerms || [],
+                currentSortField: tabState.currentSortField || 'line',
+                currentSortAscending: tabState.currentSortAscending !== undefined ? tabState.currentSortAscending : true,
+                minLine: tabState.minLine,
+                maxLine: tabState.maxLine,
+                dataExact: tabState.dataExact || false,
+                dataCase: tabState.dataCase || false,
+                selectedObjectTypes: tabState.selectedObjectTypes || [],
+                navigationHistory: tabState.navigationHistory || [],
+                currentHistoryIndex: tabState.currentHistoryIndex || -1,
+                classIdToName: tabState.classIdToName || {}
+              };
+              restoredTabsRight.push(restoredTab);
+            }
+          }
           
           // Update the app with restored tabs
           this.tabs = restoredTabs;
-          this.activeTabId = appState.activeTabId;
+          this.tabsRight = restoredTabsRight;
+          this.activeTabId = appState.activeTabIdLeft || appState.activeTabId || (this.tabs[0] && this.tabs[0].id) || null;
+          this.activeTabIdRight = appState.activeTabIdRight || (this.tabsRight[0] && this.tabsRight[0].id) || null;
           
           // Ensure we have a valid active tab
-          if (this.tabs.length > 0) {
-            if (!this.activeTabId || !this.tabs.find(t => t.id === this.activeTabId)) {
-              this.activeTabId = this.tabs[0].id;
+          // Update UI
+          this.updateTabUI();
+          // Apply filters and update both trees if present
+          const activeLeft = this.getActiveTab();
+          if (activeLeft) {
+            this.applyTabFilters(activeLeft);
+          }
+          const activeRight = this.getActiveTabRight();
+          if (activeRight && this.myTreeGridRight) {
+            // Recompute right currentTreeData with its saved filters
+            if (activeRight.currentSortField) {
+              this.sortTreeNodes(activeRight.originalTreeData, activeRight.currentSortField, activeRight.currentSortAscending);
             }
-            
-            // Update UI
-            this.updateTabUI();
-            
-            // Apply filters and update tree
-            const activeTab = this.getActiveTab();
-            if (activeTab) {
-              this.applyTabFilters(activeTab);
-            }
+            activeRight.currentTreeData = this.filterTree(
+              activeRight.originalTreeData,
+              activeRight.codeSearchTerms || [],
+              activeRight.dataSearchTerms || [],
+              activeRight.dataExact || false,
+              activeRight.dataCase || false,
+              activeRight.minLine || null,
+              activeRight.maxLine || null,
+              activeRight.selectedObjectTypes || []
+            );
+            this.myTreeGridRight.setData(activeRight.currentTreeData);
           }
           
           console.log(`Restored ${restoredTabs.length} tabs`);
@@ -148,13 +223,12 @@
         }
       }
       
-      // Apply filters to a tab and update tree display
+      // Apply filters to a tab and update tree display (left panel by default)
       applyTabFilters(tab) {
         // Apply sorting if needed
         if (tab.currentSortField) {
           this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
         }
-        
         // Apply filters
         tab.currentTreeData = this.filterTree(
           tab.originalTreeData,
@@ -166,41 +240,183 @@
           tab.maxLine,
           tab.selectedObjectTypes
         );
-        
-        // Update tree display
-        this.myTreeGrid.setData(tab.currentTreeData);
-        
-        // Update UI elements
-        this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
-        this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
-        document.getElementById("dataExactCheckbox").checked = tab.dataExact;
-        document.getElementById("dataCaseCheckbox").checked = tab.dataCase;
-        document.getElementById("minLineInput").value = tab.minLine || "";
-        document.getElementById("maxLineInput").value = tab.maxLine || "";
+        // Update left tree display
+        if (this.myTreeGrid) {
+          this.myTreeGrid.setData(tab.currentTreeData);
+        }
+        // Refresh filter indicators on buttons
+        this.updateFiltersButtonIndicators();
       }
       
       initEventListeners() {
-        document.getElementById("parseBtn").addEventListener("click", () => this.handleParse());
-        document.getElementById("createNewDxfBtn").addEventListener("click", () => this.handleCreateNewDxf());
-        document.getElementById("expandAllBtn").addEventListener("click", () => this.handleExpandAll());
-        document.getElementById("collapseAllBtn").addEventListener("click", () => this.handleCollapseAll());
-        document.getElementById("resetStateBtn").addEventListener("click", () => this.handleResetState());
+        const parseLeftBtn = document.getElementById("openLeftBtn");
+        const parseRightBtn = document.getElementById("openRightBtn");
+        const fileInputLeft = document.getElementById("fileInputLeft");
+        const fileInputRight = document.getElementById("fileInputRight");
+        // One-click add: clicking the button opens the picker; selection parses automatically
+        if (parseLeftBtn && fileInputLeft) {
+          parseLeftBtn.addEventListener("click", () => {
+            fileInputLeft.value = ""; // allow re-selecting same file
+            fileInputLeft.click();
+          });
+          fileInputLeft.addEventListener("change", (e) => {
+            const files = e.target.files;
+            if (files && files.length) this.handleFiles(files, 'left');
+            e.target.value = ""; // reset for next selection
+          });
+        }
+        if (parseRightBtn && fileInputRight) {
+          parseRightBtn.addEventListener("click", () => {
+            fileInputRight.value = "";
+            fileInputRight.click();
+          });
+          fileInputRight.addEventListener("change", (e) => {
+            const files = e.target.files;
+            if (files && files.length) this.handleFiles(files, 'right');
+            e.target.value = "";
+          });
+        }
+        const createNewBtn = document.getElementById("createNewDxfBtn");
+        if (createNewBtn) createNewBtn.addEventListener("click", () => this.handleCreateNewDxf());
+        const expandAllBtn = document.getElementById("expandAllBtn");
+        if (expandAllBtn) expandAllBtn.addEventListener("click", () => this.handleExpandAll());
+        const collapseAllBtn = document.getElementById("collapseAllBtn");
+        if (collapseAllBtn) collapseAllBtn.addEventListener("click", () => this.handleCollapseAll());
+        const resetStateBtn = document.getElementById("resetStateBtn");
+        if (resetStateBtn) resetStateBtn.addEventListener("click", () => this.handleResetState());
+    const saveStateBtn = document.getElementById('saveStateToFileBtn');
+    if (saveStateBtn) saveStateBtn.addEventListener('click', () => this.handleSaveStateToFile());
+    const loadStateBtn = document.getElementById('loadStateFromFileBtn');
+    if (loadStateBtn) loadStateBtn.addEventListener('click', () => this.triggerLoadStateFromFile());
         document.getElementById("addRowBtn").addEventListener("click", () => this.handleAddRow());
         document.getElementById("removeRowBtn").addEventListener("click", () => this.handleRemoveRow());
         document.getElementById("downloadDxfBtn").addEventListener("click", () => this.handleDownloadDxf());
-        document.querySelectorAll('.header-cell').forEach(headerCell => {
+        // Toggle right panel visibility
+        const toggleRightBtn = document.getElementById('toggleRightPanelBtn');
+        if (toggleRightBtn) {
+          toggleRightBtn.addEventListener('click', () => this.toggleRightPanel());
+        }
+        const toggleSxSBtn = document.getElementById('toggleSideBySideDiffBtn');
+        if (toggleSxSBtn) {
+          toggleSxSBtn.addEventListener('click', () => this.toggleSideBySideDiff());
+        }
+        // Diff navigation buttons
+        const nextAddBtn = document.getElementById('nextAdditionBtn');
+        const nextRemBtn = document.getElementById('nextRemovalBtn');
+        const nextChgBtn = document.getElementById('nextChangeBtn');
+        if (nextAddBtn) nextAddBtn.addEventListener('click', () => this.navigateDiff('added'));
+        if (nextRemBtn) nextRemBtn.addEventListener('click', () => this.navigateDiff('removed'));
+        if (nextChgBtn) nextChgBtn.addEventListener('click', () => this.navigateDiff('changed'));
+        // Per-panel expand/collapse
+        const expandLeftBtn = document.getElementById('expandAllLeftBtn');
+        const collapseLeftBtn = document.getElementById('collapseAllLeftBtn');
+        const expandRightBtn = document.getElementById('expandAllRightBtn');
+        const collapseRightBtn = document.getElementById('collapseAllRightBtn');
+        if (expandLeftBtn) expandLeftBtn.addEventListener('click', () => this.handleExpandAllSide('left'));
+        if (collapseLeftBtn) collapseLeftBtn.addEventListener('click', () => this.handleCollapseAllSide('left'));
+        if (expandRightBtn) expandRightBtn.addEventListener('click', () => this.handleExpandAllSide('right'));
+        if (collapseRightBtn) collapseRightBtn.addEventListener('click', () => this.handleCollapseAllSide('right'));
+        // Scope header click sorting to LEFT header only
+        document.querySelectorAll('#treeGridHeaderLeft .header-cell').forEach(headerCell => {
           headerCell.addEventListener('click', (e) => {
             if (e.target.classList.contains('resizer')) return;
             this.handleHeaderClick(headerCell);
           });
         });
-        document.querySelectorAll('.header-cell .resizer').forEach(resizer => {
+        document.querySelectorAll('#treeGridHeaderLeft .header-cell .resizer').forEach(resizer => {
           resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDown(e));
         });
-        this.setupTagInput("codeSearchInput", "code");
-        this.setupTagInput("dataSearchInput", "data");
-        document.getElementById("searchBtn").addEventListener("click", () => this.handleSearch());
-        document.getElementById("clearSearchBtn").addEventListener("click", () => this.handleClearSearch());
+        // Add right header sort/resizer wiring
+        document.querySelectorAll('#treeGridHeaderRight .header-cell').forEach(headerCell => {
+          headerCell.addEventListener('click', (e) => {
+            if (e.target.classList.contains('resizer')) return;
+            this.handleHeaderClickRight(headerCell);
+          });
+        });
+        document.querySelectorAll('#treeGridHeaderRight .header-cell .resizer').forEach(resizer => {
+          resizer.addEventListener('mousedown', (e) => this.handleResizerMouseDownRight(e));
+        });
+        // Add Filters buttons and overlays
+        const filtersLeftBtn = document.getElementById('filtersLeftBtn');
+        const filtersRightBtn = document.getElementById('filtersRightBtn');
+        if (filtersLeftBtn) {
+          if (!filtersLeftBtn.querySelector('.active-indicator')) {
+            const dot = document.createElement('span');
+            dot.className = 'active-indicator';
+            filtersLeftBtn.appendChild(dot);
+          }
+          filtersLeftBtn.addEventListener('click', () => this.openFiltersOverlay('left'));
+        }
+        if (filtersRightBtn) {
+          if (!filtersRightBtn.querySelector('.active-indicator')) {
+            const dot = document.createElement('span');
+            dot.className = 'active-indicator';
+            filtersRightBtn.appendChild(dot);
+          }
+          filtersRightBtn.addEventListener('click', () => this.openFiltersOverlay('right'));
+        }
+        const closeLeft = document.getElementById('closeFiltersOverlayLeft');
+        const closeRight = document.getElementById('closeFiltersOverlayRight');
+        if (closeLeft) closeLeft.addEventListener('click', () => this.closeFiltersOverlay('left'));
+        if (closeRight) closeRight.addEventListener('click', () => this.closeFiltersOverlay('right'));
+
+        // Per-panel filter inputs
+        if (document.getElementById('codeSearchInputLeft')) this.setupTagInput('codeSearchInputLeft', 'code', 'left');
+        if (document.getElementById('dataSearchInputLeft')) this.setupTagInput('dataSearchInputLeft', 'data', 'left');
+        if (document.getElementById('codeSearchInputRight')) this.setupTagInput('codeSearchInputRight', 'code', 'right');
+        if (document.getElementById('dataSearchInputRight')) this.setupTagInput('dataSearchInputRight', 'data', 'right');
+        const searchLeft = document.getElementById('searchBtnLeft');
+        const clearLeft = document.getElementById('clearSearchBtnLeft');
+        const searchRight = document.getElementById('searchBtnRight');
+        const clearRight = document.getElementById('clearSearchBtnRight');
+        if (searchLeft) searchLeft.addEventListener('click', () => { this.handleSearch('left'); this.closeFiltersOverlay('left'); });
+        if (clearLeft) clearLeft.addEventListener('click', () => { this.handleClearSearch('left'); this.closeFiltersOverlay('left'); });
+        if (searchRight) searchRight.addEventListener('click', () => { this.handleSearch('right'); this.closeFiltersOverlay('right'); });
+        if (clearRight) clearRight.addEventListener('click', () => { this.handleClearSearch('right'); this.closeFiltersOverlay('right'); });
+
+        // Options and range inputs per side
+        const optionSets = [
+          { side: 'left', exact: 'dataExactCheckboxLeft', case: 'dataCaseCheckboxLeft', min: 'minLineInputLeft', max: 'maxLineInputLeft' },
+          { side: 'right', exact: 'dataExactCheckboxRight', case: 'dataCaseCheckboxRight', min: 'minLineInputRight', max: 'maxLineInputRight' }
+        ];
+        optionSets.forEach(set => {
+          const exactEl = document.getElementById(set.exact);
+          const caseEl = document.getElementById(set.case);
+          const minEl = document.getElementById(set.min);
+          const maxEl = document.getElementById(set.max);
+          if (exactEl) exactEl.addEventListener('change', () => this.updateEffectiveSearchTerms(set.side));
+          if (caseEl) caseEl.addEventListener('change', () => this.updateEffectiveSearchTerms(set.side));
+          if (minEl) minEl.addEventListener('input', () => this.updateEffectiveSearchTerms(set.side));
+          if (maxEl) maxEl.addEventListener('input', () => this.updateEffectiveSearchTerms(set.side));
+        });
+
+        // Object Types dropdowns use floating, viewport-clamped menu like context menu
+        const dropdowns = [
+          { side: 'left', button: 'objectTypeDropdownButtonLeft', content: 'objectTypeDropdownContentLeft' },
+          { side: 'right', button: 'objectTypeDropdownButtonRight', content: 'objectTypeDropdownContentRight' }
+        ];
+        dropdowns.forEach(d => {
+          const btn = document.getElementById(d.button);
+          const content = document.getElementById(d.content);
+          if (!btn || !content) return;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this._currentFloatingDropdown && this._currentFloatingDropdown.content === content) {
+              this._closeFloatingDropdown();
+            } else {
+              this._openFloatingDropdown(btn, content);
+            }
+          });
+        });
+
+        // Legacy sidebar filters (guarded if present)
+        if (document.getElementById("codeSearchInput")) this.setupTagInput("codeSearchInput", "code", 'left');
+        if (document.getElementById("dataSearchInput")) this.setupTagInput("dataSearchInput", "data", 'left');
+        const legacySearchBtn = document.getElementById("searchBtn");
+        if (legacySearchBtn) legacySearchBtn.addEventListener("click", () => this.handleSearch('left'));
+        const legacyClearBtn = document.getElementById("clearSearchBtn");
+        if (legacyClearBtn) legacyClearBtn.addEventListener("click", () => this.handleClearSearch('left'));
+        // Remove dependency on filter target radios (migrated to per-panel popups)
         document.getElementById("showCloudOverlayBtn").addEventListener("click", () => {
           this.updateClouds();
           document.getElementById("cloudOverlay").style.display = "block";
@@ -430,28 +646,25 @@
         });
         document.getElementById("downloadExcelBtn").addEventListener("click", () => this.downloadBatchResultsAsExcel());
         document.getElementById("downloadTreeExcelBtn").addEventListener("click", () => this.downloadTreeAsExcel());
-        document.getElementById("showDiffOverlayBtn").addEventListener("click", () => {
-        document.getElementById("diffOverlay").style.display = "block";
-        });
-        document.getElementById("closeDiffOverlay").addEventListener("click", () => {
-          document.getElementById("diffOverlay").style.display = "none";
-        });
-        document.getElementById("runDiffBtn").addEventListener("click", () => this.handleDiff());
-        document.getElementById("dataExactCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
-        document.getElementById("dataCaseCheckbox").addEventListener("change", () => this.handleSearchOptionChange());
-        document.getElementById("codeSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        document.getElementById("dataSearchInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        document.getElementById("minLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
-        document.getElementById("maxLineInput").addEventListener("input", () => this.updateEffectiveSearchTerms());
+        // Removed old Diff overlay and handlers
         document.getElementById("goToHandleBtn").addEventListener("click", () => this.handleGoToHandle());
         document.getElementById("backBtn").addEventListener("click", () => this.navigateBack());
         document.getElementById("forwardBtn").addEventListener("click", () => this.navigateForward());
         document.getElementById("clearHistoryBtn").addEventListener("click", () => this.clearNavigationHistory());
         this.treeViewContainer.addEventListener("scroll", (e) => {
           const scrollLeft = e.target.scrollLeft;
-          document.getElementById("treeGridHeader").style.transform = "translateX(-" + scrollLeft + "px)";
+          const hdr = document.getElementById("treeGridHeaderLeft");
+          if (hdr) hdr.style.transform = "translateX(-" + scrollLeft + "px)";
         });
-        window.addEventListener("resize", () => { this.myTreeGrid.updateVisibleNodes(); });
+        this.treeViewContainerRight.addEventListener("scroll", (e) => {
+          const scrollLeft = e.target.scrollLeft;
+          const hdr = document.getElementById("treeGridHeaderRight");
+          if (hdr) hdr.style.transform = "translateX(-" + scrollLeft + "px)";
+        });
+        window.addEventListener("resize", () => { 
+          this.myTreeGrid.updateVisibleNodes();
+          this.myTreeGridRight.updateVisibleNodes();
+        });
         document.getElementById("closeHexViewerOverlay").addEventListener("click", () => {
           document.getElementById("hexViewerOverlay").style.display = "none";
           document.getElementById("imagePreviewContainer").innerHTML = "";
@@ -490,71 +703,641 @@
             this.treeViewContainer.focus();
           });
         });
-        const resizer = document.querySelector('.pane-resizer');
         const sidebar = document.querySelector('.sidebar');
         const contentWrapper = document.querySelector('.content-wrapper');
-        resizer.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          document.addEventListener('mousemove', onMouseMove);
-          document.addEventListener('mouseup', onMouseUp);
-          function onMouseMove(e) {
-            const newWidth = e.clientX - contentWrapper.getBoundingClientRect().left;
-            if(newWidth > 150 && newWidth < contentWrapper.clientWidth - 100) {
-              sidebar.style.width = newWidth + 'px';
+        if (sidebar) {
+          // Restore saved sidebar width (if not collapsed)
+          try {
+            const savedCollapsed = contentWrapper && contentWrapper.classList.contains('sidebar-collapsed');
+            const savedWidth = localStorage.getItem('sidebarWidthPx');
+            if (!savedCollapsed && savedWidth) {
+              const widthNum = parseInt(savedWidth, 10);
+              if (!Number.isNaN(widthNum)) sidebar.style.width = `${widthNum}px`;
             }
-          }
-          function onMouseUp() {
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-          }
-        });
+          } catch (e) { /* ignore */ }
+        }
+        // Pane resizer removed; rely on hamburger collapse/expand instead.
         
         // Context menu functionality
         this.initContextMenu();
+
+        // Compare splitter drag between left and right panels
+        this.initCompareSplitter();
       }
-      
-      // Initialize context menu functionality
-      initContextMenu() {
-        const contextMenu = document.getElementById('contextMenu');
-        let currentContextTarget = null;
-        
-        // Right-click on tree rows to show context menu
-        this.treeViewContainer.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          const row = e.target.closest('.tree-row');
-          if (row) {
-            currentContextTarget = row;
-            this.showContextMenu(e.clientX, e.clientY);
+
+      toggleSideBySideDiff() {
+        this.sideBySideDiffEnabled = !this.sideBySideDiffEnabled;
+        if (this.sideBySideDiffEnabled) {
+          // On enabling diff, expand all nodes first on both sides, then apply current filters
+          const leftTab = this.getActiveTab();
+          const rightTab = this.getActiveTabRight();
+          if (leftTab) {
+            this.expandAllNodes(leftTab.originalTreeData);
+            if (leftTab.currentSortField) {
+              this.sortTreeNodes(leftTab.originalTreeData, leftTab.currentSortField, leftTab.currentSortAscending);
+            }
+            leftTab.currentTreeData = this.filterTree(
+              leftTab.originalTreeData,
+              leftTab.codeSearchTerms || [],
+              leftTab.dataSearchTerms || [],
+              leftTab.dataExact || false,
+              leftTab.dataCase || false,
+              leftTab.minLine || null,
+              leftTab.maxLine || null,
+              leftTab.selectedObjectTypes || []
+            );
+            if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
           }
+          if (rightTab) {
+            this.expandAllNodes(rightTab.originalTreeData);
+            if (rightTab.currentSortField) {
+              this.sortTreeNodes(rightTab.originalTreeData, rightTab.currentSortField, rightTab.currentSortAscending);
+            }
+            rightTab.currentTreeData = this.filterTree(
+              rightTab.originalTreeData,
+              rightTab.codeSearchTerms || [],
+              rightTab.dataSearchTerms || [],
+              rightTab.dataExact || false,
+              rightTab.dataCase || false,
+              rightTab.minLine || null,
+              rightTab.maxLine || null,
+              rightTab.selectedObjectTypes || []
+            );
+            if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
+          }
+          this.computeAndApplySideBySideDiff();
+        } else {
+          this.clearSideBySideDiff();
+        }
+        this.updateDiffIndicator();
+      }
+
+      clearSideBySideDiff() {
+        this.currentDiffMap = null;
+        // 1) Clear all diff-related providers and alignment on both grids
+        if (this.myTreeGrid) {
+          if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
+          if (this.myTreeGrid.setCellClassProvider) this.myTreeGrid.setCellClassProvider(null);
+          if (this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
+          if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(null);
+        }
+        if (this.myTreeGridRight) {
+          if (this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
+          if (this.myTreeGridRight.setCellClassProvider) this.myTreeGridRight.setCellClassProvider(null);
+          if (this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
+          if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(null);
+        }
+
+        // 2) Restore each panel's view to its own filtered/sorted state
+        const leftTab = this.getActiveTab();
+        const rightTab = this.getActiveTabRight();
+
+        if (leftTab) {
+          // Re-apply the saved filters/sort on left and update grid
+          this.applyTabFilters(leftTab);
+        } else if (this.myTreeGrid) {
+          this.myTreeGrid.setData([]);
+        }
+
+        if (rightTab) {
+          // Manually filter/sort right side without touching left UI controls
+          if (rightTab.currentSortField) {
+            this.sortTreeNodes(rightTab.originalTreeData, rightTab.currentSortField, rightTab.currentSortAscending);
+          }
+          rightTab.currentTreeData = this.filterTree(
+            rightTab.originalTreeData,
+            rightTab.codeSearchTerms || [],
+            rightTab.dataSearchTerms || [],
+            rightTab.dataExact || false,
+            rightTab.dataCase || false,
+            rightTab.minLine || null,
+            rightTab.maxLine || null,
+            rightTab.selectedObjectTypes || []
+          );
+          if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
+        } else if (this.myTreeGridRight) {
+          this.myTreeGridRight.setData([]);
+        }
+
+        // 3) Force re-render
+        if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+        if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        this.updateDiffIndicator();
+      }
+
+      computeAndApplySideBySideDiff() {
+        const leftTab = this.getActiveTab();
+        const rightTab = this.getActiveTabRight();
+        if (!leftTab || !rightTab) {
+          // If one side is missing, skip compute but keep the toggle state as-is.
+          // Indicator will hide automatically until both sides are present.
+          this.updateDiffIndicator();
+          return;
+        }
+        // 1) Reset both grids to a clean state (clear any previous diff overlays)
+        if (this.myTreeGrid) {
+          if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
+          if (this.myTreeGrid.setCellClassProvider) this.myTreeGrid.setCellClassProvider(null);
+          if (this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
+          if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(null);
+        }
+        if (this.myTreeGridRight) {
+          if (this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
+          if (this.myTreeGridRight.setCellClassProvider) this.myTreeGridRight.setCellClassProvider(null);
+          if (this.myTreeGridRight.setOverrideTotalRows) this.myTreeGridRight.setOverrideTotalRows(null);
+          if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(null);
+        }
+        // 2) Use currently filtered/sorted trees as the diff source
+        // Do not overwrite currentTreeData with original; respect active filters.
+        if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
+        if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
+        // Build flattened lists using semantic keys that ignore DXF handles for better alignment
+        const diffOptions = { ignoreHandles: true };
+        const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData, diffOptions);
+        const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData, diffOptions);
+        const keysLeft = leftFlat.map(r => r.key);
+        const keysRight = rightFlat.map(r => r.key);
+        const aligned = window.TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
+        // Determine row and cell classes by comparing values for aligned pairs
+        const leftClasses = new Map();
+        const rightClasses = new Map();
+        const leftCellClasses = new Map(); // index -> {colKey: class}
+        const rightCellClasses = new Map();
+        const totalRows = aligned.length;
+        const caches = { objectCount: new Map(), dataSize: new Map() };
+        for (let idx = 0; idx < aligned.length; idx++) {
+          const pair = aligned[idx];
+          const lIdx = pair.leftIndex;
+          const rIdx = pair.rightIndex;
+          if (lIdx != null && rIdx != null) {
+            const l = leftFlat[lIdx];
+            const r = rightFlat[rIdx];
+            if (l.value !== r.value) {
+              leftClasses.set(idx, 'diff-changed');
+              rightClasses.set(idx, 'diff-changed');
+            }
+            // cell-level diffs
+            const lParts = window.TreeDiffEngine.splitValueIntoCellsWithCache(l, caches);
+            const rParts = window.TreeDiffEngine.splitValueIntoCellsWithCache(r, caches);
+            const cols = ['line','code','type','objectCount','dataSize'];
+            const lMap = {}; const rMap = {};
+            // Compare line
+            if (lParts.line !== rParts.line) { lMap.line = 'cell-changed'; rMap.line = 'cell-changed'; }
+            // Compare code (properties and end markers show code)
+            if (lParts.code !== rParts.code) { lMap.code = 'cell-changed'; rMap.code = 'cell-changed'; }
+            // Compare type/data display
+            if (lParts.type !== rParts.type) { lMap.type = 'cell-changed'; rMap.type = 'cell-changed'; }
+            // Object count
+            if (lParts.objectCount !== rParts.objectCount) { lMap.objectCount = 'cell-changed'; rMap.objectCount = 'cell-changed'; }
+            // Data size
+            if (lParts.dataSize !== rParts.dataSize) { lMap.dataSize = 'cell-changed'; rMap.dataSize = 'cell-changed'; }
+            if (Object.keys(lMap).length) leftCellClasses.set(idx, lMap);
+            if (Object.keys(rMap).length) rightCellClasses.set(idx, rMap);
+          } else if (lIdx != null) {
+            leftClasses.set(idx, 'diff-removed');
+            leftCellClasses.set(idx, { line: 'cell-removed', code: 'cell-removed', type: 'cell-removed', objectCount: 'cell-removed', dataSize: 'cell-removed' });
+          } else if (rIdx != null) {
+            rightClasses.set(idx, 'diff-added');
+            rightCellClasses.set(idx, { line: 'cell-added', code: 'cell-added', type: 'cell-added', objectCount: 'cell-added', dataSize: 'cell-added' });
+          }
+        }
+        this.currentDiffMap = { leftRowClasses: leftClasses, rightRowClasses: rightClasses, leftCellClasses, rightCellClasses, totalRows };
+        this.myTreeGrid.setRowClassProvider((index, item) => this.currentDiffMap.leftRowClasses.get(index) || null);
+        this.myTreeGridRight.setRowClassProvider((index, item) => this.currentDiffMap.rightRowClasses.get(index) || null);
+        this.myTreeGrid.setCellClassProvider((index, item, key) => {
+          const map = this.currentDiffMap.leftCellClasses.get(index);
+          return map ? map[key] || null : null;
         });
-        
-        // Handle context menu item clicks
-        contextMenu.addEventListener('click', (e) => {
-          const item = e.target.closest('.context-menu-item');
-          if (item && currentContextTarget) {
-            const action = item.getAttribute('data-action');
-            const type = item.getAttribute('data-type');
-            
-            if (action) {
-              this.handleContextMenuAction(action, type, currentContextTarget);
-              this.hideContextMenu();
+        this.myTreeGridRight.setCellClassProvider((index, item, key) => {
+          const map = this.currentDiffMap.rightCellClasses.get(index);
+          return map ? map[key] || null : null;
+        });
+        this.myTreeGrid.setOverrideTotalRows(totalRows);
+        this.myTreeGridRight.setOverrideTotalRows(totalRows);
+        // Build index maps so placeholders are rendered at unmatched positions
+        const leftIndexMap = new Array(totalRows).fill(null);
+        const rightIndexMap = new Array(totalRows).fill(null);
+        for (let idx = 0; idx < totalRows; idx++) {
+          const pair = aligned[idx];
+          if (pair) {
+            if (pair.leftIndex != null) leftIndexMap[idx] = pair.leftIndex;
+            if (pair.rightIndex != null) rightIndexMap[idx] = pair.rightIndex;
+          }
+        }
+        if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(leftIndexMap);
+        if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(rightIndexMap);
+        this.syncVerticalScroll();
+        // 4) Force re-render and reset scroll for consistent visuals
+        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); this.treeViewContainer.scrollTop = 0; }
+        if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); this.treeViewContainerRight.scrollTop = 0; }
+        this.updateDiffIndicator();
+      }
+
+      updateDiffIndicator() {
+        const indicator = document.getElementById('diffIndicator');
+        const nav = document.getElementById('diffNavButtons');
+        if (!indicator) return;
+        const hasLeft = !!this.getActiveTab();
+        const hasRight = !!this.getActiveTabRight();
+        const on = !!this.sideBySideDiffEnabled && hasLeft && hasRight;
+        indicator.style.display = on ? 'inline-block' : 'none';
+        if (nav) nav.style.display = on ? 'inline-flex' : 'none';
+      }
+
+      // Navigate to next block (contiguous run) of a given kind: 'added', 'removed', 'changed'
+      // For 'changed', navigate to blocks where DATA changes (type column), not line-only changes.
+      navigateDiff(kind) {
+        if (!this.sideBySideDiffEnabled || !this.currentDiffMap) return;
+        const total = this.currentDiffMap.totalRows || 0;
+        if (total <= 0) return;
+        // Determine current virtual index from left scroll position
+        const rowHeight = this.myTreeGrid?.itemHeight || 24;
+        const container = this.treeViewContainer; // left as reference
+        const currentIndex = Math.floor((container?.scrollTop || 0) / rowHeight);
+        const start = Math.max(0, currentIndex + 1);
+        const matchClass = kind === 'added' ? 'diff-added' : kind === 'removed' ? 'diff-removed' : 'diff-changed';
+        const isDataChanged = (i) => {
+          const l = this.currentDiffMap.leftCellClasses.get(i);
+          const r = this.currentDiffMap.rightCellClasses.get(i);
+          // Treat changes in the 'type' cell as data changes (node type/name/props summary), not line-only
+          return (l && l.type === 'cell-changed') || (r && r.type === 'cell-changed');
+        };
+        const isMatch = (i) => {
+          const rowHas = (this.currentDiffMap.leftRowClasses.get(i) === matchClass) || (this.currentDiffMap.rightRowClasses.get(i) === matchClass);
+          if (!rowHas) return false;
+          if (kind === 'changed') return isDataChanged(i);
+          return true;
+        };
+        const isBlockStart = (i) => {
+          if (!isMatch(i)) return false;
+          const prev = i - 1;
+          return prev < 0 || !isMatch(prev);
+        };
+        const jumpTo = (i) => {
+          const top = i * rowHeight;
+          if (this.treeViewContainer) this.treeViewContainer.scrollTop = top;
+          if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = top;
+          if (this.myTreeGrid && this.myTreeGrid.indexMap) {
+            const mapped = this.myTreeGrid.indexMap[i];
+            if (mapped != null && mapped >= 0 && mapped < this.myTreeGrid.flatData.length) {
+              const node = this.myTreeGrid.flatData[mapped]?.node;
+              if (node && node.id) {
+                this.selectedNodeId = node.id;
+                this.myTreeGrid.selectedRowId = node.id;
+              }
             }
           }
+          if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        };
+        // Search forward for the next block start, then wrap around
+        for (let i = start; i < total; i++) { if (isBlockStart(i)) { jumpTo(i); return; } }
+        for (let i = 0; i < start; i++) { if (isBlockStart(i)) { jumpTo(i); return; } }
+      }
+
+      // splitValueIntoCells moved to TreeDiffEngine
+
+      expandAllForTab(tab) {
+        if (!tab) return;
+        this.expandAllNodes(tab.originalTreeData);
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms || [],
+          tab.dataSearchTerms || [],
+          tab.dataExact || false,
+          tab.dataCase || false,
+          tab.minLine || null,
+          tab.maxLine || null,
+          tab.selectedObjectTypes || []
+        );
+      }
+
+
+      syncVerticalScroll() {
+        if (this._scrollSyncAttached) return;
+        const leftC = this.treeViewContainer;
+        const rightC = this.treeViewContainerRight;
+        if (!leftC || !rightC) return;
+        let syncing = false;
+        const onLeft = () => {
+          if (syncing) return; syncing = true;
+          rightC.scrollTop = leftC.scrollTop;
+          syncing = false;
+        };
+        const onRight = () => {
+          if (syncing) return; syncing = true;
+          leftC.scrollTop = rightC.scrollTop;
+          syncing = false;
+        };
+        leftC.addEventListener('scroll', onLeft);
+        rightC.addEventListener('scroll', onRight);
+        this._scrollSyncAttached = true;
+      }
+
+      setRightPanelHidden(hidden) {
+        const right = document.getElementById('panelRight');
+        const splitter = document.getElementById('compareSplitter');
+        const toggleBtn = document.getElementById('toggleRightPanelBtn');
+        if (!right || !splitter) return;
+        right.style.display = hidden ? 'none' : 'flex';
+        splitter.style.display = hidden ? 'none' : 'block';
+        if (toggleBtn) toggleBtn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+        // Relayout grids
+        setTimeout(() => {
+          if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        }, 0);
+      }
+
+      toggleRightPanel() {
+        const right = document.getElementById('panelRight');
+        if (!right) return;
+        const currentlyHidden = right.style.display === 'none';
+        const nextHidden = !currentlyHidden;
+        this.setRightPanelHidden(nextHidden);
+        try { localStorage.setItem('rightPanelHidden', String(nextHidden)); } catch (e) {}
+      }
+
+      initCompareSplitter() {
+        const splitter = document.getElementById('compareSplitter');
+        const left = document.getElementById('panelLeft');
+        const right = document.getElementById('panelRight');
+        const container = document.getElementById('compareContainer');
+        if (!splitter || !left || !right || !container) return;
+
+        let isDragging = false;
+        let startX = 0;
+        let startLeftWidth = 0;
+        splitter.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          isDragging = true;
+          startX = e.clientX;
+          startLeftWidth = left.getBoundingClientRect().width;
+          document.body.style.cursor = 'ew-resize';
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
         });
-        
-        // Hide context menu when clicking elsewhere
-        document.addEventListener('click', (e) => {
-          if (!contextMenu.contains(e.target)) {
-            this.hideContextMenu();
+        const onMouseMove = (e) => {
+          if (!isDragging) return;
+          const dx = e.clientX - startX;
+          const containerWidth = container.getBoundingClientRect().width;
+          let newLeftWidth = startLeftWidth + dx;
+          const min = 150;
+          const max = containerWidth - 150;
+          if (newLeftWidth < min) newLeftWidth = min;
+          if (newLeftWidth > max) newLeftWidth = max;
+          left.style.flex = 'none';
+          right.style.flex = 'none';
+          left.style.width = newLeftWidth + 'px';
+          right.style.width = (containerWidth - newLeftWidth - splitter.getBoundingClientRect().width - 8 /*gap approx*/) + 'px';
+          // Update grids during drag for responsiveness
+          this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        };
+        const onMouseUp = () => {
+          isDragging = false;
+          document.body.style.cursor = '';
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+          // Final relayout
+          this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+        };
+      }
+      
+      // Initialize modern, accessible context menu with submenus
+      initContextMenu() {
+        const menu = document.getElementById('contextMenu');
+        if (!menu) return;
+        let currentRow = null;
+        let currentSide = 'left'; // 'left' or 'right'
+
+        const openMenuAt = (x, y) => {
+          menu.style.left = x + 'px';
+          menu.style.top = y + 'px';
+          menu.setAttribute('aria-hidden', 'false');
+          // keep in viewport
+          const r = menu.getBoundingClientRect();
+          let dx = 0, dy = 0;
+          if (r.right > window.innerWidth) dx = window.innerWidth - r.right - 8;
+          if (r.bottom > window.innerHeight) dy = window.innerHeight - r.bottom - 8;
+          if (r.left < 0) dx += (0 - r.left + 8);
+          if (r.top < 0) dy += (0 - r.top + 8);
+          menu.style.transform = `translate(${dx}px, ${dy}px)`;
+        };
+        const hideMenu = () => {
+          menu.setAttribute('aria-hidden', 'true');
+          menu.querySelectorAll('.menu-item.open').forEach(el => {
+            el.classList.remove('open');
+            el.setAttribute('aria-expanded', 'false');
+          });
+        };
+
+        const buildMenu = (row) => {
+          const node = row?._nodeRef;
+          const canAddChild = !!node && !node.isProperty;
+          const sections = ['HEADER','CLASSES','TABLES','BLOCKS','ENTITIES','OBJECTS'];
+          const entities = ['LINE','CIRCLE','ARC','POLYLINE','LWPOLYLINE','POINT','TEXT','MTEXT','INSERT','ELLIPSE','SPLINE','SOLID','HATCH','DIMENSION','LEADER','MLEADER','3DFACE','3DSOLID','REGION','BODY','MESH','SURFACE','TOLERANCE','MLINE','TRACE','SHAPE','VIEWPORT','IMAGE','WIPEOUT','OLE2FRAME','OLEFRAME','XLINE','RAY'];
+          const tables = ['LAYER','LTYPE','STYLE','VIEW','UCS','VPORT','DIMSTYLE','APPID','BLOCK_RECORD'];
+          const objects = ['DICTIONARY','LAYOUT','PLOTSETTINGS','GROUP','MLINESTYLE','IMAGEDEF','IMAGEDEF_REACTOR','RASTERVARIABLES','SORTENTSTABLE','SPATIAL_FILTER','SPATIAL_INDEX','LAYER_FILTER','LAYER_INDEX','XRECORD','PLACEHOLDER','VBA_PROJECT','MATERIAL','VISUALSTYLE','TABLESTYLE','SECTION','SECTIONVIEWSTYLE','DETAILVIEWSTYLE'];
+
+          // Helper builders
+          const li = (text, cmd, arg, disabled) => {
+            const el = document.createElement('li');
+            el.className = 'menu-item';
+            el.role = 'menuitem';
+            if (cmd) el.dataset.cmd = cmd;
+            if (arg) el.dataset.arg = arg;
+            el.textContent = text;
+            if (disabled) el.setAttribute('aria-disabled', 'true');
+            return el;
+          };
+          const sep = () => { const d = document.createElement('li'); d.className = 'menu-sep'; d.role = 'separator'; return d; };
+          const submenu = (label, items) => {
+            const trigger = document.createElement('li');
+            trigger.className = 'menu-item submenu-trigger';
+            trigger.role = 'menuitem';
+            trigger.setAttribute('aria-haspopup', 'true');
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.textContent = label;
+            const sub = document.createElement('div');
+            sub.className = 'submenu';
+            sub.role = 'menu';
+            const ul = document.createElement('ul');
+            for (const it of items) ul.appendChild(li(it.label, it.cmd, it.arg));
+            sub.appendChild(ul);
+            trigger.appendChild(sub);
+            return trigger;
+          };
+
+          const root = document.createElement('ul');
+          root.appendChild(li('Add Row Above', 'add-above'));
+          root.appendChild(li('Add Row Below', 'add-below'));
+          root.appendChild(li('Add Child Row', canAddChild ? 'add-child' : null, null, !canAddChild));
+          root.appendChild(sep());
+          root.appendChild(li('Remove Row', 'remove'));
+          root.appendChild(sep());
+          root.appendChild(submenu('Add DXF Section', sections.map(s => ({ label: s + ' Section', cmd: 'add-section', arg: s }))));
+          root.appendChild(submenu('Add Entity', entities.map(s => ({ label: s, cmd: 'add-entity', arg: s }))));
+          root.appendChild(submenu('Add Table Entry', tables.map(s => ({ label: s, cmd: 'add-table', arg: s }))));
+          root.appendChild(submenu('Add Object', objects.map(s => ({ label: s, cmd: 'add-object', arg: s }))));
+          menu.innerHTML = '';
+          menu.appendChild(root);
+        };
+
+        const bind = (container) => {
+          if (!container) return;
+          container.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const row = e.target.closest('.tree-row');
+            if (!row) return;
+            currentRow = row;
+            // Detect which side triggered the context menu
+            const isRight = !!row.closest('#treeViewContainerRight');
+            currentSide = isRight ? 'right' : 'left';
+            buildMenu(row);
+            openMenuAt(e.clientX, e.clientY);
+          });
+        };
+        bind(this.treeViewContainer);
+        bind(this.treeViewContainerRight);
+
+        // Command dispatch
+        menu.addEventListener('click', (e) => {
+          const item = e.target.closest('.menu-item');
+          if (!item) return;
+          if (item.classList.contains('submenu-trigger')) {
+            const isOpen = item.classList.contains('open');
+            menu.querySelectorAll('.menu-item.open').forEach(el => { el.classList.remove('open'); el.setAttribute('aria-expanded', 'false'); });
+            if (!isOpen) { item.classList.add('open'); item.setAttribute('aria-expanded', 'true'); }
+            return;
           }
+          const cmd = item.dataset.cmd;
+          const arg = item.dataset.arg;
+          if (!cmd || !currentRow) { hideMenu(); return; }
+          this._executeContextCommand(cmd, arg, currentRow, currentSide);
+          hideMenu();
         });
-        
-        // Hide context menu on escape key
+
+        // Hover intent to open submenus
+        let hoverTimer;
+        menu.addEventListener('mousemove', (e) => {
+          const trigger = e.target.closest('.submenu-trigger');
+          if (!trigger) return;
+          clearTimeout(hoverTimer);
+          hoverTimer = setTimeout(() => {
+            if (!trigger.classList.contains('open')) {
+              menu.querySelectorAll('.menu-item.open').forEach(el => { el.classList.remove('open'); el.setAttribute('aria-expanded', 'false'); });
+              trigger.classList.add('open');
+              trigger.setAttribute('aria-expanded', 'true');
+            }
+          }, 120);
+        });
+
+        // Global dismissal
+        document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); });
+        window.addEventListener('blur', hideMenu);
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') {
-            this.hideContextMenu();
-          }
+          if (e.key === 'Escape') hideMenu();
+          if (e.key === 'ArrowRight') { const t = document.activeElement?.closest('.submenu-trigger'); if (t) { t.classList.add('open'); t.setAttribute('aria-expanded', 'true'); } }
+          if (e.key === 'ArrowLeft') { const o = menu.querySelector('.menu-item.open'); if (o) { o.classList.remove('open'); o.setAttribute('aria-expanded', 'false'); } }
         });
+      }
+
+      _openFloatingDropdown(buttonEl, contentEl) {
+        // Close any open dropdown first
+        this._closeFloatingDropdown();
+        // Mark as floating and append to body for fixed positioning
+        contentEl.classList.add('floating');
+        document.body.appendChild(contentEl);
+        contentEl.style.display = 'block';
+        contentEl.style.transform = 'translate(0,0)';
+
+        // Base position: under the button
+        const rect = buttonEl.getBoundingClientRect();
+        const vw = document.documentElement.clientWidth;
+        const vh = document.documentElement.clientHeight;
+        const pad = 8;
+
+        // Ensure width at least button width
+        const minWidth = Math.max(240, rect.width);
+        contentEl.style.minWidth = minWidth + 'px';
+
+        // Measure after display
+        const cr = contentEl.getBoundingClientRect();
+        let left = rect.left;
+        let top = rect.bottom + 6;
+
+        // Clamp horizontally
+        if (left + cr.width + pad > vw) {
+          left = Math.max(pad, vw - cr.width - pad);
+        }
+        if (left < pad) left = pad;
+
+        // If bottom clips, place above button
+        if (top + cr.height + pad > vh) {
+          top = rect.top - cr.height - 6;
+          if (top < pad) top = Math.max(pad, vh - cr.height - pad);
+        }
+
+        contentEl.style.left = left + 'px';
+        contentEl.style.top = top + 'px';
+
+        const onDocClick = (e) => {
+          if (!contentEl.contains(e.target) && e.target !== buttonEl) {
+            this._closeFloatingDropdown();
+          }
+        };
+        const onEsc = (e) => { if (e.key === 'Escape') this._closeFloatingDropdown(); };
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onEsc);
+        this._currentFloatingDropdown = { content: contentEl, onDocClick, onEsc };
+      }
+
+      _closeFloatingDropdown() {
+        const cur = this._currentFloatingDropdown;
+        if (!cur) return;
+        const { content, onDocClick, onEsc } = cur;
+        document.removeEventListener('click', onDocClick, true);
+        document.removeEventListener('keydown', onEsc);
+        content.style.display = 'none';
+        content.classList.remove('floating');
+        // Move back next to its button container if it still exists
+        const id = content.id;
+        const originalWrapLeft = document.getElementById('objectTypeDropdownLeft');
+        const originalWrapRight = document.getElementById('objectTypeDropdownRight');
+        if (id && (originalWrapLeft || originalWrapRight)) {
+          if (id.endsWith('Left') && originalWrapLeft) originalWrapLeft.appendChild(content);
+          else if (id.endsWith('Right') && originalWrapRight) originalWrapRight.appendChild(content);
+        }
+        this._currentFloatingDropdown = null;
+      }
+
+      _executeContextCommand(cmd, arg, row, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
+        if (!activeTab || !row) return;
+        const node = row._nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, row.dataset.id);
+        if (!node) return;
+        // If invoked on a property row for certain commands, redirect to the owning node
+        const insertionTarget = (node.isProperty && (cmd === 'add-section' || cmd === 'add-entity' || cmd === 'add-table' || cmd === 'add-object' || cmd === 'add-child'))
+          ? node.parentNode
+          : node;
+        switch (cmd) {
+          case 'add-above': this.addRowAbove(insertionTarget, side); break;
+          case 'add-below': this.addRowBelow(insertionTarget, side); break;
+          case 'add-child': if (!insertionTarget.isProperty) this.addChildRow(insertionTarget); break;
+          case 'remove': this.removeRow(node, side); break; // remove respects property vs node internally
+          case 'add-section': this.addDxfSection(insertionTarget, arg, side); break;
+          case 'add-entity': this.addDxfEntity(insertionTarget, arg, side); break;
+          case 'add-table': this.addTableEntry(insertionTarget, arg, side); break;
+          case 'add-object': this.addDxfObject(insertionTarget, arg, side); break;
+        }
+        this.updateEffectiveSearchTerms(side);
+        this.saveCurrentState();
       }
       
       // Show context menu at specified position
@@ -576,53 +1359,62 @@
       
       // Hide context menu
       hideContextMenu() {
-        document.getElementById('contextMenu').style.display = 'none';
+        const menu = document.getElementById('contextMenu');
+        if (menu) menu.style.display = 'none';
+        const fly = document.getElementById('contextMenuFlyout');
+        if (fly) fly.style.display = 'none';
       }
       
-      // Handle context menu actions
+      // Handle context menu actions (legacy path) – route to correct side based on row location
       handleContextMenuAction(action, type, targetRow) {
-        const activeTab = this.getActiveTab();
+        const side = targetRow && targetRow.closest('#treeViewContainerRight') ? 'right' : 'left';
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
-        
+
+        const nodeRef = targetRow && targetRow._nodeRef ? targetRow._nodeRef : null;
         const nodeId = targetRow.dataset.id;
-        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        const node = nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
         if (!node) return;
-        
+
+        const insertionTarget = (node.isProperty && (action === 'add-section' || action === 'add-entity' || action === 'add-table' || action === 'add-object' || action === 'add-child'))
+          ? node.parentNode
+          : node;
         switch (action) {
           case 'add-above':
-            this.addRowAbove(node);
+            this.addRowAbove(insertionTarget, side);
             break;
           case 'add-below':
-            this.addRowBelow(node);
+            this.addRowBelow(insertionTarget, side);
             break;
           case 'add-child':
-            this.addChildRow(node);
+            if (!insertionTarget.isProperty) this.addChildRow(insertionTarget);
             break;
           case 'remove':
-            this.removeRow(node);
+            this.removeRow(node, side);
             break;
           case 'add-section':
-            this.addDxfSection(node, type);
+            this.addDxfSection(insertionTarget, type, side);
             break;
           case 'add-entity':
-            this.addDxfEntity(node, type);
+            this.addDxfEntity(insertionTarget, type, side);
             break;
           case 'add-table':
-            this.addTableEntry(node, type);
+            this.addTableEntry(insertionTarget, type, side);
             break;
           case 'add-object':
-            this.addDxfObject(node, type);
+            this.addDxfObject(insertionTarget, type, side);
             break;
         }
-        
-        // Refresh tree and save state
-        this.updateEffectiveSearchTerms();
+
+        this.updateEffectiveSearchTerms(side);
         this.saveCurrentState();
       }
       
       // Add row above the selected node
-      addRowAbove(targetNode) {
-        const activeTab = this.getActiveTab();
+      addRowAbove(targetNode, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         
         if (targetNode.isProperty) {
@@ -637,7 +1429,7 @@
           // Add node above current node
           const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
           const newNode = this.createNewNode('NEW');
-          
+
           if (parent) {
             const index = parent.children.indexOf(targetNode);
             parent.children.splice(index, 0, newNode);
@@ -649,8 +1441,9 @@
       }
       
       // Add row below the selected node
-      addRowBelow(targetNode) {
-        const activeTab = this.getActiveTab();
+      addRowBelow(targetNode, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         
         if (targetNode.isProperty) {
@@ -665,7 +1458,7 @@
           // Add node below current node
           const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
           const newNode = this.createNewNode('NEW');
-          
+
           if (parent) {
             const index = parent.children.indexOf(targetNode);
             parent.children.splice(index + 1, 0, newNode);
@@ -689,8 +1482,9 @@
       }
       
       // Remove the selected row
-      removeRow(targetNode) {
-        const activeTab = this.getActiveTab();
+      removeRow(targetNode, side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
         
         if (targetNode.isProperty) {
@@ -727,7 +1521,7 @@
       }
       
       // Add DXF Section
-      addDxfSection(targetNode, sectionType) {
+      addDxfSection(targetNode, sectionType, side = 'left') {
         const newSection = this.createNewNode('SECTION');
         newSection.properties = [
           { line: '', code: 2, value: sectionType }
@@ -736,9 +1530,10 @@
           this.createNewNode('ENDSEC')
         ];
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our section
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -750,16 +1545,17 @@
       }
       
       // Add DXF Entity
-      addDxfEntity(targetNode, entityType) {
+      addDxfEntity(targetNode, entityType, side = 'left') {
         const templates = this.getDxfEntityTemplates();
         const template = templates[entityType] || templates['LINE']; // Default to LINE
         
         const newEntity = this.createNewNode(entityType);
         newEntity.properties = template.map(prop => ({ ...prop })); // Clone properties
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our entity
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -771,16 +1567,17 @@
       }
       
       // Add Table Entry
-      addTableEntry(targetNode, tableType) {
+      addTableEntry(targetNode, tableType, side = 'left') {
         const templates = this.getDxfTableTemplates();
         const template = templates[tableType] || templates['LAYER']; // Default to LAYER
         
         const newEntry = this.createNewNode(tableType);
         newEntry.properties = template.map(prop => ({ ...prop })); // Clone properties
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our table entry
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -792,16 +1589,17 @@
       }
       
       // Add DXF Object
-      addDxfObject(targetNode, objectType) {
+      addDxfObject(targetNode, objectType, side = 'left') {
         const templates = this.getDxfObjectTemplates();
         const template = templates[objectType] || templates['DICTIONARY']; // Default to DICTIONARY
         
         const newObject = this.createNewNode(objectType);
         newObject.properties = template.map(prop => ({ ...prop })); // Clone properties
         
-        this.addRowBelow(targetNode);
+        this.addRowBelow(targetNode, side);
         // Replace the generic 'NEW' node with our object
-        const activeTab = this.getActiveTab();
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
         if (parent) {
           const index = parent.children.indexOf(targetNode) + 1;
@@ -1053,11 +1851,15 @@
         };
       }
 
-      updateEffectiveSearchTerms() {
-        const activeTab = this.getActiveTab();
+      updateEffectiveSearchTerms(side = 'left') {
+        const useRight = side === 'right';
+        const getTab = () => useRight ? this.getActiveTabRight() : this.getActiveTab();
+        const setData = (data) => useRight ? this.myTreeGridRight.setData(data) : this.myTreeGrid.setData(data);
+        const setScrollTop = () => { if (useRight) this.treeViewContainerRight.scrollTop = 0; else this.treeViewContainer.scrollTop = 0; };
+        const activeTab = getTab();
         if (!activeTab) return;
-        const codeInput = document.getElementById("codeSearchInput");
-        const dataInput = document.getElementById("dataSearchInput");
+        const codeInput = document.getElementById(useRight ? 'codeSearchInputRight' : 'codeSearchInputLeft') || { value: '' };
+        const dataInput = document.getElementById(useRight ? 'dataSearchInputRight' : 'dataSearchInputLeft') || { value: '' };
         const codeText = codeInput.value.trim();
         const dataText = dataInput.value.trim();
         const effectiveCodeSearchTerms = activeTab.codeSearchTerms.slice();
@@ -1068,19 +1870,24 @@
         if (dataText !== "" && !effectiveDataSearchTerms.includes(dataText)) {
           effectiveDataSearchTerms.push(dataText);
         }
-        const minLine = document.getElementById("minLineInput").value.trim() !== ""
-          ? parseInt(document.getElementById("minLineInput").value.trim(), 10)
+        const minEl = document.getElementById(useRight ? 'minLineInputRight' : 'minLineInputLeft');
+        const maxEl = document.getElementById(useRight ? 'maxLineInputRight' : 'maxLineInputLeft');
+        const minLine = minEl && minEl.value.trim() !== ""
+          ? parseInt(minEl.value.trim(), 10)
           : null;
-        const maxLine = document.getElementById("maxLineInput").value.trim() !== ""
-          ? parseInt(document.getElementById("maxLineInput").value.trim(), 10)
+        const maxLine = maxEl && maxEl.value.trim() !== ""
+          ? parseInt(maxEl.value.trim(), 10)
           : null;
         activeTab.minLine = minLine;
         activeTab.maxLine = maxLine;
-        activeTab.dataExact = document.getElementById("dataExactCheckbox").checked;
-        activeTab.dataCase = document.getElementById("dataCaseCheckbox").checked;
+        const exactEl = document.getElementById(useRight ? 'dataExactCheckboxRight' : 'dataExactCheckboxLeft');
+        const caseEl = document.getElementById(useRight ? 'dataCaseCheckboxRight' : 'dataCaseCheckboxLeft');
+        activeTab.dataExact = !!(exactEl && exactEl.checked);
+        activeTab.dataCase = !!(caseEl && caseEl.checked);
 
         // Get the selected object types from the dropdown checkboxes.
-        const container = document.getElementById("objectTypeDropdownContent");
+        const container = document.getElementById(useRight ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft');
+        if (!container) return;
         const checkboxes = container.querySelectorAll("input[type='checkbox']");
         const selectedTypes = [];
         checkboxes.forEach(cb => {
@@ -1100,146 +1907,356 @@
           activeTab.maxLine,
           selectedTypes // Pass selected types into the filter
         );
-        this.myTreeGrid.setData(activeTab.currentTreeData);
-        this.treeViewContainer.scrollTop = 0;
-        // Save state after search terms change
+        setData(activeTab.currentTreeData);
+        setScrollTop();
         this.saveCurrentState();
+        this.updateFiltersButtonIndicators();
+        // If diff mode is active and both panels are present, recompute diff on filter changes
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
       }
       
-      handleSearchOptionChange() { this.updateEffectiveSearchTerms(); }
+      handleSearchOptionChange(side = 'left') { this.updateEffectiveSearchTerms(side); }
       
       getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
 
       populateObjectTypeDropdown() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab) return;
-
-        // Build a count for each object type.
-        let typeCounts = {};
-        function traverse(nodes) {
-          nodes.forEach(node => {
-            if (!node.isProperty && node.type) {
-              typeCounts[node.type] = (typeCounts[node.type] || 0) + 1;
-            }
-            if (node.children && node.children.length > 0) {
-              traverse(node.children);
-            }
+        const leftTab = this.getActiveTab();
+        const rightTab = this.getActiveTabRight();
+        const buildCounts = (tab) => {
+          if (!tab) return {};
+          const counts = {};
+          const traverse = (nodes) => {
+            nodes.forEach(node => {
+              if (!node.isProperty && node.type) {
+                counts[node.type] = (counts[node.type] || 0) + 1;
+              }
+              if (node.children && node.children.length > 0) traverse(node.children);
+            });
+          };
+          tab.originalTreeData.forEach(node => traverse([node]));
+          return counts;
+        };
+        const leftCounts = buildCounts(leftTab);
+        const rightCounts = buildCounts(rightTab);
+        const buildSide = (counts, contentId, side) => {
+          const container = document.getElementById(contentId);
+          if (!container) return;
+          container.innerHTML = "";
+          const selectAllLabel = document.createElement("label");
+          selectAllLabel.style.fontWeight = "bold";
+          const selectAllCheckbox = document.createElement("input");
+          selectAllCheckbox.type = "checkbox";
+          selectAllCheckbox.checked = true;
+          selectAllCheckbox.addEventListener("change", () => {
+            container.querySelectorAll("input[type='checkbox']").forEach((cb, index) => { if (index > 0) cb.checked = selectAllCheckbox.checked; });
+            this.updateEffectiveSearchTerms(side);
+            this.updateObjectTypeDropdownButton(side);
           });
-        }
-        activeTab.originalTreeData.forEach(node => traverse([node]));
-
-        const container = document.getElementById("objectTypeDropdownContent");
-        container.innerHTML = ""; // Clear existing options
-
-        // Add a "Select All / Deselect All" header option.
-        const selectAllLabel = document.createElement("label");
-        selectAllLabel.style.fontWeight = "bold";
-        const selectAllCheckbox = document.createElement("input");
-        selectAllCheckbox.type = "checkbox";
-        selectAllCheckbox.checked = true; // Default: all types are selected.
-        selectAllCheckbox.addEventListener("change", () => {
-          // When toggled, set every type checkbox to the same state.
-          container.querySelectorAll("input[type='checkbox']").forEach((cb, index) => {
-            // Skip the first checkbox which is our "Select All"
-            if (index > 0) { cb.checked = selectAllCheckbox.checked; }
+          selectAllLabel.appendChild(selectAllCheckbox);
+          selectAllLabel.appendChild(document.createTextNode(" Select All"));
+          container.appendChild(selectAllLabel);
+          const sorted = Object.keys(counts).sort();
+          sorted.forEach(type => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.value = type;
+            checkbox.checked = true;
+            checkbox.addEventListener("change", () => {
+              const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
+              selectAllCheckbox.checked = allTypeCheckboxes.every(cb => cb.checked);
+              this.updateEffectiveSearchTerms(side);
+              this.updateObjectTypeDropdownButton(side);
+            });
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(" " + type + " (" + counts[type] + ")"));
+            container.appendChild(label);
           });
-          this.updateEffectiveSearchTerms();
-          this.updateObjectTypeDropdownButton();
-        });
-        selectAllLabel.appendChild(selectAllCheckbox);
-        selectAllLabel.appendChild(document.createTextNode(" Select All"));
-        container.appendChild(selectAllLabel);
-
-        // Sort the types alphabetically.
-        const sortedTypes = Object.keys(typeCounts).sort();
-
-        // Create a checkbox for each type with its count.
-        sortedTypes.forEach(type => {
-          const label = document.createElement("label");
-          const checkbox = document.createElement("input");
-          checkbox.type = "checkbox";
-          checkbox.value = type;
-          checkbox.checked = true; // Default to selected.
-          checkbox.addEventListener("change", () => {
-            // When any type is toggled, update the "Select All" checkbox.
-            const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
-            selectAllCheckbox.checked = allTypeCheckboxes.every(cb => cb.checked);
-            this.updateEffectiveSearchTerms();
-            this.updateObjectTypeDropdownButton();
-          });
-          label.appendChild(checkbox);
-          // Append the object type with its count, e.g. "LINE (30)"
-          label.appendChild(document.createTextNode(" " + type + " (" + typeCounts[type] + ")"));
-          container.appendChild(label);
-        });
-        this.updateObjectTypeDropdownButton();
+          this.updateObjectTypeDropdownButton(side);
+        };
+        buildSide(leftCounts, 'objectTypeDropdownContentLeft', 'left');
+        buildSide(rightCounts, 'objectTypeDropdownContentRight', 'right');
       }
 
-      updateObjectTypeDropdownButton() {
-        const container = document.getElementById("objectTypeDropdownContent");
+      updateObjectTypeDropdownButton(side = 'left') {
+        const container = document.getElementById(side === 'right' ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft');
+        const button = document.getElementById(side === 'right' ? 'objectTypeDropdownButtonRight' : 'objectTypeDropdownButtonLeft');
+        if (!container || !button) return;
         const checkboxes = container.querySelectorAll("input[type='checkbox']");
         const selected = [];
-        checkboxes.forEach(cb => {
-          if (cb.checked) selected.push(cb.value);
-        });
-        const button = document.getElementById("objectTypeDropdownButton");
-        if (selected.length === checkboxes.length) {
-          button.textContent = "All Types";
-        } else if (selected.length === 0) {
-          button.textContent = "None Selected";
-        } else {
-          button.textContent = selected.join(", ");
+        checkboxes.forEach(cb => { if (cb.checked) selected.push(cb.value); });
+        if (selected.length === checkboxes.length || checkboxes.length === 0) button.textContent = 'All Types';
+        else if (selected.length === 0) button.textContent = 'None Selected';
+        else button.textContent = selected.join(', ');
+      }
+
+      openFiltersOverlay(side = 'left') {
+        const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
+        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!overlay || !tab) return;
+        // Close any open dropdowns and opposite side overlay
+        this._closeFloatingDropdown();
+        this.closeFiltersOverlay(side === 'left' ? 'right' : 'left');
+        // Ensure dropdowns populated
+        this.populateObjectTypeDropdown();
+        // Sync tags
+        this.updateTagContainer(side === 'right' ? 'codeSearchTagsRight' : 'codeSearchTagsLeft', tab.codeSearchTerms || [], 'code');
+        this.updateTagContainer(side === 'right' ? 'dataSearchTagsRight' : 'dataSearchTagsLeft', tab.dataSearchTerms || [], 'data');
+        // Sync inputs
+        const minEl = document.getElementById(side === 'right' ? 'minLineInputRight' : 'minLineInputLeft');
+        const maxEl = document.getElementById(side === 'right' ? 'maxLineInputRight' : 'maxLineInputLeft');
+        const exactEl = document.getElementById(side === 'right' ? 'dataExactCheckboxRight' : 'dataExactCheckboxLeft');
+        const caseEl = document.getElementById(side === 'right' ? 'dataCaseCheckboxRight' : 'dataCaseCheckboxLeft');
+        if (minEl) minEl.value = tab.minLine ?? '';
+        if (maxEl) maxEl.value = tab.maxLine ?? '';
+        if (exactEl) exactEl.checked = !!tab.dataExact;
+        if (caseEl) caseEl.checked = !!tab.dataCase;
+        // Sync object type checks to saved selection (if any)
+        const contentId = side === 'right' ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft';
+        const container = document.getElementById(contentId);
+        if (container) {
+          const allTypeCheckboxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1); // skip Select All
+          if (tab.selectedObjectTypes && tab.selectedObjectTypes.length > 0) {
+            allTypeCheckboxes.forEach(cb => { cb.checked = tab.selectedObjectTypes.includes(cb.value); });
+          } else {
+            allTypeCheckboxes.forEach(cb => { cb.checked = true; });
+          }
+          // Update select-all and button text
+          const selectAllCb = container.querySelector("label input[type='checkbox']");
+          if (selectAllCb) selectAllCb.checked = allTypeCheckboxes.every(cb => cb.checked);
+          this.updateObjectTypeDropdownButton(side);
         }
+        overlay.style.display = 'block';
+        // Position overlay content under the corresponding Filters button
+        const btn = document.getElementById(side === 'right' ? 'filtersRightBtn' : 'filtersLeftBtn');
+        const content = overlay.querySelector('.overlay-content');
+        if (btn && content) {
+          const rect = btn.getBoundingClientRect();
+          const viewportPadding = 8;
+          const contentRect = content.getBoundingClientRect(); // initial size
+          let top = rect.bottom + window.scrollY + 6; // a bit below the button
+          let left = rect.left + window.scrollX;
+          // If off right edge, shift left
+          const maxLeft = window.scrollX + document.documentElement.clientWidth - contentRect.width - viewportPadding;
+          if (left > maxLeft) left = Math.max(viewportPadding + window.scrollX, maxLeft);
+          // If off bottom edge, place above button
+          const maxTop = window.scrollY + document.documentElement.clientHeight - contentRect.height - viewportPadding;
+          if (top > maxTop) top = rect.top + window.scrollY - contentRect.height - 6;
+          // Clamp
+          top = Math.max(window.scrollY + viewportPadding, top);
+          left = Math.max(window.scrollX + viewportPadding, left);
+          content.style.top = `${top}px`;
+          content.style.left = `${left}px`;
+        }
+        // Install outside click/Escape dismissal shortly after opening
+        setTimeout(() => { this._installFiltersOverlayDismiss(overlay, side); }, 0);
+        // Make filter dialog draggable
+        this.enableDraggableFilter(overlay);
+      }
+
+      closeFiltersOverlay(side = 'left') {
+        const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
+        if (overlay) {
+          this._closeFloatingDropdown();
+          overlay.style.display = 'none';
+          // Remove outside click/Escape handlers if present
+          if (overlay._dismissHandlers) {
+            const { onDocClick, onKeyDown } = overlay._dismissHandlers;
+            document.removeEventListener('click', onDocClick, true);
+            document.removeEventListener('keydown', onKeyDown);
+            overlay._dismissHandlers = null;
+          }
+          const header = overlay.querySelector('.filter-dialog-header');
+          if (header && header._dragHandlers) {
+            const { move, up } = header._dragHandlers;
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', up);
+            header._dragHandlers = null;
+          }
+        }
+      }
+
+      _installFiltersOverlayDismiss(overlay, side) {
+        const content = overlay.querySelector('.overlay-content');
+        if (!content) return;
+        const onDocClick = (e) => {
+          const dd = this._currentFloatingDropdown && this._currentFloatingDropdown.content;
+          const clickedInOverlay = content.contains(e.target);
+          const clickedInDropdown = dd && dd.contains(e.target);
+          if (!clickedInOverlay && !clickedInDropdown) {
+            this.closeFiltersOverlay(side);
+          }
+        };
+        const onKeyDown = (e) => { if (e.key === 'Escape') this.closeFiltersOverlay(side); };
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onKeyDown);
+        overlay._dismissHandlers = { onDocClick, onKeyDown };
+        // Also allow clicking on the overlay background to close
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) this.closeFiltersOverlay(side); });
+      }
+
+      enableDraggableFilter(overlay) {
+        const content = overlay.querySelector('.overlay-content');
+        const header = overlay.querySelector('.filter-dialog-header');
+        if (!content || !header) return;
+        let startX = 0, startY = 0, startLeft = 0, startTop = 0, dragging = false;
+        const onMouseMove = (e) => {
+          if (!dragging) return;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          let nextLeft = startLeft + dx;
+          let nextTop = startTop + dy;
+          const pad = 4;
+          const maxLeft = window.scrollX + document.documentElement.clientWidth - content.offsetWidth - pad;
+          const maxTop = window.scrollY + document.documentElement.clientHeight - content.offsetHeight - pad;
+          nextLeft = Math.min(Math.max(window.scrollX + pad, nextLeft), maxLeft);
+          nextTop = Math.min(Math.max(window.scrollY + pad, nextTop), maxTop);
+          content.style.left = `${nextLeft}px`;
+          content.style.top = `${nextTop}px`;
+        };
+        const onMouseUp = () => { dragging = false; document.body.style.userSelect = ''; };
+        const onMouseDown = (e) => {
+          if (e.button !== 0) return;
+          dragging = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          const rect = content.getBoundingClientRect();
+          startLeft = rect.left + window.scrollX;
+          startTop = rect.top + window.scrollY;
+          document.body.style.userSelect = 'none';
+        };
+        header.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        header._dragHandlers = { move: onMouseMove, up: onMouseUp };
+      }
+
+      updateFiltersButtonIndicators() {
+        const updateForSide = (side) => {
+          const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+          const btn = document.getElementById(side === 'right' ? 'filtersRightBtn' : 'filtersLeftBtn');
+          if (!btn) return;
+          if (!tab) { btn.classList.remove('has-active'); return; }
+          const hasTextFilters = (tab.codeSearchTerms && tab.codeSearchTerms.length > 0) || (tab.dataSearchTerms && tab.dataSearchTerms.length > 0);
+          const hasRangeOrFlags = (tab.minLine != null) || (tab.maxLine != null) || !!tab.dataExact || !!tab.dataCase;
+          // Object type selection: active only if not all selected
+          let hasTypeFilter = false;
+          const container = document.getElementById(side === 'right' ? 'objectTypeDropdownContentRight' : 'objectTypeDropdownContentLeft');
+          if (container) {
+            const typeBoxes = Array.from(container.querySelectorAll("input[type='checkbox']")).slice(1);
+            const totalTypes = typeBoxes.length;
+            const selectedTypesCount = tab.selectedObjectTypes ? tab.selectedObjectTypes.length : totalTypes;
+            hasTypeFilter = totalTypes > 0 && selectedTypesCount > 0 && selectedTypesCount < totalTypes;
+          } else if (tab.selectedObjectTypes && tab.selectedObjectTypes.length > 0) {
+            hasTypeFilter = true;
+          }
+          const hasActive = hasTextFilters || hasRangeOrFlags || hasTypeFilter;
+          if (hasActive) btn.classList.add('has-active'); else btn.classList.remove('has-active');
+        };
+        updateForSide('left');
+        updateForSide('right');
       }
  
       updateTabUI() {
-        const tabContainer = document.getElementById("tabContainer");
-        tabContainer.innerHTML = "";
-        this.tabs.forEach(tab => {
+        // Left panel tabs
+        this.renderTabsInto('tabContainerLeft', this.tabs, this.activeTabId, true);
+        // Right panel tabs
+        this.renderTabsInto('tabContainerRight', this.tabsRight, this.activeTabIdRight, false);
+        this.populateObjectTypeDropdown();
+        this.updateNavHistoryUI();
+        this.updateNavButtons();
+        this.updateFiltersButtonIndicators();
+      }
+
+      renderTabsInto(containerId, tabsArr, activeId, isLeftPanel) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.innerHTML = "";
+        tabsArr.forEach(tab => {
           const tabElem = document.createElement("div");
-          tabElem.className = "tab" + (tab.id === this.activeTabId ? " active" : "");
+          tabElem.className = "tab" + (tab.id === activeId ? " active" : "");
           tabElem.textContent = tab.name;
           tabElem.dataset.tabId = tab.id;
           tabElem.addEventListener("click", () => {
-            this.activeTabId = tab.id;
-            document.getElementById("codeSearchInput").value = "";
-            document.getElementById("dataSearchInput").value = "";
-            this.updateTagContainer("codeSearchTags", tab.codeSearchTerms, "code");
-            this.updateTagContainer("dataSearchTags", tab.dataSearchTerms, "data");
-            document.getElementById("minLineInput").value = tab.minLine !== null ? tab.minLine : "";
-            document.getElementById("maxLineInput").value = tab.maxLine !== null ? tab.maxLine : "";
-            document.getElementById("dataExactCheckbox").checked = tab.dataExact || false;
-            document.getElementById("dataCaseCheckbox").checked = tab.dataCase || false;
-            this.myTreeGrid.setData(tab.currentTreeData);
+            if (isLeftPanel) {
+              this.activeTabId = tab.id;
+              // Sync filter UI for left popup (if open)
+              this.updateTagContainer("codeSearchTagsLeft", tab.codeSearchTerms, "code");
+              this.updateTagContainer("dataSearchTagsLeft", tab.dataSearchTerms, "data");
+              const minL = document.getElementById("minLineInputLeft");
+              const maxL = document.getElementById("maxLineInputLeft");
+              const exactL = document.getElementById("dataExactCheckboxLeft");
+              const caseL = document.getElementById("dataCaseCheckboxLeft");
+              if (minL) minL.value = tab.minLine ?? "";
+              if (maxL) maxL.value = tab.maxLine ?? "";
+              if (exactL) exactL.checked = !!tab.dataExact;
+              if (caseL) caseL.checked = !!tab.dataCase;
+              this.myTreeGrid.setData(tab.currentTreeData);
+              this.treeViewContainer.scrollTop = 0;
+              // Update left header sort indicators to reflect active tab if needed
+              // (optional; not strictly required for diff)
+            } else {
+              this.activeTabIdRight = tab.id;
+              if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+              this.treeViewContainerRight.scrollTop = 0;
+            }
             this.updateTabUI();
+            if (this.sideBySideDiffEnabled) {
+              this.computeAndApplySideBySideDiff();
+            }
           });
           const closeBtn = document.createElement("span");
           closeBtn.className = "close-tab";
           closeBtn.textContent = "×";
           closeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            // Remove state for the closed tab
-            this.stateManager.removeTabState(tab.id);
-            
-            this.tabs = this.tabs.filter(t => t.id !== tab.id);
-            if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
-            this.updateTabUI();
-            if (this.activeTabId) { 
-              this.myTreeGrid.setData(this.getActiveTab().currentTreeData); 
-              // Apply filters for the new active tab
-              this.applyTabFilters(this.getActiveTab());
+            if (isLeftPanel) {
+              this.stateManager.removeTabState(tab.id);
+              this.tabs = this.tabs.filter(t => t.id !== tab.id);
+              if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
+              this.updateTabUI();
+              if (this.activeTabId) {
+                this.myTreeGrid.setData(this.getActiveTab().currentTreeData);
+                this.applyTabFilters(this.getActiveTab());
+              } else {
+                this.myTreeGrid.setData([]);
+              }
+              this.saveCurrentState();
+              if (this.sideBySideDiffEnabled) {
+                const hasLeft = !!this.getActiveTab();
+                const hasRight = !!this.getActiveTabRight();
+                if (hasLeft && hasRight) {
+                  this.computeAndApplySideBySideDiff();
+                } else {
+                  this.clearSideBySideDiff();
+                }
+              }
+            } else {
+              this.tabsRight = this.tabsRight.filter(t => t.id !== tab.id);
+              if (this.activeTabIdRight === tab.id) { this.activeTabIdRight = this.tabsRight.length ? this.tabsRight[0].id : null; }
+              this.updateTabUI();
+              if (this.activeTabIdRight) {
+                const t = this.tabsRight.find(t => t.id === this.activeTabIdRight);
+                if (this.myTreeGridRight) this.myTreeGridRight.setData(t ? t.currentTreeData : []);
+              } else {
+                if (this.myTreeGridRight) this.myTreeGridRight.setData([]);
+              }
+              if (this.sideBySideDiffEnabled) {
+                const hasLeft = !!this.getActiveTab();
+                const hasRight = !!this.getActiveTabRight();
+                if (hasLeft && hasRight) {
+                  this.computeAndApplySideBySideDiff();
+                } else {
+                  this.clearSideBySideDiff();
+                }
+              }
             }
-            else { this.myTreeGrid.setData([]); }
-            
-            // Save state after tab closure
-            this.saveCurrentState();
           });
           tabElem.appendChild(closeBtn);
-          tabContainer.appendChild(tabElem);
+          container.appendChild(tabElem);
         });
-        this.populateObjectTypeDropdown();
-        this.updateNavHistoryUI();
-        this.updateNavButtons();
       }
       
       expandAllNodes(nodes) {
@@ -1259,6 +2276,7 @@
       }
       
       handleExpandAll() {
+        // Allow expand-all even in diff mode; recompute diff if active
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         this.expandAllNodes(activeTab.originalTreeData);
@@ -1276,12 +2294,47 @@
           activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
+        if (this.sideBySideDiffEnabled && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
         this.treeViewContainer.scrollTop = 0;
         // Save state after expanding/collapsing
         this.saveCurrentState();
       }
       
+      handleExpandAllSide(side = 'left') {
+        // Allow expand-all per side in diff mode; recompute if active
+        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!tab) return;
+        this.expandAllNodes(tab.originalTreeData);
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms,
+          tab.dataSearchTerms,
+          tab.dataExact,
+          tab.dataCase,
+          tab.minLine,
+          tab.maxLine,
+          tab.selectedObjectTypes
+        );
+        if (side === 'right') {
+          if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+          if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
+        } else {
+          this.myTreeGrid.setData(tab.currentTreeData);
+          this.treeViewContainer.scrollTop = 0;
+        }
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
+        this.saveCurrentState();
+      }
+
       handleCollapseAll() {
+        // Allow collapse-all even in diff mode; recompute diff if active
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         this.collapseAllNodes(activeTab.originalTreeData);
@@ -1299,8 +2352,42 @@
           activeTab.selectedObjectTypes
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
+        if (this.sideBySideDiffEnabled && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
         this.treeViewContainer.scrollTop = 0;
         // Save state after expanding/collapsing
+        this.saveCurrentState();
+      }
+
+      handleCollapseAllSide(side = 'left') {
+        // Allow collapse-all per side in diff mode; recompute if active
+        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!tab) return;
+        this.collapseAllNodes(tab.originalTreeData);
+        if (tab.currentSortField) {
+          this.sortTreeNodes(tab.originalTreeData, tab.currentSortField, tab.currentSortAscending);
+        }
+        tab.currentTreeData = this.filterTree(
+          tab.originalTreeData,
+          tab.codeSearchTerms,
+          tab.dataSearchTerms,
+          tab.dataExact,
+          tab.dataCase,
+          tab.minLine,
+          tab.maxLine,
+          tab.selectedObjectTypes
+        );
+        if (side === 'right') {
+          if (this.myTreeGridRight) this.myTreeGridRight.setData(tab.currentTreeData);
+          if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
+        } else {
+          this.myTreeGrid.setData(tab.currentTreeData);
+          this.treeViewContainer.scrollTop = 0;
+        }
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
         this.saveCurrentState();
       }
       
@@ -1309,32 +2396,76 @@
         if (confirm('Are you sure you want to reset all state and close all tabs? This action cannot be undone.')) {
           // Clear all state from localStorage
           this.stateManager.clearAllState();
+          try { localStorage.removeItem('rightPanelHidden'); } catch (e) {}
+          try { localStorage.removeItem('sidebarCollapsed'); } catch (e) {}
           
           // Clear current app state
           this.tabs = [];
           this.activeTabId = null;
+          this.tabsRight = [];
+          this.activeTabIdRight = null;
+
+          // Reset filters and options for both sides
+          const resetTabFilters = (tab) => {
+            if (!tab) return;
+            tab.codeSearchTerms = [];
+            tab.dataSearchTerms = [];
+            tab.currentSortField = 'line';
+            tab.currentSortAscending = true;
+            tab.minLine = null;
+            tab.maxLine = null;
+            tab.dataExact = false;
+            tab.dataCase = false;
+            tab.selectedObjectTypes = [];
+          };
+          resetTabFilters(this.getActiveTab());
+          resetTabFilters(this.getActiveTabRight());
           
           // Clear UI
           this.updateTabUI();
           this.myTreeGrid.setData([]);
+          if (this.myTreeGridRight) this.myTreeGridRight.setData([]);
+          // Ensure right panel is visible after reset
+          if (typeof this.setRightPanelHidden === 'function') this.setRightPanelHidden(false);
+          // Ensure sidebar is expanded after reset
+          const contentWrapper = document.querySelector('.content-wrapper');
+          const toggleBtn = document.getElementById('toggleSidebarBtn');
+          if (contentWrapper && toggleBtn) {
+            contentWrapper.classList.remove('sidebar-collapsed');
+            toggleBtn.setAttribute('aria-pressed', 'false');
+          }
+          // Disable side-by-side diff mode
+          if (this.sideBySideDiffEnabled) {
+            this.sideBySideDiffEnabled = false;
+            this.clearSideBySideDiff();
+          }
           
-          // Clear search inputs
-          document.getElementById("codeSearchInput").value = "";
-          document.getElementById("dataSearchInput").value = "";
-          document.getElementById("minLineInput").value = "";
-          document.getElementById("maxLineInput").value = "";
-          document.getElementById("dataExactCheckbox").checked = false;
-          document.getElementById("dataCaseCheckbox").checked = false;
+          // Clear sidebar legacy inputs if present
+          const legCode = document.getElementById("codeSearchInput");
+          const legData = document.getElementById("dataSearchInput");
+          const legMin = document.getElementById("minLineInput");
+          const legMax = document.getElementById("maxLineInput");
+          const legExact = document.getElementById("dataExactCheckbox");
+          const legCase = document.getElementById("dataCaseCheckbox");
+          if (legCode) legCode.value = "";
+          if (legData) legData.value = "";
+          if (legMin) legMin.value = "";
+          if (legMax) legMax.value = "";
+          if (legExact) legExact.checked = false;
+          if (legCase) legCase.checked = false;
           
-          // Clear tag containers
-          this.updateTagContainer("codeSearchTags", [], "code");
-          this.updateTagContainer("dataSearchTags", [], "data");
+          // Clear tag containers (legacy sidebar if present)
+          const legacyCodeTags = document.getElementById("codeSearchTags");
+          const legacyDataTags = document.getElementById("dataSearchTags");
+          if (legacyCodeTags) this.updateTagContainer("codeSearchTags", [], "code");
+          if (legacyDataTags) this.updateTagContainer("dataSearchTags", [], "data");
           
           console.log('All state has been reset');
         }
       }
       
       handleToggleExpand(nodeId) {
+        // Allow expand/collapse in diff mode; recompute diff to keep alignment/colors consistent
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
@@ -1354,8 +2485,40 @@
             activeTab.selectedObjectTypes
           );
           this.myTreeGrid.setData(activeTab.currentTreeData);
+          if (this.sideBySideDiffEnabled && this.getActiveTabRight()) {
+            this.computeAndApplySideBySideDiff();
+          }
           // Save state after node expansion change
           this.saveCurrentState();
+        }
+      }
+
+      getActiveTabRight() { return this.tabsRight.find(t => t.id === this.activeTabIdRight); }
+
+      handleToggleExpandRight(nodeId) {
+        // Allow expand/collapse in diff mode; recompute diff to keep alignment/colors consistent
+        const activeTab = this.getActiveTabRight();
+        if (!activeTab) return;
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (node) {
+          node.expanded = !node.expanded;
+          if (activeTab.currentSortField) {
+            this.sortTreeNodes(activeTab.originalTreeData, activeTab.currentSortField, activeTab.currentSortAscending);
+          }
+          activeTab.currentTreeData = this.filterTree(
+            activeTab.originalTreeData,
+            activeTab.codeSearchTerms || [],
+            activeTab.dataSearchTerms || [],
+            activeTab.dataExact || false,
+            activeTab.dataCase || false,
+            activeTab.minLine || null,
+            activeTab.maxLine || null,
+            activeTab.selectedObjectTypes || []
+          );
+          this.myTreeGridRight.setData(activeTab.currentTreeData);
+          if (this.sideBySideDiffEnabled && this.getActiveTab()) {
+            this.computeAndApplySideBySideDiff();
+          }
         }
       }
       
@@ -1468,6 +2631,44 @@
         );
         this.myTreeGrid.setData(activeTab.currentTreeData);
       }
+
+      handleHeaderClickRight(headerCell) {
+        const field = headerCell.getAttribute('data-field');
+        const activeTab = this.getActiveTabRight();
+        if (!activeTab) return;
+        let currentSort = headerCell.getAttribute('data-sort');
+        let ascending = true;
+        if (currentSort === 'asc') {
+          ascending = false;
+          headerCell.setAttribute('data-sort', 'desc');
+          headerCell.querySelector('.sort-indicator').textContent = ' ▼';
+        } else {
+          ascending = true;
+          headerCell.setAttribute('data-sort', 'asc');
+          headerCell.querySelector('.sort-indicator').textContent = ' ▲';
+        }
+        activeTab.currentSortField = field;
+        activeTab.currentSortAscending = ascending;
+        document.querySelectorAll('#treeGridHeaderRight .header-cell').forEach(cell => {
+          if (cell !== headerCell) {
+            cell.setAttribute('data-sort', 'none');
+            const si = cell.querySelector('.sort-indicator');
+            if (si) si.textContent = '';
+          }
+        });
+        this.sortTreeNodes(activeTab.originalTreeData, field, ascending);
+        activeTab.currentTreeData = this.filterTree(
+          activeTab.originalTreeData,
+          activeTab.codeSearchTerms || [],
+          activeTab.dataSearchTerms || [],
+          activeTab.dataExact || false,
+          activeTab.dataCase || false,
+          activeTab.minLine || null,
+          activeTab.maxLine || null,
+          activeTab.selectedObjectTypes || []
+        );
+        this.myTreeGridRight.setData(activeTab.currentTreeData);
+      }
       
       handleResizerMouseDown(e) {
         e.stopPropagation();
@@ -1481,6 +2682,27 @@
           headerCell.style.width = newWidth + "px";
           headerCell.style.flex = "none";
           this.myTreeGrid.updateVisibleNodes();
+        };
+        const onMouseUp = () => {
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onMouseUp);
+        };
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+      }
+
+      handleResizerMouseDownRight(e) {
+        e.stopPropagation();
+        const headerCell = e.target.parentElement;
+        const field = headerCell.getAttribute('data-field');
+        const startX = e.clientX;
+        const startWidth = headerCell.offsetWidth;
+        const onMouseMove = (eMove) => {
+          const newWidth = startWidth + (eMove.clientX - startX);
+          this.columnWidths[field] = newWidth;
+          headerCell.style.width = newWidth + "px";
+          headerCell.style.flex = "none";
+          this.myTreeGridRight.updateVisibleNodes();
         };
         const onMouseUp = () => {
           document.removeEventListener("mousemove", onMouseMove);
@@ -1641,6 +2863,36 @@
         this.myTreeGrid.setData(newTab.currentTreeData);
       }
 
+      handleOpenRight(nodeId) {
+        const activeTab = this.getActiveTabRight();
+        if (!activeTab) return;
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (!node) {
+          alert("Node not found.");
+          return;
+        }
+        const newTab = {
+          id: Date.now() + Math.random(),
+          name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
+          originalTreeData: [node],
+          currentTreeData: [node],
+          codeSearchTerms: [],
+          dataSearchTerms: [],
+          currentSortField: "line",
+          currentSortAscending: true,
+          minLine: null,
+          maxLine: null,
+          dataExact: false,
+          dataCase: false,
+          navigationHistory: [],
+          currentHistoryIndex: -1
+        };
+        this.tabsRight.push(newTab);
+        this.activeTabIdRight = newTab.id;
+        this.updateTabUI();
+        if (this.myTreeGridRight) this.myTreeGridRight.setData(newTab.currentTreeData);
+      }
+
       handleAddRow() {
         const activeTab = this.getActiveTab();
         if (!activeTab || !this.selectedNodeId) return;
@@ -1663,7 +2915,7 @@
             activeTab.originalTreeData.splice(idx + 1, 0, newNode);
           }
         }
-        this.updateEffectiveSearchTerms();
+        this.updateEffectiveSearchTerms('left');
       }
 
       handleRemoveRow() {
@@ -1687,7 +2939,7 @@
           }
         }
         this.selectedNodeId = null;
-        this.updateEffectiveSearchTerms();
+        this.updateEffectiveSearchTerms('left');
       }
 
       handleDownloadDxf() {
@@ -1728,7 +2980,7 @@
         return grouped.objects;
       }
       
-      handleFiles(files) {
+      handleFiles(files, panel = 'left') {
         const useStream = document.getElementById("useStreamCheckbox").checked;
         if (!files || files.length === 0) {
           alert("Please select (or drop) at least one DXF file.");
@@ -1759,14 +3011,29 @@
                     currentHistoryIndex: -1,
                     classIdToName: {}
                   };
-                  this.tabs.push(newTab);
-                  this.activeTabId = newTab.id;
-                  // Initialize class mapping before displaying data
-                  this.updateClasses();
-                  this.updateTabUI();
-                  this.myTreeGrid.setData(newTab.currentTreeData);
-                  // Save state after new tab creation
-                  this.saveCurrentState();
+              if (panel === 'right') {
+                    this.tabsRight.push(newTab);
+                    this.activeTabIdRight = newTab.id;
+                    this.updateTabUI();
+                    this.myTreeGridRight.setData(newTab.currentTreeData);
+                if (this.sideBySideDiffEnabled) {
+                  // recompute diff when new right file is loaded
+                  this.computeAndApplySideBySideDiff();
+                }
+                  } else {
+                    this.tabs.push(newTab);
+                    this.activeTabId = newTab.id;
+                    // Initialize class mapping before displaying data
+                    this.updateClasses();
+                    this.updateTabUI();
+                    this.myTreeGrid.setData(newTab.currentTreeData);
+                    // Save state after new tab creation
+                    this.saveCurrentState();
+                if (this.sideBySideDiffEnabled) {
+                  // recompute diff when new left file is loaded
+                  this.computeAndApplySideBySideDiff();
+                }
+                  }
                 })
               .catch(err => {
                 console.error("Error during streamed parsing:", err);
@@ -1794,24 +3061,28 @@
                   currentHistoryIndex: -1,
                   classIdToName: {}
                 };
-              this.tabs.push(newTab);
-              this.activeTabId = newTab.id;
-              // Call updateClasses() now so that CLASS nodes get their classId set.
-              this.updateClasses();
-              this.updateTabUI();
-              this.myTreeGrid.setData(newTab.currentTreeData);
-              // Save state after new tab creation
-              this.saveCurrentState();
+              if (panel === 'right') {
+                this.tabsRight.push(newTab);
+                this.activeTabIdRight = newTab.id;
+                this.updateTabUI();
+                this.myTreeGridRight.setData(newTab.currentTreeData);
+              } else {
+                this.tabs.push(newTab);
+                this.activeTabId = newTab.id;
+                // Call updateClasses() now so that CLASS nodes get their classId set.
+                this.updateClasses();
+                this.updateTabUI();
+                this.myTreeGrid.setData(newTab.currentTreeData);
+                // Save state after new tab creation
+                this.saveCurrentState();
+              }
             };
             reader.readAsText(file, "ascii");
           }
         });
       }
       
-      handleParse() {
-        const fileInput = document.getElementById("fileInput");
-        this.handleFiles(fileInput.files);
-      }
+      handleParse() { /* removed global parser; per-panel parsers are used */ }
       
       // Create a new empty DXF file with minimum valid structure
       handleCreateNewDxf() {
@@ -1843,6 +3114,9 @@
         this.myTreeGrid.setData(newTab.currentTreeData);
         // Save state after new tab creation
         this.saveCurrentState();
+        if (this.sideBySideDiffEnabled) {
+          this.computeAndApplySideBySideDiff();
+        }
       }
       
       // Generate a minimal valid DXF file template
@@ -1897,7 +3171,7 @@ ENDSEC
 EOF`;
       }
       
-      createTagElement(text, type) {
+      createTagElement(text, type, containerId = "codeSearchTagsLeft") {
         const tag = document.createElement("span");
         tag.className = "tag";
         tag.textContent = text;
@@ -1906,14 +3180,15 @@ EOF`;
         removeBtn.textContent = "×";
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const activeTab = this.getActiveTab();
+          const isRight = /Right$/.test(containerId);
+          const activeTab = isRight ? this.getActiveTabRight() : this.getActiveTab();
           if (!activeTab) return;
           if (type === "code") {
             activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
-            this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+            this.updateTagContainer(containerId, activeTab.codeSearchTerms, "code");
           } else if (type === "data") {
             activeTab.dataSearchTerms = activeTab.dataSearchTerms.filter(term => term !== text);
-            this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+            this.updateTagContainer(containerId, activeTab.dataSearchTerms, "data");
           }
           activeTab.currentTreeData = this.filterTree(
             activeTab.originalTreeData,
@@ -1925,8 +3200,14 @@ EOF`;
             activeTab.maxLine,
             activeTab.selectedObjectTypes
           );
-          this.myTreeGrid.setData(activeTab.currentTreeData);
-          this.treeViewContainer.scrollTop = 0;
+          if (isRight) {
+            if (this.myTreeGridRight) this.myTreeGridRight.setData(activeTab.currentTreeData);
+            if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
+          } else {
+            this.myTreeGrid.setData(activeTab.currentTreeData);
+            this.treeViewContainer.scrollTop = 0;
+          }
+          this.updateFiltersButtonIndicators();
         });
         tag.appendChild(removeBtn);
         return tag;
@@ -1934,71 +3215,73 @@ EOF`;
       
       updateTagContainer(containerId, termsArray, type) {
         const container = document.getElementById(containerId);
+        if (!container) return;
         Array.from(container.querySelectorAll(".tag")).forEach(tag => tag.remove());
         termsArray.forEach(term => {
-          const tagElem = this.createTagElement(term, type);
+          const tagElem = this.createTagElement(term, type, containerId);
           container.insertBefore(tagElem, container.querySelector("input"));
         });
       }
       
-      setupTagInput(inputId, type) {
+      setupTagInput(inputId, type, side = 'left') {
         const input = document.getElementById(inputId);
         input.addEventListener("keydown", (e) => {
           if (e.key === "Enter" || e.key === ",") {
             e.preventDefault();
             const text = input.value.trim();
             if (text !== "") {
-              const activeTab = this.getActiveTab();
+              const activeTab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
               if (!activeTab) return;
               if (type === "code") {
                 if (!activeTab.codeSearchTerms.includes(text)) {
                   activeTab.codeSearchTerms.push(text);
                 }
-                this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+                this.updateTagContainer(side === 'right' ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
               } else {
                 if (!activeTab.dataSearchTerms.includes(text)) {
                   activeTab.dataSearchTerms.push(text);
                 }
-                this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+                this.updateTagContainer(side === 'right' ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
               }
               input.value = "";
-              this.updateEffectiveSearchTerms();
+              this.updateEffectiveSearchTerms(side);
             }
           }
         });
         input.addEventListener("blur", () => {
           const text = input.value.trim();
           if (text !== "") {
-            const activeTab = this.getActiveTab();
+            const activeTab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
             if (!activeTab) return;
             if (type === "code") {
               if (!activeTab.codeSearchTerms.includes(text)) {
                 activeTab.codeSearchTerms.push(text);
               }
-              this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+              this.updateTagContainer(side === 'right' ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
             } else {
               if (!activeTab.dataSearchTerms.includes(text)) {
                 activeTab.dataSearchTerms.push(text);
               }
-              this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+              this.updateTagContainer(side === 'right' ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
             }
             input.value = "";
-            this.updateEffectiveSearchTerms();
+            this.updateEffectiveSearchTerms(side);
           }
         });
       }
       
-      handleSearch() {
-        const activeTab = this.getActiveTab();
+      handleSearch(side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
-        const codeInput = document.getElementById("codeSearchInput");
-        const dataInput = document.getElementById("dataSearchInput");
+        const codeInput = document.getElementById(useRight ? "codeSearchInputRight" : "codeSearchInputLeft");
+        const dataInput = document.getElementById(useRight ? "dataSearchInputRight" : "dataSearchInputLeft");
         if (codeInput.value.trim() !== "") {
           const text = codeInput.value.trim();
           if (!activeTab.codeSearchTerms.includes(text)) {
             activeTab.codeSearchTerms.push(text);
           }
-          this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
+          this.updateTagContainer(useRight ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
           codeInput.value = "";
         }
         if (dataInput.value.trim() !== "") {
@@ -2006,14 +3289,15 @@ EOF`;
           if (!activeTab.dataSearchTerms.includes(text)) {
             activeTab.dataSearchTerms.push(text);
           }
-          this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
+          this.updateTagContainer(useRight ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
           dataInput.value = "";
         }
-        this.updateEffectiveSearchTerms();
+        this.updateEffectiveSearchTerms(side);
       }
       
-      handleClearSearch() {
-        const activeTab = this.getActiveTab();
+      handleClearSearch(side = 'left') {
+        const useRight = side === 'right';
+        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
         if (!activeTab) return;
 
         // Clear search-related terms
@@ -2024,7 +3308,7 @@ EOF`;
 
         // Reset the object type filter:
         // Get the container holding the checkboxes and set them all to checked.
-        const objectTypeContainer = document.getElementById("objectTypeDropdownContent");
+        const objectTypeContainer = document.getElementById(useRight ? "objectTypeDropdownContentRight" : "objectTypeDropdownContentLeft");
         const checkboxes = objectTypeContainer.querySelectorAll("input[type='checkbox']");
         checkboxes.forEach(cb => cb.checked = true);
 
@@ -2032,15 +3316,21 @@ EOF`;
         activeTab.selectedObjectTypes = Array.from(checkboxes).map(cb => cb.value);
 
         // Update the UI for the tag containers and dropdown button.
-        this.updateTagContainer("codeSearchTags", activeTab.codeSearchTerms, "code");
-        this.updateTagContainer("dataSearchTags", activeTab.dataSearchTerms, "data");
-        document.getElementById("codeSearchInput").value = "";
-        document.getElementById("dataSearchInput").value = "";
-        document.getElementById("dataExactCheckbox").checked = false;
-        document.getElementById("dataCaseCheckbox").checked = false;
-        document.getElementById("minLineInput").value = "";
-        document.getElementById("maxLineInput").value = "";
-        this.updateObjectTypeDropdownButton();
+        this.updateTagContainer(useRight ? "codeSearchTagsRight" : "codeSearchTagsLeft", activeTab.codeSearchTerms, "code");
+        this.updateTagContainer(useRight ? "dataSearchTagsRight" : "dataSearchTagsLeft", activeTab.dataSearchTerms, "data");
+        const codeInput = document.getElementById(useRight ? "codeSearchInputRight" : "codeSearchInputLeft");
+        const dataInput = document.getElementById(useRight ? "dataSearchInputRight" : "dataSearchInputLeft");
+        const exactEl = document.getElementById(useRight ? "dataExactCheckboxRight" : "dataExactCheckboxLeft");
+        const caseEl = document.getElementById(useRight ? "dataCaseCheckboxRight" : "dataCaseCheckboxLeft");
+        const minEl = document.getElementById(useRight ? "minLineInputRight" : "minLineInputLeft");
+        const maxEl = document.getElementById(useRight ? "maxLineInputRight" : "maxLineInputLeft");
+        if (codeInput) codeInput.value = "";
+        if (dataInput) dataInput.value = "";
+        if (exactEl) exactEl.checked = false;
+        if (caseEl) caseEl.checked = false;
+        if (minEl) minEl.value = "";
+        if (maxEl) maxEl.value = "";
+        this.updateObjectTypeDropdownButton(side);
 
         // Re-filter the tree including the reset object type filter.
         activeTab.currentTreeData = this.filterTree(
@@ -2053,8 +3343,17 @@ EOF`;
           null,
           activeTab.selectedObjectTypes
         );
-        this.myTreeGrid.setData(activeTab.currentTreeData);
-        this.treeViewContainer.scrollTop = 0;
+        if (useRight) {
+          this.myTreeGridRight.setData(activeTab.currentTreeData);
+          this.treeViewContainerRight.scrollTop = 0;
+        } else {
+          this.myTreeGrid.setData(activeTab.currentTreeData);
+          this.treeViewContainer.scrollTop = 0;
+        }
+        if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
+          this.computeAndApplySideBySideDiff();
+        }
+        this.updateFiltersButtonIndicators();
       }
       
       findPathByHandle(nodes, handle) {
@@ -2466,23 +3765,179 @@ EOF`;
       }
       
       renderHexLine(lineNumber, binaryArray) {
-  const bytesPerLine = 16;
-  const offset = lineNumber * bytesPerLine;
-  const lineBytes = binaryArray.slice(offset, offset + bytesPerLine);
-  let hex = '';
-  let ascii = '';
-  for (let i = 0; i < lineBytes.length; i++) {
-    const byte = lineBytes[i];
-    // Convert the byte to a two-digit hexadecimal value.
-    hex += byte.toString(16).padStart(2, '0') + ' ';
-    // Build the ASCII representation.
-    ascii += (byte >= 32 && byte < 127) ? String.fromCharCode(byte) : '.';
+        const bytesPerLine = 16;
+        const offset = lineNumber * bytesPerLine;
+        const lineBytes = binaryArray.slice(offset, offset + bytesPerLine);
+        let hex = '';
+        let ascii = '';
+        for (let i = 0; i < lineBytes.length; i++) {
+          const byte = lineBytes[i];
+          hex += byte.toString(16).padStart(2, '0') + ' ';
+          ascii += (byte >= 32 && byte < 127) ? String.fromCharCode(byte) : '.';
+        }
+        // Pad the hex section if the last line is shorter than bytesPerLine.
+        hex = hex.padEnd(bytesPerLine * 3, ' ');
+        // Return a string that shows the offset, the hex values, and the ASCII characters.
+        return offset.toString(16).padStart(8, '0') + '  ' + hex + '  ' + ascii;
+      }
+
+  initStateFileIO() {
+    const input = document.getElementById('appStateFileInput');
+    if (input) {
+      input.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const snapshot = JSON.parse(text);
+          this.handleApplyStateSnapshot(snapshot);
+        } catch (err) {
+          alert('Failed to load state file.');
+          console.error(err);
+        } finally {
+          e.target.value = '';
+        }
+      });
+    }
   }
-  // Pad the hex section if the last line is shorter than bytesPerLine.
-  hex = hex.padEnd(bytesPerLine * 3, ' ');
-  // Return a string that shows the offset, the hex values, and the ASCII characters.
-  return offset.toString(16).padStart(8, '0') + '  ' + hex + '  ' + ascii;
-}
+
+  handleSaveStateToFile() {
+    try {
+      // Build a snapshot and download it
+      const snapshot = this.stateManager.buildExportSnapshot(
+        this.tabs,
+        this.tabsRight,
+        this.activeTabId,
+        this.activeTabIdRight,
+        this.columnWidths
+      );
+      const blob = new Blob([JSON.stringify(snapshot)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `dxf_parser_state_${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to save state to file', e);
+      alert('Failed to save state to file.');
+    }
+  }
+
+  triggerLoadStateFromFile() {
+    const input = document.getElementById('appStateFileInput');
+    if (input) input.click();
+  }
+
+  handleApplyStateSnapshot(snapshot) {
+    try {
+      const restored = this.stateManager.restoreFromSnapshot(snapshot);
+      if (!restored) { alert('Invalid state file.'); return; }
+
+      // Clear existing UI first
+      this.tabs = [];
+      this.activeTabId = null;
+      this.tabsRight = [];
+      this.activeTabIdRight = null;
+
+      // Apply tabs
+      const mapTab = (t) => ({
+        id: t.id,
+        name: t.name,
+        originalTreeData: t.originalTreeData,
+        currentTreeData: t.originalTreeData,
+        codeSearchTerms: t.codeSearchTerms || [],
+        dataSearchTerms: t.dataSearchTerms || [],
+        currentSortField: t.currentSortField || 'line',
+        currentSortAscending: t.currentSortAscending !== undefined ? t.currentSortAscending : true,
+        minLine: t.minLine ?? null,
+        maxLine: t.maxLine ?? null,
+        dataExact: !!t.dataExact,
+        dataCase: !!t.dataCase,
+        selectedObjectTypes: t.selectedObjectTypes || [],
+        navigationHistory: t.navigationHistory || [],
+        currentHistoryIndex: t.currentHistoryIndex ?? -1,
+        classIdToName: t.classIdToName || {}
+      });
+      this.tabs = (restored.leftTabs || []).map(mapTab);
+      this.tabsRight = (restored.rightTabs || []).map(mapTab);
+
+      // Apply app-level settings
+      if (restored.app.columnWidths) {
+        this.columnWidths = { ...this.columnWidths, ...restored.app.columnWidths };
+      }
+      this.activeTabId = restored.app.activeTabIdLeft || (this.tabs[0] && this.tabs[0].id) || null;
+      this.activeTabIdRight = restored.app.activeTabIdRight || (this.tabsRight[0] && this.tabsRight[0].id) || null;
+
+      try { localStorage.setItem('sidebarCollapsed', String(!!restored.app.sidebarCollapsed)); } catch(e) {}
+      try { localStorage.setItem('rightPanelHidden', String(!!restored.app.rightPanelHidden)); } catch(e) {}
+
+      // Apply sidebar collapsed UI state immediately
+      const contentWrapper = document.querySelector('.content-wrapper');
+      const toggleBtn = document.getElementById('toggleSidebarBtn');
+      if (contentWrapper && toggleBtn) {
+        const collapsed = !!restored.app.sidebarCollapsed;
+        if (collapsed) {
+          contentWrapper.classList.add('sidebar-collapsed');
+          toggleBtn.setAttribute('aria-pressed', 'true');
+        } else {
+          contentWrapper.classList.remove('sidebar-collapsed');
+          toggleBtn.setAttribute('aria-pressed', 'false');
+        }
+      }
+
+      // Render UI
+      this.updateTabUI();
+      const left = this.getActiveTab();
+      if (left) { this.applyTabFilters(left); }
+      const right = this.getActiveTabRight();
+      if (right && this.myTreeGridRight) {
+        if (right.currentSortField) {
+          this.sortTreeNodes(right.originalTreeData, right.currentSortField, right.currentSortAscending);
+        }
+        right.currentTreeData = this.filterTree(
+          right.originalTreeData,
+          right.codeSearchTerms || [],
+          right.dataSearchTerms || [],
+          right.dataExact || false,
+          right.dataCase || false,
+          right.minLine || null,
+          right.maxLine || null,
+          right.selectedObjectTypes || []
+        );
+        this.myTreeGridRight.setData(right.currentTreeData);
+      }
+
+      // Apply panel visibility
+      if (typeof this.setRightPanelHidden === 'function') {
+        this.setRightPanelHidden(!!restored.app.rightPanelHidden);
+      }
+
+      // Apply diff toggle
+      const prevDiff = !!this.sideBySideDiffEnabled;
+      this.sideBySideDiffEnabled = !!restored.app.sideBySideDiffEnabled;
+      if (this.sideBySideDiffEnabled) {
+        this.computeAndApplySideBySideDiff();
+      } else if (prevDiff) {
+        // Ensure normal views are refreshed
+        if (left) this.myTreeGrid.setData(left.currentTreeData || left.originalTreeData || []);
+        if (right) this.myTreeGridRight.setData(right.currentTreeData || right.originalTreeData || []);
+      }
+
+      // Nudge grids to relayout
+      if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+      if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
+
+      // Persist to localStorage for normal auto-restore too
+      this.saveCurrentState();
+    } catch (e) {
+      console.error('Failed to apply state snapshot', e);
+      alert('Failed to apply state file.');
+    }
+  }
       
       virtualizeHexViewer(binaryArray) {
         const container = document.getElementById("hexContent");
@@ -4137,6 +5592,137 @@ EOF`;
 
       downloadTreeAsExcel() {
         const workbook = XLSX.utils.book_new();
+        const rightPanel = document.getElementById('panelRight');
+        const hasLeft = !!this.getActiveTab();
+        const hasRight = !!this.getActiveTabRight() && rightPanel && rightPanel.style.display !== 'none';
+
+        // Helper to style a cell with a background color (ARGB)
+        const setCellFill = (ws, r1based, c0based, argb) => {
+          const addr = { r: r1based - 1, c: c0based };
+          const ref = XLSX.utils.encode_cell(addr);
+          const cell = ws[ref];
+          if (!cell) return; // only style existing cells
+          ws[ref].s = ws[ref].s || {};
+          ws[ref].s.fill = { patternType: "solid", fgColor: { rgb: argb } };
+        };
+
+        if (hasLeft && hasRight) {
+          // Build side-by-side export
+          const leftTab = this.getActiveTab();
+          const rightTab = this.getActiveTabRight();
+          const leftTree = leftTab ? leftTab.currentTreeData : [];
+          const rightTree = rightTab ? rightTab.currentTreeData : [];
+
+          // Flatten with keys (ignore handles) to align rows between panes
+          const diffOptions = { ignoreHandles: true };
+          const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTree, diffOptions);
+          const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTree, diffOptions);
+          const keysLeft = leftFlat.map(r => r.key);
+          const keysRight = rightFlat.map(r => r.key);
+          const aligned = window.TreeDiffEngine.alignByKeysSmart(keysLeft, keysRight);
+
+          // Optionally compute diff classes for styling
+          let diff = null;
+          if (this.sideBySideDiffEnabled) {
+            diff = window.TreeDiffEngine.computeDiff(leftTree, rightTree, diffOptions);
+          }
+
+          const ws_data = [[
+            "L: Line", "L: Code", "L: Data", "L: Object Count", "L: Data Size",
+            "",
+            "R: Line", "R: Code", "R: Data", "R: Object Count", "R: Data Size"
+          ]];
+
+          const caches = { objectCount: new Map(), dataSize: new Map() };
+
+          for (let idx = 0; idx < aligned.length; idx++) {
+            const { leftIndex: lIdx, rightIndex: rIdx } = aligned[idx];
+            let lCells = ["", "", "", "", ""];
+            let rCells = ["", "", "", "", ""];
+            if (lIdx != null) {
+              const row = leftFlat[lIdx];
+              const parts = window.TreeDiffEngine.splitValueIntoCellsWithCache(row, caches);
+              const indentedType = " ".repeat((row.level || 0) * 2) + (parts.type || "");
+              lCells = [parts.line || "", parts.code || "", indentedType, parts.objectCount || "", parts.dataSize || ""];
+            }
+            if (rIdx != null) {
+              const row = rightFlat[rIdx];
+              const parts = window.TreeDiffEngine.splitValueIntoCellsWithCache(row, caches);
+              const indentedType = " ".repeat((row.level || 0) * 2) + (parts.type || "");
+              rCells = [parts.line || "", parts.code || "", indentedType, parts.objectCount || "", parts.dataSize || ""];
+            }
+            ws_data.push([...lCells, "", ...rCells]);
+          }
+
+          const worksheet = XLSX.utils.aoa_to_sheet(ws_data);
+          // Autofilter across both panes (K is column 10 zero-based -> 11 one-based)
+          const rangeRef = `A1:K${ws_data.length}`;
+          worksheet["!autofilter"] = { ref: rangeRef };
+
+          // Apply diff coloring if enabled
+          if (diff) {
+            const leftColOffset = 0; // A..E => 0..4
+            const rightColOffset = 6; // G..K => 6..10
+            // XLSX-js-style expects 8-digit ARGB. Match TDG CSS colors (#fff5b1, #e6ffed, #ffeef0).
+            const colorChanged = "FFFFF5B1"; // AARRGGBB: FF + F5B1
+            const colorAdded = "FFE6FFED";  // FF + E6FFED
+            const colorRemoved = "FFFFEEF0"; // FF + FFEEF0
+
+            // Row-level classes
+            for (let i = 0; i < diff.totalRows; i++) {
+              const excelRow = i + 2; // data starts at row 2
+              const leftRowClass = diff.leftRowClasses.get(i) || null;
+              const rightRowClass = diff.rightRowClasses.get(i) || null;
+              if (leftRowClass === 'diff-removed') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, leftColOffset + c, colorRemoved);
+              }
+              if (rightRowClass === 'diff-added') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, rightColOffset + c, colorAdded);
+              }
+              if (leftRowClass === 'diff-changed') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, leftColOffset + c, colorChanged);
+              }
+              if (rightRowClass === 'diff-changed') {
+                for (let c = 0; c < 5; c++) setCellFill(worksheet, excelRow, rightColOffset + c, colorChanged);
+              }
+            }
+
+            // Cell-level classes
+            const keys = ['line','code','type','objectCount','dataSize'];
+            const keyToLeftCol = { line:0, code:1, type:2, objectCount:3, dataSize:4 };
+            for (let i = 0; i < diff.totalRows; i++) {
+              const excelRow = i + 2;
+              const lMap = diff.leftCellClasses.get(i) || null;
+              const rMap = diff.rightCellClasses.get(i) || null;
+              if (lMap) {
+                for (const k of keys) {
+                  const cls = lMap[k];
+                  if (!cls) continue;
+                  const col = leftColOffset + keyToLeftCol[k];
+                  if (cls === 'cell-changed') setCellFill(worksheet, excelRow, col, colorChanged);
+                  else if (cls === 'cell-added') setCellFill(worksheet, excelRow, col, colorAdded);
+                  else if (cls === 'cell-removed') setCellFill(worksheet, excelRow, col, colorRemoved);
+                }
+              }
+              if (rMap) {
+                for (const k of keys) {
+                  const cls = rMap[k];
+                  if (!cls) continue;
+                  const col = rightColOffset + keyToLeftCol[k];
+                  if (cls === 'cell-changed') setCellFill(worksheet, excelRow, col, colorChanged);
+                  else if (cls === 'cell-added') setCellFill(worksheet, excelRow, col, colorAdded);
+                  else if (cls === 'cell-removed') setCellFill(worksheet, excelRow, col, colorRemoved);
+                }
+              }
+            }
+          }
+
+          XLSX.utils.book_append_sheet(workbook, worksheet, "Tree");
+          XLSX.writeFile(workbook, "tree_data.xlsx");
+          return;
+        }
+
+        // Fallback: only left panel
         const ws_data = [["Line", "Code", "Data", "Object Count", "Data Size"]];
         this.myTreeGrid.flatData.forEach(({ node, level }) => {
           const line = node.line || "";
@@ -4411,11 +5997,7 @@ EOF`;
       /**
        * When the user clicks a collapsed marker, re-render the diff with full context.
        */
-      expandDiffView() {
-        // Recompute the diff with full=true.
-        const fullHtml = this.computeLineDiff(gOldText, gNewText, 3, true);
-        document.getElementById("diffContent").innerHTML = fullHtml;
-      }
+      // expandDiffView removed with legacy diff overlay
 
       // Recursively render the diff object as HTML.
       // Added nodes appear in green, removed nodes in red, and modified nodes in yellow.
@@ -4486,7 +6068,7 @@ EOF`;
       }
 
       // -------------------------------
-      // Updated Diff Handler Method
+      // Updated Diff Handler Method (removed legacy overlay-based diff UI)
       // -------------------------------
 
       // Helper to read a file as text.
@@ -4499,30 +6081,7 @@ EOF`;
         });
       }
 
-      // New diff handler. Reads two DXF files, computes the diff,
-      // and displays the results in the #diffContent container.
-      handleDiff() {
-        const oldFile = document.getElementById("oldDxfInput").files[0];
-        const newFile = document.getElementById("newDxfInput").files[0];
-        if (!oldFile || !newFile) {
-          alert("Please select both an old and a new DXF file.");
-          return;
-        }
-        Promise.all([this.readFile(oldFile), this.readFile(newFile)])
-          .then(([oldText, newText]) => {
-            // Parse the DXF texts (using your existing dxfParser instance).
-            const oldObjects = this.dxfParser.parse(oldText);
-            const newObjects = this.dxfParser.parse(newText);
-            // Compute the diff.
-            const diffResult = this.diffDxfTrees(oldObjects, newObjects);
-            // Render the diff HTML.
-            const diffHtml = this.renderDiffHtml(diffResult);
-            document.getElementById("diffContent").innerHTML = diffHtml;
-          })
-          .catch(err => {
-            alert("Error reading files: " + err);
-          });
-      }
+      // handleDiff removed along with old overlay UI
 
       // ====================================
       // COMPREHENSIVE DXF DIAGNOSTICS ENGINE

@@ -8,13 +8,15 @@
   <!-- Include JSZip for ZIP file browsing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js">
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <!-- Use style-enabled XLSX build to support cell background colors in exports -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
   <!-- Load components in dependency order -->
   <script src="components/utils.js"></script>
   <script src="components/dxf-parser.js"></script>
   <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>
   <script src="components/state-manager.js"></script>
+  <script src="components/tree-diff-engine.js"></script>
   <script src="components/dxf-diagnostics-engine.js"></script>
   <script src="components/app.js"></script>
   <link rel="stylesheet" href="styles.css">
@@ -26,100 +28,61 @@
       <div class="top-header-left">
         <button id="toggleSidebarBtn" class="sidebar-toggle" title="Show/Hide sidebar" aria-label="Toggle sidebar" aria-pressed="false">☰</button>
         <div class="app-title">DXF Parser</div>
+        <span id="diffIndicator" class="diff-indicator" title="Tree Diff enabled" style="display:none;"></span>
+        <!-- Diff navigation buttons (visible only in Tree Diff mode) -->
+        <div id="diffNavButtons" style="display:none; gap:4px; margin-left:8px;">
+          <button id="nextAdditionBtn" class="icon-button has-tooltip" title="Next addition block" aria-label="Next addition block" data-tooltip="Next addition block">➕</button>
+          <button id="nextRemovalBtn" class="icon-button has-tooltip" title="Next removal block" aria-label="Next removal block" data-tooltip="Next removal block">➖</button>
+          <button id="nextChangeBtn" class="icon-button has-tooltip" title="Next data change block" aria-label="Next data change block" data-tooltip="Next data change block">✳️</button>
+        </div>
       </div>
       <div class="top-header-right">
-        <input type="file" id="fileInput" accept=".dxf" multiple>
-          <button id="parseBtn">Parse File(s)</button>
-        <label>
-          <input type="checkbox" id="useStreamCheckbox">
+        <label class="has-tooltip" title="Use streamed parsing" data-tooltip="Use streamed parsing for DXF files (lower memory usage)">
+          <input type="checkbox" id="useStreamCheckbox" aria-label="Use streamed parsing">
           Use Streamed Parsing
         </label>
-        <button id="createNewDxfBtn">Create New</button>
-        <button id="resetStateBtn" title="Reset state and close all tabs">Reset State</button>
+        <button id="toggleRightPanelBtn" class="icon-button has-tooltip" title="Toggle Right Panel" aria-label="Toggle Right Panel" data-tooltip="Toggle Right Panel"><span aria-hidden="true">↔️</span></button>
+        <button id="createNewDxfBtn" class="icon-button has-tooltip" title="Create New DXF" aria-label="Create New DXF" data-tooltip="Create New DXF"><span aria-hidden="true">🆕</span></button>
+        <button id="resetStateBtn" class="icon-button has-tooltip" title="Reset State" aria-label="Reset State" data-tooltip="Reset State"><span aria-hidden="true">🔄</span></button>
+        <button id="saveStateToFileBtn" class="icon-button has-tooltip" title="Save State to File" aria-label="Save State to File" data-tooltip="Save State to File"><span aria-hidden="true">💾</span></button>
+        <button id="loadStateFromFileBtn" class="icon-button has-tooltip" title="Load State from File" aria-label="Load State from File" data-tooltip="Load State from File"><span aria-hidden="true">📂</span></button>
+        <input type="file" id="appStateFileInput" accept=".json" style="display:none">
       </div>
     </div>
     <!-- Main content wrapper with sidebar and main content -->
     <div class="content-wrapper">
       <!-- Sidebar: Contains logo, header buttons and filter panel -->
       <div class="sidebar">
+        <button id="closeSidebarBtn" class="close-sidebar-btn icon-button" title="Close" aria-label="Close sidebar">✖</button>
         <div class="sidebar-buttons">
-          <button id="expandAllBtn">Expand All</button>
-          <button id="collapseAllBtn">Collapse All</button>
-          <button id="showCloudOverlayBtn">Cloud Data</button>
-          <button id="showStatsOverlayBtn">Statistics</button>
-          <button id="showDepsOverlayBtn">Dependencies</button>
-          <button id="showBinaryObjectsOverlayBtn">Binary Objects</button>
-          <button id="showHandleMapOverlayBtn">Handle Map</button>
-          <button id="showProxyObjectsOverlayBtn">Proxy Objects</button>
-          <button id="showFontsOverlayBtn">Fonts Used</button>
-          <button id="showClassesOverlayBtn">Classes</button>
-          <button id="showObjectSizeOverlayBtn">Object Sizes</button>
-          <button id="showBlocksOverlayBtn">Blocks & Inserts</button>
-          <button id="showLineTypesOverlayBtn">Line Types</button>
-          <button id="showTextsOverlayBtn">Texts</button>
-          <button id="showDiagnosticsOverlayBtn">Diagnostics</button>
-          <button id="showBatchProcessOverlayBtn">Batch Process</button>
-          <button id="showDiffOverlayBtn">Diff DXF</button>
+          <button id="showCloudOverlayBtn" class="fluent-button has-tooltip" title="Cloud Data" data-tooltip="Cloud Data"><span class="fluent-icon" aria-hidden="true">☁️</span><span>Cloud Data</span></button>
+          <button id="showStatsOverlayBtn" class="fluent-button has-tooltip" title="Statistics" data-tooltip="Statistics"><span class="fluent-icon" aria-hidden="true">📊</span><span>Statistics</span></button>
+          <button id="showDepsOverlayBtn" class="fluent-button has-tooltip" title="Dependencies" data-tooltip="Dependencies"><span class="fluent-icon" aria-hidden="true">🔗</span><span>Dependencies</span></button>
+          <button id="showBinaryObjectsOverlayBtn" class="fluent-button has-tooltip" title="Binary Objects" data-tooltip="Binary Objects"><span class="fluent-icon" aria-hidden="true">🧱</span><span>Binary Objects</span></button>
+          <button id="showHandleMapOverlayBtn" class="fluent-button has-tooltip" title="Handle Map" data-tooltip="Handle Map"><span class="fluent-icon" aria-hidden="true">🗺️</span><span>Handle Map</span></button>
+          <button id="showProxyObjectsOverlayBtn" class="fluent-button has-tooltip" title="Proxy Objects" data-tooltip="Proxy Objects"><span class="fluent-icon" aria-hidden="true">🪞</span><span>Proxy Objects</span></button>
+          <button id="showFontsOverlayBtn" class="fluent-button has-tooltip" title="Fonts Used" data-tooltip="Fonts Used"><span class="fluent-icon" aria-hidden="true">🔤</span><span>Fonts Used</span></button>
+          <button id="showClassesOverlayBtn" class="fluent-button has-tooltip" title="Classes" data-tooltip="Classes"><span class="fluent-icon" aria-hidden="true">🏷️</span><span>Classes</span></button>
+          <button id="showObjectSizeOverlayBtn" class="fluent-button has-tooltip" title="Object Sizes" data-tooltip="Object Sizes"><span class="fluent-icon" aria-hidden="true">📏</span><span>Object Sizes</span></button>
+          <button id="showBlocksOverlayBtn" class="fluent-button has-tooltip" title="Blocks &amp; Inserts" data-tooltip="Blocks &amp; Inserts"><span class="fluent-icon" aria-hidden="true">🧩</span><span>Blocks &amp; Inserts</span></button>
+          <button id="showLineTypesOverlayBtn" class="fluent-button has-tooltip" title="Line Types" data-tooltip="Line Types"><span class="fluent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><line x1="1" y1="4" x2="15" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="1" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/><line x1="1" y1="12" x2="15" y2="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="1 2"/></svg></span><span>Line Types</span></button>
+          <button id="showTextsOverlayBtn" class="fluent-button has-tooltip" title="Texts" data-tooltip="Texts"><span class="fluent-icon" aria-hidden="true">✎</span><span>Texts</span></button>
+          <button id="showDiagnosticsOverlayBtn" class="fluent-button has-tooltip" title="Diagnostics" data-tooltip="Diagnostics"><span class="fluent-icon" aria-hidden="true">🩺</span><span>Diagnostics</span></button>
+          <button id="showBatchProcessOverlayBtn" class="fluent-button has-tooltip" title="Batch Process" data-tooltip="Batch Process"><span class="fluent-icon" aria-hidden="true">🧰</span><span>Batch Process</span></button>
+          <button id="toggleSideBySideDiffBtn" class="fluent-button has-tooltip" title="Tree Diff" data-tooltip="Tree Diff"><span class="fluent-icon" aria-hidden="true">⇄</span><span>Tree Diff</span></button>
         </div>
-        <div class="filter-panel" id="filterPanel">
-          <h2>Filters</h2>
-          <div class="filter-content">
-            <div class="filter-row">
-              <div id="codeSearchTags" class="tag-container">
-                <input type="text" id="codeSearchInput" placeholder="Search by Code">
-              </div>
-            </div>
-            <div class="filter-row">
-              <div id="dataSearchTags" class="tag-container">
-                <input type="text" id="dataSearchInput" placeholder="Search by Data value">
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>Object Types:</label>
-              <div id="objectTypeDropdown" class="dropdown">
-                <button id="objectTypeDropdownButton">All Types</button>
-                <div id="objectTypeDropdownContent" class="dropdown-content">
-                  <!-- Options with checkboxes will be populated dynamically -->
-                </div>
-              </div>
-            </div>
-            <div class="filter-row">
-              <label>
-                <input type="checkbox" id="dataExactCheckbox"> Exact Data Match
-              </label>
-            </div>
-            <div class="filter-row">
-              <label>
-                <input type="checkbox" id="dataCaseCheckbox"> Case Sensitive
-              </label>
-            </div>
-            <div class="filter-row">
-              <label for="minLineInput">Min Line:</label>
-              <input type="number" id="minLineInput" style="width:80px;">
-            </div>
-            <div class="filter-row">
-              <label for="maxLineInput">Max Line:</label>
-              <input type="number" id="maxLineInput" style="width:80px;">
-            </div>
-            <div class="filter-row">
-              <button id="searchBtn">Search</button>
-              <button id="clearSearchBtn">Clear Search</button>
-            </div>
-          </div>
-        </div>
+        <div class="filter-panel" id="filterPanel" style="display:none;"></div>
       </div>
-      <!-- Resizer between sidebar and main content -->
-      <div class="pane-resizer"></div>
+      
       <!-- Main Content Area -->
       <div class="main-content">
-        
-        <!-- Toolbar: Row controls (left) + Handle navigation (right) -->
+        <!-- Row: global controls and split load buttons -->
         <div id="rowControls" class="row-controls">
           <div class="row-controls-left">
-            <button id="addRowBtn">Add Row</button>
-            <button id="removeRowBtn">Remove Row</button>
-            <button id="downloadDxfBtn">Download DXF</button>
-            <button id="downloadTreeExcelBtn">Download Tree as Excel</button>
+            <button id="addRowBtn" class="icon-button has-tooltip" title="Add Row" aria-label="Add Row" data-tooltip="Add Row"><span aria-hidden="true">➕</span></button>
+            <button id="removeRowBtn" class="icon-button has-tooltip" title="Remove Row" aria-label="Remove Row" data-tooltip="Remove Row"><span aria-hidden="true">🗑️</span></button>
+            <button id="downloadDxfBtn" class="icon-button has-tooltip" title="Download DXF" aria-label="Download DXF" data-tooltip="Download DXF"><span aria-hidden="true">⬇️</span></button>
+            <button id="downloadTreeExcelBtn" class="icon-button has-tooltip" title="Download Tree as Excel" aria-label="Download Tree as Excel" data-tooltip="Download Tree as Excel"><span aria-hidden="true">📊</span></button>
           </div>
           <div class="row-controls-right">
             <div id="navControls">
@@ -138,34 +101,191 @@
             </div>
           </div>
         </div>
-        <!-- Tabs -->
-        <div id="tabContainer"></div>
-        <!-- Tree Grid Header -->
-        <div id="treeGridHeader" class="tree-header">
-          <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
-            Line <span class="sort-indicator"></span>
-            <div class="resizer"></div>
+        <!-- Two panel compare layout -->
+        <div id="compareContainer" style="display:flex; gap: 8px; height: calc(100% - 60px);">
+          <!-- Left Panel -->
+          <div class="panel" id="panelLeft" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+            <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
+              <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
+              <input type="file" id="fileInputLeft" accept=".dxf" multiple style="display:none">
+              <button id="openLeftBtn" title="Open DXF on left">Open</button>
+              <button id="expandAllLeftBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
+              </button>
+              <button id="collapseAllLeftBtn" class="icon-button has-tooltip" title="Collapse All" aria-label="Collapse All" data-tooltip="Collapse all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5H7z"/></svg>
+              </button>
+              <button id="filtersLeftBtn" class="icon-button filters-button has-tooltip" title="Filters" aria-label="Filters" data-tooltip="Open filters">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5z"/></svg>
+              </button>
+            </div>
+            <div id="treeGridHeaderLeft" class="tree-header">
+              <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
+                Line <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+                Code <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+                Data <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
+                Object Count <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
+                Data Size <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+            </div>
+            <div id="treeViewContainerLeft" style="position: relative; flex:1; overflow:auto; border:1px solid #ccc; clip-path: inset(0);">
+              <div id="treeViewContentLeft" style="position: relative; overflow: hidden;"></div>
+            </div>
           </div>
-          <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
-            Code <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
-            Data <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
-            Object Count <span class="sort-indicator"></span>
-            <div class="resizer"></div>
-          </div>
-          <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
-            Data Size <span class="sort-indicator"></span>
-            <div class="resizer"></div>
+          <!-- Splitter between panels -->
+          <div id="compareSplitter" class="compare-splitter" style="width:6px; cursor: ew-resize; background:#ccc; flex: none;"></div>
+          <!-- Right Panel -->
+          <div class="panel" id="panelRight" style="flex:1; display:flex; flex-direction:column; min-width:0;">
+            <div style="display:flex; align-items:center; gap:6px; margin: 0.25em 0;">
+              <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
+              <input type="file" id="fileInputRight" accept=".dxf" multiple style="display:none">
+              <button id="openRightBtn" title="Open DXF on right">Open</button>
+              <button id="expandAllRightBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
+              </button>
+              <button id="collapseAllRightBtn" class="icon-button has-tooltip" title="Collapse All" aria-label="Collapse All" data-tooltip="Collapse all nodes">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5H7z"/></svg>
+              </button>
+              <button id="filtersRightBtn" class="icon-button filters-button has-tooltip" title="Filters" aria-label="Filters" data-tooltip="Open filters">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5z"/></svg>
+              </button>
+            </div>
+            <div id="treeGridHeaderRight" class="tree-header">
+              <div class="tree-line header-cell flex-fixed" data-field="line" data-sort="none" style="width: 130px; text-align: left;">
+                Line <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-code header-cell flex-fixed" data-field="code" data-sort="none" style="width: 100px; text-align: left;">
+                Code <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data header-cell flex-grow" data-field="type" data-sort="none" style="flex: 1;">
+                Data <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-object-count header-cell flex-fixed" data-field="objectCount" data-sort="none" style="width: 130px; text-align: right;">
+                Object Count <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+              <div class="tree-data-size header-cell flex-fixed" data-field="dataSize" data-sort="none" style="width: 130px; text-align: right;">
+                Data Size <span class="sort-indicator"></span>
+                <div class="resizer"></div>
+              </div>
+            </div>
+            <div id="treeViewContainerRight" style="position: relative; flex:1; overflow:auto; border:1px solid #ccc; clip-path: inset(0);">
+              <div id="treeViewContentRight" style="position: relative; overflow: hidden;"></div>
+            </div>
           </div>
         </div>
-        <!-- Tree View Container -->
-        <div id="treeViewContainer">
-          <div id="treeViewContent"></div>
+      </div>
+    </div>
+    <!-- Backdrop for mobile off-canvas sidebar -->
+    <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+  </div>
+  <!-- Global tooltip element appended at body level to avoid clipping -->
+  <div id="globalTooltip" class="global-tooltip" role="tooltip" aria-hidden="true"></div>
+  <!-- Filters Popup Overlay (Left) -->
+  <div id="filtersOverlayLeft" class="filters-overlay" style="display:none;">
+    <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
+      <div class="filter-dialog-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Filters (Left Tab)</h2>
+        <button id="closeFiltersOverlayLeft" title="Close">✖</button>
+      </div>
+      <div class="filter-content">
+        <div class="filter-row">
+          <div id="codeSearchTagsLeft" class="tag-container">
+            <input type="text" id="codeSearchInputLeft" placeholder="Search by Code">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div id="dataSearchTagsLeft" class="tag-container">
+            <input type="text" id="dataSearchInputLeft" placeholder="Search by Data value">
+          </div>
+        </div>
+        <div class="filter-row">
+          <label>Object Types:</label>
+          <div id="objectTypeDropdownLeft" class="dropdown">
+            <button id="objectTypeDropdownButtonLeft">All Types</button>
+            <div id="objectTypeDropdownContentLeft" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataExactCheckboxLeft"> Exact Data Match</label>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataCaseCheckboxLeft"> Case Sensitive</label>
+        </div>
+        <div class="filter-row">
+          <label for="minLineInputLeft">Min Line:</label>
+          <input type="number" id="minLineInputLeft" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <label for="maxLineInputLeft">Max Line:</label>
+          <input type="number" id="maxLineInputLeft" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <button id="searchBtnLeft">Apply</button>
+          <button id="clearSearchBtnLeft">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters Popup Overlay (Right) -->
+  <div id="filtersOverlayRight" class="filters-overlay" style="display:none;">
+    <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">
+      <div class="filter-dialog-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0;">Filters (Right Tab)</h2>
+        <button id="closeFiltersOverlayRight" title="Close">✖</button>
+      </div>
+      <div class="filter-content">
+        <div class="filter-row">
+          <div id="codeSearchTagsRight" class="tag-container">
+            <input type="text" id="codeSearchInputRight" placeholder="Search by Code">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div id="dataSearchTagsRight" class="tag-container">
+            <input type="text" id="dataSearchInputRight" placeholder="Search by Data value">
+          </div>
+        </div>
+        <div class="filter-row">
+          <label>Object Types:</label>
+          <div id="objectTypeDropdownRight" class="dropdown">
+            <button id="objectTypeDropdownButtonRight">All Types</button>
+            <div id="objectTypeDropdownContentRight" class="dropdown-content"></div>
+          </div>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataExactCheckboxRight"> Exact Data Match</label>
+        </div>
+        <div class="filter-row">
+          <label><input type="checkbox" id="dataCaseCheckboxRight"> Case Sensitive</label>
+        </div>
+        <div class="filter-row">
+          <label for="minLineInputRight">Min Line:</label>
+          <input type="number" id="minLineInputRight" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <label for="maxLineInputRight">Max Line:</label>
+          <input type="number" id="maxLineInputRight" style="width:80px;">
+        </div>
+        <div class="filter-row">
+          <button id="searchBtnRight">Apply</button>
+          <button id="clearSearchBtnRight">Clear</button>
         </div>
       </div>
     </div>
@@ -564,122 +684,10 @@
       </div>
     </div>
   </div>
-  <div id="diffOverlay">
-    <div class="overlay-content">
-      <button id="closeDiffOverlay">Close</button>
-      <h2>DXF Diff Mode</h2>
-      <div id="diffInputContainer" style="margin-bottom:1em;">
-        <label>Old Version:
-          <input type="file" id="oldDxfInput" accept=".dxf">
-        </label>
-        <label style="margin-left:1em;">New Version:
-          <input type="file" id="newDxfInput" accept=".dxf">
-        </label>
-        <button id="runDiffBtn" style="margin-left:1em;">Run Diff</button>
-      </div>
-      <div id="diffContent" style="overflow:auto; max-height: calc(100% - 120px); border:1px solid #ccc; padding:1em;"></div>
-    </div>
-  </div>
+  
 
-  <!-- Context Menu -->
-  <div id="contextMenu" class="context-menu">
-    <button class="context-menu-item" data-action="add-above">Add Row Above</button>
-    <button class="context-menu-item" data-action="add-below">Add Row Below</button>
-    <button class="context-menu-item" data-action="add-child">Add Child Row</button>
-    <div class="context-menu-separator"></div>
-    <button class="context-menu-item" data-action="remove">Remove Row</button>
-    <div class="context-menu-separator"></div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add DXF Section</button>
-      <div class="context-submenu" id="sectionsSubmenu">
-        <button class="context-menu-item" data-action="add-section" data-type="HEADER">HEADER Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="CLASSES">CLASSES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="TABLES">TABLES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="BLOCKS">BLOCKS Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="ENTITIES">ENTITIES Section</button>
-        <button class="context-menu-item" data-action="add-section" data-type="OBJECTS">OBJECTS Section</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Entity</button>
-      <div class="context-submenu" id="entitiesSubmenu">
-        <button class="context-menu-item" data-action="add-entity" data-type="LINE">LINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="CIRCLE">CIRCLE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="ARC">ARC</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="POLYLINE">POLYLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="LWPOLYLINE">LWPOLYLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="POINT">POINT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TEXT">TEXT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MTEXT">MTEXT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="INSERT">INSERT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="ELLIPSE">ELLIPSE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SPLINE">SPLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SOLID">SOLID</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="HATCH">HATCH</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="DIMENSION">DIMENSION</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="LEADER">LEADER</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MLEADER">MLEADER</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="3DFACE">3DFACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="3DSOLID">3DSOLID</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="REGION">REGION</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="BODY">BODY</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MESH">MESH</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SURFACE">SURFACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TOLERANCE">TOLERANCE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="MLINE">MLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="TRACE">TRACE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="SHAPE">SHAPE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="VIEWPORT">VIEWPORT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="IMAGE">IMAGE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="WIPEOUT">WIPEOUT</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="OLE2FRAME">OLE2FRAME</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="OLEFRAME">OLEFRAME</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="XLINE">XLINE</button>
-        <button class="context-menu-item" data-action="add-entity" data-type="RAY">RAY</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Table Entry</button>
-      <div class="context-submenu" id="tablesSubmenu">
-        <button class="context-menu-item" data-action="add-table" data-type="LAYER">LAYER</button>
-        <button class="context-menu-item" data-action="add-table" data-type="LTYPE">LTYPE (Line Type)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="STYLE">STYLE (Text Style)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="VIEW">VIEW</button>
-        <button class="context-menu-item" data-action="add-table" data-type="UCS">UCS</button>
-        <button class="context-menu-item" data-action="add-table" data-type="VPORT">VPORT (Viewport)</button>
-        <button class="context-menu-item" data-action="add-table" data-type="DIMSTYLE">DIMSTYLE</button>
-        <button class="context-menu-item" data-action="add-table" data-type="APPID">APPID</button>
-        <button class="context-menu-item" data-action="add-table" data-type="BLOCK_RECORD">BLOCK_RECORD</button>
-      </div>
-    </div>
-    <div class="context-menu-submenu">
-      <button class="context-menu-item">Add Object</button>
-      <div class="context-submenu" id="objectsSubmenu">
-        <button class="context-menu-item" data-action="add-object" data-type="DICTIONARY">DICTIONARY</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYOUT">LAYOUT</button>
-        <button class="context-menu-item" data-action="add-object" data-type="PLOTSETTINGS">PLOTSETTINGS</button>
-        <button class="context-menu-item" data-action="add-object" data-type="GROUP">GROUP</button>
-        <button class="context-menu-item" data-action="add-object" data-type="MLINESTYLE">MLINESTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF">IMAGEDEF</button>
-        <button class="context-menu-item" data-action="add-object" data-type="IMAGEDEF_REACTOR">IMAGEDEF_REACTOR</button>
-        <button class="context-menu-item" data-action="add-object" data-type="RASTERVARIABLES">RASTERVARIABLES</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SORTENTSTABLE">SORTENTSTABLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_FILTER">SPATIAL_FILTER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SPATIAL_INDEX">SPATIAL_INDEX</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYER_FILTER">LAYER_FILTER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="LAYER_INDEX">LAYER_INDEX</button>
-        <button class="context-menu-item" data-action="add-object" data-type="XRECORD">XRECORD</button>
-        <button class="context-menu-item" data-action="add-object" data-type="PLACEHOLDER">PLACEHOLDER</button>
-        <button class="context-menu-item" data-action="add-object" data-type="VBA_PROJECT">VBA_PROJECT</button>
-        <button class="context-menu-item" data-action="add-object" data-type="MATERIAL">MATERIAL</button>
-        <button class="context-menu-item" data-action="add-object" data-type="VISUALSTYLE">VISUALSTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="TABLESTYLE">TABLESTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SECTION">SECTION</button>
-        <button class="context-menu-item" data-action="add-object" data-type="SECTIONVIEWSTYLE">SECTIONVIEWSTYLE</button>
-        <button class="context-menu-item" data-action="add-object" data-type="DETAILVIEWSTYLE">DETAILVIEWSTYLE</button>
-      </div>
-    </div>
-  </div>
+  <!-- Context Menu root (built dynamically in JS) -->
+  <nav id="contextMenu" class="menu" role="menu" aria-hidden="true"></nav>
 
   <!-- Utility Functions -->
   <!-- JavaScript Classes -->
@@ -690,6 +698,8 @@
     (function() {
       const contentWrapper = document.querySelector('.content-wrapper');
       const toggleBtn = document.getElementById('toggleSidebarBtn');
+      const closeBtn = document.getElementById('closeSidebarBtn');
+      const backdropEl = document.getElementById('sidebarBackdrop');
       if (!contentWrapper || !toggleBtn) return;
 
       const sidebarEl = document.querySelector('.sidebar');
@@ -697,10 +707,16 @@
       function scheduleGridRelayout() {
         // Prefer calling the app grid directly; fallback to a window resize event
         const run = () => {
-          if (window.app && window.app.myTreeGrid) {
+          if (window.app) {
             // Run twice to ensure after layout settles
-            window.app.myTreeGrid.updateVisibleNodes();
-            requestAnimationFrame(() => window.app.myTreeGrid.updateVisibleNodes());
+            if (window.app.myTreeGridLeft) {
+              window.app.myTreeGridLeft.updateVisibleNodes();
+              requestAnimationFrame(() => window.app.myTreeGridLeft.updateVisibleNodes());
+            }
+            if (window.app.myTreeGridRight) {
+              window.app.myTreeGridRight.updateVisibleNodes();
+              requestAnimationFrame(() => window.app.myTreeGridRight.updateVisibleNodes());
+            }
           } else {
             window.dispatchEvent(new Event('resize'));
           }
@@ -714,28 +730,82 @@
         if (collapsed) {
           contentWrapper.classList.add('sidebar-collapsed');
           toggleBtn.setAttribute('aria-pressed', 'true');
+          // Let CSS control collapsed width; clear any inline width
+          if (sidebarEl) sidebarEl.style.width = '';
+          try { localStorage.removeItem('sidebarWidthPx'); } catch (e) {}
         } else {
           contentWrapper.classList.remove('sidebar-collapsed');
           toggleBtn.setAttribute('aria-pressed', 'false');
+          // Use natural content width (no persisted width)
+          if (sidebarEl) sidebarEl.style.width = '';
+          try { localStorage.removeItem('sidebarWidthPx'); } catch (e) {}
         }
         try { localStorage.setItem('sidebarCollapsed', String(collapsed)); } catch (e) {}
         scheduleGridRelayout();
       }
 
+      // Mobile drawer open/close
+      function openSidebarDrawer() {
+        contentWrapper.classList.add('sidebar-open');
+        if (backdropEl) backdropEl.setAttribute('aria-hidden', 'false');
+        // Prevent body scroll when open
+        document.body.style.overflow = 'hidden';
+      }
+      function closeSidebarDrawer() {
+        contentWrapper.classList.remove('sidebar-open');
+        if (backdropEl) backdropEl.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      }
+      function isMobile() {
+        return window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
+      }
+
       // Initialize from saved state (migrate old key if present)
       const savedCollapsed = (function() {
         try {
-          const legacyHidden = localStorage.getItem('sidebarHidden') === 'true';
+          const legacy = localStorage.getItem('sidebarHidden');
+          if (legacy !== null) {
+            const collapsed = legacy === 'true';
+            // Migrate and clear legacy key
+            localStorage.setItem('sidebarCollapsed', String(collapsed));
+            localStorage.removeItem('sidebarHidden');
+            return collapsed;
+          }
           const newCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-          return newCollapsed || legacyHidden;
+          return newCollapsed;
         } catch (e) { return false; }
       })();
       setSidebarCollapsed(savedCollapsed);
 
       // Toggle handler
       toggleBtn.addEventListener('click', function(){
-        const willCollapse = !contentWrapper.classList.contains('sidebar-collapsed');
-        setSidebarCollapsed(willCollapse);
+        if (isMobile()) {
+          // On mobile, act as drawer toggle
+          if (contentWrapper.classList.contains('sidebar-open')) {
+            closeSidebarDrawer();
+          } else {
+            openSidebarDrawer();
+          }
+        } else {
+          const willCollapse = !contentWrapper.classList.contains('sidebar-collapsed');
+          setSidebarCollapsed(willCollapse);
+        }
+      });
+
+      // Close button and backdrop handlers (mobile)
+      if (closeBtn) closeBtn.addEventListener('click', closeSidebarDrawer);
+      if (backdropEl) backdropEl.addEventListener('click', closeSidebarDrawer);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && contentWrapper.classList.contains('sidebar-open')) {
+          closeSidebarDrawer();
+        }
+      });
+
+      // When resizing from mobile to desktop, ensure drawer state doesn't linger
+      window.addEventListener('resize', () => {
+        if (!isMobile()) {
+          closeSidebarDrawer();
+        }
       });
 
       // Also relayout on the end of the sidebar width transition
@@ -746,6 +816,117 @@
           }
         });
       }
+    })();
+    
+    // Global tooltip logic: position a single fixed tooltip near hovered elements with `.has-tooltip`
+    (function() {
+      const tooltipEl = document.getElementById('globalTooltip');
+      if (!tooltipEl) return;
+      document.body.classList.add('tooltip-enhanced');
+
+      let currentTarget = null;
+      let hideTimer = null;
+
+      function showTooltip(target) {
+        const text = target.getAttribute('data-tooltip') || target.getAttribute('title');
+        if (!text) return;
+        tooltipEl.textContent = text;
+        tooltipEl.setAttribute('aria-hidden', 'false');
+
+        // Compute preferred position above the element; flip if needed
+        const rect = target.getBoundingClientRect();
+        const spacing = 8;
+        const tooltipRect = tooltipEl.getBoundingClientRect();
+
+        let x = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        let y = rect.top - tooltipRect.height - spacing;
+
+        // Constrain within viewport
+        const vw = document.documentElement.clientWidth;
+        const vh = document.documentElement.clientHeight;
+        if (x < 6) x = 6;
+        if (x + tooltipRect.width > vw - 6) x = Math.max(6, vw - tooltipRect.width - 6);
+        if (y < 6) {
+          // Place below if not enough space above
+          y = rect.bottom + spacing;
+        }
+
+        tooltipEl.style.transform = 'translateY(0)';
+        tooltipEl.style.top = `${Math.round(y)}px`;
+        tooltipEl.style.left = `${Math.round(x)}px`;
+      }
+
+      function hideTooltip() {
+        tooltipEl.setAttribute('aria-hidden', 'true');
+      }
+
+      function handleEnter(e) {
+        const target = e.target.closest('.has-tooltip');
+        if (!target) return;
+        if (currentTarget === target) {
+          // Already showing for this target; just ensure visible and positioned
+          clearTimeout(hideTimer);
+          showTooltip(currentTarget);
+          return;
+        }
+        currentTarget = target;
+        // If element uses native title, suppress native bubble to avoid double tooltips
+        if (currentTarget.hasAttribute('title')) {
+          const t = currentTarget.getAttribute('title');
+          if (t) currentTarget.setAttribute('data-tooltip', t);
+          currentTarget.setAttribute('data-title-suppressed', 'true');
+          currentTarget.setAttribute('title', '');
+        }
+        clearTimeout(hideTimer);
+        showTooltip(currentTarget);
+      }
+
+      function handleMove(e) {
+        if (!currentTarget) return;
+        // Reposition on move to adapt near edges or when layout changes
+        showTooltip(currentTarget);
+      }
+
+      function handleLeave(e) {
+        if (!currentTarget) return;
+        const leaving = e.target.closest('.has-tooltip');
+        if (leaving !== currentTarget) return; // ignore leaves from other elements
+        const related = e.relatedTarget;
+        if (related && currentTarget.contains(related)) {
+          // Still inside the same tooltip target; do not hide
+          return;
+        }
+        hideTimer = setTimeout(() => {
+          hideTooltip();
+          // Restore title if we suppressed it
+          if (currentTarget && currentTarget.getAttribute('data-title-suppressed') === 'true') {
+            const text = currentTarget.getAttribute('data-tooltip');
+            if (text) currentTarget.setAttribute('title', text);
+            currentTarget.removeAttribute('data-title-suppressed');
+          }
+          currentTarget = null;
+        }, 30);
+      }
+
+      // Use mouseover/mouseout for delegation (mouseenter/leave don't bubble)
+      document.addEventListener('mouseover', handleEnter, true);
+      document.addEventListener('focusin', handleEnter, true);
+      document.addEventListener('mousemove', handleMove, true);
+      document.addEventListener('mouseout', handleLeave, true);
+      document.addEventListener('focusout', (e) => {
+        if (!currentTarget) return;
+        const leaving = e.target.closest('.has-tooltip');
+        if (leaving !== currentTarget) return;
+        hideTooltip();
+        if (currentTarget && currentTarget.getAttribute('data-title-suppressed') === 'true') {
+          const text = currentTarget.getAttribute('data-tooltip');
+          if (text) currentTarget.setAttribute('title', text);
+          currentTarget.removeAttribute('data-title-suppressed');
+        }
+        currentTarget = null;
+      }, true);
+      window.addEventListener('scroll', () => { if (currentTarget) showTooltip(currentTarget); }, true);
+      window.addEventListener('resize', () => { if (currentTarget) showTooltip(currentTarget); });
     })();
   </script>
 </body>
