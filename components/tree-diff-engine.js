@@ -1,4 +1,40 @@
     class TreeDiffEngine {
+      // Extract a stable, human-meaningful name for semantic IDs and labels
+      // Prefers DXF group code 2 for TABLE records and related named types; uses
+      // code 1 for certain OBJECT types like LAYOUT. Parent context (TABLE) is
+      // also considered.
+      static _extractNodeName(node) {
+        if (!node || node.isProperty) return '';
+        const type = node.type ? node.type.toUpperCase() : '';
+        // Types whose name is stored in code 2, regardless of parent, typically
+        // table records or similarly named objects
+        const code2NamedTypes = new Set([
+          'LAYER', 'LTYPE', 'STYLE', 'DIMSTYLE', 'UCS', 'APPID', 'VIEW', 'VPORT', 'BLOCK_RECORD',
+          'MLINESTYLE', 'MLSTYLE' // include both spellings to be robust
+        ]);
+        // Types whose name is stored in code 1
+        const code1NamedTypes = new Set([
+          'LAYOUT'
+        ]);
+
+        // Children under a TABLE prefer code 2 as the record name
+        const parentIsTable = !!(node.parentType && node.parentType.toUpperCase() === 'TABLE');
+
+        let name = '';
+        if (parentIsTable || code2NamedTypes.has(type) || type === 'TABLE' || type === 'SECTION' || type === 'BLOCK') {
+          if (node.properties) {
+            const p2 = node.properties.find(p => Number(p.code) === 2);
+            if (p2 && p2.value != null && p2.value !== '') name = p2.value;
+          }
+        }
+        if (!name && (code1NamedTypes.has(type))) {
+          if (node.properties) {
+            const p1 = node.properties.find(p => Number(p.code) === 1);
+            if (p1 && p1.value != null && p1.value !== '') name = p1.value;
+          }
+        }
+        return name;
+      }
       static sortProps(props) {
         return (props || []).slice().sort((a, b) => {
           const ac = Number(a.code) || 0;
@@ -13,14 +49,7 @@
         const includePropertyCodesInId = !!options.includePropertyCodesInId;
         if (!ignoreHandles && node.handle) return `H:${node.handle}`;
         const type = node.type ? node.type.toUpperCase() : '';
-        let name = '';
-        // Named containers keep stable names across files
-        if (type === 'SECTION' || type === 'BLOCK' || type === 'TABLE' || (node.parentType && node.parentType.toUpperCase() === 'TABLE')) {
-          if (node.properties) {
-            const p2 = node.properties.find(p => Number(p.code) === 2);
-            if (p2) name = p2.value;
-          }
-        }
+        let name = TreeDiffEngine._extractNodeName(node);
         if (type === 'CLASS' && node.classId !== undefined) {
           name = `CLASSID:${node.classId}`;
         }
@@ -102,16 +131,13 @@
                 }
               }
               out.type = node.type + " (" + className + ") " + " (ID=" + node.classId + ")";
-            } else if (node.type.toUpperCase() === 'SECTION' || node.type.toUpperCase() === 'BLOCK' || node.type.toUpperCase() === 'TABLE' || (node.parentType && node.parentType.toUpperCase() === 'TABLE')) {
-              let nameValue = '';
-              if (node.properties) {
-                for (const prop of node.properties) {
-                  if (Number(prop.code) === 2) { nameValue = prop.value; break; }
-                }
-              }
-              out.type = nameValue ? node.type + " (" + nameValue + ")" : (node.type || '');
             } else {
-              out.type = node.type || '';
+              const nameValue = TreeDiffEngine._extractNodeName(node);
+              if (nameValue) {
+                out.type = node.type + " (" + nameValue + ")";
+              } else {
+                out.type = node.type || '';
+              }
             }
           }
         }
@@ -292,14 +318,13 @@
                 for (const prop of node.properties) { if (Number(prop.code) === 1) { className = prop.value; break; } }
               }
               out.type = node.type + ' (' + className + ') ' + ' (ID=' + node.classId + ')';
-            } else if (node.type.toUpperCase() === 'SECTION' || node.type.toUpperCase() === 'BLOCK' || node.type.toUpperCase() === 'TABLE' || (node.parentType && node.parentType.toUpperCase() === 'TABLE')) {
-              let nameValue = '';
-              if (node.properties) {
-                for (const prop of node.properties) { if (Number(prop.code) === 2) { nameValue = prop.value; break; } }
-              }
-              out.type = nameValue ? node.type + ' (' + nameValue + ')' : (node.type || '');
             } else {
-              out.type = node.type || '';
+              const nameValue = TreeDiffEngine._extractNodeName(node);
+              if (nameValue) {
+                out.type = node.type + ' (' + nameValue + ')';
+              } else {
+                out.type = node.type || '';
+              }
             }
           }
         }

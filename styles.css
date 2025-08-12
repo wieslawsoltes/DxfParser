@@ -326,6 +326,36 @@ body { font-family: sans-serif; }
   border: 1px solid #ccc;
   clip-path: inset(0);
 }
+#treeViewContainer .diff-overview,
+#treeViewContainerLeft .diff-overview,
+#treeViewContainerRight .diff-overview {
+  position: absolute; /* anchored rail */
+  top: 0; /* JS offsets this with scrollTop to stay fixed */
+  right: 0; /* flush with scrollbar */
+  width: 16px; /* twice as wide */
+  height: 100%;
+  z-index: 3; /* above content/header */
+  pointer-events: auto;
+  background: rgba(0,0,0,0.05);
+  border-left: 1px solid rgba(0,0,0,0.08);
+}
+.diff-overview .markers { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.diff-overview .marker {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 2px;
+}
+.diff-overview .viewport {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border: 1px solid rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.12);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3);
+  pointer-events: none; /* ignore clicks so rail gets them */
+}
 #treeViewContent, #treeViewContentLeft, #treeViewContentRight { position: relative; overflow: hidden; }
 /* Tree row styling – with row selection support */
 .tree-row {
