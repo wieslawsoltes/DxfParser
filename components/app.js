@@ -854,7 +854,7 @@
         if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
         if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
         // Build flattened lists using semantic keys that ignore DXF handles for better alignment
-        const diffOptions = { ignoreHandles: true };
+        const diffOptions = { ignoreHandles: true, respectExpanded: true };
         const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData, diffOptions);
         const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData, diffOptions);
         const keysLeft = leftFlat.map(r => r.key);
@@ -5629,7 +5629,7 @@ EOF`;
           const rightTree = rightTab ? rightTab.currentTreeData : [];
 
           // Flatten with keys (ignore handles) to align rows between panes
-          const diffOptions = { ignoreHandles: true };
+          const diffOptions = { ignoreHandles: true, respectExpanded: true };
           const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTree, diffOptions);
           const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTree, diffOptions);
           const keysLeft = leftFlat.map(r => r.key);

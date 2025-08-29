@@ -76,6 +76,7 @@
 
       static flattenTreeWithKeys(nodes, options = {}) {
         const rows = [];
+        const respectExpanded = !!options.respectExpanded;
         const traverse = (list, level, parentPath) => {
           // For each sibling list, keep counts to make IDs stable when ignoring handles
           const siblingCounts = new Map();
@@ -89,7 +90,9 @@
             }
             const path = parentPath ? `${parentPath}/${id}` : id;
             rows.push({ key: `N|${path}`, value: TreeDiffEngine.stringifyNodeValue(n, level), node: n, level });
-            if (n.properties && n.properties.length) {
+            // Only include properties/children of collapsed nodes when not respecting expanded state
+            const includeChildren = !respectExpanded || !!n.expanded;
+            if (includeChildren && n.properties && n.properties.length) {
               // Preserve original property order and disambiguate duplicates with an occurrence index
               const propCounts = new Map();
               for (const p of n.properties) {
@@ -100,7 +103,7 @@
                 rows.push({ key: pKey, value: `P|${codeStr}|${p.value ?? ''}`, node: { isProperty: true, code: p.code, data: p.value }, level: level + 1 });
               }
             }
-            if (n.children && n.children.length) {
+            if (includeChildren && n.children && n.children.length) {
               traverse(n.children, level + 1, path);
             }
           }
@@ -400,5 +403,4 @@
     }
 
     window.TreeDiffEngine = TreeDiffEngine;
-
 
