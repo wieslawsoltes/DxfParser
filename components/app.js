@@ -836,6 +836,15 @@
           this.updateDiffIndicator();
           return;
         }
+        // Preserve current virtual scroll position (ratio) to avoid jumps on expand/collapse
+        const rowHeight = this.myTreeGrid?.itemHeight || 24;
+        const leftC = this.treeViewContainer;
+        const rightC = this.treeViewContainerRight;
+        const prevTotalRows = this.currentDiffMap?.totalRows || null;
+        const prevScrollTop = leftC ? leftC.scrollTop : 0;
+        const prevViewport = leftC ? leftC.clientHeight : 0;
+        const prevScrollable = (prevTotalRows != null) ? Math.max(1, (prevTotalRows * rowHeight) - prevViewport) : null;
+        const prevScrollRatio = (prevScrollable && prevScrollable > 0) ? (prevScrollTop / prevScrollable) : null;
         // 1) Reset both grids to a clean state (clear any previous diff overlays)
         if (this.myTreeGrid) {
           if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
@@ -929,9 +938,17 @@
         if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(leftIndexMap);
         if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(rightIndexMap);
         this.syncVerticalScroll();
-        // 4) Force re-render and reset scroll for consistent visuals
-        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); this.treeViewContainer.scrollTop = 0; }
-        if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); this.treeViewContainerRight.scrollTop = 0; }
+        // 4) Force re-render and restore scroll position to previous ratio (avoid jump)
+        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); }
+        if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); }
+        if (prevScrollRatio != null && leftC) {
+          const newViewport = leftC.clientHeight || 0;
+          const newScrollable = Math.max(1, (totalRows * rowHeight) - newViewport);
+          const targetTop = Math.max(0, Math.min(newScrollable, Math.round(prevScrollRatio * newScrollable)));
+          // Apply to both; scroll sync keeps them aligned
+          leftC.scrollTop = targetTop;
+          if (rightC) rightC.scrollTop = targetTop;
+        }
         this.updateDiffIndicator();
       }
 
