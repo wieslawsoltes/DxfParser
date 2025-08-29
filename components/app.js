@@ -774,6 +774,8 @@
 
       clearSideBySideDiff() {
         this.currentDiffMap = null;
+        // Stop syncing scroll positions when Tree Diff is disabled
+        this.detachVerticalScrollSync();
         // 1) Clear all diff-related providers and alignment on both grids
         if (this.myTreeGrid) {
           if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
@@ -834,6 +836,15 @@
           this.updateDiffIndicator();
           return;
         }
+        // Preserve current virtual scroll position (ratio) to avoid jumps on expand/collapse
+        const rowHeight = this.myTreeGrid?.itemHeight || 24;
+        const leftC = this.treeViewContainer;
+        const rightC = this.treeViewContainerRight;
+        const prevTotalRows = this.currentDiffMap?.totalRows || null;
+        const prevScrollTop = leftC ? leftC.scrollTop : 0;
+        const prevViewport = leftC ? leftC.clientHeight : 0;
+        const prevScrollable = (prevTotalRows != null) ? Math.max(1, (prevTotalRows * rowHeight) - prevViewport) : null;
+        const prevScrollRatio = (prevScrollable && prevScrollable > 0) ? (prevScrollTop / prevScrollable) : null;
         // 1) Reset both grids to a clean state (clear any previous diff overlays)
         if (this.myTreeGrid) {
           if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
@@ -852,7 +863,7 @@
         if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
         if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
         // Build flattened lists using semantic keys that ignore DXF handles for better alignment
-        const diffOptions = { ignoreHandles: true };
+        const diffOptions = { ignoreHandles: true, respectExpanded: true };
         const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTab.currentTreeData, diffOptions);
         const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTab.currentTreeData, diffOptions);
         const keysLeft = leftFlat.map(r => r.key);
@@ -927,9 +938,17 @@
         if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(leftIndexMap);
         if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(rightIndexMap);
         this.syncVerticalScroll();
-        // 4) Force re-render and reset scroll for consistent visuals
-        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); this.treeViewContainer.scrollTop = 0; }
-        if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); this.treeViewContainerRight.scrollTop = 0; }
+        // 4) Force re-render and restore scroll position to previous ratio (avoid jump)
+        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); }
+        if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); }
+        if (prevScrollRatio != null && leftC) {
+          const newViewport = leftC.clientHeight || 0;
+          const newScrollable = Math.max(1, (totalRows * rowHeight) - newViewport);
+          const targetTop = Math.max(0, Math.min(newScrollable, Math.round(prevScrollRatio * newScrollable)));
+          // Apply to both; scroll sync keeps them aligned
+          leftC.scrollTop = targetTop;
+          if (rightC) rightC.scrollTop = targetTop;
+        }
         this.updateDiffIndicator();
       }
 
@@ -1021,20 +1040,33 @@
         const leftC = this.treeViewContainer;
         const rightC = this.treeViewContainerRight;
         if (!leftC || !rightC) return;
-        let syncing = false;
-        const onLeft = () => {
-          if (syncing) return; syncing = true;
-          rightC.scrollTop = leftC.scrollTop;
-          syncing = false;
+        // Keep listener references and a lock so we can detach cleanly
+        this._scrollSyncLock = false;
+        this._onLeftScroll = () => {
+          if (this._scrollSyncLock) return;
+          this._scrollSyncLock = true;
+          try { rightC.scrollTop = leftC.scrollTop; } finally { this._scrollSyncLock = false; }
         };
-        const onRight = () => {
-          if (syncing) return; syncing = true;
-          leftC.scrollTop = rightC.scrollTop;
-          syncing = false;
+        this._onRightScroll = () => {
+          if (this._scrollSyncLock) return;
+          this._scrollSyncLock = true;
+          try { leftC.scrollTop = rightC.scrollTop; } finally { this._scrollSyncLock = false; }
         };
-        leftC.addEventListener('scroll', onLeft);
-        rightC.addEventListener('scroll', onRight);
+        leftC.addEventListener('scroll', this._onLeftScroll);
+        rightC.addEventListener('scroll', this._onRightScroll);
         this._scrollSyncAttached = true;
+      }
+
+      detachVerticalScrollSync() {
+        if (!this._scrollSyncAttached) return;
+        const leftC = this.treeViewContainer;
+        const rightC = this.treeViewContainerRight;
+        if (leftC && this._onLeftScroll) leftC.removeEventListener('scroll', this._onLeftScroll);
+        if (rightC && this._onRightScroll) rightC.removeEventListener('scroll', this._onRightScroll);
+        this._onLeftScroll = null;
+        this._onRightScroll = null;
+        this._scrollSyncLock = false;
+        this._scrollSyncAttached = false;
       }
 
       setRightPanelHidden(hidden) {
@@ -5614,7 +5646,7 @@ EOF`;
           const rightTree = rightTab ? rightTab.currentTreeData : [];
 
           // Flatten with keys (ignore handles) to align rows between panes
-          const diffOptions = { ignoreHandles: true };
+          const diffOptions = { ignoreHandles: true, respectExpanded: true };
           const leftFlat = window.TreeDiffEngine.flattenTreeWithKeys(leftTree, diffOptions);
           const rightFlat = window.TreeDiffEngine.flattenTreeWithKeys(rightTree, diffOptions);
           const keysLeft = leftFlat.map(r => r.key);

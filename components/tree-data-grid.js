@@ -33,6 +33,35 @@
           requestAnimationFrame(() => this.updateVisibleNodes());
         });
         this.attachHeaderResizerEvents();
+        // Diff overview (minimap) UI
+        this._overviewNeedsRebuild = false;
+        this._lastOverviewTotalRows = null;
+        this._lastOverviewColors = null;
+        this._overview = document.createElement("div");
+        this._overview.className = "diff-overview";
+        this._overviewMarkers = document.createElement("div");
+        this._overviewMarkers.className = "markers";
+        this._overviewViewport = document.createElement("div");
+        this._overviewViewport.className = "viewport";
+        this._overview.appendChild(this._overviewMarkers);
+        this._overview.appendChild(this._overviewViewport);
+        // Insert as the first child to avoid being pushed by scrollable content
+        if (this.container.firstChild) {
+          this.container.insertBefore(this._overview, this.container.firstChild);
+        } else {
+          this.container.appendChild(this._overview);
+        }
+        this._overview.addEventListener("click", (e) => this.handleOverviewClick(e));
+        // Drag to scroll
+        this._overview.addEventListener("mousedown", (e) => this.handleOverviewDragStart(e));
+        this._overview.addEventListener("touchstart", (e) => this.handleOverviewDragStart(e), { passive: false });
+        // Keep rail positioned left of the scrollbar
+        const onResize = () => { this.positionOverviewRail(); this.updateOverview(); this.updateOverviewViewport(); };
+        window.addEventListener('resize', onResize);
+        // Initial layout
+        this.positionOverviewRail();
+        this.updateOverview();
+        this.updateOverviewViewport();
         this.content.addEventListener("click", (e) => {
           if (e.target.classList.contains("toggle")) {
             e.stopPropagation();
@@ -47,7 +76,9 @@
 
       setRowClassProvider(provider) {
         this.rowClassProvider = provider;
+        this._overviewNeedsRebuild = true;
         this.updateVisibleNodes();
+        this.updateOverview(true);
       }
 
       setCellClassProvider(provider) {
@@ -57,12 +88,18 @@
 
       setOverrideTotalRows(totalRows) {
         this.overrideTotalRows = (typeof totalRows === 'number') ? totalRows : null;
+        this._overviewNeedsRebuild = true;
         this.updateVisibleNodes();
+        this.updateOverview(true);
       }
 
       setIndexMap(map) {
         this.indexMap = Array.isArray(map) ? map : null;
         this.updateVisibleNodes();
+        // Index map doesn't affect diff classification, no need to rebuild markers,
+        // but we should refresh the rail and viewport to reflect any size changes immediately.
+        this.updateOverview();
+        this.updateOverviewViewport();
       }
       
       attachHeaderResizerEvents() {
@@ -659,6 +696,170 @@
         this.content.innerHTML = "";
         this.content.appendChild(containerElem);
         this.syncHeaderWidths();
+        // Keep overview viewport in sync on scroll/render
+        this.positionOverviewRail();
+        this.updateOverview();
+        this.updateOverviewViewport();
       }
 
+      // --- Diff overview (minimap) ---
+      getOverviewEnabled() {
+        // Show when diff alignment is active
+        return (typeof this.overrideTotalRows === 'number' && this.overrideTotalRows > 0);
+      }
+
+      handleOverviewClick(e) {
+        if (!this.getOverviewEnabled()) return;
+        const rect = this._overview.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const height = rect.height || 1;
+        const totalRows = this.overrideTotalRows || this.flatData.length || 1;
+        const fullHeight = totalRows * this.itemHeight;
+        const targetRatio = Math.min(Math.max(y / height, 0), 1);
+        const targetTop = targetRatio * (fullHeight - this.container.clientHeight);
+        this.container.scrollTop = Math.max(0, Math.min(fullHeight - this.container.clientHeight, targetTop));
+      }
+
+      handleOverviewDragStart(e) {
+        if (!this.getOverviewEnabled()) return;
+        e.preventDefault();
+        this._overviewDragging = true;
+        const move = (ev) => this.handleOverviewDragMove(ev);
+        const up = () => {
+          this._overviewDragging = false;
+          window.removeEventListener('mousemove', move);
+          window.removeEventListener('mouseup', up);
+          window.removeEventListener('touchmove', move);
+          window.removeEventListener('touchend', up);
+          window.removeEventListener('touchcancel', up);
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+        window.addEventListener('touchmove', move, { passive: false });
+        window.addEventListener('touchend', up);
+        window.addEventListener('touchcancel', up);
+        // apply immediately
+        this.handleOverviewDragMove(e);
+      }
+
+      handleOverviewDragMove(e) {
+        if (!this._overviewDragging) return;
+        e.preventDefault();
+        const pointY = (e.touches && e.touches.length) ? e.touches[0].clientY : e.clientY;
+        const rect = this._overview.getBoundingClientRect();
+        const y = Math.min(Math.max(pointY - rect.top, 0), rect.height || 1);
+        const height = rect.height || 1;
+        const totalRows = this.overrideTotalRows || this.flatData.length || 1;
+        const fullHeight = totalRows * this.itemHeight;
+        const targetRatio = height > 0 ? (y / height) : 0;
+        const targetTop = targetRatio * (fullHeight - this.container.clientHeight);
+        this.container.scrollTop = Math.max(0, Math.min(fullHeight - this.container.clientHeight, targetTop));
+        this.updateOverviewViewport();
+      }
+
+      rebuildOverviewMarkers() {
+        // Clear
+        this._overviewMarkers.innerHTML = "";
+        if (!this.getOverviewEnabled()) return;
+        const totalRows = this.overrideTotalRows || 0;
+        if (totalRows <= 0) return;
+        // Colors consistent with CSS row colors
+        // Distinguish between data changes (type cell differs) and line-only changes
+        const colorByClass = {
+          'diff-added': '#baf7c6',          // green
+          'diff-removed': '#ffc8ce',        // red
+          'diff-changed-data': '#ffe28a',   // yellow (data changed)
+          'diff-changed-line': '#d7dbe0'    // neutral gray (line/code-only change)
+        };
+
+        // Helper to classify the overview marker type for a given virtual row index
+        const classifyRow = (i) => {
+          let cls = null;
+          try { cls = this.rowClassProvider ? this.rowClassProvider(i, null) : null; } catch (_) { cls = null; }
+          if (!cls) return null;
+          if (cls === 'diff-added' || cls === 'diff-removed') return cls;
+          if (cls === 'diff-changed') {
+            // Determine whether this is a data change (type cell differs) or only line/code/etc.
+            let typeChanged = false;
+            try {
+              if (this.cellClassProvider) {
+                const typeCls = this.cellClassProvider(i, null, 'type');
+                typeChanged = typeCls === 'cell-changed';
+              }
+            } catch (_) { /* ignore */ }
+            return typeChanged ? 'diff-changed-data' : 'diff-changed-line';
+          }
+          return null;
+        };
+        const ranges = [];
+        let i = 0;
+        while (i < totalRows) {
+          const cls = classifyRow(i);
+          if (!cls) {
+            i++;
+            continue;
+          }
+          const start = i;
+          const type = cls;
+          i++;
+          while (i < totalRows) {
+            const c = classifyRow(i);
+            if (c !== type) break;
+            i++;
+          }
+          const end = i - 1;
+          ranges.push({ start, end, type });
+        }
+        // Render ranges as absolute positioned markers
+        for (const r of ranges) {
+          const topRatio = r.start / totalRows;
+          const endRatio = (r.end + 1) / totalRows;
+          const marker = document.createElement('div');
+          marker.className = 'marker';
+          marker.style.top = (topRatio * 100) + '%';
+          marker.style.height = ((endRatio - topRatio) * 100) + '%';
+          marker.style.backgroundColor = colorByClass[r.type] || '#ddd';
+          this._overviewMarkers.appendChild(marker);
+        }
+        this._lastOverviewTotalRows = totalRows;
+        this._overviewNeedsRebuild = false;
+      }
+
+      updateOverview(force = false) {
+        const enabled = this.getOverviewEnabled();
+        this._overview.style.display = enabled ? 'block' : 'none';
+        if (!enabled) return;
+        this.positionOverviewRail();
+        const totalRows = this.overrideTotalRows || 0;
+        if (force || this._overviewNeedsRebuild || this._lastOverviewTotalRows !== totalRows) {
+          this.rebuildOverviewMarkers();
+        }
+      }
+
+      updateOverviewViewport() {
+        if (!this.getOverviewEnabled()) return;
+        const totalRows = this.overrideTotalRows || this.flatData.length || 1;
+        const fullHeight = totalRows * this.itemHeight;
+        const containerHeight = this.container.clientHeight || 1;
+        const scrollTop = this.container.scrollTop || 0;
+        const ovHeight = this.container.clientHeight || 1;
+        const topRatio = fullHeight > 0 ? (scrollTop / fullHeight) : 0;
+        const heightRatio = fullHeight > 0 ? (containerHeight / fullHeight) : 1;
+        const viewportTop = Math.max(0, Math.floor(topRatio * ovHeight));
+        const viewportHeight = Math.max(6, Math.floor(heightRatio * ovHeight));
+        this._overviewViewport.style.top = viewportTop + 'px';
+        this._overviewViewport.style.height = viewportHeight + 'px';
+      }
+
+      positionOverviewRail() {
+        if (!this._overview) return;
+        // Align rail flush to the scrollbar edge and keep it anchored vertically
+        this._overview.style.right = '0px';
+        // Ensure the rail height matches the viewport height of the container
+        const ch = this.container.clientHeight;
+        this._overview.style.height = ch + 'px';
+        // Counter-scroll by positioning top equal to scrollTop so it stays in place
+        const st = this.container.scrollTop || 0;
+        this._overview.style.top = st + 'px';
+      }
     }
