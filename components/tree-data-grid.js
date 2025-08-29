@@ -96,8 +96,10 @@
       setIndexMap(map) {
         this.indexMap = Array.isArray(map) ? map : null;
         this.updateVisibleNodes();
-        // Index map doesn't affect diff classification, no need to rebuild markers
+        // Index map doesn't affect diff classification, no need to rebuild markers,
+        // but we should refresh the rail and viewport to reflect any size changes immediately.
         this.updateOverview();
+        this.updateOverviewViewport();
       }
       
       attachHeaderResizerEvents() {
@@ -762,19 +764,38 @@
         const totalRows = this.overrideTotalRows || 0;
         if (totalRows <= 0) return;
         // Colors consistent with CSS row colors
+        // Distinguish between data changes (type cell differs) and line-only changes
         const colorByClass = {
-          'diff-added': '#baf7c6',   // more saturated green
-          'diff-removed': '#ffc8ce', // more saturated red
-          'diff-changed': '#ffe28a'  // more saturated yellow
+          'diff-added': '#baf7c6',          // green
+          'diff-removed': '#ffc8ce',        // red
+          'diff-changed-data': '#ffe28a',   // yellow (data changed)
+          'diff-changed-line': '#d7dbe0'    // neutral gray (line/code-only change)
+        };
+
+        // Helper to classify the overview marker type for a given virtual row index
+        const classifyRow = (i) => {
+          let cls = null;
+          try { cls = this.rowClassProvider ? this.rowClassProvider(i, null) : null; } catch (_) { cls = null; }
+          if (!cls) return null;
+          if (cls === 'diff-added' || cls === 'diff-removed') return cls;
+          if (cls === 'diff-changed') {
+            // Determine whether this is a data change (type cell differs) or only line/code/etc.
+            let typeChanged = false;
+            try {
+              if (this.cellClassProvider) {
+                const typeCls = this.cellClassProvider(i, null, 'type');
+                typeChanged = typeCls === 'cell-changed';
+              }
+            } catch (_) { /* ignore */ }
+            return typeChanged ? 'diff-changed-data' : 'diff-changed-line';
+          }
+          return null;
         };
         const ranges = [];
         let i = 0;
         while (i < totalRows) {
-          let cls = null;
-          try {
-            cls = this.rowClassProvider ? this.rowClassProvider(i, null) : null;
-          } catch (_) { cls = null; }
-          if (!cls || (cls !== 'diff-added' && cls !== 'diff-removed' && cls !== 'diff-changed')) {
+          const cls = classifyRow(i);
+          if (!cls) {
             i++;
             continue;
           }
@@ -782,8 +803,7 @@
           const type = cls;
           i++;
           while (i < totalRows) {
-            let c = null;
-            try { c = this.rowClassProvider(i, null); } catch (_) { c = null; }
+            const c = classifyRow(i);
             if (c !== type) break;
             i++;
           }
