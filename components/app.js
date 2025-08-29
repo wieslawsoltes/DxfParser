@@ -774,6 +774,8 @@
 
       clearSideBySideDiff() {
         this.currentDiffMap = null;
+        // Stop syncing scroll positions when Tree Diff is disabled
+        this.detachVerticalScrollSync();
         // 1) Clear all diff-related providers and alignment on both grids
         if (this.myTreeGrid) {
           if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
@@ -1021,20 +1023,33 @@
         const leftC = this.treeViewContainer;
         const rightC = this.treeViewContainerRight;
         if (!leftC || !rightC) return;
-        let syncing = false;
-        const onLeft = () => {
-          if (syncing) return; syncing = true;
-          rightC.scrollTop = leftC.scrollTop;
-          syncing = false;
+        // Keep listener references and a lock so we can detach cleanly
+        this._scrollSyncLock = false;
+        this._onLeftScroll = () => {
+          if (this._scrollSyncLock) return;
+          this._scrollSyncLock = true;
+          try { rightC.scrollTop = leftC.scrollTop; } finally { this._scrollSyncLock = false; }
         };
-        const onRight = () => {
-          if (syncing) return; syncing = true;
-          leftC.scrollTop = rightC.scrollTop;
-          syncing = false;
+        this._onRightScroll = () => {
+          if (this._scrollSyncLock) return;
+          this._scrollSyncLock = true;
+          try { leftC.scrollTop = rightC.scrollTop; } finally { this._scrollSyncLock = false; }
         };
-        leftC.addEventListener('scroll', onLeft);
-        rightC.addEventListener('scroll', onRight);
+        leftC.addEventListener('scroll', this._onLeftScroll);
+        rightC.addEventListener('scroll', this._onRightScroll);
         this._scrollSyncAttached = true;
+      }
+
+      detachVerticalScrollSync() {
+        if (!this._scrollSyncAttached) return;
+        const leftC = this.treeViewContainer;
+        const rightC = this.treeViewContainerRight;
+        if (leftC && this._onLeftScroll) leftC.removeEventListener('scroll', this._onLeftScroll);
+        if (rightC && this._onRightScroll) rightC.removeEventListener('scroll', this._onRightScroll);
+        this._onLeftScroll = null;
+        this._onRightScroll = null;
+        this._scrollSyncLock = false;
+        this._scrollSyncAttached = false;
       }
 
       setRightPanelHidden(hidden) {
