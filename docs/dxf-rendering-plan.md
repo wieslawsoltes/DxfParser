@@ -40,7 +40,7 @@
     2. [x] Task 6.2: Support SOLID fills, WIPEOUT masking, and TRANSFORMED gradient behavior in paper vs. model space.
     3. [x] Task 6.3: Integrate material definitions (MATERIAL) including textures, specularity, transparency, and self-illumination.
     4. [x] Task 6.4: Render lights (LIGHT), background (BACKGROUND), and sun studies with per-viewport settings.
-    5. [ ] Task 6.5: Implement TrueView-equivalent visual styles (visualstyle table) including wireframe, hidden, shaded, realistic, and conceptual.
+    5. [x] Task 6.5: Implement TrueView-equivalent visual styles (visualstyle table) including wireframe, hidden, shaded, realistic, and conceptual.
 
 7. [ ] **Milestone 7: Document Controls, Layers, and Metadata Parity**
     1. [x] Task 7.1: Implement layer manager overlay panel with freeze/lock/on/off, transparency, color, and plot style visualization. (see `docs/dxf-rendering-m7-execution.md#task-71-%E2%80%93-layer-manager-overlay-panel`)

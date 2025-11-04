@@ -45,6 +45,35 @@
     return trimmed ? trimmed.toUpperCase() : null;
   }
 
+  function classifyVisualStyleName(name) {
+    if (!name) {
+      return 'custom';
+    }
+    const upper = String(name).trim().toUpperCase();
+    if (!upper) {
+      return 'custom';
+    }
+    if (upper.includes('WIREFRAME')) {
+      return 'wireframe';
+    }
+    if (upper.includes('HIDDEN')) {
+      return 'hidden';
+    }
+    if (upper.includes('REALISTIC')) {
+      return 'realistic';
+    }
+    if (upper.includes('CONCEPT')) {
+      return 'conceptual';
+    }
+    if (upper.includes('SHADED') || upper.includes('SHADE')) {
+      return 'shaded';
+    }
+    if (upper.includes('ILLUSTRATION') || upper.includes('TECHNICAL')) {
+      return 'conceptual';
+    }
+    return 'custom';
+  }
+
   function parseDictionaryObject(tags) {
     const dictionary = {
       type: 'DICTIONARY',
@@ -744,6 +773,25 @@
       }
       if (sunCatalog && sunCatalog.byHandle) {
         tables.sunsByHandle = sunCatalog.byHandle;
+      }
+      if (tables.visualStyles) {
+        const visualStylesByHandle = Object.create(null);
+        const visualStylesByName = Object.create(null);
+        Object.keys(tables.visualStyles).forEach((key) => {
+          const entry = tables.visualStyles[key];
+          if (!entry || typeof entry !== 'object') {
+            return;
+          }
+          if (entry.handleUpper) {
+            visualStylesByHandle[entry.handleUpper] = entry;
+          }
+          const entryName = entry.name || key;
+          if (entryName) {
+            visualStylesByName[entryName.toUpperCase()] = entry;
+          }
+        });
+        tables.visualStylesByHandle = visualStylesByHandle;
+        tables.visualStylesByName = visualStylesByName;
       }
 
       const sceneGraphBuilder = new namespace.SceneGraphBuilder({
@@ -2569,14 +2617,10 @@
       }
 
       if (upperTable === 'VISUALSTYLE' && recordType === 'VISUALSTYLE') {
-        collections[upperTable].set(name, {
-          name,
-          description: utils.getFirstCodeValue(recordTags, 4) || null,
-          rawTags: recordTags.map((tag) => ({
-            code: Number(tag.code),
-            value: tag.value
-          }))
-        });
+        const entry = this.parseVisualStyleRecord(recordTags, name);
+        if (entry && entry.name) {
+          collections[upperTable].set(entry.name, entry);
+        }
         return;
       }
 
@@ -3725,6 +3769,68 @@
       } else {
         geom.vertices.push(vertex);
       }
+    }
+
+    parseVisualStyleRecord(recordTags, fallbackName) {
+      const nameCandidate = (utils.getFirstCodeValue(recordTags, 2)
+        || utils.getFirstCodeValue(recordTags, 3)
+        || fallbackName
+        || '').trim();
+      if (!nameCandidate) {
+        return null;
+      }
+      const handleRaw = utils.getFirstCodeValue(recordTags, 5) || null;
+      const ownerRaw = utils.getFirstCodeValue(recordTags, 330) || null;
+      const description = utils.getFirstCodeValue(recordTags, 4) || null;
+      const numbers = Object.create(null);
+      const bools = Object.create(null);
+      const strings = Object.create(null);
+      const handles = Object.create(null);
+      recordTags.forEach((tag) => {
+        const code = Number(tag.code);
+        const rawValue = tag.value;
+        if (code >= 40 && code <= 59) {
+          numbers[`n${code}`] = utils.toFloat ? utils.toFloat(rawValue) : parseFloat(rawValue);
+        } else if ((code >= 70 && code <= 79) || (code >= 170 && code <= 179) ||
+          (code >= 270 && code <= 279) || (code >= 400 && code <= 499)) {
+          numbers[`f${code}`] = utils.toInt ? utils.toInt(rawValue) : parseInt(rawValue, 10);
+        } else if (code >= 280 && code <= 289) {
+          numbers[`f${code}`] = utils.toInt ? utils.toInt(rawValue) : parseInt(rawValue, 10);
+        } else if (code >= 290 && code <= 299) {
+          const intVal = utils.toInt ? utils.toInt(rawValue) : parseInt(rawValue, 10);
+          bools[`b${code}`] = intVal === 1;
+        } else if (code >= 300 && code <= 399) {
+          strings[`s${code}`] = typeof rawValue === 'string'
+            ? rawValue
+            : (rawValue != null ? String(rawValue) : '');
+        } else if ((code >= 330 && code <= 369) || (code >= 430 && code <= 439)) {
+          const handle = typeof rawValue === 'string'
+            ? rawValue.trim()
+            : (rawValue != null ? String(rawValue).trim() : '');
+          if (handle) {
+            handles[`h${code}`] = handle;
+          }
+        }
+      });
+      return {
+        name: nameCandidate,
+        handle: handleRaw || null,
+        handleUpper: normalizeHandle(handleRaw),
+        owner: ownerRaw || null,
+        ownerUpper: normalizeHandle(ownerRaw),
+        description,
+        category: classifyVisualStyleName(nameCandidate),
+        settings: {
+          numbers,
+          bools,
+          strings,
+          handles
+        },
+        rawTags: recordTags.map((tag) => ({
+          code: Number(tag.code),
+          value: tag.value
+        }))
+      };
     }
 
     buildBlockHeader(tags) {

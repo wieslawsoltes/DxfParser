@@ -91,6 +91,11 @@
       this.viewWheelHandler = null;
       this.viewNavigationMode = null;
       this.navigationDragState = null;
+      this.visualStyleSelect = null;
+      this.visualStyleAutoOption = null;
+      this.visualStyleChangeHandler = null;
+      this.visualStyleOptionToSpecifier = new Map();
+      this.visualStyleSpecifierToOption = new Map();
 
       this.boundClose = () => this.close();
       this.boundOnKeyDown = (event) => this.handleOverlayKeyDown(event);
@@ -748,6 +753,17 @@
         });
         this.measurementToolbarButtons = toolbarButtons;
       }
+      this.visualStyleSelect = document.getElementById('renderingVisualStyleSelect');
+      this.visualStyleAutoOption = this.visualStyleSelect
+        ? this.visualStyleSelect.querySelector('option[value="__auto__"]')
+        : null;
+      if (this.visualStyleSelect) {
+        this.visualStyleChangeHandler = (event) => {
+          const value = event && event.target ? event.target.value : this.visualStyleSelect.value;
+          this.handleVisualStyleSelectionChange(value);
+        };
+        this.visualStyleSelect.addEventListener('change', this.visualStyleChangeHandler);
+      }
       this.selectionToolbar = document.getElementById('renderingSelectionToolbar');
       this.selectionToolbarButtons = [];
       this.selectionToolbarHandlers.clear();
@@ -878,6 +894,8 @@
         });
       }
       document.addEventListener('keydown', this.boundOnKeyDown);
+      this.populateVisualStyleOptions(this.currentSceneGraph);
+      this.updateVisualStyleSelect(this.surfaceManager ? this.surfaceManager.lastFrame : null);
       this.syncAttributeVisibilityControls();
       this.updateMeasurementToolbarUI();
       this.updateSelectionToolbarUI();
@@ -889,6 +907,14 @@
         this.closeBtn.removeEventListener('click', this.boundClose);
       }
       document.removeEventListener('keydown', this.boundOnKeyDown);
+      if (this.visualStyleSelect && this.visualStyleChangeHandler) {
+        this.visualStyleSelect.removeEventListener('change', this.visualStyleChangeHandler);
+      }
+      this.visualStyleChangeHandler = null;
+      this.visualStyleSelect = null;
+      this.visualStyleAutoOption = null;
+      this.visualStyleOptionToSpecifier = new Map();
+      this.visualStyleSpecifierToOption = new Map();
       if (this.measurementButtonHandlers && this.measurementButtonHandlers.size) {
         this.measurementButtonHandlers.forEach((handler, button) => {
           if (button && handler) {
@@ -1049,6 +1075,8 @@
       this.currentSceneGraph = null;
       this.currentDoc = doc || null;
       this.currentPane = null;
+      this.populateVisualStyleOptions(null);
+      this.updateVisualStyleSelect(null);
       if (this.summaryContainer) {
         const reason = doc && doc.reason ? doc.reason : 'unavailable';
         const message = doc && doc.message ? doc.message : '';
@@ -1109,6 +1137,7 @@
       this.currentSceneGraph = doc.sceneGraph;
       this.currentDoc = doc;
       this.currentPane = pane;
+      this.populateVisualStyleOptions(doc.sceneGraph);
       if (this.titleEl) {
         this.titleEl.textContent = `DXF Rendering – ${tab.name || 'Untitled'} (${pane.toUpperCase()})`;
       }
@@ -4932,7 +4961,222 @@
       }
     }
 
+    getVisualStylePresetList() {
+      if (namespace.RenderingSurfaceManager &&
+        typeof namespace.RenderingSurfaceManager.getVisualStylePresets === 'function') {
+        return namespace.RenderingSurfaceManager.getVisualStylePresets();
+      }
+      return [
+        { id: 'wireframe', label: 'Wireframe' },
+        { id: 'hidden', label: 'Hidden' },
+        { id: 'shaded', label: 'Shaded' },
+        { id: 'realistic', label: 'Realistic' },
+        { id: 'conceptual', label: 'Conceptual' }
+      ];
+    }
+
+    normalizeVisualStyleSpecifierValue(value) {
+      if (value == null) {
+        return '';
+      }
+      return String(value).trim().toLowerCase();
+    }
+
+    extractDocumentVisualStyles(sceneGraph) {
+      if (!sceneGraph || !sceneGraph.tables || !sceneGraph.tables.visualStyles) {
+        return [];
+      }
+      const entries = [];
+      const seen = new Set();
+      const styles = sceneGraph.tables.visualStyles || {};
+      Object.keys(styles).forEach((key) => {
+        const entry = styles[key];
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+        const handle = entry.handleUpper || entry.handle || null;
+        const name = entry.name || key || '';
+        const specifier = handle || name;
+        if (!specifier) {
+          return;
+        }
+        const normalized = this.normalizeVisualStyleSpecifierValue(specifier);
+        if (seen.has(normalized)) {
+          return;
+        }
+        seen.add(normalized);
+        const value = handle ? `handle:${handle}` : `name:${name}`;
+        const labelBase = name || (handle ? `Handle ${handle}` : specifier);
+        const label = `${labelBase} (Drawing)`;
+        const title = handle ? `Handle ${handle}` : '';
+        entries.push({
+          value,
+          label,
+          title,
+          specifier,
+          normalizedSpecifier: normalized
+        });
+      });
+      entries.sort((a, b) => a.label.localeCompare(b.label));
+      return entries;
+    }
+
+    populateVisualStyleOptions(sceneGraph) {
+      if (!this.visualStyleSelect) {
+        return;
+      }
+      const select = this.visualStyleSelect;
+      const previousValue = select.value;
+      select.innerHTML = '';
+      this.visualStyleOptionToSpecifier = new Map();
+      this.visualStyleSpecifierToOption = new Map();
+
+      const autoOption = document.createElement('option');
+      autoOption.value = '__auto__';
+      autoOption.textContent = 'Drawing default';
+      select.appendChild(autoOption);
+      this.visualStyleAutoOption = autoOption;
+      this.visualStyleOptionToSpecifier.set('__auto__', null);
+      this.visualStyleSpecifierToOption.set('__auto__', '__auto__');
+
+      const presets = this.getVisualStylePresetList();
+      if (presets.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Preset styles';
+        presets.forEach((preset) => {
+          const option = document.createElement('option');
+          option.value = `preset:${preset.id}`;
+          option.textContent = preset.label;
+          group.appendChild(option);
+          const normalized = this.normalizeVisualStyleSpecifierValue(preset.id);
+          this.visualStyleOptionToSpecifier.set(option.value, preset.id);
+          this.visualStyleSpecifierToOption.set(normalized, option.value);
+        });
+        select.appendChild(group);
+      }
+
+      const docStyles = this.extractDocumentVisualStyles(sceneGraph);
+      if (docStyles.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Drawing styles';
+        docStyles.forEach((entry) => {
+          const option = document.createElement('option');
+          option.value = entry.value;
+          option.textContent = entry.label;
+          if (entry.title) {
+            option.title = entry.title;
+          }
+          group.appendChild(option);
+          this.visualStyleOptionToSpecifier.set(option.value, entry.specifier);
+          this.visualStyleSpecifierToOption.set(entry.normalizedSpecifier, option.value);
+        });
+        select.appendChild(group);
+      }
+
+      if (previousValue && Array.from(select.options).some((opt) => opt.value === previousValue)) {
+        select.value = previousValue;
+      } else {
+        select.value = '__auto__';
+      }
+      select.disabled = select.options.length <= 1;
+    }
+
+    getOptionValueForSpecifier(specifier) {
+      if (!specifier) {
+        return '__auto__';
+      }
+      const normalized = this.normalizeVisualStyleSpecifierValue(specifier);
+      if (this.visualStyleSpecifierToOption && this.visualStyleSpecifierToOption.has(normalized)) {
+        return this.visualStyleSpecifierToOption.get(normalized);
+      }
+      return null;
+    }
+
+    getSpecifierForOption(optionValue) {
+      if (!optionValue || optionValue === '__auto__') {
+        return null;
+      }
+      if (this.visualStyleOptionToSpecifier && this.visualStyleOptionToSpecifier.has(optionValue)) {
+        return this.visualStyleOptionToSpecifier.get(optionValue);
+      }
+      if (optionValue.startsWith('preset:')) {
+        return optionValue.slice(7);
+      }
+      if (optionValue.startsWith('handle:')) {
+        return optionValue.slice(7);
+      }
+      if (optionValue.startsWith('name:')) {
+        return optionValue.slice(5);
+      }
+      if (optionValue.startsWith('dynamic:')) {
+        return optionValue.slice(8);
+      }
+      return optionValue;
+    }
+
+    updateVisualStyleSelect(frame) {
+      if (!this.visualStyleSelect) {
+        return;
+      }
+      const select = this.visualStyleSelect;
+      const targetFrame = frame || (this.surfaceManager ? this.surfaceManager.lastFrame : null);
+      const override = this.surfaceManager && typeof this.surfaceManager.getVisualStyleOverride === 'function'
+        ? this.surfaceManager.getVisualStyleOverride()
+        : null;
+      const overrideValue = override && typeof override.value === 'string' && override.value.trim()
+        ? override.value.trim()
+        : null;
+
+      Array.from(select.options).forEach((option) => {
+        if (option.dataset && option.dataset.dynamic === 'true') {
+          option.remove();
+        }
+      });
+
+      let desiredOption = this.getOptionValueForSpecifier(overrideValue);
+      if (!desiredOption && overrideValue) {
+        desiredOption = `dynamic:${overrideValue}`;
+        const dynamicOption = document.createElement('option');
+        dynamicOption.value = desiredOption;
+        dynamicOption.textContent = overrideValue;
+        dynamicOption.dataset.dynamic = 'true';
+        select.appendChild(dynamicOption);
+        this.visualStyleOptionToSpecifier.set(desiredOption, overrideValue);
+      }
+
+      const resolvedValue = desiredOption || '__auto__';
+      if ([...select.options].some((opt) => opt.value === resolvedValue)) {
+        select.value = resolvedValue;
+      } else {
+        select.value = '__auto__';
+      }
+
+      if (this.visualStyleAutoOption) {
+        const descriptor = targetFrame && targetFrame.visualStyle ? targetFrame.visualStyle : null;
+        const styleLabel = descriptor
+          ? (descriptor.name || (descriptor.category
+            ? descriptor.category.charAt(0).toUpperCase() + descriptor.category.slice(1)
+            : ''))
+          : '';
+        this.visualStyleAutoOption.textContent = styleLabel
+          ? `Drawing default (${styleLabel})`
+          : 'Drawing default';
+      }
+      select.disabled = select.options.length <= 1;
+    }
+
+    handleVisualStyleSelectionChange(optionValue) {
+      if (!this.surfaceManager) {
+        return;
+      }
+      const specifier = this.getSpecifierForOption(optionValue);
+      this.surfaceManager.setVisualStyle(specifier);
+      const activeView = this.getActiveViewState() || { mode: 'auto' };
+      this.renderCurrentFrameWithView(activeView);
+    }
+
     refreshViewportOverlays(frame) {
+      this.updateVisualStyleSelect(frame);
       this.updateTextLayer(frame);
       this.renderMeasurementOverlay(frame);
       this.renderSnapOverlay(frame);

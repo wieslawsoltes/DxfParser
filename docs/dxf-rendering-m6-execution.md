@@ -99,3 +99,27 @@
 - Extend background descriptors to support sky/ground/image variants once design requirements land.
 - Plumb sun azimuth/elevation into future shading passes for shaded viewport parity.
 - Consider surfacing background overrides and sun toggles in the overlay’s environmental controls.
+
+## Task 6.5 – Visual Style Presets and Rendering Behaviour
+
+### Implementation Summary
+- Parsed `VISUALSTYLE` table records into structured entries that retain handles, owners, derived categories, and raw flags for downstream use. The table catalog now exposes both `byHandle` and `byName` lookups so viewports, layouts, and entities can resolve their preferred style reliably.
+- Added configurable visual-style presets (wireframe, hidden, shaded, realistic, conceptual) that describe edge visibility, face opacity, material usage, and canvas/WebGL preferences. The renderer resolves the active style from explicit overrides, the active viewport, or layout metadata with sensible fallbacks.
+- Updated `RenderingSurfaceManager` to honour the resolved style during frame construction: edges receive style-driven alpha/weight tweaks, face fills are filtered or re-coloured, material textures toggle canvas fallbacks, and `frame.visualStyle` metadata is surfaced for diagnostics.
+- Introduced a `setVisualStyle` API so callers (tests/UI) can override the active style without mutating source DXF data, and threaded style state through pickable metadata for future inspection.
+- Added `tests/check-visual-styles.js` plus adjustments to material tests to cover style-driven rendering behaviour and ensure materials remain intact under realistic presets.
+
+### Validation Checklist
+1. Load a DXF viewport that references the Realistic visual style and confirm edges render with softened alpha while face fills honour materials and trigger canvas fallback when textures are present.
+2. Invoke `RenderingSurfaceManager.setVisualStyle('wireframe')` in the overlay console or unit test and verify solid faces drop out while hatches and wipeouts obey their style flags.
+3. Run `node tests/check-visual-styles.js` to exercise preset resolution and opacity adjustments, and rerun `node tests/check-materials.js` to ensure material-driven fills remain intact under the realistic preset.
+
+### Parity / Regression Safeguards
+- `node tests/check-visual-styles.js` guards preset resolution, edge opacity scaling, and canvas preference logic.
+- `node tests/check-materials.js` ensures material descriptors survive visual-style application and still drive fill opacity/texture fallbacks.
+- Manual smoke test switching between *Wireframe* and *Realistic* in the overlay UI to confirm toggles update surfaces without stale state.
+
+### Follow-ups
+- Surface visual-style selection controls in the overlay so users can switch presets without console access.
+- Map entity-level visual style overrides (when present) to per-fill/per-edge rendering once sample data is available.
+- Evaluate extending preset parsing beyond name heuristics to ingest DXF numeric flags (edge modifiers, face lighting) for finer parity with TrueView.

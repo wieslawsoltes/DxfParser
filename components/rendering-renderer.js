@@ -107,6 +107,208 @@
     };
   }
 
+  function applyAlphaMultiplier(color, multiplier) {
+    if (!color) {
+      return null;
+    }
+    const clone = cloneColor(color);
+    const baseAlpha = Number.isFinite(clone.a) ? clone.a : 1;
+    const alpha = Math.max(0, Math.min(1, baseAlpha * multiplier));
+    clone.a = alpha;
+    clone.css = `rgba(${Math.round(clone.r * 255)}, ${Math.round(clone.g * 255)}, ${Math.round(clone.b * 255)}, ${alpha.toFixed(3)})`;
+    return clone;
+  }
+
+  function desaturateColor(color, amount) {
+    if (!color) {
+      return null;
+    }
+    const clampAmount = Math.max(0, Math.min(1, Number.isFinite(amount) ? amount : 0));
+    if (clampAmount === 0) {
+      return cloneColor(color);
+    }
+    const base = cloneColor(color);
+    const intensity = base.r * 0.2126 + base.g * 0.7152 + base.b * 0.0722;
+    base.r = Math.max(0, Math.min(1, base.r + (intensity - base.r) * clampAmount));
+    base.g = Math.max(0, Math.min(1, base.g + (intensity - base.g) * clampAmount));
+    base.b = Math.max(0, Math.min(1, base.b + (intensity - base.b) * clampAmount));
+    base.css = `rgba(${Math.round(base.r * 255)}, ${Math.round(base.g * 255)}, ${Math.round(base.b * 255)}, ${base.a.toFixed(3)})`;
+    return base;
+  }
+
+  function classifyVisualStyleName(name) {
+    if (!name) {
+      return 'custom';
+    }
+    const upper = String(name).trim().toUpperCase();
+    if (!upper) {
+      return 'custom';
+    }
+    if (upper.includes('WIREFRAME')) {
+      return 'wireframe';
+    }
+    if (upper.includes('HIDDEN')) {
+      return 'hidden';
+    }
+    if (upper.includes('REALISTIC')) {
+      return 'realistic';
+    }
+    if (upper.includes('CONCEPT')) {
+      return 'conceptual';
+    }
+    if (upper.includes('SHADED') || upper.includes('SHADE')) {
+      return 'shaded';
+    }
+    if (upper.includes('ILLUSTRATION') || upper.includes('TECHNICAL')) {
+      return 'conceptual';
+    }
+    return 'custom';
+  }
+
+  const VISUAL_STYLE_PRESETS = Object.freeze({
+    wireframe: Object.freeze({
+      id: 'wireframe',
+      label: 'Wireframe',
+      showEdges: true,
+      showFaces: false,
+      showHatches: true,
+      showWipeouts: true,
+      faceOpacity: 0,
+      hatchOpacity: 1,
+      edgeOpacity: 1,
+      edgeWeightScale: 1,
+      preferCanvas: false,
+      enableMaterials: false,
+      enableTextures: false,
+      edgeColorMode: 'inherit'
+    }),
+    hidden: Object.freeze({
+      id: 'hidden',
+      label: 'Hidden',
+      showEdges: true,
+      showFaces: false,
+      showHatches: false,
+      showWipeouts: true,
+      faceOpacity: 0,
+      hatchOpacity: 0.35,
+      edgeOpacity: 0.85,
+      edgeWeightScale: 1,
+      preferCanvas: false,
+      enableMaterials: false,
+      enableTextures: false,
+      edgeColorMode: 'monochrome',
+      edgeMonochrome: { r: 0.75, g: 0.78, b: 0.82 }
+    }),
+    shaded: Object.freeze({
+      id: 'shaded',
+      label: 'Shaded',
+      showEdges: true,
+      showFaces: true,
+      showHatches: true,
+      showWipeouts: true,
+      faceOpacity: 1,
+      hatchOpacity: 0.85,
+      edgeOpacity: 0.65,
+      edgeWeightScale: 1,
+      preferCanvas: true,
+      enableMaterials: false,
+      enableTextures: false,
+      edgeColorMode: 'inherit'
+    }),
+    realistic: Object.freeze({
+      id: 'realistic',
+      label: 'Realistic',
+      showEdges: true,
+      showFaces: true,
+      showHatches: true,
+      showWipeouts: true,
+      faceOpacity: 1,
+      hatchOpacity: 0.9,
+      edgeOpacity: 0.5,
+      edgeWeightScale: 1,
+      preferCanvas: true,
+      enableMaterials: true,
+      enableTextures: true,
+      edgeColorMode: 'inherit'
+    }),
+    conceptual: Object.freeze({
+      id: 'conceptual',
+      label: 'Conceptual',
+      showEdges: true,
+      showFaces: true,
+      showHatches: true,
+      showWipeouts: true,
+      faceOpacity: 0.8,
+      hatchOpacity: 0.6,
+      edgeOpacity: 0.9,
+      edgeWeightScale: 1.1,
+      preferCanvas: true,
+      enableMaterials: false,
+      enableTextures: false,
+      edgeColorMode: 'desaturate',
+      edgeDesaturate: 0.6
+    }),
+    custom: Object.freeze({
+      id: 'custom',
+      label: 'Custom',
+      showEdges: true,
+      showFaces: true,
+      showHatches: true,
+      showWipeouts: true,
+      faceOpacity: 1,
+      hatchOpacity: 1,
+      edgeOpacity: 0.75,
+      edgeWeightScale: 1,
+      preferCanvas: true,
+      enableMaterials: true,
+      enableTextures: true,
+      edgeColorMode: 'inherit'
+    })
+  });
+
+  const VISUAL_STYLE_PRESET_DESCRIPTOR = Object.freeze(
+    Object.keys(VISUAL_STYLE_PRESETS)
+      .filter((key) => key !== 'custom')
+      .map((key) => {
+        const preset = VISUAL_STYLE_PRESETS[key];
+        const label = preset.label || key.replace(/(^|[-_\\s])([a-z])/gi, (match, p1, p2) => `${p1 ? ' ' : ''}${p2.toUpperCase()}`);
+        return Object.freeze({
+          id: preset.id || key,
+          label,
+          category: preset.id || key
+        });
+      })
+  );
+
+  function normalizeVisualStyleCategory(value) {
+    if (!value && value !== 0) {
+      return 'wireframe';
+    }
+    const text = String(value).trim().toLowerCase();
+    if (!text) {
+      return 'wireframe';
+    }
+    if (text === '2dwireframe' || text === 'wireframe' || text.includes('wireframe')) {
+      return 'wireframe';
+    }
+    if (text === '3dhidden' || text === 'hidden' || text.includes('hidden')) {
+      return 'hidden';
+    }
+    if (text.includes('realistic')) {
+      return 'realistic';
+    }
+    if (text.includes('concept')) {
+      return 'conceptual';
+    }
+    if (text.includes('shade')) {
+      return 'shaded';
+    }
+    if (Object.prototype.hasOwnProperty.call(VISUAL_STYLE_PRESETS, text)) {
+      return text;
+    }
+    return text;
+  }
+
   function vectorLength(vector) {
     if (!vector || typeof vector !== 'object') {
       return 0;
@@ -417,6 +619,11 @@
       this.autoViewState = null;
       this.onCanvasReplaced = null;
       this.environment = null;
+      this.visualStyleOverride = null;
+    }
+
+    static getVisualStylePresets() {
+      return VISUAL_STYLE_PRESET_DESCRIPTOR.map((entry) => Object.assign({}, entry));
     }
 
     initialize(canvas) {
@@ -595,6 +802,28 @@
       if (this.activeSurface && typeof this.activeSurface.clear === 'function') {
         this.activeSurface.clear();
       }
+    }
+
+    setVisualStyle(specifier) {
+      if (specifier == null || (typeof specifier === 'string' && !specifier.trim())) {
+        this.visualStyleOverride = null;
+        return;
+      }
+      if (typeof specifier === 'string') {
+        this.visualStyleOverride = { value: specifier.trim() };
+        return;
+      }
+      if (typeof specifier === 'object') {
+        this.visualStyleOverride = Object.assign({}, specifier);
+      }
+    }
+
+    getVisualStyleOverride() {
+      return this.visualStyleOverride ? Object.assign({}, this.visualStyleOverride) : null;
+    }
+
+    getVisualStylePresets() {
+      return RenderingSurfaceManager.getVisualStylePresets();
     }
 
     setBlockIsolation(blockNames) {
@@ -890,6 +1119,13 @@
       frame.environment = environmentDescriptor;
       frame.background = environmentDescriptor ? environmentDescriptor.background || null : null;
       this.environment = environmentDescriptor;
+      const visualStyleDescriptor = this._resolveVisualStyle(sceneGraph, buildOptions, environmentDescriptor, coordinateResolver);
+      frame.visualStyle = visualStyleDescriptor;
+      const styleConfig = visualStyleDescriptor
+        ? Object.assign({}, visualStyleDescriptor.config || {})
+        : this._getVisualStylePreset('shaded');
+      frame.visualStyleConfig = Object.assign({}, styleConfig);
+      frame.visualStyleSource = visualStyleDescriptor ? visualStyleDescriptor.source : 'default';
       const resolveBaseMatrixForEntity = (entity) => {
         if (!entity || !coordinateResolver) {
           return defaultBaseMatrix;
@@ -925,6 +1161,11 @@
         showReferences: true,
         showInvisible: false
       };
+      let requiresCanvas = !!(environmentDescriptor && environmentDescriptor.background
+        && environmentDescriptor.background.type === 'gradient');
+      if (styleConfig && styleConfig.preferCanvas) {
+        requiresCanvas = true;
+      }
 
       const blocks = sceneGraph.blocks || {};
 
@@ -1028,7 +1269,8 @@
           space: entity.space || 'model',
           blockStack: Array.isArray(blockStack) ? blockStack.slice() : [],
           isSelected,
-          highlightActive
+          highlightActive,
+          visualStyle: entity.visualStyle || (entity.resolved && entity.resolved.visualStyle) || null
         }, overrides);
 
         switch (type) {
@@ -1692,10 +1934,10 @@
         return [screenX, screenY];
       };
 
-      let requiresCanvas = !!(environmentDescriptor && environmentDescriptor.background
-        && environmentDescriptor.background.type === 'gradient');
-
       rawPolylines.forEach((polyline) => {
+        if (styleConfig && styleConfig.showEdges === false) {
+          return;
+        }
         const coords = [];
         const worldPoints = [];
         let screenMinX = Infinity;
@@ -1724,12 +1966,18 @@
             frame.linetypeShapes = frame.linetypeShapes || [];
             frame.linetypeShapes.push(...styleInfo.shapes);
           }
-          const weightPx = this._lineweightToPx(polyline.lineweight);
+          const baseWeightPx = this._lineweightToPx(polyline.lineweight);
+          const edgeWeightScale = Number.isFinite(styleConfig && styleConfig.edgeWeightScale)
+            ? Math.max(0.05, styleConfig.edgeWeightScale)
+            : 1;
+          const weightPx = baseWeightPx * edgeWeightScale;
+          const styledColor = this._applyVisualStyleToEdgeColor(polyline.color, styleConfig);
+          const finalColor = styledColor || polyline.color || cloneColor(null);
           const screenPoints = new Float32Array(coords);
           frame.polylines.push({
             screenPoints,
-            color: polyline.color,
-            colorCss: polyline.color.css,
+            color: finalColor,
+            colorCss: finalColor.css,
             weight: Math.max(0.75, weightPx),
             lineDash: styleInfo && styleInfo.dashPattern ? styleInfo.dashPattern : null,
             lineDashOffset: styleInfo && typeof styleInfo.dashOffset === 'number'
@@ -1832,12 +2080,8 @@
         if (normalized.type === 'solid' && !hasHoles && screenContours.length === 1) {
           triangles = this._triangulateSimplePolygon(screenContours[0].points);
         }
-        if (!triangles || triangles.length < 6) {
-          requiresCanvas = true;
-        }
-        if (normalized.type === 'gradient' || normalized.type === 'pattern') {
-          requiresCanvas = true;
-        }
+        const geometryRequiresCanvas = !triangles || triangles.length < 6;
+        const fillTypeRequiresCanvas = normalized.type === 'gradient' || normalized.type === 'pattern';
 
         let allWorldPoints = [];
         normalized.contours.forEach((contour) => {
@@ -1870,9 +2114,24 @@
           fillRecord.triangles = new Float32Array(triangles);
         }
 
+        if (!this._visualStyleAllowsFill(fillRecord, styleConfig)) {
+          return;
+        }
+
+        this._applyVisualStyleToFill(fillRecord, styleConfig);
+
+        if (geometryRequiresCanvas) {
+          requiresCanvas = true;
+        }
+        if (fillTypeRequiresCanvas) {
+          requiresCanvas = true;
+        }
+
         if (fillRecord.material && this._materialHasTexture(fillRecord.material)) {
           requiresCanvas = true;
           fillRecord.hasMaterialTexture = true;
+        } else {
+          fillRecord.hasMaterialTexture = false;
         }
 
         frame.fills.push(fillRecord);
@@ -3390,6 +3649,274 @@
         y: b * pt.x + d * pt.y + f
       }));
       return this._computeBoundsFromPoints(corners);
+    }
+
+    _resolveVisualStyle(sceneGraph, buildOptions, environmentDescriptor, coordinateResolver) {
+      const tables = sceneGraph && sceneGraph.tables ? sceneGraph.tables : {};
+      const byHandle = tables.visualStylesByHandle || {};
+      const byName = tables.visualStylesByName || {};
+      const visualStyles = tables.visualStyles || {};
+
+      const lookupByHandle = (handle) => {
+        if (!handle && handle !== 0) {
+          return null;
+        }
+        const key = String(handle).trim().toUpperCase();
+        if (!key) {
+          return null;
+        }
+        return byHandle[key] || null;
+      };
+
+      const lookupByName = (name) => {
+        if (!name) {
+          return null;
+        }
+        const trimmed = String(name).trim();
+        if (!trimmed) {
+          return null;
+        }
+        const upper = trimmed.toUpperCase();
+        return byName[upper] || visualStyles[trimmed] || null;
+      };
+
+      const buildDescriptorFromEntry = (entry, source) => {
+        if (!entry) {
+          return null;
+        }
+        const categoryGuess = entry.category || classifyVisualStyleName(entry.name);
+        const normalizedCategory = this._normalizeVisualStyleCategory(categoryGuess);
+        const config = this._getVisualStylePreset(normalizedCategory);
+        return {
+          name: entry.name || null,
+          handle: entry.handle || null,
+          description: entry.description || null,
+          category: normalizedCategory,
+          source,
+          config,
+          entry
+        };
+      };
+
+      const buildPresetDescriptor = (category, source) => {
+        const normalized = this._normalizeVisualStyleCategory(category);
+        return {
+          name: normalized,
+          handle: null,
+          description: null,
+          category: normalized,
+          source,
+          config: this._getVisualStylePreset(normalized),
+          entry: null
+        };
+      };
+
+      const tryResolveSpecifier = (specifier, source) => {
+        if (specifier == null) {
+          return null;
+        }
+        if (typeof specifier === 'string') {
+          const trimmed = specifier.trim();
+          if (!trimmed) {
+            return null;
+          }
+          const categoryCandidate = this._normalizeVisualStyleCategory(trimmed);
+          if (Object.prototype.hasOwnProperty.call(VISUAL_STYLE_PRESETS, categoryCandidate)) {
+            return buildPresetDescriptor(categoryCandidate, source);
+          }
+          const byHandleEntry = lookupByHandle(trimmed);
+          if (byHandleEntry) {
+            return buildDescriptorFromEntry(byHandleEntry, source);
+          }
+          const byNameEntry = lookupByName(trimmed);
+          if (byNameEntry) {
+            return buildDescriptorFromEntry(byNameEntry, source);
+          }
+          return null;
+        }
+        if (typeof specifier === 'object') {
+          if (specifier.category) {
+            return buildPresetDescriptor(specifier.category, source);
+          }
+          if (specifier.handle) {
+            const entry = lookupByHandle(specifier.handle);
+            if (entry) {
+              return buildDescriptorFromEntry(entry, source);
+            }
+          }
+          if (specifier.name) {
+            const entry = lookupByName(specifier.name);
+            if (entry) {
+              return buildDescriptorFromEntry(entry, source);
+            }
+          }
+          if (specifier.value) {
+            return tryResolveSpecifier(specifier.value, source);
+          }
+        }
+        return null;
+      };
+
+      const overrideSpecifier = Object.prototype.hasOwnProperty.call(buildOptions || {}, 'visualStyle')
+        ? buildOptions.visualStyle
+        : this.visualStyleOverride;
+      if (overrideSpecifier) {
+        const descriptor = tryResolveSpecifier(overrideSpecifier, 'override');
+        if (descriptor) {
+          return descriptor;
+        }
+      }
+
+      const viewport = environmentDescriptor && environmentDescriptor.viewport
+        ? environmentDescriptor.viewport
+        : null;
+      if (viewport && viewport.visualStyleHandle) {
+        const descriptor = tryResolveSpecifier({ handle: viewport.visualStyleHandle }, 'viewport');
+        if (descriptor) {
+          return descriptor;
+        }
+      }
+      if (viewport && viewport.visualStyle) {
+        const descriptor = tryResolveSpecifier(viewport.visualStyle, 'viewport');
+        if (descriptor) {
+          return descriptor;
+        }
+      }
+
+      const layoutSpecifier = this._resolveLayoutVisualStyle(tables, coordinateResolver);
+      if (layoutSpecifier) {
+        const descriptor = tryResolveSpecifier(layoutSpecifier, 'layout');
+        if (descriptor) {
+          return descriptor;
+        }
+      }
+
+      const fallbackNames = ['2D WIREFRAME', '2DWIREFRAME', 'WIREFRAME', 'SHADED', 'REALISTIC'];
+      for (let i = 0; i < fallbackNames.length; i++) {
+        const descriptor = tryResolveSpecifier(fallbackNames[i], 'fallback');
+        if (descriptor) {
+          return descriptor;
+        }
+      }
+
+      return buildPresetDescriptor('shaded', 'default');
+    }
+
+    _resolveLayoutVisualStyle(tables) {
+      if (!tables || !tables.layouts) {
+        return null;
+      }
+      const ordered = Array.isArray(tables.layouts.ordered) ? tables.layouts.ordered : [];
+      for (let i = 0; i < ordered.length; i++) {
+        const layout = ordered[i];
+        if (layout && layout.visualStyleHandle) {
+          return { handle: layout.visualStyleHandle };
+        }
+        if (layout && layout.visualStyleName) {
+          return { name: layout.visualStyleName };
+        }
+      }
+      return null;
+    }
+
+    _getVisualStylePreset(category) {
+      const normalized = this._normalizeVisualStyleCategory(category);
+      const preset = VISUAL_STYLE_PRESETS[normalized] || VISUAL_STYLE_PRESETS.wireframe;
+      return Object.assign({}, preset);
+    }
+
+    _applyVisualStyleToEdgeColor(color, styleConfig) {
+      const opacity = styleConfig && Number.isFinite(styleConfig.edgeOpacity)
+        ? styleConfig.edgeOpacity
+        : 1;
+      let result = color ? applyAlphaMultiplier(color, opacity) : null;
+      if (!result) {
+        result = applyAlphaMultiplier(cloneColor(null), opacity);
+      }
+      const mode = styleConfig && styleConfig.edgeColorMode
+        ? styleConfig.edgeColorMode
+        : 'inherit';
+      if (mode === 'monochrome') {
+        const mono = styleConfig && styleConfig.edgeMonochrome
+          ? styleConfig.edgeMonochrome
+          : { r: 0.78, g: 0.82, b: 0.86 };
+        result.r = Math.max(0, Math.min(1, mono.r));
+        result.g = Math.max(0, Math.min(1, mono.g));
+        result.b = Math.max(0, Math.min(1, mono.b));
+        result.css = `rgba(${Math.round(result.r * 255)}, ${Math.round(result.g * 255)}, ${Math.round(result.b * 255)}, ${result.a.toFixed(3)})`;
+        return result;
+      }
+      if (mode === 'desaturate') {
+        const amount = Number.isFinite(styleConfig.edgeDesaturate) ? styleConfig.edgeDesaturate : 0.5;
+        return desaturateColor(result, amount);
+      }
+      return result;
+    }
+
+    _visualStyleAllowsFill(fillRecord, styleConfig) {
+      if (!styleConfig) {
+        return true;
+      }
+      const fillKind = fillRecord && fillRecord.meta ? fillRecord.meta.fillKind : null;
+      if (styleConfig.showFaces === false) {
+        if (fillKind === 'hatch') {
+          return styleConfig.showHatches !== false;
+        }
+        if (fillKind === 'wipeout') {
+          return styleConfig.showWipeouts !== false;
+        }
+        return false;
+      }
+      if (fillKind === 'hatch' && styleConfig.showHatches === false) {
+        return false;
+      }
+      if (fillKind === 'wipeout' && styleConfig.showWipeouts === false) {
+        return false;
+      }
+      return true;
+    }
+
+    _applyVisualStyleToFill(fillRecord, styleConfig) {
+      if (!fillRecord || !styleConfig) {
+        return fillRecord;
+      }
+      const fillKind = fillRecord.meta && fillRecord.meta.fillKind
+        ? fillRecord.meta.fillKind
+        : null;
+      let opacity = Number.isFinite(styleConfig.faceOpacity) ? styleConfig.faceOpacity : 1;
+      if (fillKind === 'hatch' && Number.isFinite(styleConfig.hatchOpacity)) {
+        opacity = styleConfig.hatchOpacity;
+      } else if (fillKind === 'wipeout' && Number.isFinite(styleConfig.wipeoutOpacity)) {
+        opacity = styleConfig.wipeoutOpacity;
+      }
+      if (Number.isFinite(opacity)) {
+        const clamped = Math.max(0, Math.min(1, opacity));
+        if (fillRecord.color) {
+          fillRecord.color = applyAlphaMultiplier(fillRecord.color, clamped);
+          fillRecord.colorCss = fillRecord.color.css;
+        }
+        if (fillRecord.gradient && Array.isArray(fillRecord.gradient.colors)) {
+          fillRecord.gradient.colors = fillRecord.gradient.colors.map((stop) => {
+            if (!stop || !stop.color) {
+              return stop;
+            }
+            const nextColor = applyAlphaMultiplier(stop.color, clamped);
+            return Object.assign({}, stop, { color: nextColor });
+          });
+        }
+      }
+      if (!styleConfig.enableMaterials) {
+        fillRecord.material = null;
+        fillRecord.materialHandle = null;
+        fillRecord.materialName = null;
+      } else if (!styleConfig.enableTextures && fillRecord.material) {
+        fillRecord.hasMaterialTexture = false;
+      }
+      return fillRecord;
+    }
+
+    _normalizeVisualStyleCategory(category) {
+      return normalizeVisualStyleCategory(category);
     }
 
     _resolveEnvironment(sceneGraph, coordinateResolver) {

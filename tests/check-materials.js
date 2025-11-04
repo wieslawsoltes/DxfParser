@@ -215,6 +215,8 @@ manager.width = 400;
 manager.height = 300;
 manager.devicePixelRatio = 1;
 
+manager.setVisualStyle('realistic');
+
 const frame = manager._buildFrame(document.sceneGraph);
 assert(frame.fills.length > 0, 'Frame should include fill geometry for SOLID');
 
