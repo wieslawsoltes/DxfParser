@@ -15,6 +15,8 @@
     constructor(options = {}) {
       this.tables = options.tables || {};
       this.materials = options.materials || {};
+      this.backgrounds = options.backgrounds || {};
+      this.suns = options.suns || {};
       this.modelSpace = [];
       this.paperSpaces = new Map();
       this.blockDefinitions = new Map();
@@ -91,6 +93,12 @@
         blocks: blocksObject,
         tables: this.tables,
         materials: this.materials,
+        backgrounds: this.backgrounds,
+        suns: this.suns,
+        environment: {
+          backgrounds: this.backgrounds,
+          suns: this.suns
+        },
         stats: {
           modelSpaceEntities: this.modelSpace.length,
           paperSpaceLayouts: Object.keys(paperSpacesObject).length,

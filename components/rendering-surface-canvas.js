@@ -9,6 +9,7 @@
       this.ctx = null;
       this.devicePixelRatio = global.devicePixelRatio || 1;
       this.background = '#0b1828';
+      this.backgroundFill = { type: 'color', css: this.background };
     }
 
     attach(canvas, options = {}) {
@@ -67,13 +68,27 @@
       this.ctx.save();
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      this.ctx.fillStyle = this.background;
+      const fill = this.backgroundFill || { type: 'color', css: this.background };
+      if (fill.type === 'gradient' && Array.isArray(fill.stops) && fill.stops.length >= 2) {
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        fill.stops.forEach((stop) => {
+          if (!stop) {
+            return;
+          }
+          const position = Math.max(0, Math.min(1, Number.isFinite(stop.position) ? stop.position : 0));
+          gradient.addColorStop(position, stop.css || this.background);
+        });
+        this.ctx.fillStyle = gradient;
+      } else {
+        this.ctx.fillStyle = fill.css || this.background;
+      }
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       this.ctx.restore();
     }
 
     render(frame) {
       if (!this.ctx || !frame) return;
+      this._updateBackgroundFill(frame.environment ? frame.environment.background : null);
 
       const hasGeometry =
         (frame.polylines && frame.polylines.length > 0) ||
@@ -181,6 +196,43 @@
 
       ctx.globalAlpha = 1;
       ctx.restore();
+    }
+
+    _updateBackgroundFill(background) {
+      if (!background) {
+        this.backgroundFill = { type: 'color', css: this.background };
+        return;
+      }
+      if (background.type === 'gradient' && Array.isArray(background.stops) && background.stops.length >= 2) {
+        const stops = background.stops.map((stop) => ({
+          position: Number.isFinite(stop.position) ? Math.max(0, Math.min(1, stop.position)) : 0,
+          css: stop.css || (stop.resolved && stop.resolved.css) || this.background
+        }));
+        this.backgroundFill = {
+          type: 'gradient',
+          stops
+        };
+        return;
+      }
+      if (background.type === 'solid' && background.solid) {
+        const css = background.solid.css
+          || (background.solid.resolved && background.solid.resolved.css)
+          || this.background;
+        this.backgroundFill = { type: 'color', css };
+        return;
+      }
+      if (background.solidFallback) {
+        const css = background.solidFallback.css
+          || (background.solidFallback.resolved && background.solidFallback.resolved.css)
+          || this.background;
+        this.backgroundFill = { type: 'color', css };
+        return;
+      }
+      if (background.css) {
+        this.backgroundFill = { type: 'color', css: background.css };
+        return;
+      }
+      this.backgroundFill = { type: 'color', css: this.background };
     }
 
     renderMessage(message, frame = {}) {

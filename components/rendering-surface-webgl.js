@@ -14,6 +14,7 @@
       this.pointSizeLocation = null;
       this.positionBuffer = null;
       this.devicePixelRatio = global.devicePixelRatio || 1;
+      this.clearColor = { r: 0.043, g: 0.089, b: 0.145, a: 1.0 };
     }
 
     attach(canvas, options = {}) {
@@ -56,13 +57,19 @@
     clear() {
       if (!this.gl) return;
       this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-      this.gl.clearColor(0.043, 0.089, 0.145, 1.0);
+      this.gl.clearColor(
+        Number.isFinite(this.clearColor.r) ? this.clearColor.r : 0.043,
+        Number.isFinite(this.clearColor.g) ? this.clearColor.g : 0.089,
+        Number.isFinite(this.clearColor.b) ? this.clearColor.b : 0.145,
+        Number.isFinite(this.clearColor.a) ? this.clearColor.a : 1.0
+      );
       this.gl.clear(this.gl.COLOR_BUFFER_BIT);
     }
 
     render(frame) {
       if (!this.gl) return;
 
+      this._updateClearColor(frame && frame.environment ? frame.environment.background : null);
       this.clear();
 
       if (!frame || frame.isEmpty) {
@@ -109,8 +116,8 @@
         const size = Math.max(1.5, point.size || 4) * (frame.devicePixelRatio || this.devicePixelRatio);
         gl.uniform4f(this.colorLocation, c.r, c.g, c.b, c.a);
         gl.uniform1f(this.pointSizeLocation, size);
-        gl.drawArrays(gl.POINTS, 0, 1);
-      }
+      gl.drawArrays(gl.POINTS, 0, 1);
+    }
     }
 
     renderMessage() {
@@ -200,6 +207,29 @@
         throw new Error('Failed to compile WebGL shader: ' + info);
       }
       return shader;
+    }
+
+    _updateClearColor(background) {
+      if (!background) {
+        this.clearColor = { r: 0.043, g: 0.089, b: 0.145, a: 1.0 };
+        return;
+      }
+      let resolved = null;
+      if (background.type === 'solid' && background.solid && background.solid.resolved) {
+        resolved = background.solid.resolved;
+      } else if (background.solidFallback && background.solidFallback.resolved) {
+        resolved = background.solidFallback.resolved;
+      }
+      if (resolved && Number.isFinite(resolved.r) && Number.isFinite(resolved.g) && Number.isFinite(resolved.b)) {
+        this.clearColor = {
+          r: Math.max(0, Math.min(1, resolved.r)),
+          g: Math.max(0, Math.min(1, resolved.g)),
+          b: Math.max(0, Math.min(1, resolved.b)),
+          a: Number.isFinite(resolved.a) ? Math.max(0, Math.min(1, resolved.a)) : 1
+        };
+      } else {
+        this.clearColor = { r: 0.043, g: 0.089, b: 0.145, a: 1.0 };
+      }
     }
 
     _buildThickLineTriangles(points, thickness) {

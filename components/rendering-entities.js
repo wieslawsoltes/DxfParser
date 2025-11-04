@@ -842,6 +842,49 @@
           position: pointFromCodes(10, 20, 30)
         };
       }
+      case 'LIGHT': {
+        const position = pointFromCodes(10, 20, 30);
+        const target = pointFromCodes(11, 21, 31);
+        const lightType = toInt(map.get(70)?.[0]) || 2;
+        const status = (toInt(map.get(290)?.[0]) || 0) !== 0;
+        const plotGlyph = (toInt(map.get(291)?.[0]) || 0) !== 0;
+        const intensity = toFloat(map.get(40)?.[0]);
+        const attenuationType = toInt(map.get(72)?.[0]) || 0;
+        const useLimits = (toInt(map.get(292)?.[0]) || 0) !== 0;
+        const attenuationStart = toFloat(map.get(41)?.[0]);
+        const attenuationEnd = toFloat(map.get(42)?.[0]);
+        const hotspot = toFloat(map.get(50)?.[0]);
+        const falloff = toFloat(map.get(51)?.[0]);
+        const castShadows = (toInt(map.get(293)?.[0]) || 0) !== 0;
+        const shadowType = toInt(map.get(73)?.[0]);
+        const shadowMapSize = toInt(map.get(91)?.[0]);
+        const shadowSoftness = toFloat(map.get(280)?.[0]);
+        const name = map.get(1)?.[0] ? String(map.get(1)?.[0]).trim() : null;
+        return {
+          type: 'light',
+          name: name || null,
+          status,
+          plotGlyph,
+          lightType,
+          intensity,
+          position,
+          target,
+          attenuation: {
+            type: attenuationType,
+            useLimits,
+            start: attenuationStart,
+            end: attenuationEnd
+          },
+          hotspot,
+          falloff,
+          castShadows,
+          shadow: {
+            type: shadowType,
+            mapSize: shadowMapSize,
+            softness: shadowSoftness
+          }
+        };
+      }
       case 'CIRCLE': {
         return {
           type: 'circle',

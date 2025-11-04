@@ -74,3 +74,28 @@
 ### Follow-ups
 - Capture a gradient-heavy DXF baseline once automated SVG/PNG diffing lands to validate transform-aware gradients against TrueView imagery.
 - Evaluate exposing WIPEOUT frame visibility toggles in the overlay controls for parity with AutoCAD display options.
+
+## Task 6.4 – Lights, Backgrounds, and Sun Studies
+
+### Implementation Summary
+- Parsed BACKGROUND and SUN objects alongside layout metadata so environments are exposed via the scene graph and normalized dictionaries.
+- Resolved per-viewport background selections (with layout fallbacks), produced solid/gradient descriptors, and threaded sun data into the render frame.
+- Added LIGHT entity geometry handling, emitting annotated light markers, viewport-aware lighting stats, and exposed them through `frame.lights` for interaction.
+- Updated canvas/WebGL surfaces to respect resolved backgrounds, including gradient fills (canvas) and safe fallbacks, and forced canvas rendering when gradients are present.
+- Added `tests/check-environment.js` to validate BACKGROUND/SUN parsing and LIGHT rendering end-to-end.
+
+### Validation Checklist
+1. Load a viewport referencing a solid BACKGROUND and confirm the overlay clears to the expected CSS color (match values in inspector).
+2. Enable a gradient BACKGROUND and verify the renderer switches to the canvas surface while honouring gradient stops.
+3. Insert or toggle a LIGHT entity and ensure the light marker renders, participates in pickables, and emits metadata in `frame.environment.lights`.
+4. Run `node tests/check-environment.js` to exercise BACKGROUND/SUN parsing and LIGHT rendering.
+
+### Parity / Regression Safeguards
+- **Environment sanity:** `node tests/check-environment.js` asserts BACKGROUND/SUN records propagate through the renderer and expose light descriptors.
+- **Rendering smoke:** Visual check of solid vs. gradient backgrounds in both model and paper space viewports to confirm canvas/WebGL fallbacks operate correctly.
+- **Lighting pickables:** Inspect `frame.lights` and selection behaviour using the diagnostics overlay when enabling light markers.
+
+### Follow-ups
+- Extend background descriptors to support sky/ground/image variants once design requirements land.
+- Plumb sun azimuth/elevation into future shading passes for shaded viewport parity.
+- Consider surfacing background overrides and sun toggles in the overlay’s environmental controls.

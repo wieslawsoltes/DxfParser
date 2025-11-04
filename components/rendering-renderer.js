@@ -153,6 +153,7 @@
     constructor(sceneGraph) {
       this.sceneGraph = sceneGraph || {};
       const tables = this.sceneGraph.tables || {};
+      this.activeVport = null;
       this.ucsLookup = this._buildUcsLookup(tables.ucs || {});
       this.modelMatrix = this._computeModelMatrix(tables);
       this.paperMatrices = this._computePaperMatrices(tables);
@@ -185,6 +186,7 @@
     _computeModelMatrix(tables) {
       const vports = tables && tables.vports ? tables.vports : {};
       const vport = this._selectVport(vports);
+      this.activeVport = vport || null;
       const basis = this._basisFromVport(vport, tables);
       return this._matrixFromBasis(basis);
     }
@@ -216,6 +218,13 @@
         }
       }
       return vports[entries[0]];
+    }
+
+    getActiveVport() {
+      if (!this.activeVport) {
+        return null;
+      }
+      return Object.assign({}, this.activeVport);
     }
 
     _basisFromVport(vport, tables) {
@@ -407,6 +416,7 @@
       this.viewState = null;
       this.autoViewState = null;
       this.onCanvasReplaced = null;
+      this.environment = null;
     }
 
     initialize(canvas) {
@@ -876,6 +886,10 @@
         ? coordinateResolver.getModelMatrix()
         : defaultBaseMatrix;
       const paperMatrixCache = new Map();
+      const environmentDescriptor = this._resolveEnvironment(sceneGraph, coordinateResolver, buildOptions);
+      frame.environment = environmentDescriptor;
+      frame.background = environmentDescriptor ? environmentDescriptor.background || null : null;
+      this.environment = environmentDescriptor;
       const resolveBaseMatrixForEntity = (entity) => {
         if (!entity || !coordinateResolver) {
           return defaultBaseMatrix;
@@ -905,6 +919,7 @@
       const rawPoints = [];
       const rawFills = [];
       const rawTexts = [];
+      const rawLights = [];
       const attributeDisplay = this.attributeDisplay || {
         showDefinitions: false,
         showReferences: true,
@@ -1160,20 +1175,65 @@
             if (!geometry.position) return;
             const pt = applyMatrix(transform, geometry.position);
             updateBounds(pt.x, pt.y);
-            rawPoints.push({
-              position: [pt.x, pt.y],
-              color,
-              size: geometry.size || 4,
-              worldBounds: { minX: pt.x, minY: pt.y, maxX: pt.x, maxY: pt.y },
-              meta: makeMeta({ geometryKind: 'point' })
-            });
-            break;
-          }
-          case 'HATCH': {
-            this._processHatchEntity({
-              entity,
-              geometry,
-              transform,
+          rawPoints.push({
+            position: [pt.x, pt.y],
+            color,
+            size: geometry.size || 4,
+            worldBounds: { minX: pt.x, minY: pt.y, maxX: pt.x, maxY: pt.y },
+            meta: makeMeta({ geometryKind: 'point' })
+          });
+          break;
+        }
+        case 'LIGHT': {
+          if (!geometry.position) return;
+          const mapped = applyMatrix(transform, geometry.position);
+          updateBounds(mapped.x, mapped.y);
+          const worldPosition = {
+            x: Number.isFinite(geometry.position.x) ? geometry.position.x : 0,
+            y: Number.isFinite(geometry.position.y) ? geometry.position.y : 0,
+            z: Number.isFinite(geometry.position.z) ? geometry.position.z : 0
+          };
+          const intensity = Number.isFinite(geometry.intensity) ? geometry.intensity : null;
+          const displayColor = geometry.status === false
+            ? (this._createColorFromRgb({ r: 170, g: 180, b: 190 }, 0.8) || color)
+            : color;
+          const size = Math.max(4.5, intensity != null ? Math.max(3, intensity * 6) : 6);
+          rawLights.push({
+            handle,
+            type: geometry.lightType || 2,
+            status: geometry.status !== false,
+            plotGlyph: !!geometry.plotGlyph,
+            intensity,
+            attenuation: geometry.attenuation || null,
+            hotspot: Number.isFinite(geometry.hotspot) ? geometry.hotspot : null,
+            falloff: Number.isFinite(geometry.falloff) ? geometry.falloff : null,
+            castShadows: !!geometry.castShadows,
+            shadow: geometry.shadow || null,
+            color: displayColor,
+            worldPosition,
+            target: geometry.target || null,
+            projectedPosition: { x: mapped.x, y: mapped.y },
+            meta: makeMeta({ geometryKind: 'light' })
+          });
+          rawPoints.push({
+            position: [mapped.x, mapped.y],
+            color: displayColor || color,
+            size,
+            worldBounds: {
+              minX: worldPosition.x,
+              minY: worldPosition.y,
+              maxX: worldPosition.x,
+              maxY: worldPosition.y
+            },
+            meta: makeMeta({ geometryKind: 'light' })
+          });
+          break;
+        }
+        case 'HATCH': {
+          this._processHatchEntity({
+            entity,
+            geometry,
+            transform,
               updateBounds,
               fillCollector: rawFills,
               color,
@@ -1632,7 +1692,8 @@
         return [screenX, screenY];
       };
 
-      let requiresCanvas = false;
+      let requiresCanvas = !!(environmentDescriptor && environmentDescriptor.background
+        && environmentDescriptor.background.type === 'gradient');
 
       rawPolylines.forEach((polyline) => {
         const coords = [];
@@ -1988,6 +2049,19 @@
         registerTextPickable(fallbackLayout);
       });
 
+      const resolvedLights = rawLights.map((light) => {
+        const projected = light.projectedPosition || { x: light.worldPosition ? light.worldPosition.x : 0, y: light.worldPosition ? light.worldPosition.y : 0 };
+        const screenPosition = toScreen(projected.x, projected.y);
+        return Object.assign({}, light, {
+          projectedPosition: projected,
+          screenPosition
+        });
+      });
+      frame.lights = resolvedLights;
+      if (frame.environment) {
+        frame.environment.lights = resolvedLights;
+      }
+
       frame.bounds = bounds;
       frame.scale = scale;
       frame.worldCenter = { x: centerX, y: centerY };
@@ -2034,7 +2108,7 @@
         maxY: bounds.maxY
       };
       frame.devicePixelRatio = this.devicePixelRatio;
-      frame.isEmpty = !frame.polylines.length && !frame.points.length && !frame.fills.length && !frame.texts.length;
+      frame.isEmpty = !frame.polylines.length && !frame.points.length && !frame.fills.length && !frame.texts.length && !(frame.lights && frame.lights.length);
       return frame;
     }
 
@@ -3316,6 +3390,294 @@
         y: b * pt.x + d * pt.y + f
       }));
       return this._computeBoundsFromPoints(corners);
+    }
+
+    _resolveEnvironment(sceneGraph, coordinateResolver) {
+      const environment = {
+        background: null,
+        sun: null,
+        viewport: null,
+        lighting: {
+          defaultLightOn: null,
+          defaultLightType: null,
+          brightness: null,
+          contrast: null,
+          ambient: null
+        },
+        source: {
+          background: null,
+          sun: null
+        },
+        lights: []
+      };
+      if (!sceneGraph) {
+        return environment;
+      }
+      const tables = sceneGraph.tables || {};
+      const backgrounds = (sceneGraph.environment && sceneGraph.environment.backgrounds)
+        || sceneGraph.backgrounds
+        || {};
+      const suns = (sceneGraph.environment && sceneGraph.environment.suns)
+        || sceneGraph.suns
+        || {};
+      const activeVport = coordinateResolver && typeof coordinateResolver.getActiveVport === 'function'
+        ? coordinateResolver.getActiveVport()
+        : null;
+      environment.viewport = activeVport ? Object.assign({}, activeVport) : null;
+      if (activeVport) {
+        const backgroundHandle = this._normalizeHandle(activeVport.backgroundHandle || null);
+        if (backgroundHandle) {
+          const backgroundEntry =
+            backgrounds[backgroundHandle]
+            || backgrounds[activeVport.backgroundHandle]
+            || null;
+          if (backgroundEntry) {
+            environment.background = this._buildBackgroundDescriptor(backgroundEntry);
+            environment.source.background = 'vport';
+          }
+        }
+        const sunHandle = this._normalizeHandle(activeVport.sunHandle || null);
+        if (sunHandle) {
+          const sunEntry =
+            suns[sunHandle]
+            || suns[activeVport.sunHandle]
+            || null;
+          if (sunEntry) {
+            environment.sun = Object.assign({}, sunEntry);
+            environment.source.sun = 'vport';
+          }
+        }
+        environment.lighting = {
+          defaultLightOn: !!activeVport.defaultLightingOn,
+          defaultLightType: Number.isFinite(activeVport.defaultLightingType)
+            ? activeVport.defaultLightingType
+            : null,
+          brightness: Number.isFinite(activeVport.brightness) ? activeVport.brightness : null,
+          contrast: Number.isFinite(activeVport.contrast) ? activeVport.contrast : null,
+          ambient: this._resolveAmbientColor(activeVport)
+        };
+      }
+      if (!environment.background) {
+        const fallbackBackground = this._resolveFallbackBackground(tables, backgrounds, activeVport);
+        if (fallbackBackground) {
+          environment.background = fallbackBackground.descriptor;
+          environment.source.background = fallbackBackground.source;
+        }
+      }
+      if (!environment.sun) {
+        const fallbackSun = this._resolveFallbackSun(tables, suns, activeVport);
+        if (fallbackSun) {
+          environment.sun = fallbackSun.entry;
+          environment.source.sun = fallbackSun.source;
+        }
+      }
+      return environment;
+    }
+
+    _resolveFallbackBackground(tables, backgrounds, activeVport) {
+      if (!tables || !tables.layouts || !backgrounds) {
+        return null;
+      }
+      const layouts = tables.layouts;
+      const byName = layouts.byName || {};
+      const ordered = layouts.ordered || [];
+      const preferredNames = [];
+      if (activeVport && activeVport.name) {
+        const name = String(activeVport.name).trim().toUpperCase();
+        if (name.includes('MODEL')) {
+          preferredNames.push('MODEL');
+        }
+        if (name.includes('PAPER')) {
+          preferredNames.push('PAPER');
+        }
+      }
+      preferredNames.push('MODEL', 'PAPER');
+      for (let i = 0; i < preferredNames.length; i++) {
+        const key = preferredNames[i];
+        const layout = byName[key];
+        if (layout && layout.backgroundHandle) {
+          const handle = this._normalizeHandle(layout.backgroundHandle);
+          if (handle && backgrounds[handle]) {
+            return {
+              descriptor: this._buildBackgroundDescriptor(backgrounds[handle]),
+              source: `layout:${key}`
+            };
+          }
+        }
+      }
+      for (let i = 0; i < ordered.length; i++) {
+        const layout = ordered[i];
+        if (layout && layout.backgroundHandle) {
+          const handle = this._normalizeHandle(layout.backgroundHandle);
+          if (handle && backgrounds[handle]) {
+            return {
+              descriptor: this._buildBackgroundDescriptor(backgrounds[handle]),
+              source: layout.name ? `layout:${layout.name}` : 'layout'
+            };
+          }
+        }
+      }
+      return null;
+    }
+
+    _resolveFallbackSun(tables, suns, activeVport) {
+      if (!tables || !tables.layouts || !suns) {
+        return null;
+      }
+      const layouts = tables.layouts;
+      const byName = layouts.byName || {};
+      const ordered = layouts.ordered || [];
+      const preferredNames = [];
+      if (activeVport && activeVport.name) {
+        const name = String(activeVport.name).trim().toUpperCase();
+        if (name.includes('MODEL')) {
+          preferredNames.push('MODEL');
+        }
+        if (name.includes('PAPER')) {
+          preferredNames.push('PAPER');
+        }
+      }
+      preferredNames.push('MODEL', 'PAPER');
+      for (let i = 0; i < preferredNames.length; i++) {
+        const key = preferredNames[i];
+        const layout = byName[key];
+        if (layout && layout.sunHandle) {
+          const handle = this._normalizeHandle(layout.sunHandle);
+          if (handle && suns[handle]) {
+            return {
+              entry: Object.assign({}, suns[handle]),
+              source: `layout:${key}`
+            };
+          }
+        }
+      }
+      for (let i = 0; i < ordered.length; i++) {
+        const layout = ordered[i];
+        if (layout && layout.sunHandle) {
+          const handle = this._normalizeHandle(layout.sunHandle);
+          if (handle && suns[handle]) {
+            return {
+              entry: Object.assign({}, suns[handle]),
+              source: layout.name ? `layout:${layout.name}` : 'layout'
+            };
+          }
+        }
+      }
+      return null;
+    }
+
+    _buildBackgroundDescriptor(entry) {
+      if (!entry) {
+        return null;
+      }
+      const descriptor = {
+        type: entry.type || 'unknown',
+        source: entry,
+        css: null,
+        solid: null,
+        gradient: null,
+        stops: null,
+        image: entry.image || null,
+        sky: entry.sky || null,
+        ground: entry.ground || null,
+        solidFallback: null
+      };
+      if (entry.type === 'solid' && entry.solid && entry.solid.color) {
+        const colorInfo = entry.solid.color;
+        let resolved = null;
+        if (colorInfo.trueColor) {
+          resolved = this._createColorFromRgb(colorInfo.trueColor, colorInfo.transparency != null ? colorInfo.transparency : 1);
+        } else if (Number.isInteger(colorInfo.aci)) {
+          resolved = this._createColorFromRgb(this._aciToRgb(colorInfo.aci), colorInfo.transparency != null ? colorInfo.transparency : 1);
+        }
+        const css = (colorInfo && colorInfo.css) || (resolved && resolved.css) || '#0b1828';
+        descriptor.type = 'solid';
+        descriptor.solid = {
+          color: colorInfo,
+          resolved,
+          css
+        };
+        descriptor.css = css;
+        descriptor.solidFallback = descriptor.solid;
+        return descriptor;
+      }
+      if (entry.type === 'gradient' && entry.gradient && Array.isArray(entry.gradient.colors) && entry.gradient.colors.length) {
+        const stops = entry.gradient.colors.map((stop, index) => {
+          const info = stop || {};
+          const colorInfo = info.color || {};
+          let resolved = null;
+          if (colorInfo.trueColor) {
+            resolved = this._createColorFromRgb(colorInfo.trueColor, colorInfo.transparency != null ? colorInfo.transparency : 1);
+          } else if (Number.isInteger(colorInfo.aci)) {
+            resolved = this._createColorFromRgb(this._aciToRgb(colorInfo.aci), colorInfo.transparency != null ? colorInfo.transparency : 1);
+          }
+          const css = (colorInfo && colorInfo.css) || (resolved && resolved.css) || '#0b1828';
+          let position = Number.isFinite(info.position) ? info.position : (
+            entry.gradient.colors.length > 1 ? index / (entry.gradient.colors.length - 1) : 0
+          );
+          position = Math.max(0, Math.min(1, position));
+          return {
+            color: colorInfo,
+            resolved,
+            css,
+            position
+          };
+        });
+        descriptor.type = 'gradient';
+        descriptor.gradient = {
+          stops,
+          version: entry.gradient.version != null ? entry.gradient.version : null,
+          properties: entry.gradient.properties || {}
+        };
+        descriptor.stops = stops;
+        descriptor.solidFallback = stops.length ? stops[0] : null;
+        if (stops.length) {
+          const gradientCss = stops.map((stop) => `${stop.css} ${(stop.position * 100).toFixed(1)}%`).join(', ');
+          descriptor.css = `linear-gradient(180deg, ${gradientCss})`;
+        }
+        return descriptor;
+      }
+      if (entry.type === 'image') {
+        descriptor.type = 'image';
+        if (!descriptor.css && entry.solid && entry.solid.color) {
+          const fallback = this._buildBackgroundDescriptor({
+            type: 'solid',
+            solid: entry.solid
+          });
+          if (fallback && fallback.css) {
+            descriptor.css = fallback.css;
+            descriptor.solidFallback = fallback.solid;
+          }
+        }
+        return descriptor;
+      }
+      if (entry.type === 'sky' || entry.type === 'ground' || entry.type === 'unknown') {
+        if (entry.solid && entry.solid.color) {
+          const fallback = this._buildBackgroundDescriptor({
+            type: 'solid',
+            solid: entry.solid
+          });
+          if (fallback && fallback.css) {
+            descriptor.css = fallback.css;
+            descriptor.solidFallback = fallback.solid;
+          }
+        }
+        return descriptor;
+      }
+      return descriptor;
+    }
+
+    _resolveAmbientColor(vport) {
+      if (!vport) {
+        return null;
+      }
+      if (vport.ambientTrueColor) {
+        return this._createColorFromRgb(vport.ambientTrueColor, 1);
+      }
+      if (Number.isInteger(vport.ambientColorNumber)) {
+        return this._createColorFromRgb(this._aciToRgb(vport.ambientColorNumber), 1);
+      }
+      return null;
     }
 
     _processHatchEntity({ entity, geometry, transform, updateBounds, fillCollector, color, material, meta }) {

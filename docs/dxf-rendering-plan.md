@@ -39,7 +39,7 @@
     1. [x] Task 6.1: Implement HATCH rendering with pattern libraries, gradient fills, island detection, and associative updates.
     2. [x] Task 6.2: Support SOLID fills, WIPEOUT masking, and TRANSFORMED gradient behavior in paper vs. model space.
     3. [x] Task 6.3: Integrate material definitions (MATERIAL) including textures, specularity, transparency, and self-illumination.
-    4. [ ] Task 6.4: Render lights (LIGHT), background (BACKGROUND), and sun studies with per-viewport settings.
+    4. [x] Task 6.4: Render lights (LIGHT), background (BACKGROUND), and sun studies with per-viewport settings.
     5. [ ] Task 6.5: Implement TrueView-equivalent visual styles (visualstyle table) including wireframe, hidden, shaded, realistic, and conceptual.
 
 7. [ ] **Milestone 7: Document Controls, Layers, and Metadata Parity**

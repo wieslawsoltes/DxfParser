@@ -202,6 +202,81 @@
     };
   }
 
+  function createCssFromRgb(rgb, alpha = 1) {
+    if (!rgb || !Number.isFinite(rgb.r) || !Number.isFinite(rgb.g) || !Number.isFinite(rgb.b)) {
+      return null;
+    }
+    const r = Math.max(0, Math.min(255, Math.round(rgb.r)));
+    const g = Math.max(0, Math.min(255, Math.round(rgb.g)));
+    const b = Math.max(0, Math.min(255, Math.round(rgb.b)));
+    const a = Math.max(0, Math.min(1, alpha));
+    if (a >= 0.999) {
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+  }
+
+  function updateColorDescriptor(descriptor, code, rawValue, utilsRef) {
+    const target = descriptor || {
+      aci: null,
+      trueColor: null,
+      name: null,
+      css: null,
+      transparency: null
+    };
+    switch (code) {
+      case 62:
+      case 63: {
+        const aci = utilsRef.toInt ? utilsRef.toInt(rawValue) : parseInt(rawValue, 10);
+        if (Number.isInteger(aci)) {
+          target.aci = aci;
+        }
+        break;
+      }
+      case 420:
+      case 421: {
+        if (utilsRef.parseTrueColor) {
+          const parsed = utilsRef.parseTrueColor(rawValue);
+          if (parsed) {
+            target.trueColor = parsed;
+            target.css = createCssFromRgb({
+              r: parsed.r,
+              g: parsed.g,
+              b: parsed.b
+            }, target.transparency != null ? target.transparency : 1);
+          }
+        }
+        break;
+      }
+      case 430:
+      case 431: {
+        if (rawValue != null && rawValue !== '') {
+          target.name = String(rawValue).trim();
+        }
+        break;
+      }
+      case 440: {
+        if (utilsRef.parseTransparency) {
+          const transparency = utilsRef.parseTransparency(rawValue);
+          if (transparency && transparency.alpha != null) {
+            target.transparency = transparency.alpha;
+            if (target.trueColor) {
+              target.css = createCssFromRgb({
+                r: target.trueColor.r,
+                g: target.trueColor.g,
+                b: target.trueColor.b
+              }, target.transparency);
+            }
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+    return target;
+  }
+
   function isLatitude(value) {
     return Number.isFinite(value) && value >= -90 && value <= 90;
   }
@@ -489,6 +564,24 @@
             layout.baseUcsHandleUpper = normalizeHandle(handle);
             break;
           }
+          case 348: {
+            const handle = stringValue.trim();
+            layout.visualStyleHandle = handle || null;
+            layout.visualStyleHandleUpper = normalizeHandle(handle);
+            break;
+          }
+          case 361: {
+            const handle = stringValue.trim();
+            layout.sunHandle = handle || null;
+            layout.sunHandleUpper = normalizeHandle(handle);
+            break;
+          }
+          case 332: {
+            const handle = stringValue.trim();
+            layout.backgroundHandle = handle || null;
+            layout.backgroundHandleUpper = normalizeHandle(handle);
+            break;
+          }
           default:
             break;
         }
@@ -600,6 +693,8 @@
         tables.colorBooks = colorBooks;
       }
       const materialCatalog = this.extractMaterials();
+      const backgroundCatalog = this.extractBackgrounds();
+      const sunCatalog = this.extractSuns();
       const { entities, blocks } = this.extractEntities(tables, materialCatalog);
 
       if (colorBooks && tables.layers) {
@@ -644,9 +739,18 @@
         });
       }
 
+      if (backgroundCatalog && backgroundCatalog.byHandle) {
+        tables.backgroundsByHandle = backgroundCatalog.byHandle;
+      }
+      if (sunCatalog && sunCatalog.byHandle) {
+        tables.sunsByHandle = sunCatalog.byHandle;
+      }
+
       const sceneGraphBuilder = new namespace.SceneGraphBuilder({
         tables,
-        materials: materialCatalog.byHandle
+        materials: materialCatalog.byHandle,
+        backgrounds: backgroundCatalog.byHandle,
+        suns: sunCatalog.byHandle
       });
 
       entities.forEach((entity) => sceneGraphBuilder.ingestEntity(entity));
@@ -674,7 +778,9 @@
         blockMetadata,
         textStyles: sceneGraph ? sceneGraph.textStyleCatalog : this.computeTextStyleCatalog(tables),
         stats,
-        drawingProperties
+        drawingProperties,
+        backgrounds: backgroundCatalog,
+        suns: sunCatalog
       };
     }
 
@@ -1970,6 +2076,134 @@
       };
     }
 
+    extractBackgrounds() {
+      const byHandle = Object.create(null);
+      const list = [];
+
+      let section = null;
+      let i = 0;
+
+      while (i < this.tags.length) {
+        const tag = this.tags[i];
+        const code = Number(tag.code);
+        const value = typeof tag.value === 'string' ? tag.value.trim() : tag.value;
+        const upperValue = value ? String(value).toUpperCase() : '';
+
+        if (code === 0) {
+          if (upperValue === 'SECTION') {
+            section = null;
+            i += 1;
+            while (i < this.tags.length) {
+              const lookahead = this.tags[i];
+              if (Number(lookahead.code) === 2) {
+                section = String(lookahead.value || '').trim().toUpperCase();
+                i += 1;
+                break;
+              }
+              if (Number(lookahead.code) === 0) {
+                break;
+              }
+              i += 1;
+            }
+            continue;
+          }
+
+          if (upperValue === 'ENDSEC') {
+            section = null;
+            i += 1;
+            continue;
+          }
+
+          if (section === 'OBJECTS' && upperValue === 'BACKGROUND') {
+            const { tags: backgroundTags, nextIndex } = this.collectEntityTags(i + 1);
+            const background = this.parseBackgroundObject(backgroundTags);
+            if (background) {
+              if (background.handleUpper) {
+                byHandle[background.handleUpper] = background;
+              }
+              if (background.handle && !byHandle[background.handle]) {
+                byHandle[background.handle] = background;
+              }
+              list.push(background);
+            }
+            i = nextIndex;
+            continue;
+          }
+        }
+
+        i += 1;
+      }
+
+      return {
+        byHandle,
+        list
+      };
+    }
+
+    extractSuns() {
+      const byHandle = Object.create(null);
+      const list = [];
+
+      let section = null;
+      let i = 0;
+
+      while (i < this.tags.length) {
+        const tag = this.tags[i];
+        const code = Number(tag.code);
+        const value = typeof tag.value === 'string' ? tag.value.trim() : tag.value;
+        const upperValue = value ? String(value).toUpperCase() : '';
+
+        if (code === 0) {
+          if (upperValue === 'SECTION') {
+            section = null;
+            i += 1;
+            while (i < this.tags.length) {
+              const lookahead = this.tags[i];
+              if (Number(lookahead.code) === 2) {
+                section = String(lookahead.value || '').trim().toUpperCase();
+                i += 1;
+                break;
+              }
+              if (Number(lookahead.code) === 0) {
+                break;
+              }
+              i += 1;
+            }
+            continue;
+          }
+
+          if (upperValue === 'ENDSEC') {
+            section = null;
+            i += 1;
+            continue;
+          }
+
+          if (section === 'OBJECTS' && upperValue === 'SUN') {
+            const { tags: sunTags, nextIndex } = this.collectEntityTags(i + 1);
+            const sun = this.parseSunObject(sunTags);
+            if (sun) {
+              if (sun.handleUpper) {
+                byHandle[sun.handleUpper] = sun;
+              }
+              if (sun.handle && !byHandle[sun.handle]) {
+                byHandle[sun.handle] = sun;
+              }
+              list.push(sun);
+            }
+            i = nextIndex;
+            continue;
+          }
+        }
+
+        i += 1;
+      }
+
+      return {
+        byHandle,
+        list
+      };
+    }
+
     extractMaterials() {
       const byHandle = Object.create(null);
       const byName = Object.create(null);
@@ -2451,6 +2685,16 @@
           sunHandle: utils.getFirstCodeValue(recordTags, 361) || null,
           backgroundHandle: utils.getFirstCodeValue(recordTags, 332) || null,
           shadePlotHandle: utils.getFirstCodeValue(recordTags, 364) || null,
+          defaultLightingOn: (utils.toInt(utils.getFirstCodeValue(recordTags, 292)) || 0) === 1,
+          defaultLightingType: utils.toInt(utils.getFirstCodeValue(recordTags, 282)),
+          brightness: utils.toFloat(utils.getFirstCodeValue(recordTags, 141)),
+          contrast: utils.toFloat(utils.getFirstCodeValue(recordTags, 142)),
+          ambientColorNumber: utils.toInt(utils.getFirstCodeValue(recordTags, 63)),
+          ambientTrueColor: (() => {
+            const raw = utils.getFirstCodeValue(recordTags, 421);
+            return raw ? utils.parseTrueColor(raw) : null;
+          })(),
+          ambientColorName: utils.getFirstCodeValue(recordTags, 431) || null,
           rawTags: recordTags.map((tag) => ({
             code: Number(tag.code),
             value: tag.value
@@ -2459,6 +2703,361 @@
         collections[upperTable].set(name, entry);
         return;
       }
+    }
+
+    parseBackgroundObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+
+      const background = {
+        handle: null,
+        handleUpper: null,
+        owner: null,
+        ownerUpper: null,
+        type: 'unknown',
+        version: null,
+        solid: null,
+        gradient: null,
+        image: null,
+        sky: null,
+        ground: null,
+        rawTags: []
+      };
+
+      let currentSubclass = null;
+      let currentGradientStop = null;
+
+      const ensureSolid = () => {
+        if (!background.solid) {
+          background.solid = {
+            color: null,
+            version: null,
+            flags: Object.create(null)
+          };
+        }
+        return background.solid;
+      };
+
+      const ensureGradient = () => {
+        if (!background.gradient) {
+          background.gradient = {
+            colors: [],
+            version: null,
+            properties: Object.create(null)
+          };
+        }
+        return background.gradient;
+      };
+
+      const ensureImage = () => {
+        if (!background.image) {
+          background.image = {
+            properties: Object.create(null)
+          };
+        }
+        return background.image;
+      };
+
+      const ensureSky = () => {
+        if (!background.sky) {
+          background.sky = {
+            properties: Object.create(null)
+          };
+        }
+        return background.sky;
+      };
+
+      const ensureGround = () => {
+        if (!background.ground) {
+          background.ground = {
+            properties: Object.create(null)
+          };
+        }
+        return background.ground;
+      };
+
+      for (let i = 0; i < tags.length; i++) {
+        const tag = tags[i];
+        const code = Number(tag.code);
+        const rawValue = tag.value;
+        background.rawTags.push({ code, value: rawValue });
+        switch (code) {
+          case 5: {
+            const handle = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue || '');
+            background.handle = handle || null;
+            background.handleUpper = normalizeHandle(handle);
+            break;
+          }
+          case 330: {
+            const owner = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue || '');
+            background.owner = owner || null;
+            background.ownerUpper = normalizeHandle(owner);
+            break;
+          }
+          case 100: {
+            const marker = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue || '');
+            const upper = marker.toUpperCase();
+            if (upper === 'ACDBBACKGROUND') {
+              currentSubclass = 'base';
+            } else if (upper === 'ACDBSOLIDBACKGROUND') {
+              currentSubclass = 'solid';
+              background.type = 'solid';
+              ensureSolid();
+            } else if (upper === 'ACDBGRADIENTBACKGROUND') {
+              currentSubclass = 'gradient';
+              background.type = 'gradient';
+              ensureGradient();
+              currentGradientStop = null;
+            } else if (upper === 'ACDBIMAGEBACKGROUND') {
+              currentSubclass = 'image';
+              if (background.type === 'unknown') {
+                background.type = 'image';
+              }
+              ensureImage();
+            } else if (upper === 'ACDBSKYBACKGROUND') {
+              currentSubclass = 'sky';
+              if (background.type === 'unknown') {
+                background.type = 'sky';
+              }
+              ensureSky();
+            } else if (upper === 'ACDBGROUNDPLANEBACKGROUND') {
+              currentSubclass = 'ground';
+              if (background.type === 'unknown') {
+                background.type = 'ground';
+              }
+              ensureGround();
+            } else {
+              currentSubclass = upper || null;
+            }
+            break;
+          }
+          case 90: {
+            if (currentSubclass === 'solid') {
+              ensureSolid().version = toInt(rawValue);
+            } else if (currentSubclass === 'gradient') {
+              ensureGradient().version = toInt(rawValue);
+            } else if (!currentSubclass || currentSubclass === 'base') {
+              background.version = toInt(rawValue);
+            }
+            break;
+          }
+          default: {
+            if (currentSubclass === 'solid') {
+              const solid = ensureSolid();
+              if ([62, 63, 420, 421, 430, 431, 440].includes(code)) {
+                solid.color = updateColorDescriptor(solid.color, code, rawValue, utils);
+              } else if (code >= 290 && code < 300) {
+                solid.flags[`f${code}`] = boolFromValue(rawValue);
+              } else if (code >= 40 && code < 90) {
+                solid.flags[`f${code}`] = toFloat(rawValue);
+              }
+            } else if (currentSubclass === 'gradient') {
+              const gradient = ensureGradient();
+              if ([62, 63, 420, 421].includes(code)) {
+                currentGradientStop = {
+                  color: updateColorDescriptor(null, code, rawValue, utils),
+                  position: null
+                };
+                gradient.colors.push(currentGradientStop);
+              } else if ([430, 431, 440].includes(code)) {
+                if (!currentGradientStop) {
+                  currentGradientStop = { color: null, position: null };
+                  gradient.colors.push(currentGradientStop);
+                }
+                currentGradientStop.color = updateColorDescriptor(currentGradientStop.color, code, rawValue, utils);
+              } else if (code === 40 || code === 41 || code === 42 || code === 43) {
+                if (!currentGradientStop) {
+                  currentGradientStop = { color: null, position: null };
+                  gradient.colors.push(currentGradientStop);
+                }
+                const numeric = toFloat(rawValue);
+                if (Number.isFinite(numeric)) {
+                  currentGradientStop.position = numeric;
+                }
+              } else {
+                const key = `c${code}`;
+                if (!Object.prototype.hasOwnProperty.call(gradient.properties, key)) {
+                  gradient.properties[key] = rawValue;
+                } else if (Array.isArray(gradient.properties[key])) {
+                  gradient.properties[key].push(rawValue);
+                } else {
+                  gradient.properties[key] = [gradient.properties[key], rawValue];
+                }
+              }
+            } else if (currentSubclass === 'image') {
+              const image = ensureImage();
+              const key = `c${code}`;
+              if (!Object.prototype.hasOwnProperty.call(image.properties, key)) {
+                image.properties[key] = rawValue;
+              } else if (Array.isArray(image.properties[key])) {
+                image.properties[key].push(rawValue);
+              } else {
+                image.properties[key] = [image.properties[key], rawValue];
+              }
+            } else if (currentSubclass === 'sky') {
+              const sky = ensureSky();
+              const key = `c${code}`;
+              if (!Object.prototype.hasOwnProperty.call(sky.properties, key)) {
+                sky.properties[key] = rawValue;
+              } else if (Array.isArray(sky.properties[key])) {
+                sky.properties[key].push(rawValue);
+              } else {
+                sky.properties[key] = [sky.properties[key], rawValue];
+              }
+            } else if (currentSubclass === 'ground') {
+              const ground = ensureGround();
+              const key = `c${code}`;
+              if (!Object.prototype.hasOwnProperty.call(ground.properties, key)) {
+                ground.properties[key] = rawValue;
+              } else if (Array.isArray(ground.properties[key])) {
+                ground.properties[key].push(rawValue);
+              } else {
+                ground.properties[key] = [ground.properties[key], rawValue];
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      if (background.solid && background.solid.color && !background.solid.color.css && background.solid.color.trueColor) {
+        background.solid.color.css = createCssFromRgb({
+          r: background.solid.color.trueColor.r,
+          g: background.solid.color.trueColor.g,
+          b: background.solid.color.trueColor.b
+        }, background.solid.color.transparency != null ? background.solid.color.transparency : 1);
+      }
+
+      if (background.gradient && Array.isArray(background.gradient.colors)) {
+        const stops = background.gradient.colors;
+        for (let idx = 0; idx < stops.length; idx++) {
+          const stop = stops[idx];
+          if (stop && stop.color && !stop.color.css && stop.color.trueColor) {
+            stop.color.css = createCssFromRgb({
+              r: stop.color.trueColor.r,
+              g: stop.color.trueColor.g,
+              b: stop.color.trueColor.b
+            }, stop.color.transparency != null ? stop.color.transparency : 1);
+          }
+          if (!Number.isFinite(stop.position)) {
+            stop.position = stops.length > 1 ? idx / (stops.length - 1) : 0;
+          } else {
+            stop.position = Math.max(0, Math.min(1, stop.position));
+          }
+        }
+      }
+
+      return background;
+    }
+
+    parseSunObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+
+      const sun = {
+        handle: null,
+        handleUpper: null,
+        owner: null,
+        ownerUpper: null,
+        version: null,
+        status: false,
+        color: null,
+        intensity: null,
+        shadowsEnabled: false,
+        shadowType: null,
+        shadowMapSize: null,
+        shadowSoftness: null,
+        julianDay: null,
+        timeSeconds: null,
+        daylightSavings: null,
+        datetime: null,
+        rawTags: []
+      };
+
+      for (let i = 0; i < tags.length; i++) {
+        const tag = tags[i];
+        const code = Number(tag.code);
+        const rawValue = tag.value;
+        sun.rawTags.push({ code, value: rawValue });
+        switch (code) {
+          case 5: {
+            const handle = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue || '');
+            sun.handle = handle || null;
+            sun.handleUpper = normalizeHandle(handle);
+            break;
+          }
+          case 330: {
+            const owner = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue || '');
+            sun.owner = owner || null;
+            sun.ownerUpper = normalizeHandle(owner);
+            break;
+          }
+          case 90:
+            sun.version = toInt(rawValue);
+            break;
+          case 290:
+            sun.status = boolFromValue(rawValue);
+            break;
+          case 63:
+          case 62:
+          case 420:
+          case 421:
+          case 430:
+          case 431:
+          case 440:
+            sun.color = updateColorDescriptor(sun.color, code, rawValue, utils);
+            break;
+          case 40:
+            sun.intensity = toFloat(rawValue);
+            break;
+          case 291:
+            sun.shadowsEnabled = boolFromValue(rawValue);
+            break;
+          case 91:
+            sun.julianDay = toFloat(rawValue);
+            break;
+          case 92:
+            sun.timeSeconds = toFloat(rawValue);
+            break;
+          case 292:
+            sun.daylightSavings = boolFromValue(rawValue);
+            break;
+          case 70:
+            sun.shadowType = toInt(rawValue);
+            break;
+          case 71:
+            sun.shadowMapSize = toInt(rawValue);
+            break;
+          case 280:
+            sun.shadowSoftness = toFloat(rawValue);
+            break;
+          default:
+            break;
+        }
+      }
+
+      if (sun.color && sun.color.trueColor && !sun.color.css) {
+        sun.color.css = createCssFromRgb({
+          r: sun.color.trueColor.r,
+          g: sun.color.trueColor.g,
+          b: sun.color.trueColor.b
+        }, sun.color.transparency != null ? sun.color.transparency : 1);
+      }
+
+      if (Number.isFinite(sun.julianDay)) {
+        let combined = sun.julianDay;
+        if (Number.isFinite(sun.timeSeconds)) {
+          combined += (sun.timeSeconds || 0) / 86400;
+        }
+        const converted = convertJulianDay(combined);
+        if (converted) {
+          sun.datetime = converted;
+        }
+      }
+
+      return sun;
     }
 
     parseMaterial(tags) {
