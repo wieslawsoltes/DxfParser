@@ -1,0 +1,13 @@
+{
+  "name": "draw-order",
+  "dxf": "../data/draworder.dxf",
+  "expectedStats": {
+    "modelSpaceEntities": 3,
+    "paperSpaceLayouts": 0,
+    "paperSpaceEntities": 0,
+    "blockCount": 0,
+    "blockEntities": 0,
+    "renderableEntities": 3
+  },
+  "referenceSvg": "../trueview/draworder.svg"
+}

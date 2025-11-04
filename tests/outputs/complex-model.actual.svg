@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 768" width="1024" height="768" fill="none">
+<rect width="1024" height="768" fill="#0b1828" />
+
+<polyline fill="none" stroke="rgba(210, 227, 255, 1)" stroke-width="1.00" points="528.42 686.56 927.96 81.44" />
+
+<text x="528.42" y="686.56" font-size="40.54" fill="rgba(210, 227, 255, 1)" text-anchor="start" dominant-baseline="alphabetic" transform="rotate(30.00 528.42 686.56)">BlockText</text>
+<text x="96.04" y="470.37" font-size="32.43" fill="rgba(210, 227, 255, 1)" text-anchor="start" dominant-baseline="alphabetic" transform="rotate(15.00 96.04 470.37)">Overlay</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 768" width="1024" height="768" fill="none">
+<rect width="1024" height="768" fill="#0b1828" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,686.56 814.56,686.56 814.56,81.44" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,686.56 814.56,81.44 209.44,81.44" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,686.56 209.44,81.44 209.44,686.56" />
+
+
+<text x="512.00" y="384.00" font-size="60.51" fill="rgba(210, 227, 255, 1)" text-anchor="middle" dominant-baseline="central" transform="rotate(0.00 512.00 384.00)">UNDERLAY (off)</text>
+</svg>

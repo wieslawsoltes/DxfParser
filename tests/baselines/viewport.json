@@ -1,0 +1,13 @@
+{
+  "name": "viewport-paper",
+  "dxf": "../data/viewport-paper.dxf",
+  "expectedStats": {
+    "modelSpaceEntities": 1,
+    "paperSpaceLayouts": 1,
+    "paperSpaceEntities": 1,
+    "blockCount": 0,
+    "blockEntities": 0,
+    "renderableEntities": 2
+  },
+  "referenceSvg": "../trueview/viewport.svg"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "advanced-geometry",
+  "dxf": "../data/advanced-geometry.dxf",
+  "expectedStats": {
+    "modelSpaceEntities": 13,
+    "paperSpaceLayouts": 0,
+    "paperSpaceEntities": 0,
+    "blockCount": 0,
+    "blockEntities": 0,
+    "renderableEntities": 13
+  },
+  "referenceSvg": "../trueview/advanced.svg"
+}

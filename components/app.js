@@ -13,6 +13,18 @@
           dataSize: 130
         };
         this.dxfParser = new DxfParser();
+        this.renderingDataController = new DxfRendering.RenderingDataController({ parser: this.dxfParser });
+        this.renderingOverlayController = new DxfRendering.RenderingOverlayController({
+          dataController: this.renderingDataController,
+          dxfParser: this.dxfParser,
+          app: this
+        });
+        this.renderingOverlayController.initializeDom();
+        this.blockIsolation = null;
+        this.blockHighlights = new Set();
+        this.blockMetadataByTab = new Map();
+        this.blockActionCallbacks = new Map();
+        this._isBlocksOverlayUpdating = false;
         // Left panel DOM
         this.treeViewContainer = document.getElementById("treeViewContainerLeft");
         this.treeViewContent = document.getElementById("treeViewContentLeft");
@@ -148,6 +160,12 @@
               };
               
               restoredTabs.push(restoredTab);
+              if (this.renderingDataController) {
+                this.renderingDataController.registerPlaceholder(restoredTab.id, {
+                  reason: "restoredState",
+                  fileName: restoredTab.name || null
+                });
+              }
             }
           }
           // Restore tabs (right)
@@ -178,6 +196,12 @@
                 classIdToName: tabState.classIdToName || {}
               };
               restoredTabsRight.push(restoredTab);
+              if (this.renderingDataController) {
+                this.renderingDataController.registerPlaceholder(restoredTab.id, {
+                  reason: "restoredState",
+                  fileName: restoredTab.name || null
+                });
+              }
             }
           }
           
@@ -251,6 +275,8 @@
       initEventListeners() {
         const parseLeftBtn = document.getElementById("openLeftBtn");
         const parseRightBtn = document.getElementById("openRightBtn");
+        const renderOverlayLeftBtn = document.getElementById("renderOverlayLeftBtn");
+        const renderOverlayRightBtn = document.getElementById("renderOverlayRightBtn");
         const fileInputLeft = document.getElementById("fileInputLeft");
         const fileInputRight = document.getElementById("fileInputRight");
         // One-click add: clicking the button opens the picker; selection parses automatically
@@ -275,6 +301,12 @@
             if (files && files.length) this.handleFiles(files, 'right');
             e.target.value = "";
           });
+        }
+        if (renderOverlayLeftBtn) {
+          renderOverlayLeftBtn.addEventListener("click", () => this.openRenderingOverlay('left'));
+        }
+        if (renderOverlayRightBtn) {
+          renderOverlayRightBtn.addEventListener("click", () => this.openRenderingOverlay('right'));
         }
         const createNewBtn = document.getElementById("createNewDxfBtn");
         if (createNewBtn) createNewBtn.addEventListener("click", () => this.handleCreateNewDxf());
@@ -1953,6 +1985,17 @@
       
       getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
 
+      getTabById(tabId) {
+        if (!tabId) {
+          return null;
+        }
+        const leftMatch = this.tabs.find(t => t.id === tabId);
+        if (leftMatch) {
+          return leftMatch;
+        }
+        return this.tabsRight.find(t => t.id === tabId) || null;
+      }
+
       populateObjectTypeDropdown() {
         const leftTab = this.getActiveTab();
         const rightTab = this.getActiveTabRight();
@@ -2248,6 +2291,9 @@
               this.stateManager.removeTabState(tab.id);
               this.tabs = this.tabs.filter(t => t.id !== tab.id);
               if (this.activeTabId === tab.id) { this.activeTabId = this.tabs.length ? this.tabs[0].id : null; }
+              if (this.renderingDataController) {
+                this.renderingDataController.releaseDocument(tab.id);
+              }
               this.updateTabUI();
               if (this.activeTabId) {
                 this.myTreeGrid.setData(this.getActiveTab().currentTreeData);
@@ -2268,6 +2314,9 @@
             } else {
               this.tabsRight = this.tabsRight.filter(t => t.id !== tab.id);
               if (this.activeTabIdRight === tab.id) { this.activeTabIdRight = this.tabsRight.length ? this.tabsRight[0].id : null; }
+              if (this.renderingDataController) {
+                this.renderingDataController.releaseDocument(tab.id);
+              }
               this.updateTabUI();
               if (this.activeTabIdRight) {
                 const t = this.tabsRight.find(t => t.id === this.activeTabIdRight);
@@ -2873,11 +2922,13 @@
           return;
         }
         // Create a new tab object that displays only this node.
+        const serialized = this.dxfParser.serializeTree([node]);
         const newTab = {
           id: Date.now() + Math.random(),
           name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
           originalTreeData: [node],    // only this node will be shown in the tree
           currentTreeData: [node],
+          renderingSourceText: serialized,
           codeSearchTerms: [],
           dataSearchTerms: [],
           currentSortField: "line",
@@ -2893,6 +2944,7 @@
         this.activeTabId = newTab.id;
         this.updateTabUI();
         this.myTreeGrid.setData(newTab.currentTreeData);
+        this.registerRenderingDocumentForTab(newTab, serialized);
       }
 
       handleOpenRight(nodeId) {
@@ -2903,11 +2955,13 @@
           alert("Node not found.");
           return;
         }
+        const serialized = this.dxfParser.serializeTree([node]);
         const newTab = {
           id: Date.now() + Math.random(),
           name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
           originalTreeData: [node],
           currentTreeData: [node],
+          renderingSourceText: serialized,
           codeSearchTerms: [],
           dataSearchTerms: [],
           currentSortField: "line",
@@ -2923,6 +2977,7 @@
         this.activeTabIdRight = newTab.id;
         this.updateTabUI();
         if (this.myTreeGridRight) this.myTreeGridRight.setData(newTab.currentTreeData);
+        this.registerRenderingDocumentForTab(newTab, serialized);
       }
 
       handleAddRow() {
@@ -2989,6 +3044,47 @@
         URL.revokeObjectURL(url);
       }
 
+      registerRenderingDocumentForTab(tab, sourceText) {
+        if (!tab || !this.renderingDataController) {
+          return;
+        }
+        if (typeof sourceText !== "string") {
+          this.renderingDataController.registerPlaceholder(tab.id, {
+            reason: "missingSource",
+            fileName: tab.name || null
+          });
+          return;
+        }
+        tab.renderingSourceText = sourceText;
+        try {
+          this.renderingDataController.ingestDocument({
+            tabId: tab.id,
+            fileName: tab.name,
+            sourceText
+          });
+        } catch (error) {
+          console.warn("Failed to build rendering data for tab", tab.name, error);
+          this.renderingDataController.registerPlaceholder(tab.id, {
+            reason: "buildError",
+            fileName: tab.name || null,
+            message: error && error.message ? error.message : "unknown"
+          });
+        }
+      }
+
+      openRenderingOverlay(pane = 'left') {
+        if (!this.renderingOverlayController) {
+          alert("Rendering overlay is not initialized.");
+          return;
+        }
+        const tab = pane === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!tab) {
+          alert(`No DXF file loaded in the ${pane} pane.`);
+          return;
+        }
+        this.renderingOverlayController.open({ pane, tab });
+      }
+
       async parseFileStream(file) {
         const reader = file.stream().getReader();
         const decoder = new TextDecoder("ascii");
@@ -3009,7 +3105,11 @@
         if (leftover) { lines.push(leftover); }
         const tags = this.dxfParser.parseDxfLines(lines);
         const grouped = this.dxfParser.groupObjectsIterative(tags, 0);
-        return grouped.objects;
+        return {
+          objects: grouped.objects,
+          tags,
+          sourceText: lines.join("\n")
+        };
       }
       
       handleFiles(files, panel = 'left') {
@@ -3025,12 +3125,15 @@
           }
           if (useStream && file.stream) {
             this.parseFileStream(file)
-                .then(objects => {
+                .then(result => {
+                  const objects = result && Array.isArray(result.objects) ? result.objects : [];
+                  const sourceText = result && typeof result.sourceText === "string" ? result.sourceText : null;
                   const newTab = {
                     id: Date.now() + Math.random(),
                     name: file.name,
                     originalTreeData: objects,
                     currentTreeData: objects,
+                    renderingSourceText: sourceText || null,
                     codeSearchTerms: [],
                     dataSearchTerms: [],
                     currentSortField: "line",
@@ -3043,15 +3146,15 @@
                     currentHistoryIndex: -1,
                     classIdToName: {}
                   };
-              if (panel === 'right') {
+                  if (panel === 'right') {
                     this.tabsRight.push(newTab);
                     this.activeTabIdRight = newTab.id;
                     this.updateTabUI();
                     this.myTreeGridRight.setData(newTab.currentTreeData);
-                if (this.sideBySideDiffEnabled) {
-                  // recompute diff when new right file is loaded
-                  this.computeAndApplySideBySideDiff();
-                }
+                    if (this.sideBySideDiffEnabled) {
+                      // recompute diff when new right file is loaded
+                      this.computeAndApplySideBySideDiff();
+                    }
                   } else {
                     this.tabs.push(newTab);
                     this.activeTabId = newTab.id;
@@ -3061,11 +3164,12 @@
                     this.myTreeGrid.setData(newTab.currentTreeData);
                     // Save state after new tab creation
                     this.saveCurrentState();
-                if (this.sideBySideDiffEnabled) {
-                  // recompute diff when new left file is loaded
-                  this.computeAndApplySideBySideDiff();
-                }
+                    if (this.sideBySideDiffEnabled) {
+                      // recompute diff when new left file is loaded
+                      this.computeAndApplySideBySideDiff();
+                    }
                   }
+                  this.registerRenderingDocumentForTab(newTab, sourceText);
                 })
               .catch(err => {
                 console.error("Error during streamed parsing:", err);
@@ -3076,23 +3180,24 @@
             reader.onload = (event) => {
               const text = event.target.result;
               const objects = this.dxfParser.parse(text);
-                const newTab = {
-                  id: Date.now() + Math.random(),
-                  name: file.name,
-                  originalTreeData: objects,
-                  currentTreeData: objects,
-                  codeSearchTerms: [],
-                  dataSearchTerms: [],
-                  currentSortField: "line",
-                  currentSortAscending: true,
-                  minLine: null,
-                  maxLine: null,
-                  dataExact: false,
-                  dataCase: false,
-                  navigationHistory: [],
-                  currentHistoryIndex: -1,
-                  classIdToName: {}
-                };
+              const newTab = {
+                id: Date.now() + Math.random(),
+                name: file.name,
+                originalTreeData: objects,
+                currentTreeData: objects,
+                renderingSourceText: text,
+                codeSearchTerms: [],
+                dataSearchTerms: [],
+                currentSortField: "line",
+                currentSortAscending: true,
+                minLine: null,
+                maxLine: null,
+                dataExact: false,
+                dataCase: false,
+                navigationHistory: [],
+                currentHistoryIndex: -1,
+                classIdToName: {}
+              };
               if (panel === 'right') {
                 this.tabsRight.push(newTab);
                 this.activeTabIdRight = newTab.id;
@@ -3108,6 +3213,7 @@
                 // Save state after new tab creation
                 this.saveCurrentState();
               }
+              this.registerRenderingDocumentForTab(newTab, text);
             };
             reader.readAsText(file, "ascii");
           }
@@ -3126,6 +3232,7 @@
           name: "New DXF File",
           originalTreeData: objects,
           currentTreeData: objects,
+          renderingSourceText: emptyDxfContent,
           codeSearchTerms: [],
           dataSearchTerms: [],
           currentSortField: "line",
@@ -4901,126 +5008,486 @@ EOF`;
         updateView();
       }
       
-      updateBlocksOverlay() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab) {
-          document.getElementById("overlayBlocksContent").innerHTML = "No DXF data loaded.";
+      isBlocksOverlayVisible() {
+        const overlay = document.getElementById("blocksOverlay");
+        return overlay && overlay.style.display === "block";
+      }
+
+      updateBlockMetadata(tabId, metadata) {
+        if (!tabId) {
           return;
         }
-
-        // Build a dictionary of block definitions using BLOCK nodes (group code 2 for block name)
-        let blocksDict = {};
-        function traverseForBlocks(nodes) {
-          nodes.forEach(node => {
-            if (!node.isProperty && node.type && node.type.toUpperCase() === "BLOCK") {
-              let blockName = "";
-              if (node.properties && node.properties.length) {
-                node.properties.forEach(prop => {
-                  if (Number(prop.code) === 2) {
-                    blockName = prop.value;
-                  }
-                });
-              }
-              if (blockName) {
-                blocksDict[blockName] = { block: node, inserts: [] };
-              }
-            }
-            if (node.children && node.children.length > 0) {
-              traverseForBlocks(node.children);
-            }
-          });
+        if (!metadata || typeof metadata !== "object" || !Array.isArray(metadata.ordered)) {
+          this.blockMetadataByTab.delete(tabId);
+          return;
         }
-        activeTab.originalTreeData.forEach(node => traverseForBlocks([node]));
+        this.blockMetadataByTab.set(tabId, metadata);
+        if (this.isBlocksOverlayVisible() && !this._isBlocksOverlayUpdating) {
+          requestAnimationFrame(() => this.updateBlocksOverlay());
+        }
+      }
 
-        // Traverse the tree to collect all INSERT nodes
-        function traverseForInserts(nodes) {
-          nodes.forEach(node => {
-            if (!node.isProperty && node.type && node.type.toUpperCase() === "INSERT") {
-              let insertBlockName = "";
-              let layer = "";
-              if (node.properties && node.properties.length) {
-                node.properties.forEach(prop => {
-                  if (Number(prop.code) === 2) {
-                    insertBlockName = prop.value;
-                  }
-                  if (Number(prop.code) === 8) {
-                    layer = prop.value;
-                  }
-                });
+      syncBlockFiltersToRenderer() {
+        if (!this.renderingOverlayController || typeof this.renderingOverlayController.applyBlockFilters !== "function") {
+          return;
+        }
+        this.renderingOverlayController.applyBlockFilters({
+          isolation: this.blockIsolation,
+          highlight: this.blockHighlights
+        });
+      }
+
+      hasBlockIsolation() {
+        return this.blockIsolation instanceof Set && this.blockIsolation.size > 0;
+      }
+
+      isBlockIsolated(blockName) {
+        return this.hasBlockIsolation() ? this.blockIsolation.has(blockName) : false;
+      }
+
+      isBlockHighlighted(blockName) {
+        return this.blockHighlights instanceof Set && this.blockHighlights.has(blockName);
+      }
+
+      setBlockIsolation(blockNames) {
+        const normalize = (value) => {
+          if (!value) {
+            return [];
+          }
+          if (typeof value === "string") {
+            return value ? [value] : [];
+          }
+          if (value instanceof Set) {
+            return Array.from(value);
+          }
+          if (Array.isArray(value)) {
+            return value.filter((item) => typeof item === "string" && item.length > 0);
+          }
+          return [];
+        };
+        const normalized = normalize(blockNames);
+        if (normalized.length) {
+          this.blockIsolation = new Set(normalized);
+        } else {
+          this.blockIsolation = null;
+        }
+        this.syncBlockFiltersToRenderer();
+        if (this.isBlocksOverlayVisible() && !this._isBlocksOverlayUpdating) {
+          requestAnimationFrame(() => this.updateBlocksOverlay());
+        }
+      }
+
+      toggleBlockIsolation(blockName) {
+        if (!blockName) {
+          return;
+        }
+        if (this.blockIsolation instanceof Set &&
+            this.blockIsolation.size === 1 &&
+            this.blockIsolation.has(blockName)) {
+          this.clearBlockIsolation();
+        } else {
+          this.setBlockIsolation([blockName]);
+        }
+      }
+
+      clearBlockIsolation() {
+        if (!this.hasBlockIsolation()) {
+          return;
+        }
+        this.blockIsolation = null;
+        this.syncBlockFiltersToRenderer();
+        if (this.isBlocksOverlayVisible() && !this._isBlocksOverlayUpdating) {
+          requestAnimationFrame(() => this.updateBlocksOverlay());
+        }
+      }
+
+      setBlockHighlight(blockName, enabled = true) {
+        if (!blockName) {
+          return;
+        }
+        if (!(this.blockHighlights instanceof Set)) {
+          this.blockHighlights = new Set();
+        }
+        if (enabled) {
+          this.blockHighlights.add(blockName);
+        } else {
+          this.blockHighlights.delete(blockName);
+        }
+        this.syncBlockFiltersToRenderer();
+        if (this.isBlocksOverlayVisible() && !this._isBlocksOverlayUpdating) {
+          requestAnimationFrame(() => this.updateBlocksOverlay());
+        }
+      }
+
+      toggleBlockHighlight(blockName) {
+        if (!blockName) {
+          return;
+        }
+        const shouldEnable = !this.isBlockHighlighted(blockName);
+        this.setBlockHighlight(blockName, shouldEnable);
+      }
+
+      removeBlockHighlight(blockName) {
+        if (!blockName || !this.isBlockHighlighted(blockName)) {
+          return;
+        }
+        this.blockHighlights.delete(blockName);
+        this.syncBlockFiltersToRenderer();
+        if (this.isBlocksOverlayVisible() && !this._isBlocksOverlayUpdating) {
+          requestAnimationFrame(() => this.updateBlocksOverlay());
+        }
+      }
+
+      clearBlockHighlights() {
+        if (!(this.blockHighlights instanceof Set) || this.blockHighlights.size === 0) {
+          return;
+        }
+        this.blockHighlights.clear();
+        this.syncBlockFiltersToRenderer();
+        if (this.isBlocksOverlayVisible() && !this._isBlocksOverlayUpdating) {
+          requestAnimationFrame(() => this.updateBlocksOverlay());
+        }
+      }
+
+      updateBlocksOverlay() {
+        const container = document.getElementById("overlayBlocksContent");
+        if (!container) {
+          return;
+        }
+        if (this._isBlocksOverlayUpdating) {
+          return;
+        }
+        this._isBlocksOverlayUpdating = true;
+        try {
+          container.innerHTML = "";
+          const activeTab = this.getActiveTab();
+          if (!activeTab) {
+            container.textContent = "No DXF data loaded.";
+            return;
+          }
+
+          const doc = this.renderingOverlayController
+            ? this.renderingOverlayController.ensureDocumentForTab(activeTab)
+            : null;
+
+          if (!doc || doc.status !== "ready") {
+            const reason = doc && doc.reason ? doc.reason : "rendering metadata unavailable";
+            const message = doc && doc.message ? ` (${doc.message})` : "";
+            container.textContent = `Unable to build block metadata: ${reason}${message}`;
+            return;
+          }
+
+          const metadata = doc.blockMetadata || this.blockMetadataByTab.get(activeTab.id);
+          if (!metadata || !Array.isArray(metadata.ordered) || metadata.ordered.length === 0) {
+            container.textContent = "No block definitions found in this DXF.";
+            return;
+          }
+
+          this.blockMetadataByTab.set(activeTab.id, metadata);
+          this.blockActionCallbacks.clear();
+
+          const totalInstances = metadata.ordered.reduce((sum, block) => sum + (block.instanceCount || 0), 0);
+          const isolationCount = this.hasBlockIsolation() ? this.blockIsolation.size : 0;
+          const highlightCount = this.blockHighlights instanceof Set ? this.blockHighlights.size : 0;
+
+          const summary = document.createElement("div");
+          summary.className = "block-overlay-summary";
+          summary.textContent = `Blocks: ${metadata.count} | Instances: ${totalInstances} | Isolation: ${isolationCount || "None"} | Highlights: ${highlightCount || "None"}`;
+          container.appendChild(summary);
+
+          const controls = document.createElement("div");
+          controls.className = "block-overlay-controls";
+          const clearIsolationBtn = document.createElement("button");
+          clearIsolationBtn.textContent = "Clear Isolation";
+          clearIsolationBtn.disabled = !this.hasBlockIsolation();
+          clearIsolationBtn.addEventListener("click", () => this.clearBlockIsolation());
+          const clearHighlightBtn = document.createElement("button");
+          clearHighlightBtn.textContent = "Clear Highlights";
+          clearHighlightBtn.disabled = !(this.blockHighlights instanceof Set) || this.blockHighlights.size === 0;
+          clearHighlightBtn.addEventListener("click", () => this.clearBlockHighlights());
+          controls.appendChild(clearIsolationBtn);
+          controls.appendChild(clearHighlightBtn);
+          container.appendChild(controls);
+
+          const hint = document.createElement("p");
+          hint.className = "block-overlay-hint";
+          hint.textContent = "Isolate filters the renderer to the selected block; highlight leaves other geometry visible but tints the chosen block instances.";
+          container.appendChild(hint);
+
+          const list = document.createElement("div");
+          list.className = "block-overlay-list";
+
+          const formatPoint = (point) => {
+            if (!point) {
+              return "0, 0, 0";
+            }
+            const axes = ["x", "y", "z"];
+            const formatted = axes.map((axis) => {
+              const raw = Number(point[axis]);
+              if (!Number.isFinite(raw)) {
+                return "0";
               }
-              if (insertBlockName) {
-                if (!blocksDict[insertBlockName]) {
-                  blocksDict[insertBlockName] = { block: null, inserts: [] };
+              const fixed = raw.toFixed(3);
+              return fixed.replace(/\.?0+$/, "");
+            });
+            return formatted.join(", ");
+          };
+
+          metadata.ordered.forEach((block) => {
+            const card = document.createElement("div");
+            card.className = "block-card";
+            if (this.isBlockIsolated(block.name)) {
+              card.classList.add("is-isolated");
+            }
+            if (this.isBlockHighlighted(block.name)) {
+              card.classList.add("is-highlighted");
+            }
+
+            const heading = document.createElement("h3");
+            heading.textContent = block.name;
+            card.appendChild(heading);
+
+            const buildStatsBreakdown = () => {
+              if (!block.stats) {
+                return "";
+              }
+              const parts = [];
+              if (block.stats.model) {
+                parts.push(`Model ${block.stats.model}`);
+              }
+              if (block.stats.paper) {
+                parts.push(`Paper ${block.stats.paper}`);
+              }
+              if (block.stats.block) {
+                parts.push(`Nested ${block.stats.block}`);
+              }
+              return parts.length ? ` (${parts.join(" | ")})` : "";
+            };
+
+            const instancesLine = document.createElement("div");
+            instancesLine.className = "block-card-line";
+            instancesLine.textContent = `Instances: ${block.instanceCount}${buildStatsBreakdown()}`;
+            card.appendChild(instancesLine);
+
+            const basePointLine = document.createElement("div");
+            basePointLine.className = "block-card-line";
+            basePointLine.textContent = `Base point: ${formatPoint(block.basePoint)}`;
+            card.appendChild(basePointLine);
+
+            if (block.description) {
+              const descriptionLine = document.createElement("div");
+              descriptionLine.className = "block-card-line";
+              descriptionLine.textContent = `Description: ${block.description}`;
+              card.appendChild(descriptionLine);
+            }
+
+            if (block.attributeCount) {
+              const attributesLine = document.createElement("div");
+              attributesLine.className = "block-card-line";
+              attributesLine.textContent = `Attributes (${block.attributeCount}): ${block.attributeTags.join(", ")}`;
+              card.appendChild(attributesLine);
+              if (block.attributeDefinitions && block.attributeDefinitions.length) {
+                const defsDetails = document.createElement("details");
+                defsDetails.className = "block-card-attributes";
+                const defsSummary = document.createElement("summary");
+                defsSummary.textContent = `Definition details (${block.attributeDefinitions.length})`;
+                defsDetails.appendChild(defsSummary);
+                const defsList = document.createElement("ul");
+                defsList.className = "block-attribute-definition-list";
+                block.attributeDefinitions.forEach((def) => {
+                  const item = document.createElement("li");
+                  const flags = [];
+                  if (def.visibility === "hidden" || def.isInvisible) {
+                    flags.push("hidden");
+                  }
+                  if (def.isConstant) {
+                    flags.push("constant");
+                  }
+                  if (def.requiresVerification) {
+                    flags.push("verify");
+                  }
+                  if (def.isPreset) {
+                    flags.push("preset");
+                  }
+                  if (def.isMultipleLine) {
+                    flags.push("multi-line");
+                  }
+                  if (def.lockPosition) {
+                    flags.push("locked");
+                  }
+                  const flagText = flags.length ? ` (${flags.join(", ")})` : "";
+                  const defaultText = def.defaultValue ? ` = ${def.defaultValue}` : "";
+                  item.textContent = `${def.tag || "(untagged)"}${defaultText}${flagText}`;
+                  defsList.appendChild(item);
+                });
+                defsDetails.appendChild(defsList);
+                if (block.attributePreview && block.attributePreview.length) {
+                  const previewList = document.createElement("ul");
+                  previewList.className = "block-attribute-preview-list";
+                  block.attributePreview.forEach((preview) => {
+                    const item = document.createElement("li");
+                    const parts = [];
+                    parts.push(`${preview.tag || "(untagged)"}`);
+                    if (preview.value != null && preview.value !== "") {
+                      parts.push(`value: ${preview.value}`);
+                    }
+                    if (preview.visibility === "hidden" || preview.isInvisible) {
+                      parts.push("hidden");
+                    }
+                    if (preview.isConstant) {
+                      parts.push("constant");
+                    }
+                    item.textContent = parts.join(" | ");
+                    previewList.appendChild(item);
+                  });
+                  const previewHeading = document.createElement("div");
+                  previewHeading.className = "block-attribute-preview-heading";
+                  previewHeading.textContent = "Sample values:";
+                  defsDetails.appendChild(previewHeading);
+                  defsDetails.appendChild(previewList);
                 }
-                blocksDict[insertBlockName].inserts.push({ insert: node, layer: layer });
+                card.appendChild(defsDetails);
               }
             }
-            if (node.children && node.children.length > 0) {
-              traverseForInserts(node.children);
-            }
-          });
-        }
-        activeTab.originalTreeData.forEach(node => traverseForInserts([node]));
 
-        // Helper function to render nested INSERTs (if an INSERT node contains its own INSERT children)
-        function renderNestedInserts(node) {
-          let nestedHtml = "";
-          if (node.children && node.children.length > 0) {
-            let childInserts = node.children.filter(child => child.type && child.type.toUpperCase() === "INSERT");
-            if (childInserts.length > 0) {
-              nestedHtml += `<ul>`;
-              childInserts.forEach(child => {
-                let childLayer = "";
-                if (child.properties && child.properties.length) {
-                  child.properties.forEach(prop => {
-                    if (Number(prop.code) === 8) {
-                      childLayer = prop.value;
+            if (block.layoutUsage && block.layoutUsage.length) {
+              const layoutLine = document.createElement("div");
+              layoutLine.className = "block-card-line";
+              layoutLine.textContent = `Paper layouts: ${block.layoutUsage.map((entry) => `${entry.layout} (${entry.count})`).join(", ")}`;
+              card.appendChild(layoutLine);
+            }
+
+            if (block.ownerUsage && block.ownerUsage.length) {
+              const ownerLine = document.createElement("div");
+              ownerLine.className = "block-card-line";
+              ownerLine.textContent = `Referenced by: ${block.ownerUsage.map((entry) => `${entry.owner} (${entry.count})`).join(", ")}`;
+              card.appendChild(ownerLine);
+            }
+
+            const actions = document.createElement("div");
+            actions.className = "block-card-actions";
+            const isolated = this.isBlockIsolated(block.name);
+            const isolateBtn = document.createElement("button");
+            isolateBtn.textContent = isolated && this.blockIsolation.size === 1 ? "Clear Isolation" : "Isolate";
+            isolateBtn.setAttribute("aria-pressed", isolated ? "true" : "false");
+            isolateBtn.addEventListener("click", (event) => {
+              event.preventDefault();
+              this.toggleBlockIsolation(block.name);
+            });
+
+            const highlighted = this.isBlockHighlighted(block.name);
+            const highlightBtn = document.createElement("button");
+            highlightBtn.textContent = highlighted ? "Unhighlight" : "Highlight";
+            highlightBtn.setAttribute("aria-pressed", highlighted ? "true" : "false");
+            highlightBtn.addEventListener("click", (event) => {
+              event.preventDefault();
+              this.toggleBlockHighlight(block.name);
+            });
+
+            const jumpDefinitionBtn = document.createElement("button");
+            jumpDefinitionBtn.textContent = "Jump to Definition";
+            if (block.handle) {
+              jumpDefinitionBtn.addEventListener("click", (event) => {
+                event.preventDefault();
+                this.handleLinkToHandle(block.handle);
+                const overlay = document.getElementById("blocksOverlay");
+                if (overlay) {
+                  overlay.style.display = "none";
+                }
+              });
+            } else {
+              jumpDefinitionBtn.disabled = true;
+            }
+
+            actions.appendChild(isolateBtn);
+            actions.appendChild(highlightBtn);
+            actions.appendChild(jumpDefinitionBtn);
+
+            const firstInstance = (block.instances || []).find((instance) => instance && instance.handle);
+            if (firstInstance && firstInstance.handle) {
+              const jumpInstanceBtn = document.createElement("button");
+              jumpInstanceBtn.textContent = "Jump to Instance";
+              jumpInstanceBtn.addEventListener("click", (event) => {
+                event.preventDefault();
+                this.handleLinkToHandle(firstInstance.handle);
+                const overlay = document.getElementById("blocksOverlay");
+                if (overlay) {
+                  overlay.style.display = "none";
+                }
+              });
+              actions.appendChild(jumpInstanceBtn);
+            }
+            card.appendChild(actions);
+
+            if (block.instances && block.instanceCount) {
+              const details = document.createElement("details");
+              details.className = "block-card-details";
+              const summaryEl = document.createElement("summary");
+              summaryEl.textContent = `Instances (${block.instanceCount})`;
+              details.appendChild(summaryEl);
+
+              const listEl = document.createElement("ul");
+              listEl.className = "block-instance-list";
+              const maxEntries = 12;
+              const instancesToShow = block.instances.slice(0, maxEntries);
+
+              instancesToShow.forEach((instance) => {
+                const item = document.createElement("li");
+                const fragments = [];
+                fragments.push(instance.handle || "(no handle)");
+                fragments.push(instance.space === "paper" ? `paper:${instance.layout || "unnamed"}` : instance.space || "model");
+                if (instance.layer) {
+                fragments.push(`layer ${instance.layer}`);
+                }
+                if (instance.ownerBlock) {
+                  fragments.push(`parent ${instance.ownerBlock}`);
+                }
+                if (instance.hasAttributes) {
+                  fragments.push("attributes");
+                }
+                item.textContent = fragments.join(" | ");
+                if (instance.handle) {
+                  const viewBtn = document.createElement("button");
+                  viewBtn.textContent = "Show";
+                  viewBtn.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    this.handleLinkToHandle(instance.handle);
+                    const overlay = document.getElementById("blocksOverlay");
+                    if (overlay) {
+                      overlay.style.display = "none";
                     }
                   });
+                  item.appendChild(viewBtn);
                 }
-                nestedHtml += `<li>Nested Insert at line: ${child.line} on layer: ${childLayer}`;
-                if (child.handle) {
-                  nestedHtml += ` <a href="#" onclick="window.app.handleLinkToHandle('${child.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
-                }
-                nestedHtml += renderNestedInserts(child);
-                nestedHtml += `</li>`;
+                listEl.appendChild(item);
               });
-              nestedHtml += `</ul>`;
-            }
-          }
-          return nestedHtml;
-        }
 
-        // Build the HTML output
-        let html = "";
-        for (let blockName in blocksDict) {
-          let entry = blocksDict[blockName];
-          html += `<h3>Block: ${blockName}</h3>`;
-          if (entry.block) {
-            html += `<p>Defined at line: ${entry.block.line}`;
-            if (entry.block.handle) {
-              html += ` <a href="#" onclick="window.app.handleLinkToHandle('${entry.block.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
-            }
-            html += `</p>`;
-          } else {
-            html += `<p>Block definition not found.</p>`;
-          }
-          if (entry.inserts.length > 0) {
-            html += `<ul>`;
-            entry.inserts.forEach(ins => {
-              html += `<li>Insert at line: ${ins.insert.line} on layer: ${ins.layer}`;
-              if (ins.insert.handle) {
-                html += ` <a href="#" onclick="window.app.handleLinkToHandle('${ins.insert.handle}'); document.getElementById('blocksOverlay').style.display='none'; return false;">Show In Tree</a>`;
+              if (block.instances.length > maxEntries) {
+                const moreItem = document.createElement("li");
+                moreItem.textContent = `... plus ${block.instances.length - maxEntries} more instances`;
+                listEl.appendChild(moreItem);
               }
-              html += renderNestedInserts(ins.insert);
-              html += `</li>`;
+
+              details.appendChild(listEl);
+              card.appendChild(details);
+            }
+
+            list.appendChild(card);
+
+            this.blockActionCallbacks.set(block.name, {
+              isolate: () => this.toggleBlockIsolation(block.name),
+              highlight: () => this.toggleBlockHighlight(block.name),
+              clearHighlight: () => this.removeBlockHighlight(block.name),
+              clearIsolation: () => this.clearBlockIsolation(),
+              jumpToDefinition: block.handle ? () => this.handleLinkToHandle(block.handle) : null,
+              jumpToFirstInstance: firstInstance && firstInstance.handle ? (() => this.handleLinkToHandle(firstInstance.handle)) : null
             });
-            html += `</ul>`;
-          } else {
-            html += `<p>No inserts found for this block.</p>`;
-          }
+          });
+
+          container.appendChild(list);
+        } finally {
+          this._isBlocksOverlayUpdating = false;
         }
-        document.getElementById("overlayBlocksContent").innerHTML = html;
       }
       
       showInTree(node) {
@@ -5488,6 +5955,7 @@ EOF`;
               name: file.name,
               originalTreeData: objects,
               currentTreeData: objects,
+              renderingSourceText: text,
               codeSearchTerms: [],
               dataSearchTerms: [],
               currentSortField: "line",
@@ -5507,6 +5975,7 @@ EOF`;
             setTimeout(() => {
               this.scrollToLineAfterTabOpen(targetLine);
             }, 300);
+            this.registerRenderingDocumentForTab(newTab, text);
           };
           reader.readAsText(file, "ascii");
         }
@@ -5557,7 +6026,8 @@ EOF`;
         const processFile = async (file) => {
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
           try {
-            const dxfObjects = await this.parseFileStream(file);
+            const parseResult = await this.parseFileStream(file);
+            const dxfObjects = parseResult && Array.isArray(parseResult.objects) ? parseResult.objects : [];
             let matches = [];
             if (queryFn) {
               // Use the pre-compiled function in the hot loop.

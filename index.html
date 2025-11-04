@@ -13,6 +13,15 @@
   <!-- Load components in dependency order -->
   <script src="components/utils.js"></script>
   <script src="components/dxf-parser.js"></script>
+  <script src="components/rendering-entities.js"></script>
+  <script src="components/rendering-scene-graph.js"></script>
+  <script src="components/rendering-document-builder.js"></script>
+  <script src="components/rendering-data-controller.js"></script>
+  <script src="components/rendering-surface-canvas.js"></script>
+  <script src="components/rendering-surface-webgl.js"></script>
+  <script src="components/rendering-text-layout.js"></script>
+  <script src="components/rendering-renderer.js"></script>
+  <script src="components/rendering-overlay.js"></script>
   <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>
   <script src="components/state-manager.js"></script>
@@ -109,6 +118,9 @@
               <div id="tabContainerLeft" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
               <input type="file" id="fileInputLeft" accept=".dxf" multiple style="display:none">
               <button id="openLeftBtn" title="Open DXF on left">Open</button>
+              <button id="renderOverlayLeftBtn" class="icon-button has-tooltip" title="Render DXF" aria-label="Render DXF overlay" data-tooltip="Open DXF rendering overlay">
+                <span aria-hidden="true">🎨</span>
+              </button>
               <button id="expandAllLeftBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
               </button>
@@ -153,6 +165,9 @@
               <div id="tabContainerRight" class="tab-container" style="flex:1; display:flex; flex-wrap:wrap; border-bottom:1px solid #ccc; margin:0.25em 0;"></div>
               <input type="file" id="fileInputRight" accept=".dxf" multiple style="display:none">
               <button id="openRightBtn" title="Open DXF on right">Open</button>
+              <button id="renderOverlayRightBtn" class="icon-button has-tooltip" title="Render DXF" aria-label="Render DXF overlay (right)" data-tooltip="Open DXF rendering overlay">
+                <span aria-hidden="true">🎨</span>
+              </button>
               <button id="expandAllRightBtn" class="icon-button has-tooltip" title="Expand All" aria-label="Expand All" data-tooltip="Expand all nodes">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5H7z"/></svg>
               </button>
@@ -197,6 +212,100 @@
   </div>
   <!-- Global tooltip element appended at body level to avoid clipping -->
   <div id="globalTooltip" class="global-tooltip" role="tooltip" aria-hidden="true"></div>
+  <!-- DXF Rendering Overlay -->
+  <div id="dxfRenderingOverlay" class="filters-overlay" style="display:none;">
+    <div class="overlay-content rendering-overlay-content">
+      <div class="overlay-header rendering-overlay-header">
+        <h2 id="renderingOverlayTitle">DXF Rendering</h2>
+        <button id="closeRenderingOverlayBtn" class="close-overlay" title="Close rendering overlay" aria-label="Close">✖</button>
+      </div>
+      <div class="rendering-overlay-body">
+        <div class="rendering-overlay-info">
+          <section>
+            <h3>Scene Snapshot</h3>
+            <div id="renderingOverlaySummary" class="rendering-summary">
+              <p>No scene graph loaded.</p>
+            </div>
+          </section>
+          <section>
+            <h3>Attribute Visibility</h3>
+            <div id="renderingOverlayAttributeControls" class="rendering-attribute-controls">
+              <label><input type="checkbox" id="toggleAttributeDefinitions"> Show block attribute definitions</label>
+              <label><input type="checkbox" id="toggleAttributeReferences" checked> Show attribute references</label>
+              <label><input type="checkbox" id="toggleAttributeInvisible"> Show hidden attributes</label>
+            </div>
+          </section>
+          <section>
+            <div class="layer-manager-header">
+              <div>
+                <h3>Layer Manager</h3>
+                <div id="layerManagerStatus" class="layer-manager-status">No layers loaded.</div>
+              </div>
+              <div class="layer-manager-controls">
+                <input type="search" id="layerManagerFilter" placeholder="Filter layers" aria-label="Filter layers">
+                <label class="layer-manager-hide-inactive">
+                  <input type="checkbox" id="layerManagerHideInactive">
+                  Hide off / frozen
+                </label>
+                <button id="layerManagerReset" type="button">Reset overrides</button>
+              </div>
+            </div>
+            <div id="renderingOverlayLayerManager" class="layer-manager-container">
+              <p>No layer metadata available.</p>
+            </div>
+          </section>
+        </div>
+        <div class="rendering-overlay-viewport">
+          <div id="renderingMeasurementToolbar" class="rendering-measurement-toolbar" role="toolbar" aria-label="Measurement tools">
+            <button type="button" class="measurement-tool-btn" data-mode="none" aria-pressed="true" title="Selection mode (hotkey: M)">Select</button>
+            <button type="button" class="measurement-tool-btn" data-mode="distance" aria-pressed="false" title="Distance measurement">Distance</button>
+            <button type="button" class="measurement-tool-btn" data-mode="area" aria-pressed="false" title="Area measurement">Area</button>
+            <button type="button" class="measurement-tool-btn" data-mode="angle" aria-pressed="false" title="Angle measurement">Angle</button>
+          </div>
+          <div id="renderingSelectionToolbar" class="rendering-selection-toolbar" role="toolbar" aria-label="Selection actions" aria-hidden="true">
+            <button type="button" data-action="isolate-layers" title="Isolate layers for selected objects">Isolate Layers</button>
+            <button type="button" data-action="lock-layers" title="Lock layers for selected objects">Lock Layers</button>
+            <button type="button" data-action="unlock-layers" title="Unlock layers for selected objects">Unlock Layers</button>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <button type="button" data-action="isolate-objects" title="Show only selected objects">Isolate Objects</button>
+            <button type="button" data-action="clear-layer-isolation" title="Restore layer visibility">Clear Layer Isolation</button>
+            <button type="button" data-action="clear-object-isolation" title="Show all objects">Clear Object Isolation</button>
+          </div>
+          <div class="rendering-view-overlay">
+            <div id="renderingViewCube" class="rendering-view-cube" role="group" aria-label="View cube">
+              <button type="button" data-view="home" title="Auto fit view" aria-pressed="false">Home</button>
+              <button type="button" data-view="top" title="Top view" aria-pressed="false">Top</button>
+              <button type="button" data-view="right" title="Right view" aria-pressed="false">Right</button>
+              <button type="button" data-view="bottom" title="Bottom view" aria-pressed="false">Bottom</button>
+              <button type="button" data-view="left" title="Left view" aria-pressed="false">Left</button>
+              <button type="button" data-view="iso" title="Isometric view" aria-pressed="false">Iso</button>
+            </div>
+            <div class="rendering-view-history" role="group" aria-label="View history controls">
+              <button type="button" id="viewUndoBtn" title="Previous view">Undo</button>
+              <button type="button" id="viewHomeBtn" title="Reset to auto view">Home</button>
+              <button type="button" id="viewRedoBtn" title="Next view">Redo</button>
+            </div>
+          </div>
+          <div id="renderingNavigationWheel" class="rendering-navigation-wheel" role="group" aria-label="Navigation wheel">
+            <button type="button" class="nav-wheel-btn pan-up" data-action="pan-up" title="Pan up">↑</button>
+            <button type="button" class="nav-wheel-btn zoom-in" data-action="zoom-in" title="Zoom in">＋</button>
+            <button type="button" class="nav-wheel-btn orbit-left" data-action="orbit-left" title="Orbit left">⟲</button>
+            <button type="button" class="nav-wheel-btn pan-left" data-action="pan-left" title="Pan left">←</button>
+            <button type="button" class="nav-wheel-btn wheel-home" data-action="home" title="Reset view">⌂</button>
+            <button type="button" class="nav-wheel-btn pan-right" data-action="pan-right" title="Pan right">→</button>
+            <button type="button" class="nav-wheel-btn orbit-right" data-action="orbit-right" title="Orbit right">⟳</button>
+            <button type="button" class="nav-wheel-btn zoom-out" data-action="zoom-out" title="Zoom out">−</button>
+            <button type="button" class="nav-wheel-btn pan-down" data-action="pan-down" title="Pan down">↓</button>
+          </div>
+          <canvas id="renderingOverlayCanvas"></canvas>
+          <div id="renderingOverlayTextLayer" class="rendering-text-layer"></div>
+          <div id="renderingOverlayMeasurementLayer" class="rendering-measurement-layer"></div>
+          <div id="renderingOverlaySnapLayer" class="rendering-snap-layer"></div>
+          <div id="renderingOverlayInteractionLayer" class="rendering-interaction-layer"></div>
+        </div>
+      </div>
+    </div>
+  </div>
   <!-- Filters Popup Overlay (Left) -->
   <div id="filtersOverlayLeft" class="filters-overlay" style="display:none;">
     <div class="overlay-content" style="max-width: 520px; max-height: 90vh; overflow:auto;">

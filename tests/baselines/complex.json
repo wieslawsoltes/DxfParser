@@ -1,0 +1,13 @@
+{
+  "name": "complex-model",
+  "dxf": "../data/complex.dxf",
+  "expectedStats": {
+    "modelSpaceEntities": 3,
+    "paperSpaceLayouts": 0,
+    "paperSpaceEntities": 0,
+    "blockCount": 1,
+    "blockEntities": 2,
+    "renderableEntities": 3
+  },
+  "referenceSvg": "../trueview/complex.svg"
+}

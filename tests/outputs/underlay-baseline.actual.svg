@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 768" width="1024" height="768" fill="none">
+<rect width="1024" height="768" fill="#0b1828" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,81.44 209.44,565.54 814.56,565.54" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,81.44 814.56,565.54 814.56,81.44" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,559.48 209.44,565.54 215.49,565.54" />
+<polygon fill="rgba(80,80,80,0.1)" opacity="0.100" points="209.44,559.48 215.49,565.54 215.49,559.48" />
+
+
+<text x="512.00" y="323.49" font-size="72.61" fill="rgba(80,80,80,0.1)" text-anchor="start" dominant-baseline="alphabetic" transform="rotate(0.00 512.00 323.49)">UNDERLAY (off)</text>
+<text x="212.47" y="562.51" font-size="72.61" fill="rgba(80,80,80,0.1)" text-anchor="start" dominant-baseline="alphabetic" transform="rotate(0.00 212.47 562.51)">UNDERLAY (off)</text>
+<text x="209.44" y="686.56" font-size="72.61" fill="rgba(210, 227, 255, 1)" text-anchor="start" dominant-baseline="alphabetic" transform="rotate(0.00 209.44 686.56)">Reference geometry</text>
+</svg>
