@@ -723,6 +723,21 @@
     build() {
       const tables = this.extractTables();
       const drawingProperties = this.extractDrawingProperties();
+      const resolvedEntityDefaults = this.resolveEntityDefaults(
+        drawingProperties ? drawingProperties.entityDefaults : null,
+        tables
+      );
+      const resolvedDisplaySettings = this.resolveDisplaySettings(
+        drawingProperties ? drawingProperties.display : null
+      );
+      const resolvedCoordinateDefaults = this.resolveCoordinateDefaults(
+        drawingProperties ? drawingProperties.coordinate : null
+      );
+      if (drawingProperties) {
+        drawingProperties.entityDefaults = resolvedEntityDefaults;
+        drawingProperties.display = resolvedDisplaySettings;
+        drawingProperties.coordinate = resolvedCoordinateDefaults;
+      }
       const plotInfrastructure = this.extractPlotInfrastructure();
       if (plotInfrastructure) {
         if (plotInfrastructure.plotStyles) {
@@ -748,7 +763,53 @@
       const materialCatalog = this.extractMaterials();
       const backgroundCatalog = this.extractBackgrounds();
       const sunCatalog = this.extractSuns();
-      const { entities, blocks } = this.extractEntities(tables, materialCatalog);
+      const auxiliaryObjects = this.extractAuxiliaryObjects();
+      const pointCloudResources = auxiliaryObjects.pointClouds || {
+        definitions: { byHandle: Object.create(null), list: [] },
+        reactors: { byHandle: Object.create(null), list: [] },
+        exRecords: { byHandle: Object.create(null), list: [] }
+      };
+      const imageDefinitionsByHandle = auxiliaryObjects.imageDefinitions && auxiliaryObjects.imageDefinitions.byHandle
+        ? auxiliaryObjects.imageDefinitions.byHandle
+        : Object.create(null);
+      const underlayDefinitionsByHandle = auxiliaryObjects.underlayDefinitions && auxiliaryObjects.underlayDefinitions.byHandle
+        ? auxiliaryObjects.underlayDefinitions.byHandle
+        : Object.create(null);
+      const sectionViewStylesByHandle = auxiliaryObjects.sectionViewStyles && auxiliaryObjects.sectionViewStyles.byHandle
+        ? auxiliaryObjects.sectionViewStyles.byHandle
+        : Object.create(null);
+      const detailViewStylesByHandle = auxiliaryObjects.detailViewStyles && auxiliaryObjects.detailViewStyles.byHandle
+        ? auxiliaryObjects.detailViewStyles.byHandle
+        : Object.create(null);
+      const sectionObjectsByHandle = auxiliaryObjects.sectionObjects && auxiliaryObjects.sectionObjects.byHandle
+        ? auxiliaryObjects.sectionObjects.byHandle
+        : Object.create(null);
+      const sectionGeometriesByHandle = auxiliaryObjects.sectionGeometries && auxiliaryObjects.sectionGeometries.byHandle
+        ? auxiliaryObjects.sectionGeometries.byHandle
+        : Object.create(null);
+      const detailViewObjectsByHandle = auxiliaryObjects.detailViewObjects && auxiliaryObjects.detailViewObjects.byHandle
+        ? auxiliaryObjects.detailViewObjects.byHandle
+        : Object.create(null);
+      const proxyObjectsByHandle = auxiliaryObjects.proxyObjects && auxiliaryObjects.proxyObjects.byHandle
+        ? auxiliaryObjects.proxyObjects.byHandle
+        : Object.create(null);
+      const datalinksByHandle = auxiliaryObjects.datalinks && auxiliaryObjects.datalinks.byHandle
+        ? auxiliaryObjects.datalinks.byHandle
+        : Object.create(null);
+      const dictionaryVariablesByName = auxiliaryObjects.dictionaryVariables && auxiliaryObjects.dictionaryVariables.byName
+        ? auxiliaryObjects.dictionaryVariables.byName
+        : Object.create(null);
+      const lightListsByHandle = auxiliaryObjects.lightLists && auxiliaryObjects.lightLists.byHandle
+        ? auxiliaryObjects.lightLists.byHandle
+        : Object.create(null);
+      const { entities, blocks } = this.extractEntities(
+        tables,
+        materialCatalog,
+        auxiliaryObjects,
+        resolvedEntityDefaults,
+        resolvedCoordinateDefaults,
+        resolvedDisplaySettings
+      );
 
       if (colorBooks && tables.layers) {
         const resolveColorBookReference = (reference) => {
@@ -822,7 +883,24 @@
         tables,
         materials: materialCatalog.byHandle,
         backgrounds: backgroundCatalog.byHandle,
-        suns: sunCatalog.byHandle
+        suns: sunCatalog.byHandle,
+        units: drawingProperties ? drawingProperties.units || null : null,
+        entityDefaults: resolvedEntityDefaults || null,
+        displaySettings: resolvedDisplaySettings || null,
+        coordinateDefaults: resolvedCoordinateDefaults || null,
+        imageDefinitions: imageDefinitionsByHandle,
+        underlayDefinitions: underlayDefinitionsByHandle,
+        pointClouds: pointCloudResources,
+        sectionViewStyles: sectionViewStylesByHandle,
+        detailViewStyles: detailViewStylesByHandle,
+        sectionObjects: sectionObjectsByHandle,
+        sectionGeometries: sectionGeometriesByHandle,
+        detailViewObjects: detailViewObjectsByHandle,
+        rasterVariables: auxiliaryObjects.rasterVariables || null,
+        proxyObjects: proxyObjectsByHandle,
+        datalinks: datalinksByHandle,
+        dictionaryVariables: dictionaryVariablesByName,
+        lightLists: lightListsByHandle
       });
 
       entities.forEach((entity) => sceneGraphBuilder.ingestEntity(entity));
@@ -852,7 +930,21 @@
         stats,
         drawingProperties,
         backgrounds: backgroundCatalog,
-        suns: sunCatalog
+        suns: sunCatalog,
+        imageDefinitions: auxiliaryObjects.imageDefinitions,
+        imageDefReactors: auxiliaryObjects.imageDefReactors,
+        rasterVariables: auxiliaryObjects.rasterVariables,
+        underlayDefinitions: auxiliaryObjects.underlayDefinitions,
+        pointClouds: auxiliaryObjects.pointClouds,
+        sectionViewStyles: auxiliaryObjects.sectionViewStyles,
+        detailViewStyles: auxiliaryObjects.detailViewStyles,
+        sectionObjects: auxiliaryObjects.sectionObjects,
+        sectionGeometries: auxiliaryObjects.sectionGeometries,
+        detailViewObjects: auxiliaryObjects.detailViewObjects,
+        proxyObjects: auxiliaryObjects.proxyObjects,
+        datalinks: auxiliaryObjects.datalinks,
+        dictionaryVariables: auxiliaryObjects.dictionaryVariables,
+        lightLists: auxiliaryObjects.lightLists
       };
     }
 
@@ -863,7 +955,49 @@
         insUnitsSource: null,
         measurement: null,
         scaleFactor: null,
-        basePoint: { x: null, y: null, z: null }
+        basePoint: { x: null, y: null, z: null },
+        ltScale: 1,
+        celTScale: 1,
+        psLtScale: 1
+      };
+
+      const entityDefaults = {
+        linetype: null,
+        linetypeHandle: null,
+        lineweight: null,
+        textStyle: null,
+        textStyleHandle: null,
+        dimStyle: null,
+        dimStyleHandle: null
+      };
+
+      const display = {
+        pointMode: 0,
+        pointSize: null,
+        fillMode: 1,
+        mirrorText: 1,
+        traceWidth: null
+      };
+
+      const coordinate = {
+        modelUcs: {
+          name: null,
+          origin: { x: null, y: null, z: null },
+          xAxis: { x: null, y: null, z: null },
+          yAxis: { x: null, y: null, z: null }
+        },
+        paperUcs: {
+          name: null,
+          origin: { x: null, y: null, z: null },
+          xAxis: { x: null, y: null, z: null },
+          yAxis: { x: null, y: null, z: null }
+        },
+        view: {
+          direction: { x: null, y: null, z: null },
+          vpoint: { x: null, y: null, z: null },
+          target: { x: null, y: null, z: null },
+          twist: null
+        }
       };
 
       const limits = {
@@ -1012,6 +1146,104 @@
                 units.insUnits = intVal;
               }
               break;
+            case '$LTSCALE':
+              if (floatVal != null) {
+                units.ltScale = floatVal;
+              }
+              break;
+            case '$CELTYPE':
+              if (trimmedValue) {
+                entityDefaults.linetype = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.linetypeHandle = trimmedValue;
+              }
+              break;
+            case '$CELTSCALE':
+              if (floatVal != null) {
+                units.celTScale = floatVal;
+              }
+              break;
+            case '$PSLTSCALE':
+              if (intVal != null) {
+                units.psLtScale = intVal;
+              }
+              break;
+            case '$CELWEIGHT':
+              if (intVal != null) {
+                entityDefaults.lineweight = intVal;
+              }
+              break;
+            case '$UCSNAME':
+              coordinate.modelUcs.name = trimmedValue || null;
+              break;
+            case '$UCSORG':
+              if (code === 10) {
+                coordinate.modelUcs.origin.x = floatVal;
+              } else if (code === 20) {
+                coordinate.modelUcs.origin.y = floatVal;
+              } else if (code === 30) {
+                coordinate.modelUcs.origin.z = floatVal;
+              }
+              break;
+            case '$UCSXDIR':
+              if (code === 10) {
+                coordinate.modelUcs.xAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.modelUcs.xAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.modelUcs.xAxis.z = floatVal;
+              }
+              break;
+            case '$UCSYDIR':
+              if (code === 10) {
+                coordinate.modelUcs.yAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.modelUcs.yAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.modelUcs.yAxis.z = floatVal;
+              }
+              break;
+            case '$PUCSNAME':
+              coordinate.paperUcs.name = trimmedValue || null;
+              break;
+            case '$PUCSORG':
+              if (code === 10) {
+                coordinate.paperUcs.origin.x = floatVal;
+              } else if (code === 20) {
+                coordinate.paperUcs.origin.y = floatVal;
+              } else if (code === 30) {
+                coordinate.paperUcs.origin.z = floatVal;
+              }
+              break;
+            case '$PUCSXDIR':
+              if (code === 10) {
+                coordinate.paperUcs.xAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.paperUcs.xAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.paperUcs.xAxis.z = floatVal;
+              }
+              break;
+            case '$PUCSYDIR':
+              if (code === 10) {
+                coordinate.paperUcs.yAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.paperUcs.yAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.paperUcs.yAxis.z = floatVal;
+              }
+              break;
+            case '$PDMODE':
+              if (intVal != null) {
+                display.pointMode = intVal;
+              }
+              break;
+            case '$PDSIZE':
+              if (floatVal != null) {
+                display.pointSize = floatVal;
+              }
+              break;
             case '$INSUNITSDEFTARGET':
               if (intVal != null) {
                 units.insUnitsTarget = intVal;
@@ -1040,6 +1272,78 @@
             case '$INSUNITSFACTOR':
               if (floatVal != null) {
                 units.scaleFactor = floatVal;
+              }
+              break;
+            case '$CELTEXTSTYLE':
+              if (trimmedValue) {
+                entityDefaults.textStyle = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.textStyleHandle = trimmedValue;
+              }
+              break;
+            case '$TEXTSTYLE':
+              if (trimmedValue) {
+                entityDefaults.textStyle = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.textStyleHandle = trimmedValue;
+              }
+              break;
+            case '$DIMSTYLE':
+              if (trimmedValue) {
+                entityDefaults.dimStyle = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.dimStyleHandle = trimmedValue;
+              }
+              break;
+            case '$FILLMODE':
+              if (intVal != null) {
+                display.fillMode = intVal;
+              }
+              break;
+            case '$MIRRTEXT':
+              if (intVal != null) {
+                display.mirrorText = intVal;
+              }
+              break;
+            case '$TRACEWID':
+              if (floatVal != null) {
+                display.traceWidth = floatVal;
+              }
+              break;
+            case '$VIEWDIR':
+              if (code === 16) {
+                coordinate.view.direction.x = floatVal;
+              } else if (code === 26) {
+                coordinate.view.direction.y = floatVal;
+              } else if (code === 36) {
+                coordinate.view.direction.z = floatVal;
+              }
+              break;
+            case '$VPOINT':
+              if (code === 16) {
+                coordinate.view.vpoint.x = floatVal;
+              } else if (code === 26) {
+                coordinate.view.vpoint.y = floatVal;
+              } else if (code === 36) {
+                coordinate.view.vpoint.z = floatVal;
+              }
+              break;
+            case '$VIEWTWIST':
+              if (floatVal != null) {
+                coordinate.view.twist = floatVal;
+              }
+              break;
+            case '$TARGET':
+            case '$VIEWTARGET':
+              if (code === 10 || code === 17) {
+                coordinate.view.target.x = floatVal;
+              } else if (code === 20 || code === 27) {
+                coordinate.view.target.y = floatVal;
+              } else if (code === 30 || code === 37) {
+                coordinate.view.target.z = floatVal;
               }
               break;
             case '$LIMMIN':
@@ -1265,7 +1569,10 @@
         limits,
         extents,
         metadata,
-        geographic
+        geographic,
+        entityDefaults,
+        display,
+        coordinate
       };
     }
 
@@ -1741,6 +2048,274 @@
       return catalog;
     }
 
+    _lookupTableNameByHandle(table, handle) {
+      if (!table || !handle) {
+        return null;
+      }
+      const normalized = normalizeHandle(handle);
+      if (!normalized) {
+        return null;
+      }
+      const entries = Object.keys(table);
+      for (let idx = 0; idx < entries.length; idx += 1) {
+        const name = entries[idx];
+        const entry = table[name];
+        if (!entry) {
+          continue;
+        }
+        const entryHandle = entry.handle ? normalizeHandle(entry.handle) : null;
+        if (entryHandle && entryHandle === normalized) {
+          return name;
+        }
+      }
+      return null;
+    }
+
+    _matchTableNameCaseInsensitive(table, candidate) {
+      if (!table || !candidate) {
+        return null;
+      }
+      const trimmed = String(candidate).trim();
+      if (!trimmed) {
+        return null;
+      }
+      if (Object.prototype.hasOwnProperty.call(table, trimmed)) {
+        return trimmed;
+      }
+      const upper = trimmed.toUpperCase();
+      const entries = Object.keys(table);
+      for (let idx = 0; idx < entries.length; idx += 1) {
+        const name = entries[idx];
+        if (String(name).toUpperCase() === upper) {
+          return name;
+        }
+      }
+      return null;
+    }
+
+    resolveEntityDefaults(defaults, tables = {}) {
+      if (!defaults || typeof defaults !== 'object') {
+        return null;
+      }
+      const result = {
+        linetype: null,
+        linetypeHandle: null,
+        lineweight: Number.isFinite(defaults.lineweight) ? defaults.lineweight : null,
+        textStyle: null,
+        textStyleHandle: null,
+        dimStyle: null,
+        dimStyleHandle: null
+      };
+
+      if (defaults.linetype) {
+        const lt = String(defaults.linetype).trim();
+        if (lt) {
+          result.linetype = lt;
+        }
+      }
+      if (defaults.linetypeHandle) {
+        const normalized = normalizeHandle(defaults.linetypeHandle);
+        if (normalized) {
+          result.linetypeHandle = normalized;
+        }
+      }
+      if (!result.linetype && result.linetypeHandle && tables && tables.linetypes) {
+        const name = this._lookupTableNameByHandle(tables.linetypes, result.linetypeHandle);
+        if (name) {
+          result.linetype = name;
+        }
+      }
+
+      if (defaults.textStyleHandle) {
+        const normalized = normalizeHandle(defaults.textStyleHandle);
+        if (normalized) {
+          result.textStyleHandle = normalized;
+        }
+      }
+      if (defaults.textStyle) {
+        const resolved = this._matchTableNameCaseInsensitive(tables.textStyles, defaults.textStyle) || String(defaults.textStyle).trim();
+        if (resolved) {
+          result.textStyle = resolved;
+        }
+      }
+      if (!result.textStyle && result.textStyleHandle && tables && tables.textStyles) {
+        const name = this._lookupTableNameByHandle(tables.textStyles, result.textStyleHandle);
+        if (name) {
+          result.textStyle = name;
+        }
+      }
+
+      if (defaults.dimStyleHandle) {
+        const normalized = normalizeHandle(defaults.dimStyleHandle);
+        if (normalized) {
+          result.dimStyleHandle = normalized;
+        }
+      }
+      if (defaults.dimStyle) {
+        const resolved = this._matchTableNameCaseInsensitive(tables.dimStyles, defaults.dimStyle) || String(defaults.dimStyle).trim();
+        if (resolved) {
+          result.dimStyle = resolved;
+        }
+      }
+      if (!result.dimStyle && result.dimStyleHandle && tables && tables.dimStyles) {
+        const name = this._lookupTableNameByHandle(tables.dimStyles, result.dimStyleHandle);
+        if (name) {
+          result.dimStyle = name;
+        }
+      }
+
+      const hasValue = Object.keys(result).some((key) => result[key] != null);
+      return hasValue ? result : null;
+    }
+
+    resolveDisplaySettings(settings) {
+      if (!settings || typeof settings !== 'object') {
+        return null;
+      }
+      const pointMode = Number.isFinite(settings.pointMode) ? settings.pointMode : 0;
+      const pointSize = Number.isFinite(settings.pointSize) ? settings.pointSize : null;
+      const fillMode = settings.fillMode != null ? settings.fillMode : 1;
+      const mirrorText = settings.mirrorText != null ? settings.mirrorText : 1;
+      const traceWidth = Number.isFinite(settings.traceWidth) ? settings.traceWidth : null;
+      return {
+        point: {
+          mode: pointMode,
+          size: pointSize
+        },
+        fillMode,
+        mirrorText,
+        traceWidth
+      };
+    }
+
+    resolveCoordinateDefaults(source) {
+      if (!source || typeof source !== 'object') {
+        return null;
+      }
+
+      const coerce = (value) => {
+        const floatVal = toFloat(value);
+        if (floatVal != null) {
+          return floatVal;
+        }
+        if (Number.isFinite(value)) {
+          return value;
+        }
+        return null;
+      };
+
+      const ensureVector = (vec, fallback) => {
+        const result = {
+          x: fallback && Number.isFinite(fallback.x) ? fallback.x : 0,
+          y: fallback && Number.isFinite(fallback.y) ? fallback.y : 0,
+          z: fallback && Number.isFinite(fallback.z) ? fallback.z : 0
+        };
+        if (vec && typeof vec === 'object') {
+          const x = coerce(vec.x);
+          const y = coerce(vec.y);
+          const z = coerce(vec.z);
+          if (x != null) result.x = x;
+          if (y != null) result.y = y;
+          if (z != null) result.z = z;
+        }
+        return result;
+      };
+
+      const vectorLength = (vector) => {
+        if (!vector) return 0;
+        return Math.hypot(
+          Number.isFinite(vector.x) ? vector.x : 0,
+          Number.isFinite(vector.y) ? vector.y : 0,
+          Number.isFinite(vector.z) ? vector.z : 0
+        );
+      };
+
+      const normalizeVectorLocal = (vector, fallback) => {
+        const length = vectorLength(vector);
+        if (length < 1e-9) {
+          if (fallback) {
+            return { x: fallback.x, y: fallback.y, z: fallback.z };
+          }
+          return null;
+        }
+        return {
+          x: (Number.isFinite(vector.x) ? vector.x : 0) / length,
+          y: (Number.isFinite(vector.y) ? vector.y : 0) / length,
+          z: (Number.isFinite(vector.z) ? vector.z : 0) / length
+        };
+      };
+
+      const cross = (a, b) => ({
+        x: (a.y || 0) * (b.z || 0) - (a.z || 0) * (b.y || 0),
+        y: (a.z || 0) * (b.x || 0) - (a.x || 0) * (b.z || 0),
+        z: (a.x || 0) * (b.y || 0) - (a.y || 0) * (b.x || 0)
+      });
+
+      const defaultXAxis = { x: 1, y: 0, z: 0 };
+      const defaultYAxis = { x: 0, y: 1, z: 0 };
+      const defaultZAxis = { x: 0, y: 0, z: 1 };
+
+      const model = source.modelUcs || {};
+      const modelOrigin = ensureVector(model.origin, { x: 0, y: 0, z: 0 });
+      let modelXAxis = normalizeVectorLocal(ensureVector(model.xAxis, defaultXAxis), defaultXAxis);
+      if (!modelXAxis) modelXAxis = { x: 1, y: 0, z: 0 };
+      let modelYAxis = normalizeVectorLocal(ensureVector(model.yAxis, defaultYAxis), null);
+      if (!modelYAxis) {
+        modelYAxis = { x: 0, y: 1, z: 0 };
+      }
+      let modelZAxis = normalizeVectorLocal(cross(modelXAxis, modelYAxis), defaultZAxis);
+      if (!modelZAxis) {
+        modelZAxis = { x: 0, y: 0, z: 1 };
+      }
+      modelYAxis = normalizeVectorLocal(cross(modelZAxis, modelXAxis), defaultYAxis) || { x: 0, y: 1, z: 0 };
+
+      const paper = source.paperUcs || {};
+      const paperOrigin = ensureVector(paper.origin, { x: 0, y: 0, z: 0 });
+      let paperXAxis = normalizeVectorLocal(ensureVector(paper.xAxis, defaultXAxis), defaultXAxis);
+      if (!paperXAxis) paperXAxis = { x: 1, y: 0, z: 0 };
+      let paperYAxis = normalizeVectorLocal(ensureVector(paper.yAxis, defaultYAxis), null);
+      if (!paperYAxis) {
+        paperYAxis = { x: 0, y: 1, z: 0 };
+      }
+      let paperZAxis = normalizeVectorLocal(cross(paperXAxis, paperYAxis), defaultZAxis);
+      if (!paperZAxis) {
+        paperZAxis = { x: 0, y: 0, z: 1 };
+      }
+      paperYAxis = normalizeVectorLocal(cross(paperZAxis, paperXAxis), defaultYAxis) || { x: 0, y: 1, z: 0 };
+
+      const view = source.view || {};
+      const viewDirectionRaw = ensureVector(view.direction, null);
+      const viewPointRaw = ensureVector(view.vpoint, null);
+      const viewDirection = normalizeVectorLocal(viewDirectionRaw, null)
+        || normalizeVectorLocal(viewPointRaw, defaultZAxis)
+        || { x: 0, y: 0, z: 1 };
+      const viewTarget = ensureVector(view.target, modelOrigin);
+      const viewTwist = Number.isFinite(view.twist) ? view.twist : 0;
+
+      return {
+        modelUcs: {
+          name: (model.name && String(model.name).trim()) || null,
+          origin: modelOrigin,
+          xAxis: modelXAxis,
+          yAxis: modelYAxis,
+          zAxis: modelZAxis
+        },
+        paperUcs: {
+          name: (paper.name && String(paper.name).trim()) || null,
+          origin: paperOrigin,
+          xAxis: paperXAxis,
+          yAxis: paperYAxis,
+          zAxis: paperZAxis
+        },
+        view: {
+          direction: viewDirection,
+          vpoint: normalizeVectorLocal(viewPointRaw, defaultZAxis) || { x: 0, y: 0, z: 1 },
+          target: viewTarget,
+          twist: viewTwist
+        }
+      };
+    }
+
     nextEntityId(type) {
       const sanitizedType = type || 'ENTITY';
       const id = `${sanitizedType}_${this.entityCounter}`;
@@ -1763,6 +2338,13 @@
       const multiLeaderStyleMap = new Map();
       const ucsMap = new Map();
       const vportMap = new Map();
+      const dimStyleMap = new Map();
+      const tableStyleMap = new Map();
+      const mlineStyleMap = new Map();
+      const scaleMap = new Map();
+      const appIdMap = new Map();
+      const regAppMap = new Map();
+      const viewMap = new Map();
 
       const collections = {
         LAYER: layerMap,
@@ -1772,7 +2354,14 @@
         BLOCK_RECORD: blockRecordMap,
         MULTILEADERSTYLE: multiLeaderStyleMap,
         UCS: ucsMap,
-        VPORT: vportMap
+        VPORT: vportMap,
+        DIMSTYLE: dimStyleMap,
+        TABLESTYLE: tableStyleMap,
+        MLINESTYLE: mlineStyleMap,
+        SCALE: scaleMap,
+        APPID: appIdMap,
+        REGAPP: regAppMap,
+        VIEW: viewMap
       };
 
       let section = null;
@@ -1866,7 +2455,14 @@
         blockRecords: utils.mapToPlainObject(blockRecordMap),
         multiLeaderStyles: utils.mapToPlainObject(multiLeaderStyleMap),
         ucs: utils.mapToPlainObject(ucsMap),
-        vports: utils.mapToPlainObject(vportMap)
+        vports: utils.mapToPlainObject(vportMap),
+        dimStyles: utils.mapToPlainObject(dimStyleMap),
+        tableStyles: utils.mapToPlainObject(tableStyleMap),
+        mlineStyles: utils.mapToPlainObject(mlineStyleMap),
+        scales: utils.mapToPlainObject(scaleMap),
+        appIds: utils.mapToPlainObject(appIdMap),
+        regApps: utils.mapToPlainObject(regAppMap),
+        views: utils.mapToPlainObject(viewMap)
       };
     }
 
@@ -2276,6 +2872,306 @@
       };
     }
 
+    extractAuxiliaryObjects() {
+      const imageDefinitions = { byHandle: Object.create(null), list: [] };
+      const imageDefReactors = { byHandle: Object.create(null), list: [] };
+      let rasterVariables = null;
+      const underlayDefinitions = { byHandle: Object.create(null), list: [] };
+      const pointCloudDefinitions = { byHandle: Object.create(null), list: [] };
+      const pointCloudReactors = { byHandle: Object.create(null), list: [] };
+      const pointCloudExRecords = { byHandle: Object.create(null), list: [] };
+      const sectionViewStyles = { byHandle: Object.create(null), list: [] };
+      const detailViewStyles = { byHandle: Object.create(null), list: [] };
+      const sectionObjects = { byHandle: Object.create(null), list: [] };
+      const sectionGeometries = { byHandle: Object.create(null), list: [] };
+      const detailViewObjects = { byHandle: Object.create(null), list: [] };
+      const proxyObjects = { byHandle: Object.create(null), list: [] };
+      const datalinks = { byHandle: Object.create(null), list: [] };
+      const dictionaryVariables = { byName: Object.create(null), list: [] };
+      const lightLists = { byHandle: Object.create(null), list: [] };
+
+      let section = null;
+      let i = 0;
+
+      while (i < this.tags.length) {
+        const tag = this.tags[i];
+        const code = Number(tag.code);
+        const rawValue = tag.value;
+        const stringValue = typeof rawValue === 'string'
+          ? rawValue
+          : (rawValue != null ? String(rawValue) : '');
+        const trimmedValue = stringValue.trim();
+        const upperValue = trimmedValue.toUpperCase();
+
+        if (code === 0) {
+          if (upperValue === 'SECTION') {
+            section = null;
+            i += 1;
+            while (i < this.tags.length) {
+              const lookahead = this.tags[i];
+              if (Number(lookahead.code) === 2) {
+                section = String(lookahead.value || '').trim().toUpperCase();
+                i += 1;
+                break;
+              }
+              if (Number(lookahead.code) === 0) {
+                break;
+              }
+              i += 1;
+            }
+            continue;
+          }
+
+          if (upperValue === 'ENDSEC') {
+            section = null;
+            i += 1;
+            continue;
+          }
+
+          if (section === 'OBJECTS') {
+            if (upperValue === 'IMAGEDEF') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const descriptor = this.parseImageDefinition(objectTags);
+              if (descriptor) {
+                if (descriptor.handleUpper) {
+                  imageDefinitions.byHandle[descriptor.handleUpper] = descriptor;
+                }
+                if (descriptor.handle && !imageDefinitions.byHandle[descriptor.handle]) {
+                  imageDefinitions.byHandle[descriptor.handle] = descriptor;
+                }
+                imageDefinitions.list.push(descriptor);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'IMAGEDEF_REACTOR') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const reactor = this.parseImageDefReactor(objectTags);
+              if (reactor) {
+                if (reactor.handleUpper) {
+                  imageDefReactors.byHandle[reactor.handleUpper] = reactor;
+                }
+                if (reactor.handle && !imageDefReactors.byHandle[reactor.handle]) {
+                  imageDefReactors.byHandle[reactor.handle] = reactor;
+                }
+                imageDefReactors.list.push(reactor);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'RASTERVARIABLES') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              rasterVariables = this.parseRasterVariables(objectTags);
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'PDFUNDERLAYDEFINITION' ||
+              upperValue === 'DWFUNDERLAYDEFINITION' ||
+              upperValue === 'DGNUNDERLAYDEFINITION') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const def = this.parseUnderlayDefinition(upperValue, objectTags);
+              if (def) {
+                const handleKey = def.handleUpper || def.handle;
+                if (handleKey) {
+                  underlayDefinitions.byHandle[handleKey] = def;
+                }
+                underlayDefinitions.list.push(def);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'POINTCLOUDDEF') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const def = this.parsePointCloudDefinition(objectTags);
+              if (def) {
+                const handleKey = def.handleUpper || def.handle;
+                if (handleKey) {
+                  pointCloudDefinitions.byHandle[handleKey] = def;
+                }
+                pointCloudDefinitions.list.push(def);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'POINTCLOUDDEF_REACTOR') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const reactor = this.parsePointCloudDefReactor(objectTags);
+              if (reactor) {
+                const handleKey = reactor.handleUpper || reactor.handle;
+                if (handleKey) {
+                  pointCloudReactors.byHandle[handleKey] = reactor;
+                }
+                pointCloudReactors.list.push(reactor);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'POINTCLOUDDEF_EX') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const exRecord = this.parsePointCloudExRecord(objectTags);
+              if (exRecord) {
+                const handleKey = exRecord.handleUpper || exRecord.handle;
+                if (handleKey) {
+                  pointCloudExRecords.byHandle[handleKey] = exRecord;
+                }
+                pointCloudExRecords.list.push(exRecord);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SECTIONVIEWSTYLE' || upperValue === 'DETAILVIEWSTYLE') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const style = this.parseViewStyle(upperValue, objectTags);
+              if (style) {
+                const handleKey = style.handleUpper || style.handle;
+                if (upperValue === 'SECTIONVIEWSTYLE') {
+                  if (handleKey) {
+                    sectionViewStyles.byHandle[handleKey] = style;
+                  }
+                  sectionViewStyles.list.push(style);
+                } else {
+                  if (handleKey) {
+                    detailViewStyles.byHandle[handleKey] = style;
+                  }
+                  detailViewStyles.list.push(style);
+                }
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SECTIONOBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const sectionObject = this.parseSectionObject(objectTags);
+              if (sectionObject) {
+                const handleKey = sectionObject.handleUpper || sectionObject.handle;
+                if (handleKey) {
+                  sectionObjects.byHandle[handleKey] = sectionObject;
+                }
+                sectionObjects.list.push(sectionObject);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SECTIONGEOMETRY') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const sectionGeometry = this.parseSectionGeometry(objectTags);
+              if (sectionGeometry) {
+                const handleKey = sectionGeometry.handleUpper || sectionGeometry.handle;
+                if (handleKey) {
+                  sectionGeometries.byHandle[handleKey] = sectionGeometry;
+                }
+                sectionGeometries.list.push(sectionGeometry);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'DETAILVIEWOBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const detailObject = this.parseDetailViewObject(objectTags);
+              if (detailObject) {
+                const handleKey = detailObject.handleUpper || detailObject.handle;
+                if (handleKey) {
+                  detailViewObjects.byHandle[handleKey] = detailObject;
+                }
+                detailViewObjects.list.push(detailObject);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'ACAD_PROXY_OBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const proxy = this.parseProxyObject(objectTags);
+              if (proxy) {
+                const handleKey = proxy.handleUpper || proxy.handle;
+                if (handleKey) {
+                  proxyObjects.byHandle[handleKey] = proxy;
+                }
+                proxyObjects.list.push(proxy);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'DATALINK') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const link = this.parseDatalinkObject(objectTags);
+              if (link) {
+                const handleKey = link.handleUpper || link.handle;
+                if (handleKey) {
+                  datalinks.byHandle[handleKey] = link;
+                }
+                datalinks.list.push(link);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'DICTIONARYVAR') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const dictVar = this.parseDictionaryVar(objectTags);
+              if (dictVar) {
+                const key = dictVar.nameUpper || dictVar.name || dictVar.handleUpper || dictVar.handle;
+                if (key) {
+                  dictionaryVariables.byName[key] = dictVar;
+                }
+                dictionaryVariables.list.push(dictVar);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'LIGHTLIST') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const listEntry = this.parseLightList(objectTags);
+              if (listEntry) {
+                const handleKey = listEntry.handleUpper || listEntry.handle;
+                if (handleKey) {
+                  lightLists.byHandle[handleKey] = listEntry;
+                }
+                lightLists.list.push(listEntry);
+              }
+              i = nextIndex;
+              continue;
+            }
+          }
+        }
+
+        i += 1;
+      }
+
+      return {
+        imageDefinitions,
+        imageDefReactors,
+        rasterVariables,
+        underlayDefinitions,
+        pointClouds: {
+          definitions: pointCloudDefinitions,
+          reactors: pointCloudReactors,
+          exRecords: pointCloudExRecords
+        },
+        sectionViewStyles,
+        detailViewStyles,
+        sectionObjects,
+        sectionGeometries,
+        detailViewObjects,
+        proxyObjects,
+        datalinks,
+        dictionaryVariables,
+        lightLists
+      };
+    }
+
     extractMaterials() {
       const byHandle = Object.create(null);
       const byName = Object.create(null);
@@ -2470,6 +3366,327 @@
       };
     }
 
+    parseImageDefinition(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'IMAGEDEF',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        filePath: utils.getFirstCodeValue(tags, 1) || null,
+        className: utils.getFirstCodeValue(tags, 2) || null,
+        imageSize: {
+          width: utils.toFloat(utils.getFirstCodeValue(tags, 10)),
+          height: utils.toFloat(utils.getFirstCodeValue(tags, 20))
+        },
+        pixelSize: {
+          width: utils.toFloat(utils.getFirstCodeValue(tags, 11)),
+          height: utils.toFloat(utils.getFirstCodeValue(tags, 21))
+        },
+        resolution: {
+          x: utils.toFloat(utils.getFirstCodeValue(tags, 12)),
+          y: utils.toFloat(utils.getFirstCodeValue(tags, 22))
+        },
+        loaded: (utils.toInt(utils.getFirstCodeValue(tags, 280)) || 0) !== 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseImageDefReactor(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'IMAGEDEF_REACTOR',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        imageDefinitionHandle: utils.getFirstCodeValue(tags, 331) || null,
+        imageEntityHandle: utils.getFirstCodeValue(tags, 340) || null,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseRasterVariables(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      return {
+        type: 'RASTERVARIABLES',
+        displayFrame: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        displayQuality: utils.toInt(utils.getFirstCodeValue(tags, 71)) || 0,
+        units: utils.toInt(utils.getFirstCodeValue(tags, 72)) || 0,
+        brightness: utils.toInt(utils.getFirstCodeValue(tags, 280)) ?? null,
+        contrast: utils.toInt(utils.getFirstCodeValue(tags, 281)) ?? null,
+        fade: utils.toInt(utils.getFirstCodeValue(tags, 282)) ?? null,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseUnderlayDefinition(type, tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type,
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        sourceFile: utils.getFirstCodeValue(tags, 1) || null,
+        name: utils.getFirstCodeValue(tags, 2) || null,
+        description: utils.getFirstCodeValue(tags, 3) || null,
+        flags: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parsePointCloudDefinition(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const codeLookup = this._buildCodeLookup(tags);
+      return {
+        type: 'POINTCLOUDDEF',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        filePath: utils.getFirstCodeValue(tags, 1) || null,
+        dataSource: utils.getFirstCodeValue(tags, 3) || null,
+        description: utils.getFirstCodeValue(tags, 300) || null,
+        pointCount: utils.toInt(utils.getFirstCodeValue(tags, 90)) || null,
+        codeValues: codeLookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parsePointCloudDefReactor(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'POINTCLOUDDEF_REACTOR',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        pointCloudHandle: utils.getFirstCodeValue(tags, 331) || null,
+        entityHandle: utils.getFirstCodeValue(tags, 340) || null,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parsePointCloudExRecord(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'POINTCLOUDDEF_EX',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseSectionObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lookup = this._buildCodeLookup(tags);
+      return {
+        type: 'SECTIONOBJECT',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        name: utils.getFirstCodeValue(tags, 2) || null,
+        description: utils.getFirstCodeValue(tags, 3) || null,
+        sectionType: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        state: utils.toInt(utils.getFirstCodeValue(tags, 90)) || 0,
+        parameters: lookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseSectionGeometry(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lookup = this._buildCodeLookup(tags);
+      return {
+        type: 'SECTIONGEOMETRY',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        linkedSection: utils.getFirstCodeValue(tags, 331) || null,
+        parameters: lookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseDetailViewObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lookup = this._buildCodeLookup(tags);
+      return {
+        type: 'DETAILVIEWOBJECT',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        label: utils.getFirstCodeValue(tags, 3) || null,
+        scale: utils.toFloat(utils.getFirstCodeValue(tags, 40)) ?? null,
+        viewStyleHandle: utils.getFirstCodeValue(tags, 340) || null,
+        parameters: lookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseViewStyle(type, tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type,
+        name: utils.getFirstCodeValue(tags, 2) || null,
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        description: utils.getFirstCodeValue(tags, 3) || null,
+        flags: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseProxyObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const graphicsData = [];
+      const stringData = [];
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (code === 310 || code === 311 || code === 312) {
+          graphicsData.push(tag.value);
+        } else if (code === 1000 || code === 1001) {
+          stringData.push(tag.value);
+        }
+      });
+      return {
+        type: 'ACAD_PROXY_OBJECT',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        applicationClassId: utils.toInt(utils.getFirstCodeValue(tags, 90)) || null,
+        originalDxfClassName: utils.getFirstCodeValue(tags, 91) || utils.getFirstCodeValue(tags, 1) || null,
+        graphicsData,
+        stringData,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseDatalinkObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'DATALINK',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        name: utils.getFirstCodeValue(tags, 3) || null,
+        description: utils.getFirstCodeValue(tags, 2) || null,
+        connectionString: utils.getFirstCodeValue(tags, 1) || null,
+        updateOption: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseDictionaryVar(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const name = utils.getFirstCodeValue(tags, 280) || utils.getFirstCodeValue(tags, 3) || null;
+      return {
+        type: 'DICTIONARYVAR',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        name,
+        nameUpper: name ? String(name).trim().toUpperCase() : null,
+        value: utils.getFirstCodeValue(tags, 1) || null,
+        flags: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseLightList(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lightHandles = [];
+      tags.forEach((tag) => {
+        if (Number(tag.code) === 330) {
+          lightHandles.push(tag.value);
+        }
+      });
+      return {
+        type: 'LIGHTLIST',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        lightHandles,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
     processTableRecord(collections, tableName, recordType, recordTags) {
       const upperTable = tableName.toUpperCase();
       const name = (utils.getFirstCodeValue(recordTags, 2) ||
@@ -2769,6 +3986,250 @@
           }))
         };
         collections[upperTable].set(name, entry);
+        return;
+      }
+
+      if (upperTable === 'DIMSTYLE' && recordType === 'DIMSTYLE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          dimensionType: utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'TABLESTYLE' && recordType === 'TABLESTYLE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        const cellMeta = new Map();
+        let currentCell = null;
+        recordTags.forEach((tag) => {
+          const code = Number(tag.code);
+          switch (code) {
+            case 171:
+              if (currentCell) {
+                cellMeta.set(`cell-${currentCell.id}`, currentCell);
+              }
+              currentCell = {
+                id: utils.toInt(tag.value) || 0,
+                properties: Object.create(null)
+              };
+              break;
+            case 172:
+            case 173:
+            case 174:
+            case 175:
+            case 176:
+            case 177:
+            case 178:
+            case 179:
+            case 271:
+            case 272:
+            case 273:
+              if (currentCell) {
+                currentCell.properties[`i${code}`] = utils.toInt(tag.value) || 0;
+              }
+              break;
+            case 90:
+            case 91:
+            case 92:
+              if (currentCell) {
+                currentCell.properties[`n${code}`] = utils.toFloat(tag.value) ?? null;
+              }
+              break;
+            default:
+              break;
+          }
+        });
+        if (currentCell) {
+          cellMeta.set(`cell-${currentCell.id}`, currentCell);
+        }
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          codeValues: codeLookup,
+          cellStyles: utils.mapToPlainObject(cellMeta),
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'MLINESTYLE' && recordType === 'MLINESTYLE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        const elements = [];
+        let currentElement = null;
+        recordTags.forEach((tag) => {
+          const code = Number(tag.code);
+          const rawValue = tag.value;
+          switch (code) {
+            case 49:
+              if (currentElement) {
+                elements.push(currentElement);
+              }
+              currentElement = {
+                offset: utils.toFloat(rawValue) ?? 0,
+                colorNumber: null,
+                trueColor: null,
+                linetype: null,
+                lineweight: null
+              };
+              break;
+            case 62:
+              if (currentElement) {
+                currentElement.colorNumber = utils.toInt(rawValue) ?? null;
+              }
+              break;
+            case 420:
+            case 421:
+              if (currentElement) {
+                currentElement.trueColor = utils.parseTrueColor
+                  ? utils.parseTrueColor(rawValue)
+                  : null;
+              }
+              break;
+            case 6:
+              if (currentElement) {
+                currentElement.linetype = typeof rawValue === 'string'
+                  ? rawValue.trim()
+                  : (rawValue != null ? String(rawValue) : null);
+              }
+              break;
+            case 51:
+              if (currentElement) {
+                currentElement.lineweight = utils.toFloat(rawValue) ?? null;
+              }
+              break;
+            default:
+              break;
+          }
+        });
+        if (currentElement) {
+          elements.push(currentElement);
+        }
+        const flags = utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0;
+        const capsFlags = utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0;
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags,
+          caps: {
+            startSuppressed: (capsFlags & 2) !== 0,
+            endSuppressed: (capsFlags & 4) !== 0,
+            jointsDisplayed: (capsFlags & 8) !== 0
+          },
+          fillColor: (() => {
+            const colorNumber = utils.toInt(utils.getFirstCodeValue(recordTags, 62));
+            const trueColorRaw = utils.getFirstCodeValue(recordTags, 421) || utils.getFirstCodeValue(recordTags, 420);
+            return {
+              colorNumber,
+              trueColor: trueColorRaw ? utils.parseTrueColor(trueColorRaw) : null
+            };
+          })(),
+          elements,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'SCALE' && recordType === 'SCALE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          paperUnits: utils.toFloat(utils.getFirstCodeValue(recordTags, 40)) ?? null,
+          drawingUnits: utils.toFloat(utils.getFirstCodeValue(recordTags, 41)) ?? null,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'APPID' && recordType === 'APPID') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'REGAPP' && recordType === 'REGAPP') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'VIEW' && recordType === 'VIEW') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          height: utils.toFloat(utils.getFirstCodeValue(recordTags, 40)) ?? null,
+          width: utils.toFloat(utils.getFirstCodeValue(recordTags, 41)) ?? null,
+          center: this._extractPointFromLookup(codeLookup, 10, 20, 30),
+          target: this._extractPointFromLookup(codeLookup, 11, 21, 31),
+          direction: this._extractPointFromLookup(codeLookup, 16, 26, 36),
+          lensLength: utils.toFloat(utils.getFirstCodeValue(recordTags, 42)) ?? null,
+          frontClip: utils.toFloat(utils.getFirstCodeValue(recordTags, 43)) ?? null,
+          backClip: utils.toFloat(utils.getFirstCodeValue(recordTags, 44)) ?? null,
+          twist: utils.toFloat(utils.getFirstCodeValue(recordTags, 50)) ?? null,
+          viewMode: utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0,
+          renderMode: utils.toInt(utils.getFirstCodeValue(recordTags, 72)) || 0,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
         return;
       }
     }
@@ -3561,7 +5022,14 @@
       return material;
     }
 
-    extractEntities(tables, materialCatalog = {}) {
+    extractEntities(
+      tables,
+      materialCatalog = {},
+      auxiliaryObjects = {},
+      entityDefaults = null,
+      coordinateDefaults = null,
+      displaySettings = null
+    ) {
       const entities = [];
       const blocks = [];
       let section = null;
@@ -3571,6 +5039,87 @@
       const materialsByHandle = materialCatalog && materialCatalog.byHandle
         ? materialCatalog.byHandle
         : {};
+      const pointCloudResources = auxiliaryObjects.pointClouds || {};
+      const pointCloudDefinitionsByHandle = pointCloudResources.definitions && pointCloudResources.definitions.byHandle
+        ? pointCloudResources.definitions.byHandle
+        : {};
+      const pointCloudReactorsByHandle = pointCloudResources.reactors && pointCloudResources.reactors.byHandle
+        ? pointCloudResources.reactors.byHandle
+        : {};
+      const pointCloudExRecordsByHandle = pointCloudResources.exRecords && pointCloudResources.exRecords.byHandle
+        ? pointCloudResources.exRecords.byHandle
+        : {};
+      const imageDefinitionsByHandle = auxiliaryObjects.imageDefinitions && auxiliaryObjects.imageDefinitions.byHandle
+        ? auxiliaryObjects.imageDefinitions.byHandle
+        : {};
+      const imageDefReactorsByHandle = auxiliaryObjects.imageDefReactors && auxiliaryObjects.imageDefReactors.byHandle
+        ? auxiliaryObjects.imageDefReactors.byHandle
+        : {};
+      const underlayDefinitionsByHandle = auxiliaryObjects.underlayDefinitions && auxiliaryObjects.underlayDefinitions.byHandle
+        ? auxiliaryObjects.underlayDefinitions.byHandle
+        : {};
+      const sectionViewStylesByHandle = auxiliaryObjects.sectionViewStyles && auxiliaryObjects.sectionViewStyles.byHandle
+        ? auxiliaryObjects.sectionViewStyles.byHandle
+        : {};
+      const detailViewStylesByHandle = auxiliaryObjects.detailViewStyles && auxiliaryObjects.detailViewStyles.byHandle
+        ? auxiliaryObjects.detailViewStyles.byHandle
+        : {};
+      const sectionObjectsByHandle = auxiliaryObjects.sectionObjects && auxiliaryObjects.sectionObjects.byHandle
+        ? auxiliaryObjects.sectionObjects.byHandle
+        : {};
+      const sectionGeometriesByHandle = auxiliaryObjects.sectionGeometries && auxiliaryObjects.sectionGeometries.byHandle
+        ? auxiliaryObjects.sectionGeometries.byHandle
+        : {};
+      const detailViewObjectsByHandle = auxiliaryObjects.detailViewObjects && auxiliaryObjects.detailViewObjects.byHandle
+        ? auxiliaryObjects.detailViewObjects.byHandle
+        : {};
+      const proxyObjectsByHandle = auxiliaryObjects.proxyObjects && auxiliaryObjects.proxyObjects.byHandle
+        ? auxiliaryObjects.proxyObjects.byHandle
+        : {};
+      const datalinksByHandle = auxiliaryObjects.datalinks && auxiliaryObjects.datalinks.byHandle
+        ? auxiliaryObjects.datalinks.byHandle
+        : {};
+      const dictionaryVariablesByName = auxiliaryObjects.dictionaryVariables && auxiliaryObjects.dictionaryVariables.byName
+        ? auxiliaryObjects.dictionaryVariables.byName
+        : {};
+      const lightListsByHandle = auxiliaryObjects.lightLists && auxiliaryObjects.lightLists.byHandle
+        ? auxiliaryObjects.lightLists.byHandle
+        : {};
+      const resolvedEntityDefaults = entityDefaults && typeof entityDefaults === 'object'
+        ? entityDefaults
+        : null;
+      const resolvedCoordinateDefaults = coordinateDefaults && typeof coordinateDefaults === 'object'
+        ? coordinateDefaults
+        : null;
+      const resolvedDisplaySettings = displaySettings && typeof displaySettings === 'object'
+        ? displaySettings
+        : null;
+      const textStylesByHandle = new Map();
+      if (tables && tables.textStyles) {
+        Object.keys(tables.textStyles).forEach((name) => {
+          const entry = tables.textStyles[name];
+          if (!entry || !entry.handle) {
+            return;
+          }
+          const normalized = normalizeHandle(entry.handle);
+          if (normalized) {
+            textStylesByHandle.set(normalized, name);
+          }
+        });
+      }
+      const dimStylesByHandle = new Map();
+      if (tables && tables.dimStyles) {
+        Object.keys(tables.dimStyles).forEach((name) => {
+          const entry = tables.dimStyles[name];
+          if (!entry || !entry.handle) {
+            return;
+          }
+          const normalized = normalizeHandle(entry.handle);
+          if (normalized) {
+            dimStylesByHandle.set(normalized, name);
+          }
+        });
+      }
 
       const peekPending = () => pendingStack[pendingStack.length - 1] || null;
 
@@ -3627,7 +5176,27 @@
               blockName: section === 'BLOCKS' && currentBlock ? currentBlock.name : undefined,
               tables,
               materials: materialsByHandle,
-              createEntityId: (entType) => this.nextEntityId(entType)
+              imageDefinitions: imageDefinitionsByHandle,
+              imageDefReactors: imageDefReactorsByHandle,
+              underlayDefinitions: underlayDefinitionsByHandle,
+              pointClouds: {
+                definitions: pointCloudDefinitionsByHandle,
+                reactors: pointCloudReactorsByHandle,
+                exRecords: pointCloudExRecordsByHandle
+              },
+              sectionViewStyles: sectionViewStylesByHandle,
+              detailViewStyles: detailViewStylesByHandle,
+              proxyObjects: proxyObjectsByHandle,
+              datalinks: datalinksByHandle,
+              dictionaryVariables: dictionaryVariablesByName,
+              lightLists: lightListsByHandle,
+              rasterVariables: auxiliaryObjects.rasterVariables || null,
+              createEntityId: (entType) => this.nextEntityId(entType),
+              entityDefaults: resolvedEntityDefaults,
+              coordinateDefaults: resolvedCoordinateDefaults,
+              displaySettings: resolvedDisplaySettings,
+              textStylesByHandle,
+              dimStylesByHandle
             };
             const vertexEntity = namespace.RenderableEntityFactory.fromTags('VERTEX', vertexTags, context);
             if (section === 'BLOCKS' && currentBlock) {
@@ -3676,7 +5245,30 @@
             blockName: currentBlock ? currentBlock.name : undefined,
             tables,
             materials: materialsByHandle,
-            createEntityId: (entType) => this.nextEntityId(entType)
+            imageDefinitions: imageDefinitionsByHandle,
+            imageDefReactors: imageDefReactorsByHandle,
+            underlayDefinitions: underlayDefinitionsByHandle,
+            pointClouds: {
+              definitions: pointCloudDefinitionsByHandle,
+              reactors: pointCloudReactorsByHandle,
+              exRecords: pointCloudExRecordsByHandle
+            },
+            sectionViewStyles: sectionViewStylesByHandle,
+            detailViewStyles: detailViewStylesByHandle,
+            sectionObjects: sectionObjectsByHandle,
+            sectionGeometries: sectionGeometriesByHandle,
+            detailViewObjects: detailViewObjectsByHandle,
+            proxyObjects: proxyObjectsByHandle,
+            datalinks: datalinksByHandle,
+            dictionaryVariables: dictionaryVariablesByName,
+            lightLists: lightListsByHandle,
+            rasterVariables: auxiliaryObjects.rasterVariables || null,
+            createEntityId: (entType) => this.nextEntityId(entType),
+            entityDefaults: resolvedEntityDefaults,
+            coordinateDefaults: resolvedCoordinateDefaults,
+            displaySettings: resolvedDisplaySettings,
+            textStylesByHandle,
+            dimStylesByHandle
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -3704,7 +5296,30 @@
           const context = {
             tables,
             materials: materialsByHandle,
-            createEntityId: (entType) => this.nextEntityId(entType)
+            imageDefinitions: imageDefinitionsByHandle,
+            imageDefReactors: imageDefReactorsByHandle,
+            underlayDefinitions: underlayDefinitionsByHandle,
+            pointClouds: {
+              definitions: pointCloudDefinitionsByHandle,
+              reactors: pointCloudReactorsByHandle,
+              exRecords: pointCloudExRecordsByHandle
+            },
+            sectionViewStyles: sectionViewStylesByHandle,
+            detailViewStyles: detailViewStylesByHandle,
+            sectionObjects: sectionObjectsByHandle,
+            sectionGeometries: sectionGeometriesByHandle,
+            detailViewObjects: detailViewObjectsByHandle,
+            proxyObjects: proxyObjectsByHandle,
+            datalinks: datalinksByHandle,
+            dictionaryVariables: dictionaryVariablesByName,
+            lightLists: lightListsByHandle,
+            rasterVariables: auxiliaryObjects.rasterVariables || null,
+            createEntityId: (entType) => this.nextEntityId(entType),
+            entityDefaults: resolvedEntityDefaults,
+            coordinateDefaults: resolvedCoordinateDefaults,
+            displaySettings: resolvedDisplaySettings,
+            textStylesByHandle,
+            dimStylesByHandle
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -3857,6 +5472,52 @@
       };
     }
 
+    _mapRawTags(tags) {
+      if (!Array.isArray(tags)) {
+        return [];
+      }
+      return tags.map((tag) => ({
+        code: Number(tag.code),
+        value: tag.value
+      }));
+    }
+
+    _buildCodeLookup(tags) {
+      const lookup = Object.create(null);
+      if (!Array.isArray(tags)) {
+        return lookup;
+      }
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (!Number.isFinite(code)) {
+          return;
+        }
+        if (!lookup[code]) {
+          lookup[code] = [];
+        }
+        lookup[code].push(tag.value);
+      });
+      return lookup;
+    }
+
+    _extractPointFromLookup(lookup, xCode, yCode, zCode) {
+      if (!lookup) {
+        return null;
+      }
+      const xRaw = Array.isArray(lookup[xCode]) ? lookup[xCode][0] : lookup[xCode];
+      const yRaw = Array.isArray(lookup[yCode]) ? lookup[yCode][0] : lookup[yCode];
+      const zRaw = Array.isArray(lookup[zCode]) ? lookup[zCode][0] : lookup[zCode];
+      const hasValue = xRaw != null || yRaw != null || zRaw != null;
+      if (!hasValue) {
+        return null;
+      }
+      return {
+        x: utils.toFloat(xRaw) ?? 0,
+        y: utils.toFloat(yRaw) ?? 0,
+        z: utils.toFloat(zRaw) ?? 0
+      };
+    }
+
     buildBlockHeader(tags) {
       const name = (utils.getFirstCodeValue(tags, 2) ||
         utils.getFirstCodeValue(tags, 3) || '').trim() || this.nextBlockName();
@@ -3887,3 +5548,27 @@
     RenderingDocumentBuilder
   };
 }));
+function collectPointCloudClip(map) {
+  const planeCount = toInt((map.get(73) || [])[0]) || 0;
+  if (planeCount <= 0) {
+    return null;
+  }
+  const coefficients = [];
+  const aVals = (map.get(170) || []).map(toFloat);
+  const bVals = (map.get(171) || []).map(toFloat);
+  const cVals = (map.get(172) || []).map(toFloat);
+  const dVals = (map.get(173) || []).map(toFloat);
+  const eVals = (map.get(174) || []).map(toFloat);
+  const fVals = (map.get(175) || []).map(toFloat);
+  for (let i = 0; i < planeCount; i++) {
+    coefficients.push({
+      a: aVals[i] ?? 0,
+      b: bVals[i] ?? 0,
+      c: cVals[i] ?? 0,
+      d: dVals[i] ?? 0,
+      e: eVals[i] ?? 0,
+      f: fVals[i] ?? 0
+    });
+  }
+  return coefficients.length ? coefficients : null;
+}

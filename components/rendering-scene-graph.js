@@ -31,6 +31,23 @@
       this.materials = options.materials || {};
       this.backgrounds = options.backgrounds || {};
       this.suns = options.suns || {};
+      this.units = options.units || null;
+      this.entityDefaults = options.entityDefaults || null;
+      this.displaySettings = options.displaySettings || null;
+      this.coordinateDefaults = options.coordinateDefaults || null;
+      this.imageDefinitions = options.imageDefinitions || {};
+      this.underlayDefinitions = options.underlayDefinitions || {};
+      this.pointClouds = options.pointClouds || {};
+      this.sectionViewStyles = options.sectionViewStyles || {};
+      this.detailViewStyles = options.detailViewStyles || {};
+      this.sectionObjects = options.sectionObjects || {};
+      this.sectionGeometries = options.sectionGeometries || {};
+      this.detailViewObjects = options.detailViewObjects || {};
+      this.rasterVariables = options.rasterVariables || null;
+      this.proxyObjects = options.proxyObjects || {};
+      this.datalinks = options.datalinks || {};
+      this.dictionaryVariables = options.dictionaryVariables || {};
+      this.lightLists = options.lightLists || {};
       this.modelSpace = [];
       this.paperSpaces = new Map();
       this.blockDefinitions = new Map();
@@ -109,6 +126,23 @@
         materials: this.materials,
         backgrounds: this.backgrounds,
         suns: this.suns,
+        units: this.units,
+        imageDefinitions: this.imageDefinitions,
+        underlayDefinitions: this.underlayDefinitions,
+        pointClouds: this.pointClouds,
+        sectionViewStyles: this.sectionViewStyles,
+        detailViewStyles: this.detailViewStyles,
+        sectionObjects: this.sectionObjects,
+        sectionGeometries: this.sectionGeometries,
+        detailViewObjects: this.detailViewObjects,
+        rasterVariables: this.rasterVariables,
+        proxyObjects: this.proxyObjects,
+        datalinks: this.datalinks,
+        dictionaryVariables: this.dictionaryVariables,
+        lightLists: this.lightLists,
+        entityDefaults: this.entityDefaults,
+        displaySettings: this.displaySettings,
+        coordinateDefaults: this.coordinateDefaults,
         environment: {
           backgrounds: this.backgrounds,
           suns: this.suns

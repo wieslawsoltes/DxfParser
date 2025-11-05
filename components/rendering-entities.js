@@ -725,7 +725,7 @@
       handle: colorBookHandle
     } : null;
 
-    return {
+    const metadata = {
       handle: handle || null,
       owner: owner || null,
       layer,
@@ -749,10 +749,26 @@
       spaceFlag,
       colorBook
     };
+
+    const defaults = context && context.entityDefaults ? context.entityDefaults : null;
+    if (defaults && typeof defaults === 'object') {
+      if ((!metadata.linetype || !String(metadata.linetype).trim()) && defaults.linetype) {
+        metadata.linetype = defaults.linetype;
+      }
+      if ((metadata.lineweight == null || Number.isNaN(metadata.lineweight)) && defaults.lineweight != null) {
+        metadata.lineweight = defaults.lineweight;
+      }
+      if ((!metadata.textStyle || !String(metadata.textStyle).trim()) && defaults.textStyle) {
+        metadata.textStyle = defaults.textStyle;
+      }
+    }
+
+    return metadata;
   }
 
   function extractGeometry(type, tags) {
     const map = buildCodeLookup(tags);
+    const upperType = type ? String(type).trim().toUpperCase() : 'UNKNOWN';
 
     function pointFromCodes(xCode, yCode, zCode) {
       return pointFromCodeMap(map, xCode, yCode, zCode);
@@ -774,7 +790,32 @@
     return points;
   }
 
-  function collectUnderlayClip(map) {
+  function collectPointCloudClip(map) {
+  const planeCount = toInt((map.get(73) || [])[0]) || 0;
+  if (planeCount <= 0) {
+    return null;
+  }
+  const coefficients = [];
+  const aVals = (map.get(170) || []).map(toFloat);
+  const bVals = (map.get(171) || []).map(toFloat);
+  const cVals = (map.get(172) || []).map(toFloat);
+  const dVals = (map.get(173) || []).map(toFloat);
+  const eVals = (map.get(174) || []).map(toFloat);
+  const fVals = (map.get(175) || []).map(toFloat);
+  for (let i = 0; i < planeCount; i++) {
+    coefficients.push({
+      a: aVals[i] ?? 0,
+      b: bVals[i] ?? 0,
+      c: cVals[i] ?? 0,
+      d: dVals[i] ?? 0,
+      e: eVals[i] ?? 0,
+      f: fVals[i] ?? 0
+    });
+  }
+  return coefficients.length ? coefficients : null;
+}
+
+function collectUnderlayClip(map) {
     const vertexCount = toInt((map.get(91) || [])[0]) || 0;
     if (vertexCount <= 0) {
       return null;
@@ -856,6 +897,20 @@
           position: pointFromCodes(10, 20, 30)
         };
       }
+      case 'MPOINT': {
+        return {
+          type: 'mpoint',
+          points: collectSeries(10, 20, 30),
+          basePoint: pointFromCodes(12, 22, 32),
+          direction: {
+            x: toFloat(map.get(11)?.[0]) ?? 0,
+            y: toFloat(map.get(21)?.[0]) ?? 0,
+            z: toFloat(map.get(31)?.[0]) ?? 0
+          },
+          flags: toInt(map.get(70)?.[0]) || 0,
+          normal: extractExtrusion(tags)
+        };
+      }
       case 'LIGHT': {
         const position = pointFromCodes(10, 20, 30);
         const target = pointFromCodes(11, 21, 31);
@@ -927,6 +982,47 @@
           ratio: toFloat(map.get(40)?.[0]) ?? 0,
           startAngle: toFloat(map.get(41)?.[0]) ?? 0,
           endAngle: toFloat(map.get(42)?.[0]) ?? 0
+        };
+      }
+      case 'SHAPE': {
+        return {
+          type: 'shape',
+          position: pointFromCodes(10, 20, 30),
+          name: map.get(2)?.[0] || null,
+          style: map.get(3)?.[0] || null,
+          size: toFloat(map.get(40)?.[0]) ?? null,
+          scale: toFloat(map.get(41)?.[0]) ?? 1,
+          rotation: toFloat(map.get(50)?.[0]) ?? 0,
+          oblique: toFloat(map.get(51)?.[0]) ?? 0,
+          widthFactor: toFloat(map.get(44)?.[0]) ?? 1,
+          thickness: toFloat(map.get(39)?.[0]) ?? null,
+          normal: extractExtrusion(tags)
+        };
+      }
+      case 'MLINE': {
+        const styleName = map.get(2)?.[0] || null;
+        const scale = toFloat(map.get(40)?.[0]) ?? 1;
+        const justification = toInt(map.get(70)?.[0]) || 0;
+        const flags = toInt(map.get(71)?.[0]) || 0;
+        const vertexCount = toInt(map.get(73)?.[0]) || null;
+        const vertices = collectSeries(10, 20, 30);
+        const directions = collectSeries(11, 21, 31);
+        const segmentVectors = collectSeries(12, 22, 32);
+        const miterAngles = (map.get(51) || []).map(toFloat);
+        return {
+          type: 'mline',
+          style: styleName,
+          styleHandle: map.get(340)?.[0] || null,
+          scale,
+          justification,
+          flags,
+          vertexCount,
+          vertices,
+          directions,
+          segmentVectors,
+          miterAngles,
+          isClosed: (flags & 1) === 1,
+          normal: extractExtrusion(tags)
         };
       }
       case 'HATCH': {
@@ -1026,6 +1122,42 @@
           axisVector,
           startPoint,
           points
+        };
+      }
+      case 'ARCALIGNEDTEXT': {
+        const textHeight = toFloat(map.get(141)?.[0]) ?? null;
+        const widthFactor = toFloat(map.get(41)?.[0]) ?? 1;
+        const offset = toFloat(map.get(73)?.[0]) ?? 0;
+        const characterSpacing = toFloat(map.get(42)?.[0]) ?? null;
+        return {
+          type: 'arcalignedtext',
+          text: map.get(1)?.[0] || '',
+          textStyle: map.get(7)?.[0] || null,
+          center: pointFromCodes(10, 20, 30),
+          radius: toFloat(map.get(40)?.[0]) ?? 0,
+          startAngle: toFloat(map.get(50)?.[0]) ?? 0,
+          endAngle: toFloat(map.get(51)?.[0]) ?? 0,
+          alignment: toInt(map.get(72)?.[0]) || 0,
+          offset,
+          widthFactor,
+          textHeight,
+          characterSpacing,
+          reverse: (toInt(map.get(74)?.[0]) || 0) === 1,
+          extrusion: extractExtrusion(tags)
+        };
+      }
+      case 'GEOPOSITIONMARKER': {
+        return {
+          type: 'geopositionmarker',
+          position: pointFromCodes(10, 20, 30),
+          designPoint: pointFromCodes(11, 21, 31),
+          referencePoint: pointFromCodes(12, 22, 32),
+          markerType: toInt(map.get(70)?.[0]) || 0,
+          displayMode: toInt(map.get(280)?.[0]) || 0,
+          text: map.get(304)?.join('') || map.get(3)?.join('') || map.get(1)?.join('') || '',
+          textHeight: toFloat(map.get(40)?.[0]) ?? null,
+          unitScale: toFloat(map.get(41)?.[0]) ?? null,
+          normal: extractExtrusion(tags)
         };
       }
       case 'TEXT': {
@@ -1178,6 +1310,49 @@
           textStyle: map.get(7)?.[0] || null
         };
       }
+      case 'POINTCLOUD':
+      case 'POINTCLOUDATTACH': {
+        const transparencyRaw = map.get(441)?.[0] || map.get(440)?.[0] || null;
+        const definitionHandle = map.get(331)?.[0] || map.get(340)?.[0] || null;
+        const reactorHandle = map.get(360)?.[0] || null;
+        const exRecordHandle = map.get(361)?.[0] || null;
+        return {
+          type: 'pointcloud',
+          subtype: upperType,
+          position: pointFromCodes(10, 20, 30),
+          scale: {
+            x: toFloat(map.get(41)?.[0]) ?? 1,
+            y: toFloat(map.get(42)?.[0]) ?? 1,
+            z: toFloat(map.get(43)?.[0]) ?? 1
+          },
+          rotation: toFloat(map.get(50)?.[0]) ?? 0,
+          hasClip: (toInt(map.get(70)?.[0]) || 0) !== 0,
+          showIntensity: (toInt(map.get(71)?.[0]) || 0) !== 0,
+          definitionHandle,
+          pointCloudDef: definitionHandle,
+          reactorHandle,
+          exRecordHandle,
+          density: toFloat(map.get(90)?.[0]) ?? null,
+          renderMode: toInt(map.get(280)?.[0]) || 0,
+          colorSource: toInt(map.get(281)?.[0]) || 0,
+          intensityLimits: {
+            min: toFloat(map.get(91)?.[0]) ?? null,
+            max: toFloat(map.get(92)?.[0]) ?? null
+          },
+          clipPlanes: collectPointCloudClip(map),
+          planeNormal: {
+            x: toFloat(map.get(210)?.[0]) ?? 0,
+            y: toFloat(map.get(220)?.[0]) ?? 0,
+            z: toFloat(map.get(230)?.[0]) ?? 1
+          },
+          trueColor: (() => {
+            const raw = map.get(420)?.[0] || map.get(421)?.[0] || null;
+            return raw ? parseTrueColor(raw) : null;
+          })(),
+          transparency: transparencyRaw ? parseTransparency(transparencyRaw) : null,
+          extrusion: extractExtrusion(tags)
+        };
+      }
       case 'INSERT': {
         return {
           type: 'insert',
@@ -1197,6 +1372,8 @@
         };
       }
       case 'DIMENSION': {
+        const dimensionStyleName = map.get(3)?.[0] || null;
+        const dimensionStyleHandle = map.get(107)?.[0] || map.get(340)?.[0] || null;
         const extension1 = pointFromCodes(14, 24, 34);
         const extension2 = pointFromCodes(15, 25, 35);
         const arrow1 = pointFromCodes(16, 26, 36);
@@ -1223,7 +1400,9 @@
           text: map.get(1)?.[0] || '',
           measurement: toFloat(map.get(42)?.[0]) ?? null,
           textHeight,
-          blockName: map.get(2)?.[0] || null
+          blockName: map.get(2)?.[0] || null,
+          dimensionStyle: dimensionStyleName,
+          dimensionStyleHandle
         };
       }
       case 'LEADER': {
@@ -1543,6 +1722,27 @@
           flags: map.get(70)?.map(toInt) || []
         };
       }
+      case 'POLYSOLID': {
+        const pathPoints = collectSeries(10, 20, 30);
+        const sweepDirection = pointFromCodes(12, 22, 32);
+        const elevation = toFloat(map.get(38)?.[0]) ?? 0;
+        const defaultWidth = toFloat(map.get(40)?.[0]) ?? null;
+        const startWidth = toFloat(map.get(41)?.[0]) ?? null;
+        const endWidth = toFloat(map.get(42)?.[0]) ?? null;
+        return {
+          type: 'polysolid',
+          points: pathPoints,
+          height: toFloat(map.get(43)?.[0]) ?? null,
+          defaultWidth,
+          startWidth,
+          endWidth,
+          justification: toInt(map.get(70)?.[0]) || 0,
+          sweepDirection,
+          elevation,
+          isClosed: (toInt(map.get(71)?.[0]) || 0) !== 0,
+          extrusion: extractExtrusion(tags)
+        };
+      }
       case '3DFACE':
       case 'TRACE':
       case 'SOLID':
@@ -1564,6 +1764,7 @@
           vertices
         };
       }
+      case 'BODY':
       case '3DSOLID':
       case 'REGION':
       case 'SURFACE': {
@@ -1607,6 +1808,41 @@
           boundingBox
         };
       }
+      case 'SECTION': {
+        const boundaryXs = (map.get(40) || []).map(toFloat);
+        const boundaryYs = (map.get(41) || []).map(toFloat);
+        const boundaryZs = (map.get(42) || []).map(toFloat);
+        const boundary = [];
+        const boundaryCount = Math.max(boundaryXs.length, boundaryYs.length, boundaryZs.length);
+        for (let idx = 0; idx < boundaryCount; idx++) {
+          boundary.push({
+            x: boundaryXs[idx] ?? 0,
+            y: boundaryYs[idx] ?? 0,
+            z: boundaryZs[idx] ?? 0
+          });
+        }
+        const sectionObjectHandle = map.get(331)?.[0] || null;
+        const sectionGeometryHandle = map.get(332)?.[0] || null;
+        const detailViewHandle = map.get(333)?.[0] || null;
+        return {
+          type: 'section',
+          name: map.get(2)?.[0] || null,
+          state: toInt(map.get(70)?.[0]) || 0,
+          liveSection: (toInt(map.get(71)?.[0]) || 0) !== 0,
+          planeOrigin: pointFromCodes(10, 20, 30),
+          targetPoint: pointFromCodes(11, 21, 31),
+          viewDirection: pointFromCodes(12, 22, 32),
+          verticalDirection: pointFromCodes(13, 23, 33),
+          normal: pointFromCodes(210, 220, 230),
+          boundary,
+          elevation: toFloat(map.get(38)?.[0]) ?? null,
+          viewStyleHandle: map.get(340)?.[0] || null,
+          backStyleHandle: map.get(341)?.[0] || null,
+          sectionObjectHandle,
+          sectionGeometryHandle,
+          detailViewHandle
+        };
+      }
       case 'IMAGE': {
         return {
           type: 'image',
@@ -1630,8 +1866,50 @@
             contrast: toInt(map.get(282)?.[0]) ?? 50,
             fade: toInt(map.get(283)?.[0]) ?? 0
           },
+          definitionHandle: map.get(340)?.[0] || null,
           imageDef: map.get(340)?.[0] || null,
+          reactorHandle: map.get(360)?.[0] || null,
           clipState: toInt(map.get(280)?.[0]) || 0
+        };
+      }
+      case 'ACAD_PROXY_ENTITY': {
+        const graphicsData = (map.get(310) || []).map((value) => value);
+        const entityData = (map.get(100) || []).map((value) => value);
+        const codeLookup = buildCodeLookup(tags);
+        return {
+          type: 'proxyEntity',
+          proxyType: toInt(map.get(90)?.[0]) || null,
+          applicationId: toInt(map.get(91)?.[0]) || null,
+          originalClassName: map.get(1)?.[0] || null,
+          lastUpdatedVersion: toInt(map.get(92)?.[0]) || null,
+          wmfbits: graphicsData,
+          persistentData: entityData,
+          position: pointFromCodes(10, 20, 30),
+          ownerHandle: map.get(330)?.[0] || null,
+          codeValues: codeLookup
+        };
+      }
+      case 'OLEFRAME':
+      case 'OLE2FRAME':
+      case 'UNDERLAYFRAME':
+      case 'OVERLAYFRAME': {
+        const rawPoints = collectSeries(10, 20, 30);
+        let framePoints = rawPoints.slice();
+        if (framePoints.length === 2) {
+          const p1 = framePoints[0];
+          const p2 = framePoints[1];
+          framePoints = [
+            { x: p1.x, y: p1.y, z: p1.z },
+            { x: p2.x, y: p1.y, z: p1.z },
+            { x: p2.x, y: p2.y, z: p2.z },
+            { x: p1.x, y: p2.y, z: p2.z }
+          ];
+        }
+        return {
+          type: 'frame',
+          frameType: upperType,
+          points: framePoints,
+          normal: extractExtrusion(tags)
         };
       }
       case 'PDFUNDERLAY':
@@ -1657,7 +1935,9 @@
           isOn: (toInt(map.get(70)?.[0]) || 0) === 0,
           isMonochrome: (toInt(map.get(290)?.[0]) || 0) === 1,
           clip: collectUnderlayClip(map),
-          underlayId: map.get(340)?.[0] || null
+          definitionHandle: map.get(340)?.[0] || null,
+          underlayId: map.get(340)?.[0] || null,
+          reactorHandle: map.get(360)?.[0] || null
         };
       }
       case 'VIEWPORT': {
@@ -1794,8 +2074,35 @@
 
     static fromTags(type, tags, context = {}) {
       const upperType = type ? String(type).trim().toUpperCase() : 'UNKNOWN';
+      const defaults = context.entityDefaults || null;
+      const dimStylesByHandle = context.dimStylesByHandle instanceof Map
+        ? context.dimStylesByHandle
+        : null;
+      const textStylesByHandle = context.textStylesByHandle instanceof Map
+        ? context.textStylesByHandle
+        : null;
+      const displaySettings = context.displaySettings || null;
+      const pointDisplayDefaults = displaySettings && displaySettings.point ? displaySettings.point : null;
       const metadata = extractCommonMetadata(upperType, tags, context);
       const geometry = extractGeometry(upperType, tags);
+      if (metadata.textStyle && context.tables && context.tables.textStyles
+        && !context.tables.textStyles[metadata.textStyle]) {
+        const normalizedTextHandle = normalizeHandle(metadata.textStyle);
+        if (normalizedTextHandle && textStylesByHandle && textStylesByHandle.get(normalizedTextHandle)) {
+          metadata.textStyle = textStylesByHandle.get(normalizedTextHandle);
+        } else if (normalizedTextHandle) {
+          const tablesTextStyles = context.tables.textStyles;
+          const matchedName = Object.keys(tablesTextStyles).find((name) => {
+            const entry = tablesTextStyles[name];
+            return entry && normalizeHandle(entry.handle) === normalizedTextHandle;
+          });
+          if (matchedName) {
+            metadata.textStyle = matchedName;
+          }
+        }
+      } else if (!metadata.textStyle && defaults && defaults.textStyle) {
+        metadata.textStyle = defaults.textStyle;
+      }
       const entityId = metadata.handle ||
         (typeof context.createEntityId === 'function'
           ? context.createEntityId(upperType)
@@ -1811,6 +2118,99 @@
       const resolvedColorBook = metadata.colorBook && context.tables && context.tables.colorBooks
         ? RenderableEntityFactory.resolveColorBookReference(context.tables.colorBooks, metadata.colorBook)
         : null;
+      const resolveByHandle = (container, handle) => {
+        if (!container || !handle) {
+          return null;
+        }
+        const normalized = normalizeHandle(handle);
+        if (normalized && Object.prototype.hasOwnProperty.call(container, normalized)) {
+          return container[normalized];
+        }
+        return Object.prototype.hasOwnProperty.call(container, handle) ? container[handle] : null;
+      };
+      const pointCloudDefinitions = context.pointClouds && context.pointClouds.definitions
+        ? context.pointClouds.definitions
+        : null;
+      const pointCloudReactors = context.pointClouds && context.pointClouds.reactors
+        ? context.pointClouds.reactors
+        : null;
+      const pointCloudExRecords = context.pointClouds && context.pointClouds.exRecords
+        ? context.pointClouds.exRecords
+        : null;
+      const dimStylesTable = context.tables && context.tables.dimStyles
+        ? context.tables.dimStyles
+        : null;
+      const geometryDimStyleName = geometry && geometry.dimensionStyle
+        ? String(geometry.dimensionStyle).trim()
+        : null;
+      const geometryDimStyleHandle = geometry && geometry.dimensionStyleHandle
+        ? geometry.dimensionStyleHandle
+        : null;
+      let dimensionStyleName = geometryDimStyleName || (defaults && defaults.dimStyle) || null;
+      let dimensionStyleHandle = geometryDimStyleHandle || (defaults && defaults.dimStyleHandle) || null;
+      let normalizedDimStyleHandle = null;
+      if (dimensionStyleHandle) {
+        normalizedDimStyleHandle = normalizeHandle(dimensionStyleHandle);
+        if (normalizedDimStyleHandle) {
+          dimensionStyleHandle = normalizedDimStyleHandle;
+        }
+      }
+      if (!dimensionStyleName && dimensionStyleHandle && dimStylesByHandle) {
+        const mapped = dimStylesByHandle.get(dimensionStyleHandle);
+        if (mapped) {
+          dimensionStyleName = mapped;
+        }
+      }
+      if (dimensionStyleName && dimStylesTable && !dimStylesTable[dimensionStyleName]) {
+        const upperName = dimensionStyleName.toUpperCase();
+        const match = Object.keys(dimStylesTable).find((name) => String(name).toUpperCase() === upperName);
+        if (match) {
+          dimensionStyleName = match;
+        }
+      }
+      let resolvedDimensionStyle = null;
+      if (dimStylesTable) {
+        if (dimensionStyleName && dimStylesTable[dimensionStyleName]) {
+          resolvedDimensionStyle = dimStylesTable[dimensionStyleName];
+        } else if (dimensionStyleHandle) {
+          if (dimStylesByHandle && dimStylesByHandle.get(dimensionStyleHandle)) {
+            const mapped = dimStylesByHandle.get(dimensionStyleHandle);
+            resolvedDimensionStyle = mapped && dimStylesTable[mapped] ? dimStylesTable[mapped] : null;
+            if (!dimensionStyleName && mapped && dimStylesTable[mapped]) {
+              dimensionStyleName = mapped;
+            }
+          } else {
+            const matchedName = Object.keys(dimStylesTable).find((name) => {
+              const entry = dimStylesTable[name];
+              return entry && normalizeHandle(entry.handle) === dimensionStyleHandle;
+            });
+            if (matchedName) {
+              resolvedDimensionStyle = dimStylesTable[matchedName];
+              if (!dimensionStyleName) {
+                dimensionStyleName = matchedName;
+              }
+            }
+          }
+        }
+      }
+
+      if (geometry && (upperType === 'POINT' || upperType === 'MPOINT')) {
+        if (pointDisplayDefaults) {
+          if (!Number.isFinite(geometry.pointSize) && Number.isFinite(pointDisplayDefaults.size)) {
+            geometry.pointSize = pointDisplayDefaults.size;
+          }
+          if (!Number.isFinite(geometry.pointMode) && Number.isFinite(pointDisplayDefaults.mode)) {
+            geometry.pointMode = pointDisplayDefaults.mode;
+          }
+        }
+        if (!Number.isFinite(geometry.pointMode)) {
+          geometry.pointMode = 0;
+        }
+      }
+
+      if (geometry && upperType === 'TRACE' && displaySettings && Number.isFinite(displaySettings.traceWidth)) {
+        geometry.traceWidth = displaySettings.traceWidth;
+      }
 
       return {
         id: entityId,
@@ -1838,6 +2238,8 @@
         shadowMode: metadata.shadowMode,
         spaceFlag: metadata.spaceFlag,
         colorBook: metadata.colorBook,
+        dimensionStyle: dimensionStyleName || null,
+        dimensionStyleHandle: dimensionStyleHandle || null,
         geometry,
         rawTags: tags.map((tag) => ({
           code: Number(tag.code),
@@ -1859,7 +2261,21 @@
           plotStyle: metadata.plotStyle && context.tables && context.tables.plotStyles
             ? RenderableEntityFactory.resolvePlotStyleReference(context.tables.plotStyles, metadata.plotStyle)
             : null,
-          colorBook: resolvedColorBook
+          colorBook: resolvedColorBook,
+          dimensionStyle: resolvedDimensionStyle,
+          imageDefinition: resolveByHandle(context.imageDefinitions, geometry && (geometry.definitionHandle || geometry.imageDef)),
+          imageDefReactor: resolveByHandle(context.imageDefReactors, geometry && geometry.reactorHandle),
+          underlayDefinition: resolveByHandle(context.underlayDefinitions, geometry && (geometry.definitionHandle || geometry.underlayId)),
+          pointCloudDefinition: resolveByHandle(pointCloudDefinitions, geometry && (geometry.definitionHandle || geometry.pointCloudDef)),
+          pointCloudReactor: resolveByHandle(pointCloudReactors, geometry && geometry.reactorHandle),
+          pointCloudExRecord: resolveByHandle(pointCloudExRecords, geometry && geometry.exRecordHandle),
+          sectionViewStyle: resolveByHandle(context.sectionViewStyles, geometry && geometry.viewStyleHandle),
+          detailViewStyle: resolveByHandle(context.detailViewStyles, geometry && geometry.backStyleHandle),
+          sectionObject: resolveByHandle(context.sectionObjects, geometry && geometry.sectionObjectHandle),
+          sectionGeometry: resolveByHandle(context.sectionGeometries, geometry && geometry.sectionGeometryHandle),
+          detailViewObject: resolveByHandle(context.detailViewObjects, geometry && geometry.detailViewHandle),
+          proxyObject: resolveByHandle(context.proxyObjects, metadata.handle),
+          rasterVariables: context.rasterVariables || null
         }
       };
     }
