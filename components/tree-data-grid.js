@@ -7,6 +7,8 @@
         this.openCallback = options.openCallback || null;
         this.openAndZoomCallback = options.openAndZoomCallback || null;
         this.openAndZoomPredicate = options.openAndZoomPredicate || null;
+        this.openBlockCallback = options.openBlockCallback || null;
+        this.openBlockPredicate = options.openBlockPredicate || null;
         this.onToggleExpand = options.onToggleExpand || null;
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
@@ -635,6 +637,16 @@
                   this.openAndZoomCallback(node.id);
                 });
                 dataDiv.appendChild(openZoomButton);
+              }
+              if (this.openBlockCallback && (!this.openBlockPredicate || this.openBlockPredicate(node))) {
+                const blockButton = document.createElement("button");
+                blockButton.textContent = "Open Block";
+                blockButton.className = "block-button";
+                blockButton.addEventListener("click", (e) => {
+                  e.stopPropagation();
+                  this.openBlockCallback(node.id);
+                });
+                dataDiv.appendChild(blockButton);
               }
             }
             if (!node.isProperty && node.properties) {

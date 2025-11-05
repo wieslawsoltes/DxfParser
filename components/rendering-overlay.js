@@ -47,7 +47,15 @@
     navigationWheelEl: '#renderingNavigationWheel',
     viewUndoButton: '#viewUndoBtn',
     viewRedoButton: '#viewRedoBtn',
-    viewHomeButton: '#viewHomeBtn'
+    viewHomeButton: '#viewHomeBtn',
+    overlayBody: '.rendering-overlay-body',
+    propertyPanel: '#renderingOverlayPropertyPanel',
+    propertySummary: '#renderingPropertiesSummary',
+    propertyGrid: '#renderingPropertyGridContainer',
+    blocksTabButton: '#renderingOverlayBlocksTab',
+    blocksTabPanel: '#renderingOverlayBlocksPanel',
+    blockSummary: '#renderingBlocksSummary',
+    blockGrid: '#renderingBlocksGrid'
   };
 
   const DEFAULT_ADAPTERS = {
@@ -103,6 +111,7 @@
       this.layerManagerHideInactiveFlag = false;
       this.selectionByTab = new Map();
       this.selectionHandles = new Set();
+      this.entityLookupByTab = new Map();
       this.currentInteraction = null;
       this.activePointerId = null;
       this.pointerListenersAttached = false;
@@ -118,6 +127,19 @@
       this.measurementToolbarButtons = [];
       this.measurementButtonHandlers = new Map();
       this.measurementLayer = null;
+      this.overlayBodyEl = null;
+      this.propertyPanel = null;
+      this.propertySummaryEl = null;
+      this.propertyGridContainer = null;
+      this.propertyGrid = null;
+      this.blocksTabButton = null;
+      this.blocksTabPanel = null;
+      this.blockSummaryEl = null;
+      this.blockGridEl = null;
+      this.blockCardMap = new Map();
+      this.blockMetadataByTab = new Map();
+      this.currentBlockMetadata = null;
+      this.pendingBlockFocus = null;
       this.measurementSummaryEl = null;
       this.measurementMode = 'none';
       this.measurementModeOrder = ['none', 'distance', 'area', 'angle'];
@@ -165,6 +187,7 @@
 
       this.boundInfoTabClick = () => this.setInformationTab('info', { focus: true });
       this.boundLayersTabClick = () => this.setInformationTab('layers', { focus: true });
+      this.boundBlocksTabClick = () => this.setInformationTab('blocks', { focus: true });
       this.boundClose = () => this.close();
       this.boundOnKeyDown = (event) => this.handleOverlayKeyDown(event);
       this.boundPointerDown = (event) => this.handlePointerDown(event);
@@ -1060,13 +1083,37 @@
         this.selectionToolbar.setAttribute('aria-hidden', 'true');
         this.selectionToolbar.style.display = 'none';
       }
+      this.overlayBodyEl = find('overlayBody');
+      this.propertyPanel = find('propertyPanel');
+      this.propertySummaryEl = find('propertySummary');
+      this.propertyGridContainer = find('propertyGrid');
+      if (this.propertyGridContainer && namespace.RenderingPropertyGrid) {
+        this.propertyGrid = new namespace.RenderingPropertyGrid(this.propertyGridContainer);
+      } else {
+        this.propertyGrid = null;
+      }
+      if (this.propertyPanel) {
+        this.propertyPanel.setAttribute('aria-hidden', 'true');
+      }
+      if (this.propertySummaryEl) {
+        this.propertySummaryEl.textContent = 'No selection.';
+      }
+      this.blocksTabButton = find('blocksTabButton');
+      this.blocksTabPanel = find('blocksTabPanel');
+      this.blockSummaryEl = find('blockSummary');
+      this.blockGridEl = find('blockGrid');
+      this.blockCardMap.clear();
       if (this.infoTabButton) {
         this.infoTabButton.addEventListener('click', this.boundInfoTabClick);
       }
       if (this.layersTabButton) {
         this.layersTabButton.addEventListener('click', this.boundLayersTabClick);
       }
+      if (this.blocksTabButton) {
+        this.blocksTabButton.addEventListener('click', this.boundBlocksTabClick);
+      }
       this.setInformationTab(this.activeInfoTab);
+      this.renderBlockGallery(this.currentBlockMetadata);
       if (this.viewportEl && !this.pointerListenersAttached) {
         this.viewportEl.addEventListener('pointerdown', this.boundPointerDown, true);
         this.viewportEl.addEventListener('pointermove', this.boundPointerMove);
@@ -1194,10 +1241,13 @@
     }
 
     setInformationTab(tabId, options = {}) {
-      const nextTab = tabId === 'layers' ? 'layers' : 'info';
+      const allowedTabs = ['info', 'layers', 'blocks'];
+      const nextTab = allowedTabs.includes(tabId) ? tabId : 'info';
       const focusRequested = options.focus === true;
       this.activeInfoTab = nextTab;
       const infoActive = nextTab === 'info';
+      const layersActive = nextTab === 'layers';
+      const blocksActive = nextTab === 'blocks';
       if (this.infoTabButton) {
         this.infoTabButton.classList.toggle('active', infoActive);
         this.infoTabButton.setAttribute('aria-selected', infoActive ? 'true' : 'false');
@@ -1206,10 +1256,17 @@
         }
       }
       if (this.layersTabButton) {
-        this.layersTabButton.classList.toggle('active', !infoActive);
-        this.layersTabButton.setAttribute('aria-selected', !infoActive ? 'true' : 'false');
-        if (focusRequested && !infoActive) {
+        this.layersTabButton.classList.toggle('active', layersActive);
+        this.layersTabButton.setAttribute('aria-selected', layersActive ? 'true' : 'false');
+        if (focusRequested && layersActive) {
           this.layersTabButton.focus();
+        }
+      }
+      if (this.blocksTabButton) {
+        this.blocksTabButton.classList.toggle('active', blocksActive);
+        this.blocksTabButton.setAttribute('aria-selected', blocksActive ? 'true' : 'false');
+        if (focusRequested && blocksActive) {
+          this.blocksTabButton.focus();
         }
       }
       if (this.infoTabPanel) {
@@ -1222,12 +1279,21 @@
         }
       }
       if (this.layersTabPanel) {
-        if (!infoActive) {
+        if (layersActive) {
           this.layersTabPanel.removeAttribute('hidden');
           this.layersTabPanel.classList.add('active');
         } else {
           this.layersTabPanel.setAttribute('hidden', 'true');
           this.layersTabPanel.classList.remove('active');
+        }
+      }
+      if (this.blocksTabPanel) {
+        if (blocksActive) {
+          this.blocksTabPanel.removeAttribute('hidden');
+          this.blocksTabPanel.classList.add('active');
+        } else {
+          this.blocksTabPanel.setAttribute('hidden', 'true');
+          this.blocksTabPanel.classList.remove('active');
         }
       }
     }
@@ -1241,6 +1307,9 @@
       }
       if (this.layersTabButton) {
         this.layersTabButton.removeEventListener('click', this.boundLayersTabClick);
+      }
+      if (this.blocksTabButton) {
+        this.blocksTabButton.removeEventListener('click', this.boundBlocksTabClick);
       }
       if (this.keydownListenerTarget) {
         this.keydownListenerTarget.removeEventListener('keydown', this.boundOnKeyDown);
@@ -1419,6 +1488,12 @@
       this.currentSceneGraph = null;
       this.currentDoc = doc || null;
       this.currentPane = null;
+      if (tab && tab.id != null) {
+        this.entityLookupByTab.delete(tab.id);
+        this.blockMetadataByTab.delete(tab.id);
+      }
+      this.currentBlockMetadata = null;
+      this.clearPropertyPanel({ message: 'Scene graph unavailable.' });
       this.populateVisualStyleOptions(null);
       this.updateVisualStyleSelect(null);
       if (this.summaryContainer) {
@@ -1462,6 +1537,7 @@
       this.updateIsolationSummary();
       this.updateSelectionToolbarUI();
       this.updateViewNavigationUi();
+      this.renderBlockGallery(null);
     }
 
     renderSceneGraph(tab, doc, pane) {
@@ -1481,6 +1557,9 @@
       this.currentSceneGraph = doc.sceneGraph;
       this.currentDoc = doc;
       this.currentPane = pane;
+      if (tab && tab.id != null) {
+        this.entityLookupByTab.set(tab.id, this.buildEntityLookupForDoc(doc));
+      }
       this.populateVisualStyleOptions(doc.sceneGraph);
       if (this.titleEl) {
         this.titleEl.textContent = `DXF Rendering – ${tab.name || 'Untitled'} (${pane.toUpperCase()})`;
@@ -1506,6 +1585,11 @@
       if (doc.blockMetadata) {
         this.callAdapter('updateBlockMetadata', tab.id, doc.blockMetadata);
       }
+      if (tab && tab.id != null) {
+        this.blockMetadataByTab.set(tab.id, doc.blockMetadata || null);
+      }
+      this.currentBlockMetadata = doc.blockMetadata || (tab && tab.id != null ? this.blockMetadataByTab.get(tab.id) : null) || null;
+      this.renderBlockGallery(this.currentBlockMetadata);
 
       const viewContext = this.ensureViewContext();
 
@@ -1547,6 +1631,7 @@
       this.updateMeasurementToolbarUI();
       this.updateSelectionToolbarUI();
       this.updateViewNavigationUi();
+      this.updateSelectionPropertyPanel();
     }
 
     prepareLayerManager(doc) {
@@ -2785,6 +2870,10 @@
       this.refreshViewportOverlays(null);
       this.updateMeasurementToolbarUI();
       this.setInformationTab('info');
+      this.clearPropertyPanel({ message: 'No selection.' });
+      this.pendingBlockFocus = null;
+      this.blockCardMap.clear();
+      this.currentBlockMetadata = null;
       this.currentTabId = null;
       this.currentPane = null;
       this.currentSceneGraph = null;
@@ -2921,6 +3010,726 @@
         this.updateSelectionSummary();
       }
       this.updateSelectionToolbarUI();
+      this.updateSelectionPropertyPanel();
+    }
+
+    updateSelectionPropertyPanel() {
+      if (!this.propertyPanel || !this.propertyGrid) {
+        return;
+      }
+      const selectionSet = this.ensureSelectionSetForCurrentTab(false);
+      const handles = selectionSet
+        ? Array.from(selectionSet, (handle) => this.normalizeHandle(handle)).filter(Boolean)
+        : [];
+      const docReady = this.currentDoc && this.currentDoc.status === 'ready';
+      if (!docReady) {
+        this.clearPropertyPanel({
+          message: handles.length ? 'Scene graph unavailable.' : 'No selection.'
+        });
+        return;
+      }
+      if (!handles.length) {
+        this.clearPropertyPanel({ message: 'No selection.' });
+        return;
+      }
+      const tabId = this.currentTabId;
+      let lookup = tabId ? this.entityLookupByTab.get(tabId) : null;
+      if (!lookup && this.currentDoc && this.currentDoc.status === 'ready') {
+        lookup = this.buildEntityLookupForDoc(this.currentDoc);
+        if (tabId) {
+          this.entityLookupByTab.set(tabId, lookup);
+        }
+      }
+      const sections = handles.map((handle, index) => {
+        const entity = lookup ? lookup.get(handle) : null;
+        return this.buildPropertyGridSection(handle, entity, index);
+      });
+      this.propertyGrid.setSections(sections);
+      if (this.propertySummaryEl) {
+        this.propertySummaryEl.textContent = handles.length === 1
+          ? `Handle ${handles[0]}`
+          : `${handles.length} entities selected`;
+      }
+      this.propertyPanel.setAttribute('aria-hidden', 'false');
+      if (this.overlayBodyEl) {
+        this.overlayBodyEl.classList.add('has-properties');
+      }
+    }
+
+    clearPropertyPanel(options = {}) {
+      if (this.propertyGrid) {
+        this.propertyGrid.clear();
+      }
+      if (!this.propertyPanel) {
+        return;
+      }
+      if (this.propertySummaryEl) {
+        this.propertySummaryEl.textContent = options.message || 'No selection.';
+      }
+      this.propertyPanel.setAttribute('aria-hidden', 'true');
+      if (this.overlayBodyEl) {
+        this.overlayBodyEl.classList.remove('has-properties');
+      }
+    }
+
+    buildPropertyGridSection(handle, entity, index = 0) {
+      const normalizedHandle = handle ? this.normalizeHandle(handle) : null;
+      const titleParts = [];
+      if (entity && entity.type) {
+        titleParts.push(String(entity.type));
+      } else {
+        titleParts.push('Entity');
+      }
+      if (normalizedHandle) {
+        titleParts.push(normalizedHandle);
+      } else {
+        titleParts.push(`#${index + 1}`);
+      }
+      const title = titleParts.join(' • ');
+      let subtitle = '';
+      if (entity && typeof entity === 'object') {
+        const details = [];
+        if (entity.layer) {
+          details.push(`Layer: ${entity.layer}`);
+        }
+        if (entity.space) {
+          details.push(`Space: ${entity.space}`);
+        }
+        if (entity.blockName) {
+          details.push(`Block: ${entity.blockName}`);
+        }
+        if (entity.owner) {
+          details.push(`Owner: ${entity.owner}`);
+        }
+        subtitle = details.join(' · ');
+      } else {
+        subtitle = 'No metadata available for this handle.';
+      }
+      const properties = this.extractEntityPropertiesForGrid(entity, normalizedHandle);
+      if (!properties.length && normalizedHandle) {
+        properties.push({ name: 'Handle', value: normalizedHandle });
+      }
+      return {
+        title,
+        subtitle,
+        properties
+      };
+    }
+
+    extractEntityPropertiesForGrid(entity, fallbackHandle = null) {
+      if (!entity || typeof entity !== 'object') {
+        if (fallbackHandle) {
+          return [{ name: 'Handle', value: fallbackHandle }];
+        }
+        return [];
+      }
+      const entries = [];
+      const visited = new Set();
+      const maxEntries = 400;
+      const maxDepth = 3;
+      const maxArrayItems = 24;
+
+      const pushEntry = (name, rawValue) => {
+        if (!name || entries.length >= maxEntries) {
+          return;
+        }
+        entries.push({
+          name,
+          value: this.formatPropertyValue(rawValue)
+        });
+      };
+
+      const traverse = (value, path, depth) => {
+        if (entries.length >= maxEntries) {
+          return;
+        }
+        const keyPath = path || '';
+        if (value === null) {
+          pushEntry(keyPath, 'null');
+          return;
+        }
+        const valueType = typeof value;
+        if (valueType === 'string') {
+          pushEntry(keyPath, value);
+          return;
+        }
+        if (valueType === 'number') {
+          pushEntry(keyPath, Number.isFinite(value) ? value.toString() : String(value));
+          return;
+        }
+        if (valueType === 'boolean') {
+          pushEntry(keyPath, value ? 'true' : 'false');
+          return;
+        }
+        if (valueType === 'bigint') {
+          pushEntry(keyPath, value.toString());
+          return;
+        }
+        if (value instanceof Date) {
+          pushEntry(keyPath, value.toISOString());
+          return;
+        }
+        if (valueType === 'undefined') {
+          pushEntry(keyPath, 'undefined');
+          return;
+        }
+        if (valueType === 'function') {
+          pushEntry(keyPath, '[Function]');
+          return;
+        }
+        if (valueType !== 'object') {
+          pushEntry(keyPath, this.stringifyForPropertyGrid(value));
+          return;
+        }
+        if (visited.has(value)) {
+          pushEntry(keyPath, '[Circular]');
+          return;
+        }
+        visited.add(value);
+        if (Array.isArray(value)) {
+          if (!value.length) {
+            pushEntry(keyPath, '[]');
+          } else if (depth >= maxDepth || value.length > maxArrayItems) {
+            pushEntry(keyPath, this.stringifyForPropertyGrid(value));
+          } else {
+            value.forEach((item, index) => {
+              traverse(item, `${keyPath}[${index}]`, depth + 1);
+            });
+          }
+          visited.delete(value);
+          return;
+        }
+        const keys = Object.keys(value);
+        if (!keys.length) {
+          pushEntry(keyPath, '{}');
+          visited.delete(value);
+          return;
+        }
+        if (depth >= maxDepth) {
+          pushEntry(keyPath, this.stringifyForPropertyGrid(value));
+          visited.delete(value);
+          return;
+        }
+        keys.forEach((key) => {
+          const nextPath = keyPath ? `${keyPath}.${key}` : key;
+          traverse(value[key], nextPath, depth + 1);
+        });
+        visited.delete(value);
+      };
+
+      Object.keys(entity).forEach((key) => {
+        traverse(entity[key], key, 0);
+      });
+
+      if (entries.length >= maxEntries) {
+        entries.push({
+          name: '[Notice]',
+          value: `Property list truncated at ${maxEntries} entries.`
+        });
+      }
+
+      return entries;
+    }
+
+    formatPropertyValue(value) {
+      if (value == null) {
+        return value === null ? 'null' : '';
+      }
+      if (typeof value === 'string') {
+        return value;
+      }
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? value.toString() : String(value);
+      }
+      if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+      }
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      if (typeof value === 'undefined') {
+        return 'undefined';
+      }
+      return this.stringifyForPropertyGrid(value);
+    }
+
+    stringifyForPropertyGrid(value) {
+      try {
+        const json = JSON.stringify(value, (key, val) => {
+          if (typeof val === 'bigint') {
+            return val.toString();
+          }
+          if (typeof val === 'function') {
+            return '[Function]';
+          }
+          return val;
+        }, 2);
+        if (typeof json === 'string' && json.length > 4000) {
+          return `${json.slice(0, 4000)}…`;
+        }
+        return json;
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    buildEntityLookupForDoc(doc) {
+      const lookup = new Map();
+      if (!doc || typeof doc !== 'object') {
+        return lookup;
+      }
+      const registerEntity = (entity) => {
+        if (!entity || typeof entity !== 'object') {
+          return;
+        }
+        const handle = this.normalizeHandle(entity.handle || entity.id || null);
+        if (handle && !lookup.has(handle)) {
+          lookup.set(handle, entity);
+        }
+      };
+      if (Array.isArray(doc.entities)) {
+        doc.entities.forEach(registerEntity);
+      }
+      if (Array.isArray(doc.blocks)) {
+        doc.blocks.forEach((block) => {
+          if (!block || !Array.isArray(block.entities)) {
+            return;
+          }
+          block.entities.forEach(registerEntity);
+        });
+      }
+      const sceneGraph = doc.sceneGraph;
+      if (sceneGraph && Array.isArray(sceneGraph.entities)) {
+        sceneGraph.entities.forEach(registerEntity);
+      }
+      return lookup;
+    }
+
+    renderBlockGallery(metadata) {
+      this.currentBlockMetadata = metadata || null;
+      if (!this.blockGridEl) {
+        return;
+      }
+      this.blockCardMap.clear();
+      this.blockGridEl.innerHTML = '';
+      const ordered = metadata && Array.isArray(metadata.ordered) ? metadata.ordered : [];
+      const totalInstances = ordered.reduce((sum, entry) => sum + (Number(entry.instanceCount) || 0), 0);
+      if (this.blockSummaryEl) {
+        if (!ordered.length) {
+          this.blockSummaryEl.textContent = 'No block metadata.';
+        } else {
+          this.blockSummaryEl.textContent = `Blocks: ${ordered.length} • Instances: ${totalInstances}`;
+        }
+      }
+      if (!ordered.length) {
+        const empty = this.createElement('p');
+        if (empty) {
+          empty.className = 'rendering-blocks-empty';
+          empty.textContent = 'No block definitions available.';
+          this.blockGridEl.appendChild(empty);
+        }
+        this.pendingBlockFocus = null;
+        return;
+      }
+
+      const formatPoint = (point) => {
+        if (!point || typeof point !== 'object') {
+          return '0, 0, 0';
+        }
+        const x = Number(point.x) || 0;
+        const y = Number(point.y) || 0;
+        const z = Number(point.z) || 0;
+        return `${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}`;
+      };
+
+      ordered.forEach((entry) => {
+        const blockName = entry && entry.name ? entry.name : '(Unnamed)';
+        const normalizedName = this.normalizeBlockName(blockName);
+        const card = this.createElement('div');
+        if (!card) {
+          return;
+        }
+        card.className = 'rendering-block-card';
+        card.dataset.blockName = normalizedName;
+        card.setAttribute('tabindex', '0');
+
+        const thumb = this.createElement('div');
+        const blockDefinition = this.getBlockDefinition(blockName);
+
+        if (thumb) {
+          thumb.className = 'rendering-block-thumb';
+          const canvas = this.createElement('canvas');
+          if (canvas) {
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+            if (!this.renderBlockThumbnail(canvas, entry, blockDefinition)) {
+              this.drawBlockFallback(canvas, entry);
+            }
+            thumb.appendChild(canvas);
+          }
+          card.appendChild(thumb);
+        }
+
+        const nameEl = this.createElement('div');
+        if (nameEl) {
+          nameEl.className = 'rendering-block-name';
+          nameEl.textContent = blockName;
+          card.appendChild(nameEl);
+        }
+
+        const details = this.createElement('div');
+        if (details) {
+          details.className = 'rendering-block-details';
+          const instanceCount = Number(entry.instanceCount) || 0;
+          const attributeCount = Number(entry.attributeCount) || 0;
+          const basePoint = entry.basePoint || null;
+          const statsLine = `Instances: ${instanceCount}`;
+          const attrLine = `Attributes: ${attributeCount}`;
+          const baseLine = `Base: ${formatPoint(basePoint)}`;
+          [statsLine, attrLine, baseLine].forEach((text) => {
+            const line = this.createElement('div');
+            if (line) {
+              line.textContent = text;
+              details.appendChild(line);
+            }
+          });
+          card.appendChild(details);
+        }
+
+        const activate = (event) => {
+          if (event) {
+            event.preventDefault();
+          }
+          this.highlightBlockCard(normalizedName, { smooth: true, focus: true });
+        };
+        card.addEventListener('click', activate);
+        card.addEventListener('keydown', (event) => {
+          if (!event) {
+            return;
+          }
+          const key = event.key || '';
+          if (key === 'Enter' || key === ' ') {
+            activate(event);
+          }
+        });
+
+        this.blockGridEl.appendChild(card);
+        this.blockCardMap.set(normalizedName, card);
+      });
+
+      if (this.pendingBlockFocus && this.highlightBlockCard(this.pendingBlockFocus, { smooth: true, focus: true })) {
+        this.pendingBlockFocus = null;
+      }
+    }
+
+    renderBlockThumbnail(canvas, entry, blockDefinition) {
+      if (!canvas || !blockDefinition || !this.currentDoc || !this.currentDoc.sceneGraph || typeof namespace.RenderingSurfaceManager !== 'function') {
+        return false;
+      }
+      let manager = null;
+      try {
+        const devicePixelRatio = (this.surfaceManager && this.surfaceManager.devicePixelRatio)
+          || (this.global && this.global.devicePixelRatio)
+          || (typeof window !== 'undefined' ? window.devicePixelRatio : 1)
+          || 1;
+        const fallbackWidth = 200;
+        const fallbackHeight = 140;
+        const displayWidth = Math.max(fallbackWidth, Math.floor(canvas.clientWidth || canvas.width || fallbackWidth));
+        const displayHeight = Math.max(fallbackHeight, Math.floor(canvas.clientHeight || canvas.height || fallbackHeight));
+        canvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
+        canvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
+        canvas.style.width = `${displayWidth}px`;
+        canvas.style.height = `${displayHeight}px`;
+
+        manager = new namespace.RenderingSurfaceManager();
+        const originalWebGLSurface = namespace.WebGLSurface;
+        namespace.WebGLSurface = null;
+        try {
+          manager.initialize(canvas);
+        } finally {
+          namespace.WebGLSurface = originalWebGLSurface;
+        }
+        manager.resize(canvas.width, canvas.height, devicePixelRatio);
+
+        const previewScene = this.buildBlockPreviewScene(entry && entry.name, blockDefinition, this.currentDoc.sceneGraph, entry);
+        if (!previewScene) {
+          this.destroyRenderingSurface(manager);
+          return false;
+        }
+
+        manager.renderScene(previewScene, { viewState: { mode: 'auto' } });
+        this.destroyRenderingSurface(manager);
+        return true;
+      } catch (error) {
+        console.warn('RenderingOverlay: block preview rendering failed', error);
+        this.destroyRenderingSurface(manager);
+        return false;
+      }
+    }
+
+    drawBlockFallback(canvas, entry) {
+      if (!canvas || typeof canvas.getContext !== 'function') {
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return;
+      }
+      const devicePixelRatio = (this.surfaceManager && this.surfaceManager.devicePixelRatio)
+        || (this.global && this.global.devicePixelRatio)
+        || (typeof window !== 'undefined' ? window.devicePixelRatio : 1)
+        || 1;
+      const displayWidth = Math.max(120, Math.floor(canvas.clientWidth || canvas.width || 160));
+      const displayHeight = Math.max(90, Math.floor(canvas.clientHeight || canvas.height || 120));
+      canvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
+      canvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
+
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      ctx.fillStyle = '#f1f5ff';
+      ctx.fillRect(0, 0, width, height);
+      const colors = this.computeBlockColor(entry && entry.name);
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, colors.primary);
+      gradient.addColorStop(1, colors.secondary);
+      ctx.fillStyle = gradient;
+      const margin = Math.round(6 * devicePixelRatio);
+      ctx.fillRect(margin, margin, width - margin * 2, height - margin * 2);
+
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.12)';
+      ctx.lineWidth = Math.max(1, Math.round(2 * devicePixelRatio));
+      const borderMargin = Math.round(10 * devicePixelRatio);
+      ctx.strokeRect(borderMargin, borderMargin, width - borderMargin * 2, height - borderMargin * 2);
+
+      const initials = entry && entry.name ? String(entry.name).trim().slice(0, 3).toUpperCase() : 'BLK';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+      ctx.font = `${Math.round(18 * devicePixelRatio)}px "Inter", "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(initials, width / 2, height / 2);
+
+      const instanceCount = Number(entry && entry.instanceCount) || 0;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+      ctx.font = `${Math.round(12 * devicePixelRatio)}px "Inter", "Segoe UI", sans-serif`;
+      ctx.fillText(`${instanceCount} inst`, width / 2, height - 14 * devicePixelRatio);
+    }
+
+    destroyRenderingSurface(manager) {
+      try {
+        if (!manager) {
+          return;
+        }
+        manager.suspend();
+        if (manager.activeSurface && typeof manager.activeSurface.destroy === 'function') {
+          manager.activeSurface.destroy();
+        }
+        manager.clear();
+      } catch (error) {
+        console.warn('RenderingOverlay: unable to dispose preview surface', error);
+      }
+    }
+
+    computeBlockColor(name) {
+      const normalized = this.normalizeBlockName(name) || 'BLOCK';
+      let hash = 0;
+      for (let i = 0; i < normalized.length; i += 1) {
+        hash = (hash * 31 + normalized.charCodeAt(i)) >>> 0;
+      }
+      const hue = hash % 360;
+      const primary = `hsl(${hue}, 70%, 78%)`;
+      const secondary = `hsl(${(hue + 30) % 360}, 80%, 92%)`;
+      return { primary, secondary };
+    }
+
+    buildBlockPreviewScene(blockName, blockDefinition, sceneGraph, metadataEntry) {
+      if (!blockDefinition || !sceneGraph) {
+        return null;
+      }
+      const previewBlockName = blockDefinition.name || blockName || 'BLOCK';
+      const clonedDefinition = this.cloneBlockDefinition(blockDefinition);
+      if (!clonedDefinition) {
+        return null;
+      }
+      const basePoint = (clonedDefinition.header && clonedDefinition.header.basePoint) || { x: 0, y: 0, z: 0 };
+      const insertEntity = {
+        id: `${previewBlockName}_PREVIEW`,
+        type: 'INSERT',
+        space: 'model',
+        layer: '0',
+        linetype: null,
+        lineweight: null,
+        linetypeScale: 1,
+        color: { type: 'byLayer', value: null },
+        trueColor: null,
+        transparency: null,
+        layout: null,
+        textStyle: null,
+        thickness: null,
+        elevation: null,
+        extrusion: null,
+        flags: {},
+        owner: null,
+        handle: `${previewBlockName}_PREVIEW_HANDLE`,
+        blockName: null,
+        material: null,
+        plotStyle: null,
+        visualStyle: null,
+        shadowMode: null,
+        spaceFlag: 0,
+        colorBook: null,
+        dimensionStyle: null,
+        dimensionStyleHandle: null,
+        geometry: {
+          type: 'insert',
+          blockName: previewBlockName,
+          position: {
+            x: -Number(basePoint.x || 0),
+            y: -Number(basePoint.y || 0),
+            z: -Number(basePoint.z || 0)
+          },
+          scale: { x: 1, y: 1, z: 1 },
+          rotation: 0,
+          columnCount: 1,
+          rowCount: 1,
+          columnSpacing: 0,
+          rowSpacing: 0,
+          hasAttributes: !!(metadataEntry && metadataEntry.attributeCount)
+        },
+        rawTags: [],
+        resolved: {}
+      };
+
+      const clonedBlocks = {};
+      clonedBlocks[previewBlockName] = clonedDefinition;
+
+      return {
+        modelSpace: [insertEntity],
+        paperSpaces: {},
+        blocks: clonedBlocks,
+        tables: sceneGraph.tables || {},
+        materials: sceneGraph.materials || null,
+        backgrounds: sceneGraph.backgrounds || null,
+        suns: sceneGraph.suns || null,
+        units: sceneGraph.units || null,
+        imageDefinitions: sceneGraph.imageDefinitions || null,
+        underlayDefinitions: sceneGraph.underlayDefinitions || null,
+        pointClouds: sceneGraph.pointClouds || null,
+        sectionViewStyles: sceneGraph.sectionViewStyles || null,
+        detailViewStyles: sceneGraph.detailViewStyles || null,
+        sectionObjects: sceneGraph.sectionObjects || null,
+        sectionGeometries: sceneGraph.sectionGeometries || null,
+        detailViewObjects: sceneGraph.detailViewObjects || null,
+        rasterVariables: sceneGraph.rasterVariables || null,
+        proxyObjects: sceneGraph.proxyObjects || null,
+        datalinks: sceneGraph.datalinks || null,
+        dictionaryVariables: sceneGraph.dictionaryVariables || null,
+        lightLists: sceneGraph.lightLists || null,
+        entityDefaults: sceneGraph.entityDefaults || null,
+        displaySettings: sceneGraph.displaySettings || null,
+        coordinateDefaults: sceneGraph.coordinateDefaults || null,
+        environment: sceneGraph.environment || null,
+        stats: Object.assign({}, sceneGraph.stats || {}, { renderableEntities: 1, blockDefinitions: 1 })
+      };
+    }
+
+    cloneBlockDefinition(definition) {
+      if (!definition) {
+        return null;
+      }
+      if (typeof structuredClone === 'function') {
+        try {
+          return structuredClone(definition);
+        } catch (error) {
+          // Fallback to JSON clone
+        }
+      }
+      try {
+        return JSON.parse(JSON.stringify(definition));
+      } catch (error) {
+        console.warn('RenderingOverlay: failed to clone block definition', error);
+        return null;
+      }
+    }
+
+    getBlockDefinition(blockName) {
+      if (!blockName || !this.currentDoc || !this.currentDoc.sceneGraph || !this.currentDoc.sceneGraph.blocks) {
+        return null;
+      }
+      const blocks = this.currentDoc.sceneGraph.blocks;
+      if (blocks[blockName]) {
+        return blocks[blockName];
+      }
+      const upper = blockName.toUpperCase();
+      if (blocks[upper]) {
+        return blocks[upper];
+      }
+      const matchKey = Object.keys(blocks).find((key) => key.toUpperCase() === upper);
+      return matchKey ? blocks[matchKey] : null;
+    }
+
+    normalizeBlockName(name) {
+      if (name == null) {
+        return null;
+      }
+      const trimmed = String(name).trim();
+      return trimmed ? trimmed.toUpperCase() : null;
+    }
+
+    highlightBlockCard(blockName, options = {}) {
+      const normalized = this.normalizeBlockName(blockName);
+      if (!normalized || !this.blockGridEl) {
+        return false;
+      }
+      const existingHighlight = this.blockGridEl.querySelectorAll('.rendering-block-card.highlighted');
+      existingHighlight.forEach((card) => card.classList.remove('highlighted'));
+      const card = this.blockCardMap.get(normalized) || this.blockGridEl.querySelector(`[data-block-name="${normalized}"]`);
+      if (!card) {
+        return false;
+      }
+      card.classList.add('highlighted');
+      const shouldScroll = options && options.scroll !== false;
+      if (shouldScroll) {
+        try {
+          card.scrollIntoView({ behavior: options.smooth === false ? 'auto' : 'smooth', block: 'nearest' });
+        } catch (err) {
+          /* ignore scroll errors */
+        }
+      }
+      if (!options || options.focus !== false) {
+        try {
+          card.focus({ preventScroll: true });
+        } catch (err) {
+          /* ignore */
+        }
+      }
+      return true;
+    }
+
+    focusBlockDefinition(blockName, options = {}) {
+      const normalized = this.normalizeBlockName(blockName);
+      if (!normalized) {
+        return;
+      }
+      this.pendingBlockFocus = normalized;
+      this.setInformationTab('blocks', { focus: options.focus !== false });
+      const attemptFocus = (remaining) => {
+        if (this.highlightBlockCard(normalized, { smooth: true, focus: true })) {
+          this.pendingBlockFocus = null;
+          return;
+        }
+        if (remaining <= 0) {
+          return;
+        }
+        setTimeout(() => attemptFocus(remaining - 1), 140);
+      };
+      attemptFocus(10);
     }
 
     updateSelectionSummary() {

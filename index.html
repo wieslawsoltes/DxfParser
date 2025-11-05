@@ -21,6 +21,7 @@
   <script src="components/rendering-surface-webgl.js"></script>
   <script src="components/rendering-text-layout.js"></script>
   <script src="components/rendering-renderer.js"></script>
+  <script src="components/rendering-property-grid.js"></script>
   <script src="components/rendering-overlay.js"></script>
   <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>
@@ -228,6 +229,9 @@
             <button id="renderingOverlayLayersTab" class="rendering-tab-btn" type="button" role="tab" aria-controls="renderingOverlayLayersPanel" aria-selected="false" data-tab="layers">
               Layers View
             </button>
+            <button id="renderingOverlayBlocksTab" class="rendering-tab-btn" type="button" role="tab" aria-controls="renderingOverlayBlocksPanel" aria-selected="false" data-tab="blocks">
+              Blocks
+            </button>
           </div>
           <div id="renderingOverlayInfoPanel" class="rendering-tab-panel active" role="tabpanel" aria-labelledby="renderingOverlayInfoTab">
             <section>
@@ -263,6 +267,17 @@
               </div>
               <div id="renderingOverlayLayerManager" class="layer-manager-container">
                 <p>No layer metadata available.</p>
+              </div>
+            </section>
+          </div>
+          <div id="renderingOverlayBlocksPanel" class="rendering-tab-panel" role="tabpanel" aria-labelledby="renderingOverlayBlocksTab" hidden>
+            <section class="rendering-blocks-section">
+              <div class="rendering-blocks-header">
+                <h3>Block Definitions</h3>
+                <div id="renderingBlocksSummary" class="rendering-blocks-summary">No block metadata.</div>
+              </div>
+              <div id="renderingBlocksGrid" class="rendering-blocks-grid">
+                <p>No block definitions available.</p>
               </div>
             </section>
           </div>
@@ -320,6 +335,13 @@
           <div id="renderingOverlayMeasurementLayer" class="rendering-measurement-layer"></div>
           <div id="renderingOverlaySnapLayer" class="rendering-snap-layer"></div>
           <div id="renderingOverlayInteractionLayer" class="rendering-interaction-layer"></div>
+        </div>
+        <div id="renderingOverlayPropertyPanel" class="rendering-overlay-properties" aria-hidden="true">
+          <div class="rendering-properties-header">
+            <h3>Selection Properties</h3>
+            <div id="renderingPropertiesSummary" class="rendering-properties-summary">No selection.</div>
+          </div>
+          <div id="renderingPropertyGridContainer" class="rendering-property-grid-container"></div>
         </div>
       </div>
     </div>

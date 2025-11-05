@@ -51,6 +51,7 @@
         this.currentBinaryData = null;
         this.currentDetectedType = null;
         this.selectedNodeId = null;
+        this.selectedNodeIdRight = null;
             // We'll cache the measured hex line height here.
     this.hexLineHeight = null;
         // Create the TreeDataGrid instances and pass columnWidths via the constructor.
@@ -60,6 +61,8 @@
           openCallback: (nodeId) => this.handleOpen(nodeId),  // <-- new callback for "Open" button
           openAndZoomCallback: (nodeId) => this.handleOpenAndZoom(nodeId),
           openAndZoomPredicate: (node) => this.shouldShowOpenAndZoom(node),
+          openBlockCallback: (nodeId) => this.handleOpenBlock(nodeId),
+          openBlockPredicate: (node) => this.shouldShowOpenBlock(node),
           onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => { this.selectedNodeId = nodeId; },
@@ -74,6 +77,8 @@
           onToggleExpand: (nodeId) => this.handleToggleExpandRight(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           openCallback: (nodeId) => this.handleOpenRight(nodeId),
+          openBlockCallback: (nodeId) => this.handleOpenBlockRight(nodeId),
+          openBlockPredicate: (node) => this.shouldShowOpenBlock(node),
           columnWidths: { ...this.columnWidths },
           headerRootId: "treeGridHeaderRight",
         });
@@ -3060,6 +3065,85 @@
             console.warn("Selected entity has no handle; focusing skipped.");
           }
         }, 0);
+      }
+
+      shouldShowOpenBlock(node) {
+        if (!node || node.isProperty) {
+          return false;
+        }
+        if ((node.type || '').toUpperCase() !== 'BLOCK') {
+          return false;
+        }
+        const section = (node.sectionName || node.parentType || '').toUpperCase();
+        if (section && section !== 'BLOCKS') {
+          return false;
+        }
+        return !!this.getBlockNameFromNode(node);
+      }
+
+      getBlockNameFromNode(node) {
+        if (!node || !Array.isArray(node.properties)) {
+          return null;
+        }
+        const prop = node.properties.find((p) => Number(p.code) === 2);
+        if (!prop || prop.value == null) {
+          return null;
+        }
+        const value = String(prop.value).trim();
+        return value ? value : null;
+      }
+
+      handleOpenBlock(nodeId) {
+        this.openBlockForPane(nodeId, 'left');
+      }
+
+      handleOpenBlockRight(nodeId) {
+        this.openBlockForPane(nodeId, 'right');
+      }
+
+      openBlockForPane(nodeId, pane = 'left') {
+        const activeTab = pane === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!activeTab) {
+          alert('No DXF file loaded.');
+          return;
+        }
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (!node) {
+          alert('Block definition not found.');
+          return;
+        }
+        const blockName = this.getBlockNameFromNode(node);
+        if (!blockName) {
+          alert('Unable to determine block name for this definition.');
+          return;
+        }
+        if (pane === 'right') {
+          this.selectedNodeIdRight = nodeId;
+          if (this.myTreeGridRight) {
+            this.myTreeGridRight.selectedRowId = nodeId;
+            this.myTreeGridRight.updateVisibleNodes();
+          }
+        } else {
+          this.selectedNodeId = nodeId;
+          if (this.myTreeGrid) {
+            this.myTreeGrid.selectedRowId = nodeId;
+            this.myTreeGrid.updateVisibleNodes();
+          }
+        }
+        const tab = pane === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        if (!tab) {
+          return;
+        }
+        if (this.renderingOverlayController) {
+          this.renderingOverlayController.ensureDocumentForTab(tab);
+        }
+        this.openRenderingOverlay(pane);
+        const focusBlock = () => {
+          if (this.renderingOverlayController && typeof this.renderingOverlayController.focusBlockDefinition === 'function') {
+            this.renderingOverlayController.focusBlockDefinition(blockName);
+          }
+        };
+        setTimeout(focusBlock, 0);
       }
 
       handleOpen(nodeId) {

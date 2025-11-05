@@ -11,6 +11,7 @@
 //   components/rendering-tessellation.js
 //   components/rendering-renderer.js
 //   components/rendering-overlay.js
+//   components/rendering-property-grid.js
 
 
 // ---- Begin: components/rendering-entities.js ----
@@ -18272,7 +18273,15 @@ function collectPointCloudClip(map) {
     navigationWheelEl: '#renderingNavigationWheel',
     viewUndoButton: '#viewUndoBtn',
     viewRedoButton: '#viewRedoBtn',
-    viewHomeButton: '#viewHomeBtn'
+    viewHomeButton: '#viewHomeBtn',
+    overlayBody: '.rendering-overlay-body',
+    propertyPanel: '#renderingOverlayPropertyPanel',
+    propertySummary: '#renderingPropertiesSummary',
+    propertyGrid: '#renderingPropertyGridContainer',
+    blocksTabButton: '#renderingOverlayBlocksTab',
+    blocksTabPanel: '#renderingOverlayBlocksPanel',
+    blockSummary: '#renderingBlocksSummary',
+    blockGrid: '#renderingBlocksGrid'
   };
 
   const DEFAULT_ADAPTERS = {
@@ -18328,6 +18337,7 @@ function collectPointCloudClip(map) {
       this.layerManagerHideInactiveFlag = false;
       this.selectionByTab = new Map();
       this.selectionHandles = new Set();
+      this.entityLookupByTab = new Map();
       this.currentInteraction = null;
       this.activePointerId = null;
       this.pointerListenersAttached = false;
@@ -18343,6 +18353,19 @@ function collectPointCloudClip(map) {
       this.measurementToolbarButtons = [];
       this.measurementButtonHandlers = new Map();
       this.measurementLayer = null;
+      this.overlayBodyEl = null;
+      this.propertyPanel = null;
+      this.propertySummaryEl = null;
+      this.propertyGridContainer = null;
+      this.propertyGrid = null;
+      this.blocksTabButton = null;
+      this.blocksTabPanel = null;
+      this.blockSummaryEl = null;
+      this.blockGridEl = null;
+      this.blockCardMap = new Map();
+      this.blockMetadataByTab = new Map();
+      this.currentBlockMetadata = null;
+      this.pendingBlockFocus = null;
       this.measurementSummaryEl = null;
       this.measurementMode = 'none';
       this.measurementModeOrder = ['none', 'distance', 'area', 'angle'];
@@ -18390,6 +18413,7 @@ function collectPointCloudClip(map) {
 
       this.boundInfoTabClick = () => this.setInformationTab('info', { focus: true });
       this.boundLayersTabClick = () => this.setInformationTab('layers', { focus: true });
+      this.boundBlocksTabClick = () => this.setInformationTab('blocks', { focus: true });
       this.boundClose = () => this.close();
       this.boundOnKeyDown = (event) => this.handleOverlayKeyDown(event);
       this.boundPointerDown = (event) => this.handlePointerDown(event);
@@ -18769,6 +18793,135 @@ function collectPointCloudClip(map) {
         scale: targetScale,
         rotationRad: rotation
       });
+    }
+
+    focusHandles(handlesIterable, options = {}) {
+      if (!handlesIterable) {
+        return false;
+      }
+      const normalized = new Set();
+      const pushHandle = (value) => {
+        const normalizedHandle = this.normalizeHandle(value);
+        if (normalizedHandle) {
+          normalized.add(normalizedHandle);
+        }
+      };
+      if (handlesIterable instanceof Set || Array.isArray(handlesIterable)) {
+        handlesIterable.forEach(pushHandle);
+      } else if (typeof handlesIterable[Symbol.iterator] === 'function') {
+        for (const value of handlesIterable) {
+          pushHandle(value);
+        }
+      } else {
+        pushHandle(handlesIterable);
+      }
+      if (!normalized.size) {
+        return false;
+      }
+      const frame = this.surfaceManager ? this.surfaceManager.lastFrame : null;
+      if (!frame || !Array.isArray(frame.pickables) || frame.pickables.length === 0) {
+        return false;
+      }
+
+      let bounds = null;
+      const mergeBounds = (sourceBounds) => {
+        if (!sourceBounds) {
+          return;
+        }
+        const minX = Number.isFinite(sourceBounds.minX) ? sourceBounds.minX : null;
+        const minY = Number.isFinite(sourceBounds.minY) ? sourceBounds.minY : null;
+        const maxX = Number.isFinite(sourceBounds.maxX) ? sourceBounds.maxX : null;
+        const maxY = Number.isFinite(sourceBounds.maxY) ? sourceBounds.maxY : null;
+        if (minX == null || minY == null || maxX == null || maxY == null) {
+          return;
+        }
+        if (!bounds) {
+          bounds = { minX, minY, maxX, maxY };
+          return;
+        }
+        bounds.minX = Math.min(bounds.minX, minX);
+        bounds.minY = Math.min(bounds.minY, minY);
+        bounds.maxX = Math.max(bounds.maxX, maxX);
+        bounds.maxY = Math.max(bounds.maxY, maxY);
+      };
+
+      const computeBoundsFromPoints = (points) => {
+        if (!Array.isArray(points) || points.length === 0) {
+          return null;
+        }
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        points.forEach((point) => {
+          if (!point) {
+            return;
+          }
+          const x = Number.isFinite(point.x) ? point.x : (Array.isArray(point) && Number.isFinite(point[0]) ? point[0] : null);
+          const y = Number.isFinite(point.y) ? point.y : (Array.isArray(point) && Number.isFinite(point[1]) ? point[1] : null);
+          if (x == null || y == null) {
+            return;
+          }
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        });
+        if (minX === Infinity || minY === Infinity || maxX === -Infinity || maxY === -Infinity) {
+          return null;
+        }
+        return { minX, minY, maxX, maxY };
+      };
+
+      frame.pickables.forEach((pickable) => {
+        const handle = this.normalizeHandle(pickable && pickable.handle);
+        if (!handle || !normalized.has(handle)) {
+          return;
+        }
+        if (pickable.worldBounds) {
+          mergeBounds(pickable.worldBounds);
+        } else if (pickable.worldPoints) {
+          mergeBounds(computeBoundsFromPoints(pickable.worldPoints));
+        }
+      });
+
+      if (!bounds) {
+        return false;
+      }
+
+      const viewportWidth = Number.isFinite(frame.width) && frame.width > 0
+        ? frame.width
+        : (this.viewportEl ? this.viewportEl.clientWidth : 0);
+      const viewportHeight = Number.isFinite(frame.height) && frame.height > 0
+        ? frame.height
+        : (this.viewportEl ? this.viewportEl.clientHeight : 0);
+      if (!viewportWidth || !viewportHeight) {
+        return false;
+      }
+
+      const padding = Number.isFinite(options.padding)
+        ? Math.max(0, options.padding)
+        : Math.max(20, Math.min(viewportWidth, viewportHeight) * (Number.isFinite(options.paddingFactor) ? options.paddingFactor : 0.08));
+      const widthAvailable = Math.max(1e-6, viewportWidth - padding * 2);
+      const heightAvailable = Math.max(1e-6, viewportHeight - padding * 2);
+      const spanX = Math.max(1e-6, bounds.maxX - bounds.minX);
+      const spanY = Math.max(1e-6, bounds.maxY - bounds.minY);
+      const targetScale = Math.max(1e-6, Math.min(widthAvailable / spanX, heightAvailable / spanY));
+      const center = {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2
+      };
+      const current = this.getActiveViewState(frame) || this.getAutoViewState(frame) || { rotationRad: 0 };
+      const rotation = Number.isFinite(current.rotationRad) ? current.rotationRad : 0;
+
+      this.applyViewState({
+        mode: 'custom',
+        center,
+        scale: targetScale,
+        rotationRad: rotation
+      });
+
+      return true;
     }
 
     panView(deltaX, deltaY) {
@@ -19156,13 +19309,37 @@ function collectPointCloudClip(map) {
         this.selectionToolbar.setAttribute('aria-hidden', 'true');
         this.selectionToolbar.style.display = 'none';
       }
+      this.overlayBodyEl = find('overlayBody');
+      this.propertyPanel = find('propertyPanel');
+      this.propertySummaryEl = find('propertySummary');
+      this.propertyGridContainer = find('propertyGrid');
+      if (this.propertyGridContainer && namespace.RenderingPropertyGrid) {
+        this.propertyGrid = new namespace.RenderingPropertyGrid(this.propertyGridContainer);
+      } else {
+        this.propertyGrid = null;
+      }
+      if (this.propertyPanel) {
+        this.propertyPanel.setAttribute('aria-hidden', 'true');
+      }
+      if (this.propertySummaryEl) {
+        this.propertySummaryEl.textContent = 'No selection.';
+      }
+      this.blocksTabButton = find('blocksTabButton');
+      this.blocksTabPanel = find('blocksTabPanel');
+      this.blockSummaryEl = find('blockSummary');
+      this.blockGridEl = find('blockGrid');
+      this.blockCardMap.clear();
       if (this.infoTabButton) {
         this.infoTabButton.addEventListener('click', this.boundInfoTabClick);
       }
       if (this.layersTabButton) {
         this.layersTabButton.addEventListener('click', this.boundLayersTabClick);
       }
+      if (this.blocksTabButton) {
+        this.blocksTabButton.addEventListener('click', this.boundBlocksTabClick);
+      }
       this.setInformationTab(this.activeInfoTab);
+      this.renderBlockGallery(this.currentBlockMetadata);
       if (this.viewportEl && !this.pointerListenersAttached) {
         this.viewportEl.addEventListener('pointerdown', this.boundPointerDown, true);
         this.viewportEl.addEventListener('pointermove', this.boundPointerMove);
@@ -19290,10 +19467,13 @@ function collectPointCloudClip(map) {
     }
 
     setInformationTab(tabId, options = {}) {
-      const nextTab = tabId === 'layers' ? 'layers' : 'info';
+      const allowedTabs = ['info', 'layers', 'blocks'];
+      const nextTab = allowedTabs.includes(tabId) ? tabId : 'info';
       const focusRequested = options.focus === true;
       this.activeInfoTab = nextTab;
       const infoActive = nextTab === 'info';
+      const layersActive = nextTab === 'layers';
+      const blocksActive = nextTab === 'blocks';
       if (this.infoTabButton) {
         this.infoTabButton.classList.toggle('active', infoActive);
         this.infoTabButton.setAttribute('aria-selected', infoActive ? 'true' : 'false');
@@ -19302,10 +19482,17 @@ function collectPointCloudClip(map) {
         }
       }
       if (this.layersTabButton) {
-        this.layersTabButton.classList.toggle('active', !infoActive);
-        this.layersTabButton.setAttribute('aria-selected', !infoActive ? 'true' : 'false');
-        if (focusRequested && !infoActive) {
+        this.layersTabButton.classList.toggle('active', layersActive);
+        this.layersTabButton.setAttribute('aria-selected', layersActive ? 'true' : 'false');
+        if (focusRequested && layersActive) {
           this.layersTabButton.focus();
+        }
+      }
+      if (this.blocksTabButton) {
+        this.blocksTabButton.classList.toggle('active', blocksActive);
+        this.blocksTabButton.setAttribute('aria-selected', blocksActive ? 'true' : 'false');
+        if (focusRequested && blocksActive) {
+          this.blocksTabButton.focus();
         }
       }
       if (this.infoTabPanel) {
@@ -19318,12 +19505,21 @@ function collectPointCloudClip(map) {
         }
       }
       if (this.layersTabPanel) {
-        if (!infoActive) {
+        if (layersActive) {
           this.layersTabPanel.removeAttribute('hidden');
           this.layersTabPanel.classList.add('active');
         } else {
           this.layersTabPanel.setAttribute('hidden', 'true');
           this.layersTabPanel.classList.remove('active');
+        }
+      }
+      if (this.blocksTabPanel) {
+        if (blocksActive) {
+          this.blocksTabPanel.removeAttribute('hidden');
+          this.blocksTabPanel.classList.add('active');
+        } else {
+          this.blocksTabPanel.setAttribute('hidden', 'true');
+          this.blocksTabPanel.classList.remove('active');
         }
       }
     }
@@ -19337,6 +19533,9 @@ function collectPointCloudClip(map) {
       }
       if (this.layersTabButton) {
         this.layersTabButton.removeEventListener('click', this.boundLayersTabClick);
+      }
+      if (this.blocksTabButton) {
+        this.blocksTabButton.removeEventListener('click', this.boundBlocksTabClick);
       }
       if (this.keydownListenerTarget) {
         this.keydownListenerTarget.removeEventListener('keydown', this.boundOnKeyDown);
@@ -19515,6 +19714,12 @@ function collectPointCloudClip(map) {
       this.currentSceneGraph = null;
       this.currentDoc = doc || null;
       this.currentPane = null;
+      if (tab && tab.id != null) {
+        this.entityLookupByTab.delete(tab.id);
+        this.blockMetadataByTab.delete(tab.id);
+      }
+      this.currentBlockMetadata = null;
+      this.clearPropertyPanel({ message: 'Scene graph unavailable.' });
       this.populateVisualStyleOptions(null);
       this.updateVisualStyleSelect(null);
       if (this.summaryContainer) {
@@ -19558,6 +19763,7 @@ function collectPointCloudClip(map) {
       this.updateIsolationSummary();
       this.updateSelectionToolbarUI();
       this.updateViewNavigationUi();
+      this.renderBlockGallery(null);
     }
 
     renderSceneGraph(tab, doc, pane) {
@@ -19577,6 +19783,9 @@ function collectPointCloudClip(map) {
       this.currentSceneGraph = doc.sceneGraph;
       this.currentDoc = doc;
       this.currentPane = pane;
+      if (tab && tab.id != null) {
+        this.entityLookupByTab.set(tab.id, this.buildEntityLookupForDoc(doc));
+      }
       this.populateVisualStyleOptions(doc.sceneGraph);
       if (this.titleEl) {
         this.titleEl.textContent = `DXF Rendering – ${tab.name || 'Untitled'} (${pane.toUpperCase()})`;
@@ -19602,6 +19811,11 @@ function collectPointCloudClip(map) {
       if (doc.blockMetadata) {
         this.callAdapter('updateBlockMetadata', tab.id, doc.blockMetadata);
       }
+      if (tab && tab.id != null) {
+        this.blockMetadataByTab.set(tab.id, doc.blockMetadata || null);
+      }
+      this.currentBlockMetadata = doc.blockMetadata || (tab && tab.id != null ? this.blockMetadataByTab.get(tab.id) : null) || null;
+      this.renderBlockGallery(this.currentBlockMetadata);
 
       const viewContext = this.ensureViewContext();
 
@@ -19643,6 +19857,7 @@ function collectPointCloudClip(map) {
       this.updateMeasurementToolbarUI();
       this.updateSelectionToolbarUI();
       this.updateViewNavigationUi();
+      this.updateSelectionPropertyPanel();
     }
 
     prepareLayerManager(doc) {
@@ -20881,6 +21096,10 @@ function collectPointCloudClip(map) {
       this.refreshViewportOverlays(null);
       this.updateMeasurementToolbarUI();
       this.setInformationTab('info');
+      this.clearPropertyPanel({ message: 'No selection.' });
+      this.pendingBlockFocus = null;
+      this.blockCardMap.clear();
+      this.currentBlockMetadata = null;
       this.currentTabId = null;
       this.currentPane = null;
       this.currentSceneGraph = null;
@@ -21017,6 +21236,726 @@ function collectPointCloudClip(map) {
         this.updateSelectionSummary();
       }
       this.updateSelectionToolbarUI();
+      this.updateSelectionPropertyPanel();
+    }
+
+    updateSelectionPropertyPanel() {
+      if (!this.propertyPanel || !this.propertyGrid) {
+        return;
+      }
+      const selectionSet = this.ensureSelectionSetForCurrentTab(false);
+      const handles = selectionSet
+        ? Array.from(selectionSet, (handle) => this.normalizeHandle(handle)).filter(Boolean)
+        : [];
+      const docReady = this.currentDoc && this.currentDoc.status === 'ready';
+      if (!docReady) {
+        this.clearPropertyPanel({
+          message: handles.length ? 'Scene graph unavailable.' : 'No selection.'
+        });
+        return;
+      }
+      if (!handles.length) {
+        this.clearPropertyPanel({ message: 'No selection.' });
+        return;
+      }
+      const tabId = this.currentTabId;
+      let lookup = tabId ? this.entityLookupByTab.get(tabId) : null;
+      if (!lookup && this.currentDoc && this.currentDoc.status === 'ready') {
+        lookup = this.buildEntityLookupForDoc(this.currentDoc);
+        if (tabId) {
+          this.entityLookupByTab.set(tabId, lookup);
+        }
+      }
+      const sections = handles.map((handle, index) => {
+        const entity = lookup ? lookup.get(handle) : null;
+        return this.buildPropertyGridSection(handle, entity, index);
+      });
+      this.propertyGrid.setSections(sections);
+      if (this.propertySummaryEl) {
+        this.propertySummaryEl.textContent = handles.length === 1
+          ? `Handle ${handles[0]}`
+          : `${handles.length} entities selected`;
+      }
+      this.propertyPanel.setAttribute('aria-hidden', 'false');
+      if (this.overlayBodyEl) {
+        this.overlayBodyEl.classList.add('has-properties');
+      }
+    }
+
+    clearPropertyPanel(options = {}) {
+      if (this.propertyGrid) {
+        this.propertyGrid.clear();
+      }
+      if (!this.propertyPanel) {
+        return;
+      }
+      if (this.propertySummaryEl) {
+        this.propertySummaryEl.textContent = options.message || 'No selection.';
+      }
+      this.propertyPanel.setAttribute('aria-hidden', 'true');
+      if (this.overlayBodyEl) {
+        this.overlayBodyEl.classList.remove('has-properties');
+      }
+    }
+
+    buildPropertyGridSection(handle, entity, index = 0) {
+      const normalizedHandle = handle ? this.normalizeHandle(handle) : null;
+      const titleParts = [];
+      if (entity && entity.type) {
+        titleParts.push(String(entity.type));
+      } else {
+        titleParts.push('Entity');
+      }
+      if (normalizedHandle) {
+        titleParts.push(normalizedHandle);
+      } else {
+        titleParts.push(`#${index + 1}`);
+      }
+      const title = titleParts.join(' • ');
+      let subtitle = '';
+      if (entity && typeof entity === 'object') {
+        const details = [];
+        if (entity.layer) {
+          details.push(`Layer: ${entity.layer}`);
+        }
+        if (entity.space) {
+          details.push(`Space: ${entity.space}`);
+        }
+        if (entity.blockName) {
+          details.push(`Block: ${entity.blockName}`);
+        }
+        if (entity.owner) {
+          details.push(`Owner: ${entity.owner}`);
+        }
+        subtitle = details.join(' · ');
+      } else {
+        subtitle = 'No metadata available for this handle.';
+      }
+      const properties = this.extractEntityPropertiesForGrid(entity, normalizedHandle);
+      if (!properties.length && normalizedHandle) {
+        properties.push({ name: 'Handle', value: normalizedHandle });
+      }
+      return {
+        title,
+        subtitle,
+        properties
+      };
+    }
+
+    extractEntityPropertiesForGrid(entity, fallbackHandle = null) {
+      if (!entity || typeof entity !== 'object') {
+        if (fallbackHandle) {
+          return [{ name: 'Handle', value: fallbackHandle }];
+        }
+        return [];
+      }
+      const entries = [];
+      const visited = new Set();
+      const maxEntries = 400;
+      const maxDepth = 3;
+      const maxArrayItems = 24;
+
+      const pushEntry = (name, rawValue) => {
+        if (!name || entries.length >= maxEntries) {
+          return;
+        }
+        entries.push({
+          name,
+          value: this.formatPropertyValue(rawValue)
+        });
+      };
+
+      const traverse = (value, path, depth) => {
+        if (entries.length >= maxEntries) {
+          return;
+        }
+        const keyPath = path || '';
+        if (value === null) {
+          pushEntry(keyPath, 'null');
+          return;
+        }
+        const valueType = typeof value;
+        if (valueType === 'string') {
+          pushEntry(keyPath, value);
+          return;
+        }
+        if (valueType === 'number') {
+          pushEntry(keyPath, Number.isFinite(value) ? value.toString() : String(value));
+          return;
+        }
+        if (valueType === 'boolean') {
+          pushEntry(keyPath, value ? 'true' : 'false');
+          return;
+        }
+        if (valueType === 'bigint') {
+          pushEntry(keyPath, value.toString());
+          return;
+        }
+        if (value instanceof Date) {
+          pushEntry(keyPath, value.toISOString());
+          return;
+        }
+        if (valueType === 'undefined') {
+          pushEntry(keyPath, 'undefined');
+          return;
+        }
+        if (valueType === 'function') {
+          pushEntry(keyPath, '[Function]');
+          return;
+        }
+        if (valueType !== 'object') {
+          pushEntry(keyPath, this.stringifyForPropertyGrid(value));
+          return;
+        }
+        if (visited.has(value)) {
+          pushEntry(keyPath, '[Circular]');
+          return;
+        }
+        visited.add(value);
+        if (Array.isArray(value)) {
+          if (!value.length) {
+            pushEntry(keyPath, '[]');
+          } else if (depth >= maxDepth || value.length > maxArrayItems) {
+            pushEntry(keyPath, this.stringifyForPropertyGrid(value));
+          } else {
+            value.forEach((item, index) => {
+              traverse(item, `${keyPath}[${index}]`, depth + 1);
+            });
+          }
+          visited.delete(value);
+          return;
+        }
+        const keys = Object.keys(value);
+        if (!keys.length) {
+          pushEntry(keyPath, '{}');
+          visited.delete(value);
+          return;
+        }
+        if (depth >= maxDepth) {
+          pushEntry(keyPath, this.stringifyForPropertyGrid(value));
+          visited.delete(value);
+          return;
+        }
+        keys.forEach((key) => {
+          const nextPath = keyPath ? `${keyPath}.${key}` : key;
+          traverse(value[key], nextPath, depth + 1);
+        });
+        visited.delete(value);
+      };
+
+      Object.keys(entity).forEach((key) => {
+        traverse(entity[key], key, 0);
+      });
+
+      if (entries.length >= maxEntries) {
+        entries.push({
+          name: '[Notice]',
+          value: `Property list truncated at ${maxEntries} entries.`
+        });
+      }
+
+      return entries;
+    }
+
+    formatPropertyValue(value) {
+      if (value == null) {
+        return value === null ? 'null' : '';
+      }
+      if (typeof value === 'string') {
+        return value;
+      }
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? value.toString() : String(value);
+      }
+      if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+      }
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      if (typeof value === 'undefined') {
+        return 'undefined';
+      }
+      return this.stringifyForPropertyGrid(value);
+    }
+
+    stringifyForPropertyGrid(value) {
+      try {
+        const json = JSON.stringify(value, (key, val) => {
+          if (typeof val === 'bigint') {
+            return val.toString();
+          }
+          if (typeof val === 'function') {
+            return '[Function]';
+          }
+          return val;
+        }, 2);
+        if (typeof json === 'string' && json.length > 4000) {
+          return `${json.slice(0, 4000)}…`;
+        }
+        return json;
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    buildEntityLookupForDoc(doc) {
+      const lookup = new Map();
+      if (!doc || typeof doc !== 'object') {
+        return lookup;
+      }
+      const registerEntity = (entity) => {
+        if (!entity || typeof entity !== 'object') {
+          return;
+        }
+        const handle = this.normalizeHandle(entity.handle || entity.id || null);
+        if (handle && !lookup.has(handle)) {
+          lookup.set(handle, entity);
+        }
+      };
+      if (Array.isArray(doc.entities)) {
+        doc.entities.forEach(registerEntity);
+      }
+      if (Array.isArray(doc.blocks)) {
+        doc.blocks.forEach((block) => {
+          if (!block || !Array.isArray(block.entities)) {
+            return;
+          }
+          block.entities.forEach(registerEntity);
+        });
+      }
+      const sceneGraph = doc.sceneGraph;
+      if (sceneGraph && Array.isArray(sceneGraph.entities)) {
+        sceneGraph.entities.forEach(registerEntity);
+      }
+      return lookup;
+    }
+
+    renderBlockGallery(metadata) {
+      this.currentBlockMetadata = metadata || null;
+      if (!this.blockGridEl) {
+        return;
+      }
+      this.blockCardMap.clear();
+      this.blockGridEl.innerHTML = '';
+      const ordered = metadata && Array.isArray(metadata.ordered) ? metadata.ordered : [];
+      const totalInstances = ordered.reduce((sum, entry) => sum + (Number(entry.instanceCount) || 0), 0);
+      if (this.blockSummaryEl) {
+        if (!ordered.length) {
+          this.blockSummaryEl.textContent = 'No block metadata.';
+        } else {
+          this.blockSummaryEl.textContent = `Blocks: ${ordered.length} • Instances: ${totalInstances}`;
+        }
+      }
+      if (!ordered.length) {
+        const empty = this.createElement('p');
+        if (empty) {
+          empty.className = 'rendering-blocks-empty';
+          empty.textContent = 'No block definitions available.';
+          this.blockGridEl.appendChild(empty);
+        }
+        this.pendingBlockFocus = null;
+        return;
+      }
+
+      const formatPoint = (point) => {
+        if (!point || typeof point !== 'object') {
+          return '0, 0, 0';
+        }
+        const x = Number(point.x) || 0;
+        const y = Number(point.y) || 0;
+        const z = Number(point.z) || 0;
+        return `${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}`;
+      };
+
+      ordered.forEach((entry) => {
+        const blockName = entry && entry.name ? entry.name : '(Unnamed)';
+        const normalizedName = this.normalizeBlockName(blockName);
+        const card = this.createElement('div');
+        if (!card) {
+          return;
+        }
+        card.className = 'rendering-block-card';
+        card.dataset.blockName = normalizedName;
+        card.setAttribute('tabindex', '0');
+
+        const thumb = this.createElement('div');
+        const blockDefinition = this.getBlockDefinition(blockName);
+
+        if (thumb) {
+          thumb.className = 'rendering-block-thumb';
+          const canvas = this.createElement('canvas');
+          if (canvas) {
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+            if (!this.renderBlockThumbnail(canvas, entry, blockDefinition)) {
+              this.drawBlockFallback(canvas, entry);
+            }
+            thumb.appendChild(canvas);
+          }
+          card.appendChild(thumb);
+        }
+
+        const nameEl = this.createElement('div');
+        if (nameEl) {
+          nameEl.className = 'rendering-block-name';
+          nameEl.textContent = blockName;
+          card.appendChild(nameEl);
+        }
+
+        const details = this.createElement('div');
+        if (details) {
+          details.className = 'rendering-block-details';
+          const instanceCount = Number(entry.instanceCount) || 0;
+          const attributeCount = Number(entry.attributeCount) || 0;
+          const basePoint = entry.basePoint || null;
+          const statsLine = `Instances: ${instanceCount}`;
+          const attrLine = `Attributes: ${attributeCount}`;
+          const baseLine = `Base: ${formatPoint(basePoint)}`;
+          [statsLine, attrLine, baseLine].forEach((text) => {
+            const line = this.createElement('div');
+            if (line) {
+              line.textContent = text;
+              details.appendChild(line);
+            }
+          });
+          card.appendChild(details);
+        }
+
+        const activate = (event) => {
+          if (event) {
+            event.preventDefault();
+          }
+          this.highlightBlockCard(normalizedName, { smooth: true, focus: true });
+        };
+        card.addEventListener('click', activate);
+        card.addEventListener('keydown', (event) => {
+          if (!event) {
+            return;
+          }
+          const key = event.key || '';
+          if (key === 'Enter' || key === ' ') {
+            activate(event);
+          }
+        });
+
+        this.blockGridEl.appendChild(card);
+        this.blockCardMap.set(normalizedName, card);
+      });
+
+      if (this.pendingBlockFocus && this.highlightBlockCard(this.pendingBlockFocus, { smooth: true, focus: true })) {
+        this.pendingBlockFocus = null;
+      }
+    }
+
+    renderBlockThumbnail(canvas, entry, blockDefinition) {
+      if (!canvas || !blockDefinition || !this.currentDoc || !this.currentDoc.sceneGraph || typeof namespace.RenderingSurfaceManager !== 'function') {
+        return false;
+      }
+      let manager = null;
+      try {
+        const devicePixelRatio = (this.surfaceManager && this.surfaceManager.devicePixelRatio)
+          || (this.global && this.global.devicePixelRatio)
+          || (typeof window !== 'undefined' ? window.devicePixelRatio : 1)
+          || 1;
+        const fallbackWidth = 200;
+        const fallbackHeight = 140;
+        const displayWidth = Math.max(fallbackWidth, Math.floor(canvas.clientWidth || canvas.width || fallbackWidth));
+        const displayHeight = Math.max(fallbackHeight, Math.floor(canvas.clientHeight || canvas.height || fallbackHeight));
+        canvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
+        canvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
+        canvas.style.width = `${displayWidth}px`;
+        canvas.style.height = `${displayHeight}px`;
+
+        manager = new namespace.RenderingSurfaceManager();
+        const originalWebGLSurface = namespace.WebGLSurface;
+        namespace.WebGLSurface = null;
+        try {
+          manager.initialize(canvas);
+        } finally {
+          namespace.WebGLSurface = originalWebGLSurface;
+        }
+        manager.resize(canvas.width, canvas.height, devicePixelRatio);
+
+        const previewScene = this.buildBlockPreviewScene(entry && entry.name, blockDefinition, this.currentDoc.sceneGraph, entry);
+        if (!previewScene) {
+          this.destroyRenderingSurface(manager);
+          return false;
+        }
+
+        manager.renderScene(previewScene, { viewState: { mode: 'auto' } });
+        this.destroyRenderingSurface(manager);
+        return true;
+      } catch (error) {
+        console.warn('RenderingOverlay: block preview rendering failed', error);
+        this.destroyRenderingSurface(manager);
+        return false;
+      }
+    }
+
+    drawBlockFallback(canvas, entry) {
+      if (!canvas || typeof canvas.getContext !== 'function') {
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return;
+      }
+      const devicePixelRatio = (this.surfaceManager && this.surfaceManager.devicePixelRatio)
+        || (this.global && this.global.devicePixelRatio)
+        || (typeof window !== 'undefined' ? window.devicePixelRatio : 1)
+        || 1;
+      const displayWidth = Math.max(120, Math.floor(canvas.clientWidth || canvas.width || 160));
+      const displayHeight = Math.max(90, Math.floor(canvas.clientHeight || canvas.height || 120));
+      canvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
+      canvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
+
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      ctx.fillStyle = '#f1f5ff';
+      ctx.fillRect(0, 0, width, height);
+      const colors = this.computeBlockColor(entry && entry.name);
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, colors.primary);
+      gradient.addColorStop(1, colors.secondary);
+      ctx.fillStyle = gradient;
+      const margin = Math.round(6 * devicePixelRatio);
+      ctx.fillRect(margin, margin, width - margin * 2, height - margin * 2);
+
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.12)';
+      ctx.lineWidth = Math.max(1, Math.round(2 * devicePixelRatio));
+      const borderMargin = Math.round(10 * devicePixelRatio);
+      ctx.strokeRect(borderMargin, borderMargin, width - borderMargin * 2, height - borderMargin * 2);
+
+      const initials = entry && entry.name ? String(entry.name).trim().slice(0, 3).toUpperCase() : 'BLK';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+      ctx.font = `${Math.round(18 * devicePixelRatio)}px "Inter", "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(initials, width / 2, height / 2);
+
+      const instanceCount = Number(entry && entry.instanceCount) || 0;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+      ctx.font = `${Math.round(12 * devicePixelRatio)}px "Inter", "Segoe UI", sans-serif`;
+      ctx.fillText(`${instanceCount} inst`, width / 2, height - 14 * devicePixelRatio);
+    }
+
+    destroyRenderingSurface(manager) {
+      try {
+        if (!manager) {
+          return;
+        }
+        manager.suspend();
+        if (manager.activeSurface && typeof manager.activeSurface.destroy === 'function') {
+          manager.activeSurface.destroy();
+        }
+        manager.clear();
+      } catch (error) {
+        console.warn('RenderingOverlay: unable to dispose preview surface', error);
+      }
+    }
+
+    computeBlockColor(name) {
+      const normalized = this.normalizeBlockName(name) || 'BLOCK';
+      let hash = 0;
+      for (let i = 0; i < normalized.length; i += 1) {
+        hash = (hash * 31 + normalized.charCodeAt(i)) >>> 0;
+      }
+      const hue = hash % 360;
+      const primary = `hsl(${hue}, 70%, 78%)`;
+      const secondary = `hsl(${(hue + 30) % 360}, 80%, 92%)`;
+      return { primary, secondary };
+    }
+
+    buildBlockPreviewScene(blockName, blockDefinition, sceneGraph, metadataEntry) {
+      if (!blockDefinition || !sceneGraph) {
+        return null;
+      }
+      const previewBlockName = blockDefinition.name || blockName || 'BLOCK';
+      const clonedDefinition = this.cloneBlockDefinition(blockDefinition);
+      if (!clonedDefinition) {
+        return null;
+      }
+      const basePoint = (clonedDefinition.header && clonedDefinition.header.basePoint) || { x: 0, y: 0, z: 0 };
+      const insertEntity = {
+        id: `${previewBlockName}_PREVIEW`,
+        type: 'INSERT',
+        space: 'model',
+        layer: '0',
+        linetype: null,
+        lineweight: null,
+        linetypeScale: 1,
+        color: { type: 'byLayer', value: null },
+        trueColor: null,
+        transparency: null,
+        layout: null,
+        textStyle: null,
+        thickness: null,
+        elevation: null,
+        extrusion: null,
+        flags: {},
+        owner: null,
+        handle: `${previewBlockName}_PREVIEW_HANDLE`,
+        blockName: null,
+        material: null,
+        plotStyle: null,
+        visualStyle: null,
+        shadowMode: null,
+        spaceFlag: 0,
+        colorBook: null,
+        dimensionStyle: null,
+        dimensionStyleHandle: null,
+        geometry: {
+          type: 'insert',
+          blockName: previewBlockName,
+          position: {
+            x: -Number(basePoint.x || 0),
+            y: -Number(basePoint.y || 0),
+            z: -Number(basePoint.z || 0)
+          },
+          scale: { x: 1, y: 1, z: 1 },
+          rotation: 0,
+          columnCount: 1,
+          rowCount: 1,
+          columnSpacing: 0,
+          rowSpacing: 0,
+          hasAttributes: !!(metadataEntry && metadataEntry.attributeCount)
+        },
+        rawTags: [],
+        resolved: {}
+      };
+
+      const clonedBlocks = {};
+      clonedBlocks[previewBlockName] = clonedDefinition;
+
+      return {
+        modelSpace: [insertEntity],
+        paperSpaces: {},
+        blocks: clonedBlocks,
+        tables: sceneGraph.tables || {},
+        materials: sceneGraph.materials || null,
+        backgrounds: sceneGraph.backgrounds || null,
+        suns: sceneGraph.suns || null,
+        units: sceneGraph.units || null,
+        imageDefinitions: sceneGraph.imageDefinitions || null,
+        underlayDefinitions: sceneGraph.underlayDefinitions || null,
+        pointClouds: sceneGraph.pointClouds || null,
+        sectionViewStyles: sceneGraph.sectionViewStyles || null,
+        detailViewStyles: sceneGraph.detailViewStyles || null,
+        sectionObjects: sceneGraph.sectionObjects || null,
+        sectionGeometries: sceneGraph.sectionGeometries || null,
+        detailViewObjects: sceneGraph.detailViewObjects || null,
+        rasterVariables: sceneGraph.rasterVariables || null,
+        proxyObjects: sceneGraph.proxyObjects || null,
+        datalinks: sceneGraph.datalinks || null,
+        dictionaryVariables: sceneGraph.dictionaryVariables || null,
+        lightLists: sceneGraph.lightLists || null,
+        entityDefaults: sceneGraph.entityDefaults || null,
+        displaySettings: sceneGraph.displaySettings || null,
+        coordinateDefaults: sceneGraph.coordinateDefaults || null,
+        environment: sceneGraph.environment || null,
+        stats: Object.assign({}, sceneGraph.stats || {}, { renderableEntities: 1, blockDefinitions: 1 })
+      };
+    }
+
+    cloneBlockDefinition(definition) {
+      if (!definition) {
+        return null;
+      }
+      if (typeof structuredClone === 'function') {
+        try {
+          return structuredClone(definition);
+        } catch (error) {
+          // Fallback to JSON clone
+        }
+      }
+      try {
+        return JSON.parse(JSON.stringify(definition));
+      } catch (error) {
+        console.warn('RenderingOverlay: failed to clone block definition', error);
+        return null;
+      }
+    }
+
+    getBlockDefinition(blockName) {
+      if (!blockName || !this.currentDoc || !this.currentDoc.sceneGraph || !this.currentDoc.sceneGraph.blocks) {
+        return null;
+      }
+      const blocks = this.currentDoc.sceneGraph.blocks;
+      if (blocks[blockName]) {
+        return blocks[blockName];
+      }
+      const upper = blockName.toUpperCase();
+      if (blocks[upper]) {
+        return blocks[upper];
+      }
+      const matchKey = Object.keys(blocks).find((key) => key.toUpperCase() === upper);
+      return matchKey ? blocks[matchKey] : null;
+    }
+
+    normalizeBlockName(name) {
+      if (name == null) {
+        return null;
+      }
+      const trimmed = String(name).trim();
+      return trimmed ? trimmed.toUpperCase() : null;
+    }
+
+    highlightBlockCard(blockName, options = {}) {
+      const normalized = this.normalizeBlockName(blockName);
+      if (!normalized || !this.blockGridEl) {
+        return false;
+      }
+      const existingHighlight = this.blockGridEl.querySelectorAll('.rendering-block-card.highlighted');
+      existingHighlight.forEach((card) => card.classList.remove('highlighted'));
+      const card = this.blockCardMap.get(normalized) || this.blockGridEl.querySelector(`[data-block-name="${normalized}"]`);
+      if (!card) {
+        return false;
+      }
+      card.classList.add('highlighted');
+      const shouldScroll = options && options.scroll !== false;
+      if (shouldScroll) {
+        try {
+          card.scrollIntoView({ behavior: options.smooth === false ? 'auto' : 'smooth', block: 'nearest' });
+        } catch (err) {
+          /* ignore scroll errors */
+        }
+      }
+      if (!options || options.focus !== false) {
+        try {
+          card.focus({ preventScroll: true });
+        } catch (err) {
+          /* ignore */
+        }
+      }
+      return true;
+    }
+
+    focusBlockDefinition(blockName, options = {}) {
+      const normalized = this.normalizeBlockName(blockName);
+      if (!normalized) {
+        return;
+      }
+      this.pendingBlockFocus = normalized;
+      this.setInformationTab('blocks', { focus: options.focus !== false });
+      const attemptFocus = (remaining) => {
+        if (this.highlightBlockCard(normalized, { smooth: true, focus: true })) {
+          this.pendingBlockFocus = null;
+          return;
+        }
+        if (remaining <= 0) {
+          return;
+        }
+        setTimeout(() => attemptFocus(remaining - 1), 140);
+      };
+      attemptFocus(10);
     }
 
     updateSelectionSummary() {
@@ -23754,3 +24693,138 @@ function collectPointCloudClip(map) {
 }));
 
 // ---- End: components/rendering-overlay.js ----
+
+// ---- Begin: components/rendering-property-grid.js ----
+ (function (root, factory) {
+   if (typeof define === "function" && define.amd) {
+     define([], function () { return factory(root); });
+   } else if (typeof module === "object" && module.exports) {
+     module.exports = factory(root);
+   } else {
+     factory(root);
+   }
+ }((function () {
+   if (typeof globalThis !== "undefined") return globalThis;
+   if (typeof self !== "undefined") return self;
+   if (typeof window !== "undefined") return window;
+   if (typeof global !== "undefined") return global;
+   return {};
+ }()), function (root) {
+   'use strict';
+
+   const namespace = root.DxfRendering = root.DxfRendering || {};
+
+   class RenderingPropertyGrid {
+     constructor(container, options = {}) {
+       this.container = container;
+       this.options = Object.assign({
+         emptyMessage: 'No properties available.'
+       }, options);
+       this.sections = [];
+       if (this.container) {
+         this.container.classList.add('rendering-property-grid');
+       }
+     }
+
+     setSections(sections) {
+       if (!Array.isArray(sections)) {
+         this.sections = [];
+       } else {
+         this.sections = sections.map((section) => {
+           return {
+             title: typeof section.title === 'string' ? section.title : '',
+             subtitle: typeof section.subtitle === 'string' ? section.subtitle : '',
+             properties: Array.isArray(section.properties) ? section.properties.slice() : []
+           };
+         });
+       }
+       this.render();
+     }
+
+     clear() {
+       this.setSections([]);
+     }
+
+     render() {
+       if (!this.container) {
+         return;
+       }
+       this.container.innerHTML = '';
+       if (!this.sections.length) {
+         const emptyState = document.createElement('div');
+         emptyState.className = 'property-grid-empty';
+         emptyState.textContent = this.options.emptyMessage;
+         this.container.appendChild(emptyState);
+         return;
+       }
+
+       this.sections.forEach((section) => {
+         const card = document.createElement('section');
+         card.className = 'property-grid-section';
+
+         if (section.title) {
+           const heading = document.createElement('h4');
+           heading.className = 'property-grid-title';
+           heading.textContent = section.title;
+           card.appendChild(heading);
+         }
+         if (section.subtitle) {
+           const subtitle = document.createElement('div');
+           subtitle.className = 'property-grid-subtitle';
+           subtitle.textContent = section.subtitle;
+           card.appendChild(subtitle);
+         }
+
+         const table = document.createElement('table');
+         table.className = 'property-grid-table';
+         const tbody = document.createElement('tbody');
+
+         if (!section.properties.length) {
+           const row = document.createElement('tr');
+           const keyCell = document.createElement('th');
+           keyCell.textContent = 'Details';
+           const valueCell = document.createElement('td');
+           valueCell.textContent = 'No properties provided.';
+           row.appendChild(keyCell);
+           row.appendChild(valueCell);
+           tbody.appendChild(row);
+         } else {
+           section.properties.forEach((prop) => {
+             const row = document.createElement('tr');
+             row.className = 'property-grid-row';
+             const keyCell = document.createElement('th');
+             keyCell.className = 'property-grid-key';
+             keyCell.textContent = prop.name != null ? String(prop.name) : '';
+             const valueCell = document.createElement('td');
+             valueCell.className = 'property-grid-value';
+             if (prop.value == null || prop.value === '') {
+               valueCell.textContent = '';
+             } else if (prop.isHtml) {
+               valueCell.innerHTML = prop.value;
+             } else {
+               const valueText = String(prop.value);
+               const pre = document.createElement('pre');
+               pre.textContent = valueText;
+               valueCell.appendChild(pre);
+             }
+             row.appendChild(keyCell);
+             row.appendChild(valueCell);
+             tbody.appendChild(row);
+           });
+         }
+
+         table.appendChild(tbody);
+         card.appendChild(table);
+         this.container.appendChild(card);
+       });
+     }
+   }
+
+   namespace.RenderingPropertyGrid = RenderingPropertyGrid;
+
+   return {
+     RenderingPropertyGrid
+   };
+ }));
+
+// ---- End: components/rendering-property-grid.js ----
