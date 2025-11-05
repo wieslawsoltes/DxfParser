@@ -23,6 +23,10 @@
     closeBtn: '#closeRenderingOverlayBtn',
     titleEl: '#renderingOverlayTitle',
     summaryContainer: '#renderingOverlaySummary',
+    infoTabButton: '#renderingOverlayInfoTab',
+    layersTabButton: '#renderingOverlayLayersTab',
+    infoTabPanel: '#renderingOverlayInfoPanel',
+    layersTabPanel: '#renderingOverlayLayersPanel',
     layerManagerContainer: '#renderingOverlayLayerManager',
     layerManagerStatus: '#layerManagerStatus',
     layerManagerFilterInput: '#layerManagerFilter',
@@ -69,6 +73,11 @@
       this.closeBtn = null;
       this.titleEl = null;
       this.summaryContainer = null;
+      this.infoTabButton = null;
+      this.layersTabButton = null;
+      this.infoTabPanel = null;
+      this.layersTabPanel = null;
+      this.activeInfoTab = 'info';
       this.layerManagerContainer = null;
       this.layerManagerStatus = null;
       this.layerManagerFilterInput = null;
@@ -154,6 +163,8 @@
       this.visualStyleSpecifierToOption = new Map();
       this.keydownListenerTarget = null;
 
+      this.boundInfoTabClick = () => this.setInformationTab('info', { focus: true });
+      this.boundLayersTabClick = () => this.setInformationTab('layers', { focus: true });
       this.boundClose = () => this.close();
       this.boundOnKeyDown = (event) => this.handleOverlayKeyDown(event);
       this.boundPointerDown = (event) => this.handlePointerDown(event);
@@ -861,6 +872,10 @@
       this.closeBtn = find('closeBtn');
       this.titleEl = find('titleEl');
       this.summaryContainer = find('summaryContainer');
+      this.infoTabButton = find('infoTabButton');
+      this.layersTabButton = find('layersTabButton');
+      this.infoTabPanel = find('infoTabPanel');
+      this.layersTabPanel = find('layersTabPanel');
       this.layerManagerContainer = find('layerManagerContainer');
       this.layerManagerStatus = find('layerManagerStatus');
       this.layerManagerFilterInput = find('layerManagerFilterInput');
@@ -916,6 +931,13 @@
         this.selectionToolbar.setAttribute('aria-hidden', 'true');
         this.selectionToolbar.style.display = 'none';
       }
+      if (this.infoTabButton) {
+        this.infoTabButton.addEventListener('click', this.boundInfoTabClick);
+      }
+      if (this.layersTabButton) {
+        this.layersTabButton.addEventListener('click', this.boundLayersTabClick);
+      }
+      this.setInformationTab(this.activeInfoTab);
       if (this.viewportEl && !this.pointerListenersAttached) {
         this.viewportEl.addEventListener('pointerdown', this.boundPointerDown, true);
         this.viewportEl.addEventListener('pointermove', this.boundPointerMove);
@@ -1042,9 +1064,54 @@
       this.updateViewNavigationUi();
     }
 
+    setInformationTab(tabId, options = {}) {
+      const nextTab = tabId === 'layers' ? 'layers' : 'info';
+      const focusRequested = options.focus === true;
+      this.activeInfoTab = nextTab;
+      const infoActive = nextTab === 'info';
+      if (this.infoTabButton) {
+        this.infoTabButton.classList.toggle('active', infoActive);
+        this.infoTabButton.setAttribute('aria-selected', infoActive ? 'true' : 'false');
+        if (focusRequested && infoActive) {
+          this.infoTabButton.focus();
+        }
+      }
+      if (this.layersTabButton) {
+        this.layersTabButton.classList.toggle('active', !infoActive);
+        this.layersTabButton.setAttribute('aria-selected', !infoActive ? 'true' : 'false');
+        if (focusRequested && !infoActive) {
+          this.layersTabButton.focus();
+        }
+      }
+      if (this.infoTabPanel) {
+        if (infoActive) {
+          this.infoTabPanel.removeAttribute('hidden');
+          this.infoTabPanel.classList.add('active');
+        } else {
+          this.infoTabPanel.setAttribute('hidden', 'true');
+          this.infoTabPanel.classList.remove('active');
+        }
+      }
+      if (this.layersTabPanel) {
+        if (!infoActive) {
+          this.layersTabPanel.removeAttribute('hidden');
+          this.layersTabPanel.classList.add('active');
+        } else {
+          this.layersTabPanel.setAttribute('hidden', 'true');
+          this.layersTabPanel.classList.remove('active');
+        }
+      }
+    }
+
     dispose() {
       if (this.closeBtn) {
         this.closeBtn.removeEventListener('click', this.boundClose);
+      }
+      if (this.infoTabButton) {
+        this.infoTabButton.removeEventListener('click', this.boundInfoTabClick);
+      }
+      if (this.layersTabButton) {
+        this.layersTabButton.removeEventListener('click', this.boundLayersTabClick);
       }
       if (this.keydownListenerTarget) {
         this.keydownListenerTarget.removeEventListener('keydown', this.boundOnKeyDown);
@@ -1107,6 +1174,11 @@
       this.closeBtn = null;
       this.titleEl = null;
       this.summaryContainer = null;
+      this.infoTabButton = null;
+      this.layersTabButton = null;
+      this.infoTabPanel = null;
+      this.layersTabPanel = null;
+      this.activeInfoTab = 'info';
       this.layerManagerContainer = null;
       this.layerManagerStatus = null;
       this.layerManagerFilterInput = null;
@@ -2583,6 +2655,7 @@
       this.clearSnapIndicator({ silent: true });
       this.refreshViewportOverlays(null);
       this.updateMeasurementToolbarUI();
+      this.setInformationTab('info');
       this.currentTabId = null;
       this.currentPane = null;
       this.currentSceneGraph = null;

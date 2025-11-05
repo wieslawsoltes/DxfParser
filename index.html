@@ -221,39 +221,51 @@
       </div>
       <div class="rendering-overlay-body">
         <div class="rendering-overlay-info">
-          <section>
-            <h3>Scene Snapshot</h3>
-            <div id="renderingOverlaySummary" class="rendering-summary">
-              <p>No scene graph loaded.</p>
-            </div>
-          </section>
-          <section>
-            <h3>Attribute Visibility</h3>
-            <div id="renderingOverlayAttributeControls" class="rendering-attribute-controls">
-              <label><input type="checkbox" id="toggleAttributeDefinitions"> Show block attribute definitions</label>
-              <label><input type="checkbox" id="toggleAttributeReferences" checked> Show attribute references</label>
-              <label><input type="checkbox" id="toggleAttributeInvisible"> Show hidden attributes</label>
-            </div>
-          </section>
-          <section>
-            <div class="layer-manager-header">
-              <div>
-                <h3>Layer Manager</h3>
-                <div id="layerManagerStatus" class="layer-manager-status">No layers loaded.</div>
+          <div class="rendering-info-tabs" role="tablist">
+            <button id="renderingOverlayInfoTab" class="rendering-tab-btn active" type="button" role="tab" aria-controls="renderingOverlayInfoPanel" aria-selected="true" data-tab="info">
+              All Information
+            </button>
+            <button id="renderingOverlayLayersTab" class="rendering-tab-btn" type="button" role="tab" aria-controls="renderingOverlayLayersPanel" aria-selected="false" data-tab="layers">
+              Layers View
+            </button>
+          </div>
+          <div id="renderingOverlayInfoPanel" class="rendering-tab-panel active" role="tabpanel" aria-labelledby="renderingOverlayInfoTab">
+            <section>
+              <h3>Scene Snapshot</h3>
+              <div id="renderingOverlaySummary" class="rendering-summary">
+                <p>No scene graph loaded.</p>
               </div>
-              <div class="layer-manager-controls">
-                <input type="search" id="layerManagerFilter" placeholder="Filter layers" aria-label="Filter layers">
-                <label class="layer-manager-hide-inactive">
-                  <input type="checkbox" id="layerManagerHideInactive">
-                  Hide off / frozen
-                </label>
-                <button id="layerManagerReset" type="button">Reset overrides</button>
+            </section>
+            <section>
+              <h3>Attribute Visibility</h3>
+              <div id="renderingOverlayAttributeControls" class="rendering-attribute-controls">
+                <label><input type="checkbox" id="toggleAttributeDefinitions"> Show block attribute definitions</label>
+                <label><input type="checkbox" id="toggleAttributeReferences" checked> Show attribute references</label>
+                <label><input type="checkbox" id="toggleAttributeInvisible"> Show hidden attributes</label>
               </div>
-            </div>
-            <div id="renderingOverlayLayerManager" class="layer-manager-container">
-              <p>No layer metadata available.</p>
-            </div>
-          </section>
+            </section>
+          </div>
+          <div id="renderingOverlayLayersPanel" class="rendering-tab-panel" role="tabpanel" aria-labelledby="renderingOverlayLayersTab" hidden>
+            <section class="rendering-layers-section">
+              <div class="layer-manager-header">
+                <div>
+                  <h3>Layer Manager</h3>
+                  <div id="layerManagerStatus" class="layer-manager-status">No layers loaded.</div>
+                </div>
+                <div class="layer-manager-controls">
+                  <input type="search" id="layerManagerFilter" placeholder="Filter layers" aria-label="Filter layers">
+                  <label class="layer-manager-hide-inactive">
+                    <input type="checkbox" id="layerManagerHideInactive">
+                    Hide off / frozen
+                  </label>
+                  <button id="layerManagerReset" type="button">Reset overrides</button>
+                </div>
+              </div>
+              <div id="renderingOverlayLayerManager" class="layer-manager-container">
+                <p>No layer metadata available.</p>
+              </div>
+            </section>
+          </div>
         </div>
         <div class="rendering-overlay-viewport">
           <div id="renderingVisualStyleControl" class="rendering-style-selector">

@@ -43,11 +43,12 @@
     5. [x] Task 6.5: Implement TrueView-equivalent visual styles (visualstyle table) including wireframe, hidden, shaded, realistic, and conceptual.
 
 7. [ ] **Milestone 7: Document Controls, Layers, and Metadata Parity**
-    1. [x] Task 7.1: Implement layer manager overlay panel with freeze/lock/on/off, transparency, color, and plot style visualization. (see `docs/dxf-rendering-m7-execution.md#task-71-%E2%80%93-layer-manager-overlay-panel`)
+    1. [x] Task 7.1: Implement layer manager overlay tab with freeze/lock/on/off, transparency, color, and plot style visualization. (see `docs/dxf-rendering-m7-execution.md#task-71-%E2%80%93-layer-manager-overlay-panel`)
     2. [x] Task 7.2: Render lineweights, linetypes (including complex shapes), and color book support. (see `docs/dxf-rendering-m7-execution.md#task-72-%E2%80%93-lineweights-linetypes-and-color-book-support`)
     3. [x] Task 7.3: Apply UCS, viewport UCS per view, and world coordinate transforms consistently across entities.
     4. [x] Task 7.4: Support named plot styles (STB/CTB), plot configuration, and background mask handling.
-    5. [x] Task 7.5: Expose drawing properties (units, limits, metadata, geographic location) within overlay info panels.
+    5. [x] Task 7.5: Expose drawing properties (units, limits, metadata, geographic location) within the overlay overview tab that aggregates all document information.
+        * Overlay layout now uses two tabs: `Overview` for the consolidated document information and `Layers` for the dedicated layer manager view, moving the previously stacked info into the overview tab.
 
 8. [ ] **Milestone 8: Interaction, Selection, and Measurements**
     1. [x] Task 8.1: Implement selection hit-testing with marquee, lasso, and single-pick matching TrueView behavior. (see `docs/dxf-rendering-m8-execution.md#task-81-%E2%80%93-selection-hit-testing-marquee-and-lasso`)

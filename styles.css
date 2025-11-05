@@ -699,9 +699,56 @@ body.tooltip-enhanced .has-tooltip::before {
 .rendering-overlay-info {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+.rendering-info-tabs {
+  display: flex;
+  gap: 8px;
+}
+.rendering-tab-btn {
+  flex: 1 1 auto;
+  padding: 8px 12px;
+  border: 1px solid #c4c9d4;
+  border-radius: 6px 6px 0 0;
+  background: #f5f7fa;
+  color: #1f2933;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.rendering-tab-btn.active {
+  background: #fff;
+  color: #0b1f33;
+  border-bottom-color: #fff;
+}
+.rendering-tab-btn:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+.rendering-tab-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  padding: 12px 8px 0 0;
+  background: #fff;
+  border: 1px solid #c4c9d4;
+  border-radius: 0 6px 6px 6px;
+  min-height: 0;
   overflow: auto;
-  padding-right: 8px;
+}
+.rendering-tab-panel[hidden] {
+  display: none;
+}
+.rendering-tab-panel section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rendering-layers-section {
+  flex: 1 1 auto;
   min-height: 0;
 }
 .rendering-overlay-info h3 {
@@ -717,8 +764,9 @@ body.tooltip-enhanced .has-tooltip::before {
   gap: 4px;
 }
 #renderingOverlayLayerManager {
-  max-height: 240px;
+  flex: 1;
   overflow: auto;
+  min-height: 0;
 }
 .rendering-overlay-viewport {
   position: relative;
