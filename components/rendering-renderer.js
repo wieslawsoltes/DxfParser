@@ -1,7 +1,22 @@
-(function (global) {
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
   'use strict';
 
-  const namespace = global.DxfRendering = global.DxfRendering || {};
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+  const globalScope = root;
 
   const MAX_BLOCK_DEPTH = 8;
   const WIPEOUT_MASK_COLOR = {
@@ -593,7 +608,7 @@
   class RenderingSurfaceManager {
     constructor() {
       this.canvas = null;
-      this.devicePixelRatio = global.devicePixelRatio || 1;
+      this.devicePixelRatio = (globalScope && globalScope.devicePixelRatio) || 1;
       this.width = 0;
       this.height = 0;
       this.activeSurface = null;
@@ -633,7 +648,7 @@
       this.canvas = canvas;
       this.width = canvas.clientWidth || canvas.width || 1;
       this.height = canvas.clientHeight || canvas.height || 1;
-      this.devicePixelRatio = global.devicePixelRatio || 1;
+      this.devicePixelRatio = (globalScope && globalScope.devicePixelRatio) || 1;
 
       const attachOptions = {
         devicePixelRatio: this.devicePixelRatio,
@@ -5657,4 +5672,8 @@
   }
 
   namespace.RenderingSurfaceManager = RenderingSurfaceManager;
-})(window);
+
+  return {
+    RenderingSurfaceManager
+  };
+}));

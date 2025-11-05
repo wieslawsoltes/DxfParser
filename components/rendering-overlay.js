@@ -1,10 +1,66 @@
-(function (global) {
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
   'use strict';
 
-  const namespace = global.DxfRendering = global.DxfRendering || {};
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  const DEFAULT_SELECTORS = {
+    overlayRoot: '#dxfRenderingOverlay',
+    closeBtn: '#closeRenderingOverlayBtn',
+    titleEl: '#renderingOverlayTitle',
+    summaryContainer: '#renderingOverlaySummary',
+    layerManagerContainer: '#renderingOverlayLayerManager',
+    layerManagerStatus: '#layerManagerStatus',
+    layerManagerFilterInput: '#layerManagerFilter',
+    layerManagerHideInactiveCheckbox: '#layerManagerHideInactive',
+    layerManagerResetButton: '#layerManagerReset',
+    canvas: '#renderingOverlayCanvas',
+    textLayer: '#renderingOverlayTextLayer',
+    attributeDefinitionCheckbox: '#toggleAttributeDefinitions',
+    attributeInvisibleCheckbox: '#toggleAttributeInvisible',
+    attributeReferencesCheckbox: '#toggleAttributeReferences',
+    interactionLayer: '#renderingOverlayInteractionLayer',
+    measurementLayer: '#renderingOverlayMeasurementLayer',
+    snapLayer: '#renderingOverlaySnapLayer',
+    measurementToolbar: '#renderingMeasurementToolbar',
+    visualStyleSelect: '#renderingVisualStyleSelect',
+    selectionToolbar: '#renderingSelectionToolbar',
+    viewCubeEl: '#renderingViewCube',
+    navigationWheelEl: '#renderingNavigationWheel',
+    viewUndoButton: '#viewUndoBtn',
+    viewRedoButton: '#viewRedoBtn',
+    viewHomeButton: '#viewHomeBtn'
+  };
+
+  const DEFAULT_ADAPTERS = {
+    updateBlockMetadata: null,
+    handleLinkToHandle: null,
+    toggleBlockHighlight: null,
+    getBlockIsolation: null,
+    getBlockHighlights: null
+  };
 
   class RenderingOverlayController {
     constructor(options = {}) {
+      this.global = options.global || root;
+      this.document = options.document || (this.global && this.global.document ? this.global.document : null);
+      this.rootElement = options.root || null;
+      this.selectors = Object.assign({}, DEFAULT_SELECTORS, options.selectors || {});
+      this.adapters = Object.assign({}, DEFAULT_ADAPTERS, options.adapters || {});
       this.dataController = options.dataController || null;
       this.dxfParser = options.dxfParser || null;
       this.app = options.app || null;
@@ -96,6 +152,7 @@
       this.visualStyleChangeHandler = null;
       this.visualStyleOptionToSpecifier = new Map();
       this.visualStyleSpecifierToOption = new Map();
+      this.keydownListenerTarget = null;
 
       this.boundClose = () => this.close();
       this.boundOnKeyDown = (event) => this.handleOverlayKeyDown(event);
@@ -103,6 +160,65 @@
       this.boundPointerMove = (event) => this.handlePointerMove(event);
       this.boundPointerUp = (event) => this.handlePointerUp(event);
       this.boundPointerCancel = (event) => this.handlePointerCancel(event);
+    }
+
+    getDocument() {
+      if (this.document) {
+        return this.document;
+      }
+      if (this.rootElement && this.rootElement.ownerDocument) {
+        return this.rootElement.ownerDocument;
+      }
+      if (this.overlayRoot && this.overlayRoot.ownerDocument) {
+        return this.overlayRoot.ownerDocument;
+      }
+      if (this.global && this.global.document) {
+        return this.global.document;
+      }
+      return null;
+    }
+
+    createElement(tagName) {
+      const doc = this.getDocument();
+      return doc ? doc.createElement(tagName) : null;
+    }
+
+    createSvgElement(tagName, namespace = SVG_NS) {
+      const doc = this.getDocument();
+      return doc ? doc.createElementNS(namespace, tagName) : null;
+    }
+
+    callAdapter(name, ...args) {
+      const adapter = this.adapters[name];
+      if (typeof adapter === 'function') {
+        adapter(...args);
+        return true;
+      }
+      if (this.app && typeof this.app[name] === 'function') {
+        this.app[name](...args);
+        return true;
+      }
+      return false;
+    }
+
+    getBlockIsolation() {
+      if (typeof this.adapters.getBlockIsolation === 'function') {
+        return this.adapters.getBlockIsolation();
+      }
+      if (this.app && Object.prototype.hasOwnProperty.call(this.app, 'blockIsolation')) {
+        return this.app.blockIsolation;
+      }
+      return null;
+    }
+
+    getBlockHighlights() {
+      if (typeof this.adapters.getBlockHighlights === 'function') {
+        return this.adapters.getBlockHighlights();
+      }
+      if (this.app && Object.prototype.hasOwnProperty.call(this.app, 'blockHighlights')) {
+        return this.app.blockHighlights;
+      }
+      return null;
     }
 
     normalizeHandle(value) {
@@ -716,31 +832,52 @@
       if (this.overlayRoot) {
         return;
       }
-      this.overlayRoot = document.getElementById('dxfRenderingOverlay');
-      if (!this.overlayRoot) {
+      const doc = this.getDocument();
+      const scope = this.rootElement || doc;
+      if (!scope) {
+        console.warn('RenderingOverlayController: no document or root element available.');
+        return;
+      }
+      const queryWithin = (base, selector) => {
+        if (!base || typeof selector !== 'string') {
+          return null;
+        }
+        return typeof base.querySelector === 'function' ? base.querySelector(selector) : null;
+      };
+      const overlayRoot = this.rootElement || queryWithin(scope, this.selectors.overlayRoot);
+      if (!overlayRoot) {
         console.warn('RenderingOverlayController: overlay root not found in DOM.');
         return;
       }
-      this.closeBtn = document.getElementById('closeRenderingOverlayBtn');
-      this.titleEl = document.getElementById('renderingOverlayTitle');
-      this.summaryContainer = document.getElementById('renderingOverlaySummary');
-      this.layerManagerContainer = document.getElementById('renderingOverlayLayerManager');
-      this.layerManagerStatus = document.getElementById('layerManagerStatus');
-      this.layerManagerFilterInput = document.getElementById('layerManagerFilter');
-      this.layerManagerHideInactiveCheckbox = document.getElementById('layerManagerHideInactive');
-      this.layerManagerResetButton = document.getElementById('layerManagerReset');
-      this.canvas = document.getElementById('renderingOverlayCanvas');
-      this.textLayer = document.getElementById('renderingOverlayTextLayer');
-      this.attributeDefinitionCheckbox = document.getElementById('toggleAttributeDefinitions');
-      this.attributeInvisibleCheckbox = document.getElementById('toggleAttributeInvisible');
-      this.attributeReferencesCheckbox = document.getElementById('toggleAttributeReferences');
+      this.overlayRoot = overlayRoot;
+      const find = (key) => {
+        const selector = this.selectors[key];
+        if (!selector) {
+          return null;
+        }
+        return queryWithin(overlayRoot, selector) || queryWithin(scope, selector);
+      };
+
+      this.closeBtn = find('closeBtn');
+      this.titleEl = find('titleEl');
+      this.summaryContainer = find('summaryContainer');
+      this.layerManagerContainer = find('layerManagerContainer');
+      this.layerManagerStatus = find('layerManagerStatus');
+      this.layerManagerFilterInput = find('layerManagerFilterInput');
+      this.layerManagerHideInactiveCheckbox = find('layerManagerHideInactiveCheckbox');
+      this.layerManagerResetButton = find('layerManagerResetButton');
+      this.canvas = find('canvas');
+      this.textLayer = find('textLayer');
+      this.attributeDefinitionCheckbox = find('attributeDefinitionCheckbox');
+      this.attributeInvisibleCheckbox = find('attributeInvisibleCheckbox');
+      this.attributeReferencesCheckbox = find('attributeReferencesCheckbox');
       this.viewportEl = this.canvas ? this.canvas.parentElement : null;
-      this.interactionLayer = document.getElementById('renderingOverlayInteractionLayer');
-      this.measurementLayer = document.getElementById('renderingOverlayMeasurementLayer');
-      this.snapLayer = document.getElementById('renderingOverlaySnapLayer');
+      this.interactionLayer = find('interactionLayer');
+      this.measurementLayer = find('measurementLayer');
+      this.snapLayer = find('snapLayer');
       this.snapMarkerEl = null;
       this.snapMarkerLabelEl = null;
-      this.measurementToolbar = document.getElementById('renderingMeasurementToolbar');
+      this.measurementToolbar = find('measurementToolbar');
       this.measurementToolbarButtons = [];
       this.measurementButtonHandlers.clear();
       if (this.measurementToolbar) {
@@ -753,7 +890,7 @@
         });
         this.measurementToolbarButtons = toolbarButtons;
       }
-      this.visualStyleSelect = document.getElementById('renderingVisualStyleSelect');
+      this.visualStyleSelect = find('visualStyleSelect');
       this.visualStyleAutoOption = this.visualStyleSelect
         ? this.visualStyleSelect.querySelector('option[value="__auto__"]')
         : null;
@@ -764,7 +901,7 @@
         };
         this.visualStyleSelect.addEventListener('change', this.visualStyleChangeHandler);
       }
-      this.selectionToolbar = document.getElementById('renderingSelectionToolbar');
+      this.selectionToolbar = find('selectionToolbar');
       this.selectionToolbarButtons = [];
       this.selectionToolbarHandlers.clear();
       if (this.selectionToolbar) {
@@ -786,7 +923,7 @@
         this.viewportEl.addEventListener('pointercancel', this.boundPointerCancel);
         this.pointerListenersAttached = true;
       }
-      this.viewCubeEl = document.getElementById('renderingViewCube');
+      this.viewCubeEl = find('viewCubeEl');
       if (this.viewCubeEl) {
         const cubeButtons = Array.from(this.viewCubeEl.querySelectorAll('button[data-view]'));
         cubeButtons.forEach((button) => {
@@ -803,7 +940,7 @@
           button.setAttribute('aria-pressed', 'false');
         });
       }
-      this.navigationWheelEl = document.getElementById('renderingNavigationWheel');
+      this.navigationWheelEl = find('navigationWheelEl');
       if (this.navigationWheelEl) {
         const wheelButtons = Array.from(this.navigationWheelEl.querySelectorAll('button[data-action]'));
         wheelButtons.forEach((button) => {
@@ -819,19 +956,19 @@
           }
         });
       }
-      this.viewUndoButton = document.getElementById('viewUndoBtn');
+      this.viewUndoButton = find('viewUndoButton');
       if (this.viewUndoButton && !this.viewNavHandlers.has(this.viewUndoButton)) {
         const handler = () => this.undoViewNavigation();
         this.viewUndoButton.addEventListener('click', handler);
         this.viewNavHandlers.set(this.viewUndoButton, handler);
       }
-      this.viewRedoButton = document.getElementById('viewRedoBtn');
+      this.viewRedoButton = find('viewRedoButton');
       if (this.viewRedoButton && !this.viewNavHandlers.has(this.viewRedoButton)) {
         const handler = () => this.redoViewNavigation();
         this.viewRedoButton.addEventListener('click', handler);
         this.viewNavHandlers.set(this.viewRedoButton, handler);
       }
-      const homeButton = document.getElementById('viewHomeBtn');
+      const homeButton = find('viewHomeButton');
       if (homeButton && !this.viewNavHandlers.has(homeButton)) {
         const handler = () => this.resetViewNavigation();
         homeButton.addEventListener('click', handler);
@@ -893,7 +1030,10 @@
           }
         });
       }
-      document.addEventListener('keydown', this.boundOnKeyDown);
+      if (doc) {
+        doc.addEventListener('keydown', this.boundOnKeyDown);
+        this.keydownListenerTarget = doc;
+      }
       this.populateVisualStyleOptions(this.currentSceneGraph);
       this.updateVisualStyleSelect(this.surfaceManager ? this.surfaceManager.lastFrame : null);
       this.syncAttributeVisibilityControls();
@@ -906,7 +1046,10 @@
       if (this.closeBtn) {
         this.closeBtn.removeEventListener('click', this.boundClose);
       }
-      document.removeEventListener('keydown', this.boundOnKeyDown);
+      if (this.keydownListenerTarget) {
+        this.keydownListenerTarget.removeEventListener('keydown', this.boundOnKeyDown);
+        this.keydownListenerTarget = null;
+      }
       if (this.visualStyleSelect && this.visualStyleChangeHandler) {
         this.visualStyleSelect.removeEventListener('change', this.visualStyleChangeHandler);
       }
@@ -1030,8 +1173,8 @@
       }
       const existing = this.dataController.getDocument(tab.id);
       if (existing && existing.status === 'ready') {
-        if (this.app && typeof this.app.updateBlockMetadata === 'function' && existing.blockMetadata) {
-          this.app.updateBlockMetadata(tab.id, existing.blockMetadata);
+        if (existing.blockMetadata) {
+          this.callAdapter('updateBlockMetadata', tab.id, existing.blockMetadata);
         }
         return existing;
       }
@@ -1061,8 +1204,8 @@
       });
       if (doc && doc.status === 'ready') {
         tab.renderingSourceText = sourceText;
-        if (this.app && typeof this.app.updateBlockMetadata === 'function' && doc.blockMetadata) {
-          this.app.updateBlockMetadata(tab.id, doc.blockMetadata);
+        if (doc.blockMetadata) {
+          this.callAdapter('updateBlockMetadata', tab.id, doc.blockMetadata);
         }
       }
       return doc;
@@ -1159,15 +1302,15 @@
       this.prepareLayerManager(doc);
       this.syncIsolationStateForCurrentTab();
 
-      if (this.app && typeof this.app.updateBlockMetadata === 'function' && doc.blockMetadata) {
-        this.app.updateBlockMetadata(tab.id, doc.blockMetadata);
+      if (doc.blockMetadata) {
+        this.callAdapter('updateBlockMetadata', tab.id, doc.blockMetadata);
       }
 
       const viewContext = this.ensureViewContext();
 
       if (this.surfaceManager) {
-        const isolation = this.app && this.app.blockIsolation ? this.app.blockIsolation : null;
-        const highlight = this.app && this.app.blockHighlights ? this.app.blockHighlights : null;
+        const isolation = this.getBlockIsolation();
+        const highlight = this.getBlockHighlights();
         this.surfaceManager.setBlockIsolation(isolation);
         this.surfaceManager.setBlockHighlights(highlight);
         if (typeof this.surfaceManager.setEntityIsolation === 'function') {
@@ -2407,7 +2550,7 @@
         return;
       }
       const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = (this.global && this.global.devicePixelRatio) || 1;
       const width = Math.max(320, rect.width);
       const height = Math.max(240, rect.height);
       if (this.canvas.width !== Math.floor(width * dpr) || this.canvas.height !== Math.floor(height * dpr)) {
@@ -2464,10 +2607,10 @@
       };
       const isolationSource = Object.prototype.hasOwnProperty.call(options, 'isolation')
         ? options.isolation
-        : (this.app ? this.app.blockIsolation : null);
+        : this.getBlockIsolation();
       const highlightSource = Object.prototype.hasOwnProperty.call(options, 'highlight')
         ? options.highlight
-        : (this.app ? this.app.blockHighlights : null);
+        : this.getBlockHighlights();
 
       const isolation = toSetOrNull(isolationSource);
       const highlight = toSetOrNull(highlightSource);
@@ -2586,7 +2729,7 @@
       const count = selectionSet ? selectionSet.size : 0;
       let badge = this.summaryContainer.querySelector('.rendering-selection-summary');
       if (!badge) {
-        badge = document.createElement('div');
+        badge = this.createElement('div');
         badge.className = 'rendering-selection-summary';
         this.summaryContainer.appendChild(badge);
       }
@@ -2604,7 +2747,7 @@
         return;
       }
       if (!this.isolationSummaryEl || !this.summaryContainer.contains(this.isolationSummaryEl)) {
-        this.isolationSummaryEl = document.createElement('div');
+        this.isolationSummaryEl = this.createElement('div');
         this.isolationSummaryEl.className = 'rendering-isolation-summary';
         this.summaryContainer.appendChild(this.isolationSummaryEl);
       }
@@ -3095,7 +3238,7 @@
         return;
       }
       if (!this.marqueeElement) {
-        const div = document.createElement('div');
+        const div = this.createElement('div');
         div.className = 'selection-marquee';
         this.interactionLayer.appendChild(div);
         this.marqueeElement = div;
@@ -3135,11 +3278,11 @@
         return;
       }
       if (!this.lassoSvg) {
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const svg = this.createSvgElement('svg');
         svg.setAttribute('class', 'selection-lasso');
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const path = this.createSvgElement('path');
         svg.appendChild(path);
         this.interactionLayer.appendChild(svg);
         this.lassoSvg = svg;
@@ -4175,7 +4318,7 @@
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
         return;
       }
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const svg = this.createSvgElement('svg');
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       svg.setAttribute('width', width);
       svg.setAttribute('height', height);
@@ -4206,11 +4349,11 @@
         }
         anchorScreen = this.clampScreenPoint(anchorScreen, width, height, 18);
         if (anchorScreen) {
-          const labelEl = document.createElement('div');
+          const labelEl = this.createElement('div');
           labelEl.className = 'measurement-label';
           labelEl.textContent = report.label;
           if (report.detail) {
-            const detailSpan = document.createElement('span');
+            const detailSpan = this.createElement('span');
             detailSpan.className = 'secondary';
             detailSpan.textContent = report.detail;
             labelEl.appendChild(detailSpan);
@@ -4234,7 +4377,7 @@
       if (committedCount >= 2) {
         const pathData = this.buildSvgPathFromMeasurementPoints(points.slice(0, committedCount));
         if (pathData) {
-          const path = document.createElementNS(ns, 'path');
+          const path = this.createSvgElement('path');
           path.setAttribute('class', 'measurement-segment');
           path.setAttribute('d', pathData);
           svg.appendChild(path);
@@ -4246,7 +4389,7 @@
           points[committedCount]
         ]);
         if (previewData) {
-          const previewPath = document.createElementNS(ns, 'path');
+          const previewPath = this.createSvgElement('path');
           previewPath.setAttribute('class', 'measurement-segment measurement-preview');
           previewPath.setAttribute('d', previewData);
           svg.appendChild(previewPath);
@@ -4265,7 +4408,7 @@
           .filter(Boolean)
           .join(' ');
         if (polygonPoints) {
-          const polygon = document.createElementNS(ns, 'polygon');
+          const polygon = this.createSvgElement('polygon');
           polygon.setAttribute('class', 'measurement-area-fill');
           polygon.setAttribute('points', polygonPoints);
           svg.appendChild(polygon);
@@ -4277,7 +4420,7 @@
           { close: committedCount >= 3 }
         );
         if (outlineData) {
-          const outline = document.createElementNS(ns, 'path');
+          const outline = this.createSvgElement('path');
           outline.setAttribute('class', 'measurement-area-outline');
           outline.setAttribute('d', outlineData);
           svg.appendChild(outline);
@@ -4289,7 +4432,7 @@
           points[committedCount]
         ]);
         if (tailData) {
-          const tail = document.createElementNS(ns, 'path');
+          const tail = this.createSvgElement('path');
           tail.setAttribute('class', 'measurement-area-outline measurement-preview');
           tail.setAttribute('d', tailData);
           svg.appendChild(tail);
@@ -4300,7 +4443,7 @@
             points[0]
           ]);
           if (closureData) {
-            const closure = document.createElementNS(ns, 'path');
+            const closure = this.createSvgElement('path');
             closure.setAttribute('class', 'measurement-area-outline measurement-preview');
             closure.setAttribute('d', closureData);
             svg.appendChild(closure);
@@ -4317,7 +4460,7 @@
       if (committedCount >= 2 && points.length >= 2) {
         const leg1 = this.buildSvgPathFromMeasurementPoints(points.slice(0, 2));
         if (leg1) {
-          const legPath = document.createElementNS(ns, 'path');
+          const legPath = this.createSvgElement('path');
           legPath.setAttribute('class', 'measurement-angle-segment');
           legPath.setAttribute('d', leg1);
           svg.appendChild(legPath);
@@ -4336,7 +4479,7 @@
             if (targetPoint.isPreview) {
               classes.push('measurement-preview');
             }
-            const legPath = document.createElementNS(ns, 'path');
+            const legPath = this.createSvgElement('path');
             legPath.setAttribute('class', classes.join(' '));
             legPath.setAttribute('d', leg2);
             svg.appendChild(legPath);
@@ -4350,7 +4493,7 @@
           if (report.arc.usesPreview) {
             classes.push('measurement-preview');
           }
-          const arcPath = document.createElementNS(ns, 'path');
+          const arcPath = this.createSvgElement('path');
           arcPath.setAttribute('class', classes.join(' '));
           arcPath.setAttribute('d', arcPathData);
           svg.appendChild(arcPath);
@@ -4367,7 +4510,7 @@
         if (!pt || !pt.screen) {
           return;
         }
-        const circle = document.createElementNS(ns, 'circle');
+        const circle = this.createSvgElement('circle');
         const classes = ['measurement-node'];
         if (pt.snap && pt.snap.type) {
           classes.push('snap');
@@ -4480,11 +4623,11 @@
       if (this.snapMarkerEl && this.snapMarkerEl.parentNode === this.snapLayer) {
         return this.snapMarkerEl;
       }
-      const marker = document.createElement('div');
+      const marker = this.createElement('div');
       marker.className = 'snap-marker';
-      const glyph = document.createElement('div');
+      const glyph = this.createElement('div');
       glyph.className = 'snap-glyph';
-      const label = document.createElement('div');
+      const label = this.createElement('div');
       label.className = 'snap-label';
       marker.appendChild(glyph);
       marker.appendChild(label);
@@ -4534,7 +4677,7 @@
       if (!candidates.length) {
         return null;
       }
-      const dpr = Number.isFinite(frame.devicePixelRatio) ? frame.devicePixelRatio : (window.devicePixelRatio || 1);
+      const dpr = Number.isFinite(frame.devicePixelRatio) ? frame.devicePixelRatio : ((this.global && this.global.devicePixelRatio) || 1);
       const threshold = Math.max(6, (options.thresholdPixels || 14) * Math.max(1, dpr * 0.75));
       let bestCandidate = null;
       let bestDistance = Infinity;
@@ -4920,7 +5063,7 @@
       }
       let element = this.summaryContainer.querySelector('.rendering-measurement-summary');
       if (!element) {
-        element = document.createElement('div');
+        element = this.createElement('div');
         element.className = 'rendering-measurement-summary empty';
         element.textContent = 'Measurement: inactive';
         this.summaryContainer.appendChild(element);
@@ -5031,7 +5174,7 @@
       this.visualStyleOptionToSpecifier = new Map();
       this.visualStyleSpecifierToOption = new Map();
 
-      const autoOption = document.createElement('option');
+      const autoOption = this.createElement('option');
       autoOption.value = '__auto__';
       autoOption.textContent = 'Drawing default';
       select.appendChild(autoOption);
@@ -5041,10 +5184,10 @@
 
       const presets = this.getVisualStylePresetList();
       if (presets.length) {
-        const group = document.createElement('optgroup');
+        const group = this.createElement('optgroup');
         group.label = 'Preset styles';
         presets.forEach((preset) => {
-          const option = document.createElement('option');
+          const option = this.createElement('option');
           option.value = `preset:${preset.id}`;
           option.textContent = preset.label;
           group.appendChild(option);
@@ -5057,10 +5200,10 @@
 
       const docStyles = this.extractDocumentVisualStyles(sceneGraph);
       if (docStyles.length) {
-        const group = document.createElement('optgroup');
+        const group = this.createElement('optgroup');
         group.label = 'Drawing styles';
         docStyles.forEach((entry) => {
-          const option = document.createElement('option');
+          const option = this.createElement('option');
           option.value = entry.value;
           option.textContent = entry.label;
           if (entry.title) {
@@ -5136,7 +5279,7 @@
       let desiredOption = this.getOptionValueForSpecifier(overrideValue);
       if (!desiredOption && overrideValue) {
         desiredOption = `dynamic:${overrideValue}`;
-        const dynamicOption = document.createElement('option');
+        const dynamicOption = this.createElement('option');
         dynamicOption.value = desiredOption;
         dynamicOption.textContent = overrideValue;
         dynamicOption.dataset.dynamic = 'true';
@@ -5195,7 +5338,7 @@
       }
       frame.texts.forEach((text) => {
         if (!text || !text.screenPosition) return;
-        const span = document.createElement('div');
+        const span = this.createElement('div');
         span.className = 'rendering-text-run';
         span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
         span.style.position = 'absolute';
@@ -5295,15 +5438,19 @@
         return;
       }
       const targetHandle = interaction.handle || interaction.ownerHandle || interaction.insertHandle || null;
-      if (targetHandle && this.app && typeof this.app.handleLinkToHandle === 'function') {
-        this.app.handleLinkToHandle(targetHandle);
+      if (targetHandle) {
+        this.callAdapter('handleLinkToHandle', targetHandle);
         return;
       }
-      if (interaction.blockName && this.app && typeof this.app.toggleBlockHighlight === 'function') {
-        this.app.toggleBlockHighlight(interaction.blockName);
+      if (interaction.blockName) {
+        this.callAdapter('toggleBlockHighlight', interaction.blockName);
       }
     }
   }
 
   namespace.RenderingOverlayController = RenderingOverlayController;
-})(window);
+
+  return {
+    RenderingOverlayController
+  };
+}));

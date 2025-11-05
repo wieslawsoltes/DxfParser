@@ -14,14 +14,25 @@
         };
         this.dxfParser = new DxfParser();
         this.renderingDataController = new DxfRendering.RenderingDataController({ parser: this.dxfParser });
-        this.renderingOverlayController = new DxfRendering.RenderingOverlayController({
-          dataController: this.renderingDataController,
-          dxfParser: this.dxfParser,
-          app: this
-        });
-        this.renderingOverlayController.initializeDom();
+        const overlayDocument = typeof document !== "undefined" ? document : null;
+        const overlayRoot = overlayDocument ? overlayDocument.getElementById("dxfRenderingOverlay") : null;
         this.blockIsolation = null;
         this.blockHighlights = new Set();
+        this.renderingOverlayController = new DxfRendering.RenderingOverlayController({
+          root: overlayRoot,
+          document: overlayDocument,
+          global: typeof window !== "undefined" ? window : undefined,
+          dataController: this.renderingDataController,
+          dxfParser: this.dxfParser,
+          adapters: {
+            updateBlockMetadata: (tabId, metadata) => this.updateBlockMetadata(tabId, metadata),
+            handleLinkToHandle: (handle) => this.handleLinkToHandle(handle),
+            toggleBlockHighlight: (blockName) => this.toggleBlockHighlight(blockName),
+            getBlockIsolation: () => this.blockIsolation,
+            getBlockHighlights: () => this.blockHighlights
+          }
+        });
+        this.renderingOverlayController.initializeDom();
         this.blockMetadataByTab = new Map();
         this.blockActionCallbacks = new Map();
         this._isBlocksOverlayUpdating = false;

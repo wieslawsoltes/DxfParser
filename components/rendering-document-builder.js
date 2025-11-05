@@ -1,7 +1,31 @@
-(function (global) {
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
   'use strict';
 
-  const namespace = global.DxfRendering = global.DxfRendering || {};
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+  if (!namespace.utils && typeof require === "function") {
+    try {
+      const entitiesModule = require("./rendering-entities.js");
+      if (entitiesModule && entitiesModule.utils) {
+        namespace.utils = entitiesModule.utils;
+      }
+    } catch (err) {
+      // Ignore resolution failures; fall back to existing namespace utils.
+    }
+  }
   const utils = namespace.utils || {};
 
   function toColorObject(intValue, alpha = 1) {
@@ -3858,4 +3882,8 @@
   }
 
   namespace.RenderingDocumentBuilder = RenderingDocumentBuilder;
-})(window);
+
+  return {
+    RenderingDocumentBuilder
+  };
+}));
