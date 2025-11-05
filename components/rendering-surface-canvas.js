@@ -1,13 +1,29 @@
-(function (global) {
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
   'use strict';
 
-  const namespace = global.DxfRendering = global.DxfRendering || {};
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+  const globalScope = root;
+  const documentRef = root.document || (typeof document !== 'undefined' ? document : null);
 
   class CanvasSurface {
     constructor() {
       this.canvas = null;
       this.ctx = null;
-      this.devicePixelRatio = global.devicePixelRatio || 1;
+      this.devicePixelRatio = (globalScope && globalScope.devicePixelRatio) || 1;
       this.background = '#0b1828';
       this.backgroundFill = { type: 'color', css: this.background };
     }
@@ -79,6 +95,8 @@
           gradient.addColorStop(position, stop.css || this.background);
         });
         this.ctx.fillStyle = gradient;
+      } else if (fill.type === 'pattern' && fill.pattern && typeof fill.pattern === 'function') {
+        this.ctx.fillStyle = fill.pattern(this.ctx, this.canvas) || this.background;
       } else {
         this.ctx.fillStyle = fill.css || this.background;
       }
@@ -126,140 +144,121 @@
           continue;
         }
         if (fill.screenContours && fill.screenContours.length) {
-          this._renderComplexFill(ctx, fill);
+          ctx.save();
+          const brush = this._createFillBrush(ctx, fill);
+          ctx.fillStyle = brush || (fill.colorCss || 'rgba(210, 227, 255, 0.35)');
+          ctx.globalAlpha = fill.color ? fill.color.a : 1;
+          fill.screenContours.forEach((contour) => {
+            const points = contour.points || [];
+            if (!points.length) {
+              return;
+            }
+            ctx.beginPath();
+            for (let p = 0; p < points.length; p++) {
+              const pt = points[p];
+              if (p === 0) {
+                ctx.moveTo(pt.x, pt.y);
+              } else {
+                ctx.lineTo(pt.x, pt.y);
+              }
+            }
+            ctx.closePath();
+            const fillRule = contour.winding && contour.winding.toLowerCase() === 'evenodd'
+              ? 'evenodd'
+              : 'nonzero';
+            ctx.fill(fillRule);
+          });
+          ctx.restore();
+          ctx.globalAlpha = 1;
         }
       }
 
       const polylines = frame.polylines || [];
       for (let i = 0; i < polylines.length; i++) {
         const polyline = polylines[i];
-        const points = polyline.screenPoints;
-        if (!points || points.length < 4) continue;
-
-        const dashArray = polyline.lineDash
-          ? (Array.isArray(polyline.lineDash) ? polyline.lineDash : Array.from(polyline.lineDash))
-          : null;
-        if (dashArray && dashArray.length) {
-          ctx.setLineDash(dashArray);
-          ctx.lineDashOffset = polyline.lineDashOffset || 0;
-        } else {
-          ctx.setLineDash([]);
-          ctx.lineDashOffset = 0;
-        }
-        ctx.beginPath();
-        ctx.moveTo(points[0], points[1]);
-        for (let p = 2; p < points.length; p += 2) {
-          ctx.lineTo(points[p], points[p + 1]);
-        }
-        ctx.strokeStyle = polyline.colorCss || 'rgba(210, 220, 255, 0.9)';
-        ctx.lineWidth = Math.max(0.8, polyline.weight || 1);
-        ctx.globalAlpha = polyline.color ? polyline.color.a : 1;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        if (dashArray && dashArray.length) {
-          ctx.setLineDash([]);
-          ctx.lineDashOffset = 0;
-        }
-      }
-
-      const linetypeShapes = frame.linetypeShapes || [];
-      for (let i = 0; i < linetypeShapes.length; i++) {
-        const shape = linetypeShapes[i];
-        if (!shape || !shape.position) {
+        if (!polyline.screenPoints || polyline.screenPoints.length < 4) {
           continue;
         }
-        const fontSize = Math.max(6, shape.size || 8);
-        ctx.save();
-        ctx.translate(shape.position.x, shape.position.y);
-        ctx.rotate(shape.rotation || 0);
-        ctx.fillStyle = shape.colorCss || 'rgba(210, 227, 255, 1)';
-        ctx.globalAlpha = shape.color ? shape.color.a ?? 1 : 1;
-        ctx.font = `${fontSize}px ${shape.fontFamily || 'Arial, sans-serif'}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(shape.text || '•', 0, 0);
-        ctx.restore();
+        const strokeCss = polyline.colorCss || 'rgba(210, 227, 255, 1)';
+        ctx.lineWidth = Math.max(0.6, polyline.weight || 1);
+        ctx.strokeStyle = strokeCss;
+        ctx.globalAlpha = polyline.color ? polyline.color.a : 1;
+        ctx.beginPath();
+        ctx.moveTo(polyline.screenPoints[0], polyline.screenPoints[1]);
+        for (let p = 2; p < polyline.screenPoints.length; p += 2) {
+          ctx.lineTo(polyline.screenPoints[p], polyline.screenPoints[p + 1]);
+        }
+        if (polyline.closed) {
+          ctx.closePath();
+        }
+        ctx.stroke();
         ctx.globalAlpha = 1;
       }
 
       const points = frame.points || [];
       for (let i = 0; i < points.length; i++) {
         const point = points[i];
-        const [x, y] = point.screenPosition;
-        const size = Math.max(2.5, point.size || 4);
+        if (!point.screenPosition) continue;
+        ctx.save();
+        ctx.translate(point.screenPosition[0], point.screenPosition[1]);
+        const size = Math.max(1.5, point.size || 4);
+        const radius = size / 2;
+        ctx.fillStyle = point.colorCss || 'rgba(255, 224, 125, 1)';
         ctx.beginPath();
-        ctx.fillStyle = point.colorCss || 'rgba(255, 200, 120, 1)';
-        ctx.globalAlpha = point.color ? point.color.a : 1;
-        ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
 
-      ctx.globalAlpha = 1;
+      const texts = frame.texts || [];
+      for (let i = 0; i < texts.length; i++) {
+        const text = texts[i];
+        if (!text || !text.lines || !text.lines.length) {
+          continue;
+        }
+        ctx.save();
+        ctx.translate(text.screenPosition[0], text.screenPosition[1]);
+        ctx.rotate(text.rotationRad || 0);
+        ctx.fillStyle = text.colorCss || '#e8f1ff';
+        ctx.font = `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} ${Math.max(6, text.fontSize || 10)}px ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
+        ctx.textAlign = text.textAlign || 'left';
+        ctx.textBaseline = 'top';
+        const lineHeight = Math.max(6, text.lineHeight || text.fontSize || 10);
+        for (let l = 0; l < text.lines.length; l++) {
+          const line = text.lines[l];
+          ctx.fillText(line, 0, lineHeight * l);
+        }
+        ctx.restore();
+      }
+
       ctx.restore();
     }
 
-    _updateBackgroundFill(background) {
-      if (!background) {
-        this.backgroundFill = { type: 'color', css: this.background };
-        return;
-      }
-      if (background.type === 'gradient' && Array.isArray(background.stops) && background.stops.length >= 2) {
-        const stops = background.stops.map((stop) => ({
-          position: Number.isFinite(stop.position) ? Math.max(0, Math.min(1, stop.position)) : 0,
-          css: stop.css || (stop.resolved && stop.resolved.css) || this.background
-        }));
-        this.backgroundFill = {
-          type: 'gradient',
-          stops
-        };
-        return;
-      }
-      if (background.type === 'solid' && background.solid) {
-        const css = background.solid.css
-          || (background.solid.resolved && background.solid.resolved.css)
-          || this.background;
-        this.backgroundFill = { type: 'color', css };
-        return;
-      }
-      if (background.solidFallback) {
-        const css = background.solidFallback.css
-          || (background.solidFallback.resolved && background.solidFallback.resolved.css)
-          || this.background;
-        this.backgroundFill = { type: 'color', css };
-        return;
-      }
-      if (background.css) {
-        this.backgroundFill = { type: 'color', css: background.css };
-        return;
-      }
-      this.backgroundFill = { type: 'color', css: this.background };
-    }
-
-    renderMessage(message, frame = {}) {
-      if (!this.ctx) return;
-      const width = frame.width || (this.canvas ? this.canvas.width / this.devicePixelRatio : 0);
-      const height = frame.height || (this.canvas ? this.canvas.height / this.devicePixelRatio : 0);
+    renderMessage(message) {
       this.clear();
-
-      if (!message) return;
-
+      if (!this.ctx || !message) {
+        return;
+      }
       const ctx = this.ctx;
+      const width = this.canvas ? this.canvas.width : 0;
+      const height = this.canvas ? this.canvas.height : 0;
       ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(this.devicePixelRatio, this.devicePixelRatio);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '16px sans-serif';
+      ctx.fillStyle = 'rgba(210, 227, 255, 0.75)';
+      ctx.font = '16px Arial, "Helvetica Neue", Helvetica, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(message, width / 2, height / 2);
+      ctx.fillText(message, (width / this.devicePixelRatio) / 2, (height / this.devicePixelRatio) / 2);
       ctx.restore();
     }
 
     suspend() {
-      // No-op for canvas rendering.
+      // no-op for pure canvas surface.
     }
 
     resume() {
-      // No-op for canvas rendering.
+      // no-op for pure canvas surface.
     }
 
     destroy() {
@@ -267,52 +266,33 @@
       this.ctx = null;
     }
 
-    _renderComplexFill(ctx, fill) {
-      const contours = fill.screenContours || [];
-      if (!contours.length) {
+    _updateBackgroundFill(background) {
+      if (!background) {
+        this.backgroundFill = { type: 'color', css: this.background };
         return;
       }
-      ctx.save();
-      const fillRule = 'evenodd';
-      ctx.beginPath();
-      for (let i = 0; i < contours.length; i++) {
-        const contour = contours[i];
-        const points = contour.points || [];
-        if (!points.length) {
-          continue;
-        }
-        ctx.moveTo(points[0].x, points[0].y);
-        for (let j = 1; j < points.length; j++) {
-          ctx.lineTo(points[j].x, points[j].y);
-        }
-        ctx.closePath();
+      if (background.type === 'solid' && background.solid && background.solid.css) {
+        this.backgroundFill = { type: 'color', css: background.solid.css };
+        return;
       }
-
-      if (fill.type === 'gradient' && fill.gradient) {
-        const gradientBrush = this._createGradientBrush(ctx, fill);
-        if (gradientBrush) {
-          ctx.fillStyle = gradientBrush;
-          ctx.fill(fillRule);
-          ctx.restore();
-          return;
-        }
+      if (background.solidFallback && background.solidFallback.css) {
+        this.backgroundFill = { type: 'color', css: background.solidFallback.css };
+        return;
       }
+      this.backgroundFill = { type: 'color', css: this.background };
+    }
 
-      if (fill.type === 'pattern' && fill.pattern) {
-        const patternBrush = this._createPatternBrush(ctx, fill);
-        if (patternBrush) {
-          ctx.fillStyle = patternBrush;
-          ctx.fill(fillRule);
-          ctx.restore();
-          return;
-        }
+    _createFillBrush(ctx, fill) {
+      if (!fill) {
+        return null;
       }
-
-      const css = fill.colorCss || (fill.color && fill.color.css) || 'rgba(210, 227, 255, 0.35)';
-      ctx.fillStyle = css;
-      ctx.globalAlpha = fill.color ? fill.color.a ?? 1 : 1;
-      ctx.fill(fillRule);
-      ctx.restore();
+      if (fill.gradient) {
+        return this._createGradientBrush(ctx, fill);
+      }
+      if (fill.pattern) {
+        return this._createPatternBrush(ctx, fill);
+      }
+      return null;
     }
 
     _computeBounds(contours) {
@@ -372,6 +352,9 @@
       if (!patternInfo || !Array.isArray(patternInfo.definition) || !patternInfo.definition.length) {
         return null;
       }
+      if (!documentRef || typeof documentRef.createElement !== 'function') {
+        return null;
+      }
 
       const scale = patternInfo.scale || 1;
       const baseSize = Math.max(16, 32 * scale);
@@ -382,7 +365,7 @@
       }, 0) * scale;
       const tileSizeValue = Math.max(baseSize, Math.ceil((maxOffset || 0) * 4));
       const tileSize = Math.max(16, tileSizeValue);
-      const tileCanvas = document.createElement('canvas');
+      const tileCanvas = documentRef.createElement('canvas');
       tileCanvas.width = tileCanvas.height = Math.ceil(tileSize);
       const tileCtx = tileCanvas.getContext('2d');
       if (!tileCtx) {
@@ -438,4 +421,8 @@
   }
 
   namespace.CanvasSurface = CanvasSurface;
-})(window);
+
+  return {
+    CanvasSurface
+  };
+}));

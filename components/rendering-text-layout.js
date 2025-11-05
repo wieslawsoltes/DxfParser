@@ -1,7 +1,22 @@
-(function (global) {
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
   'use strict';
 
-  const namespace = global.DxfRendering = global.DxfRendering || {};
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+  const globalScope = root;
   const DEFAULT_SANS = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
   const DEFAULT_SERIF = '"Times New Roman", Times, serif';
   const DEFAULT_MONO = '"Consolas", "Liberation Mono", Menlo, monospace';
@@ -26,18 +41,29 @@
   const CUBIC = '\u00B3';
 
   class TextLayoutEngine {
-    constructor() {
-      this.styleCatalog = {};
-      this.devicePixelRatio = global.devicePixelRatio || 1;
+    constructor(options = {}) {
+      this.styleCatalog = options.styleCatalog || {};
+      this.devicePixelRatio = options.devicePixelRatio || ((globalScope && globalScope.devicePixelRatio) || 1);
+      this._document = options.document || (globalScope && globalScope.document) || null;
       this._styleCache = Object.create(null);
       this._canvas = null;
       this._ctx = null;
-      this._measurementAvailable = typeof document !== 'undefined';
+      this._measurementAvailable = !!this._document;
     }
 
     configure(options = {}) {
-      this.styleCatalog = options.styleCatalog || {};
-      this.devicePixelRatio = options.devicePixelRatio || (global.devicePixelRatio || 1);
+      if (options.styleCatalog) {
+        this.styleCatalog = options.styleCatalog;
+      }
+      if (options.document) {
+        this._document = options.document;
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'devicePixelRatio')) {
+        this.devicePixelRatio = options.devicePixelRatio || 1;
+      } else {
+        this.devicePixelRatio = (globalScope && globalScope.devicePixelRatio) || this.devicePixelRatio || 1;
+      }
+      this._measurementAvailable = !!this._document;
       this._styleCache = Object.create(null);
     }
 
@@ -308,12 +334,12 @@
     }
 
     _ensureContext() {
-      if (!this._measurementAvailable) {
+      if (!this._measurementAvailable || !this._document) {
         return null;
       }
       if (!this._canvas) {
         try {
-          this._canvas = document.createElement('canvas');
+          this._canvas = this._document.createElement('canvas');
           this._ctx = this._canvas.getContext('2d');
         } catch (err) {
           this._measurementAvailable = false;
@@ -522,4 +548,8 @@
   }
 
   namespace.TextLayoutEngine = TextLayoutEngine;
-})(typeof window !== 'undefined' ? window : globalThis);
+
+  return {
+    TextLayoutEngine
+  };
+}));

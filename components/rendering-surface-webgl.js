@@ -1,7 +1,22 @@
-(function (global) {
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
   'use strict';
 
-  const namespace = global.DxfRendering = global.DxfRendering || {};
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+  const globalScope = root;
 
   class WebGLSurface {
     constructor() {
@@ -13,7 +28,7 @@
       this.colorLocation = null;
       this.pointSizeLocation = null;
       this.positionBuffer = null;
-      this.devicePixelRatio = global.devicePixelRatio || 1;
+      this.devicePixelRatio = (globalScope && globalScope.devicePixelRatio) || 1;
       this.clearColor = { r: 0.043, g: 0.089, b: 0.145, a: 1.0 };
     }
 
@@ -98,7 +113,10 @@
       for (let i = 0; i < polylines.length; i++) {
         const polyline = polylines[i];
         if (!polyline.screenPoints || polyline.screenPoints.length < 4) continue;
-        const triangles = this._buildThickLineTriangles(polyline.screenPoints, Math.max(0.8, polyline.weight || 1) * (frame.devicePixelRatio || this.devicePixelRatio));
+        const triangles = this._buildThickLineTriangles(
+          polyline.screenPoints,
+          Math.max(0.8, polyline.weight || 1) * (frame.devicePixelRatio || this.devicePixelRatio)
+        );
         if (!triangles || triangles.length === 0) continue;
         gl.bufferData(gl.ARRAY_BUFFER, triangles, gl.STREAM_DRAW);
         const c = polyline.color || { r: 0.82, g: 0.89, b: 1, a: 1 };
@@ -116,8 +134,8 @@
         const size = Math.max(1.5, point.size || 4) * (frame.devicePixelRatio || this.devicePixelRatio);
         gl.uniform4f(this.colorLocation, c.r, c.g, c.b, c.a);
         gl.uniform1f(this.pointSizeLocation, size);
-      gl.drawArrays(gl.POINTS, 0, 1);
-    }
+        gl.drawArrays(gl.POINTS, 0, 1);
+      }
     }
 
     renderMessage() {
@@ -285,4 +303,8 @@
   };
 
   namespace.WebGLSurface = WebGLSurface;
-})(window);
+
+  return {
+    WebGLSurface
+  };
+}));
