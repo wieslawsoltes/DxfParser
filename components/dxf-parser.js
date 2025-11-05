@@ -28,6 +28,18 @@
            code === 1005;
   }
 
+  function getSectionName(node) {
+    if (!node || !Array.isArray(node.properties)) {
+      return null;
+    }
+    const entry = node.properties.find(prop => Number(prop.code) === 2);
+    if (!entry || entry.value == null) {
+      return null;
+    }
+    const trimmed = String(entry.value).trim();
+    return trimmed ? trimmed : null;
+  }
+
   class DxfParser {
     constructor() {
       this.containerMapping = {
@@ -251,7 +263,12 @@
             isEndMarker: true,
             expanded: false
           };
-
+          if (current.containerNode) {
+            const parentSection = current.containerNode.sectionName || getSectionName(current.containerNode);
+            if (parentSection) {
+              endNode.sectionName = parentSection;
+            }
+          }
           i++;
           while (i < tags.length && tags[i].code !== 0) {
             const propTag = tags[i];
@@ -331,6 +348,24 @@
           entity.handle = handleProp.value;
         }
 
+        if (entity.type && entity.type.toUpperCase() === "SECTION") {
+          const sectionName = getSectionName(entity);
+          if (sectionName) {
+            entity.sectionName = sectionName;
+          }
+        }
+        if (!entity.sectionName && current.containerNode) {
+          const container = current.containerNode;
+          let parentSection = container.sectionName || getSectionName(container);
+          if (!parentSection && container.containerNode && container.containerNode.sectionName) {
+            parentSection = container.containerNode.sectionName;
+          }
+          if (parentSection) {
+            container.sectionName = container.sectionName || parentSection;
+            entity.sectionName = parentSection;
+          }
+        }
+
         if (entity.isContainer) {
           stack.push(current);
           const parentContext = stack[stack.length - 1];
@@ -361,6 +396,12 @@
             expanded: false,
             synthetic: true
           };
+          if (current.containerNode) {
+            const parentSection = current.containerNode.sectionName || getSectionName(current.containerNode);
+            if (parentSection) {
+              syntheticEndNode.sectionName = parentSection;
+            }
+          }
           current.children.push(syntheticEndNode);
         }
         if (stack.length === 0) break;

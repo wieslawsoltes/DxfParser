@@ -58,6 +58,8 @@
           itemHeight: 24,
           copyCallback: (nodeId) => this.handleCopy(nodeId),
           openCallback: (nodeId) => this.handleOpen(nodeId),  // <-- new callback for "Open" button
+          openAndZoomCallback: (nodeId) => this.handleOpenAndZoom(nodeId),
+          openAndZoomPredicate: (node) => this.shouldShowOpenAndZoom(node),
           onToggleExpand: (nodeId) => this.handleToggleExpand(nodeId),
           onHandleClick: (handle) => this.handleLinkToHandle(handle),
           onRowSelect: (nodeId) => { this.selectedNodeId = nodeId; },
@@ -2922,7 +2924,144 @@
           alert("Failed to copy to clipboard.");
         });
       }
-      
+
+      shouldShowOpenAndZoom(node) {
+        if (!node || node.isProperty) {
+          return false;
+        }
+        const sectionName = (node.sectionName || "").trim().toUpperCase();
+        if (sectionName !== "ENTITIES") {
+          return false;
+        }
+        return !!this.getNodeHandle(node);
+      }
+
+      getNodeHandle(node) {
+        if (!node) {
+          return null;
+        }
+        if (node.handle && String(node.handle).trim()) {
+          return String(node.handle).trim();
+        }
+        if (!Array.isArray(node.properties)) {
+          return null;
+        }
+        for (const prop of node.properties) {
+          const code = Number(prop.code);
+          if (!Number.isFinite(code) || !this.isHandleCodeValue(code)) {
+            continue;
+          }
+          if (prop.value == null) {
+            continue;
+          }
+          const value = String(prop.value).trim();
+          if (value) {
+            return value;
+          }
+        }
+        return null;
+      }
+
+      isHandleCodeValue(code) {
+        if (typeof isHandleCode === "function") {
+          return isHandleCode(code);
+        }
+        return code === 5 ||
+          code === 105 ||
+          (code >= 320 && code <= 329) ||
+          (code >= 330 && code <= 339) ||
+          (code >= 340 && code <= 349) ||
+          (code >= 350 && code <= 359) ||
+          (code >= 360 && code <= 369) ||
+          (code >= 390 && code <= 399) ||
+          (code >= 480 && code <= 481) ||
+          code === 1005;
+      }
+
+      focusHandleInOverlay(handle, tabId, options = {}) {
+        if (!this.renderingOverlayController) {
+          return;
+        }
+        const normalized = handle == null ? "" : String(handle).trim().toUpperCase();
+        if (!normalized) {
+          return;
+        }
+        const overlay = this.renderingOverlayController;
+        const targetTabId = tabId || null;
+        const maxAttempts = Number.isInteger(options.maxAttempts) ? Math.max(1, options.maxAttempts) : 10;
+        const interval = Number.isFinite(options.intervalMs) ? Math.max(16, options.intervalMs) : 150;
+        let attempt = 0;
+        let selectionApplied = false;
+
+        const attemptFocus = () => {
+          attempt += 1;
+          if (!overlay) {
+            return;
+          }
+          if (targetTabId && overlay.currentTabId !== targetTabId) {
+            if (attempt < maxAttempts) {
+              setTimeout(attemptFocus, interval);
+            }
+            return;
+          }
+          const surfaceManager = overlay.surfaceManager;
+          const frame = surfaceManager ? surfaceManager.lastFrame : null;
+          const frameReady = frame && Array.isArray(frame.pickables);
+          if (!frameReady) {
+            if (attempt < maxAttempts) {
+              setTimeout(attemptFocus, interval);
+            }
+            return;
+          }
+          let focused = true;
+          if (typeof overlay.focusHandles === "function") {
+            focused = overlay.focusHandles(new Set([normalized]));
+          }
+          if (!selectionApplied) {
+            overlay.applySelectionHandles(new Set([normalized]));
+            selectionApplied = true;
+          }
+          if (!focused && attempt < maxAttempts) {
+            setTimeout(attemptFocus, interval);
+          }
+        };
+
+        setTimeout(attemptFocus, 0);
+      }
+
+      handleOpenAndZoom(nodeId) {
+        const activeTab = this.getActiveTab();
+        if (!activeTab) {
+          return;
+        }
+        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
+        if (!node) {
+          alert("Node not found.");
+          return;
+        }
+        const handle = this.getNodeHandle(node);
+        this.selectedNodeId = nodeId;
+        if (this.myTreeGrid) {
+          this.myTreeGrid.selectedRowId = nodeId;
+          this.myTreeGrid.updateVisibleNodes();
+        }
+        if (this.renderingOverlayController) {
+          this.renderingOverlayController.ensureDocumentForTab(activeTab);
+        }
+        this.openRenderingOverlay('left');
+        const focusedTab = this.getActiveTab();
+        if (!focusedTab) {
+          return;
+        }
+        setTimeout(() => {
+          if (handle) {
+            this.focusHandleInOverlay(handle, focusedTab.id, { maxAttempts: 12, intervalMs: 160 });
+          } else {
+            console.warn("Selected entity has no handle; focusing skipped.");
+          }
+        }, 0);
+      }
+
       handleOpen(nodeId) {
         const activeTab = this.getActiveTab();
         if (!activeTab) return;

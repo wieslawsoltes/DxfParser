@@ -387,13 +387,14 @@ body { font-family: sans-serif; }
   user-select: none;
   cursor: pointer;
 }
-.copy-button, .open-button, .hex-button {
+.copy-button, .open-button, .open-zoom-button, .hex-button {
   margin-left: 8px;
   font-size: 0.8em;
   display: none;
 }
 .tree-row:hover .copy-button,
 .tree-row:hover .open-button,
+.tree-row:hover .open-zoom-button,
 .tree-row:hover .hex-button { display: inline; }
 /* Use monospace font for the tree grid display */
 .tree-row,

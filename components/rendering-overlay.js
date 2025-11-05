@@ -546,6 +546,135 @@
       });
     }
 
+    focusHandles(handlesIterable, options = {}) {
+      if (!handlesIterable) {
+        return false;
+      }
+      const normalized = new Set();
+      const pushHandle = (value) => {
+        const normalizedHandle = this.normalizeHandle(value);
+        if (normalizedHandle) {
+          normalized.add(normalizedHandle);
+        }
+      };
+      if (handlesIterable instanceof Set || Array.isArray(handlesIterable)) {
+        handlesIterable.forEach(pushHandle);
+      } else if (typeof handlesIterable[Symbol.iterator] === 'function') {
+        for (const value of handlesIterable) {
+          pushHandle(value);
+        }
+      } else {
+        pushHandle(handlesIterable);
+      }
+      if (!normalized.size) {
+        return false;
+      }
+      const frame = this.surfaceManager ? this.surfaceManager.lastFrame : null;
+      if (!frame || !Array.isArray(frame.pickables) || frame.pickables.length === 0) {
+        return false;
+      }
+
+      let bounds = null;
+      const mergeBounds = (sourceBounds) => {
+        if (!sourceBounds) {
+          return;
+        }
+        const minX = Number.isFinite(sourceBounds.minX) ? sourceBounds.minX : null;
+        const minY = Number.isFinite(sourceBounds.minY) ? sourceBounds.minY : null;
+        const maxX = Number.isFinite(sourceBounds.maxX) ? sourceBounds.maxX : null;
+        const maxY = Number.isFinite(sourceBounds.maxY) ? sourceBounds.maxY : null;
+        if (minX == null || minY == null || maxX == null || maxY == null) {
+          return;
+        }
+        if (!bounds) {
+          bounds = { minX, minY, maxX, maxY };
+          return;
+        }
+        bounds.minX = Math.min(bounds.minX, minX);
+        bounds.minY = Math.min(bounds.minY, minY);
+        bounds.maxX = Math.max(bounds.maxX, maxX);
+        bounds.maxY = Math.max(bounds.maxY, maxY);
+      };
+
+      const computeBoundsFromPoints = (points) => {
+        if (!Array.isArray(points) || points.length === 0) {
+          return null;
+        }
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        points.forEach((point) => {
+          if (!point) {
+            return;
+          }
+          const x = Number.isFinite(point.x) ? point.x : (Array.isArray(point) && Number.isFinite(point[0]) ? point[0] : null);
+          const y = Number.isFinite(point.y) ? point.y : (Array.isArray(point) && Number.isFinite(point[1]) ? point[1] : null);
+          if (x == null || y == null) {
+            return;
+          }
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        });
+        if (minX === Infinity || minY === Infinity || maxX === -Infinity || maxY === -Infinity) {
+          return null;
+        }
+        return { minX, minY, maxX, maxY };
+      };
+
+      frame.pickables.forEach((pickable) => {
+        const handle = this.normalizeHandle(pickable && pickable.handle);
+        if (!handle || !normalized.has(handle)) {
+          return;
+        }
+        if (pickable.worldBounds) {
+          mergeBounds(pickable.worldBounds);
+        } else if (pickable.worldPoints) {
+          mergeBounds(computeBoundsFromPoints(pickable.worldPoints));
+        }
+      });
+
+      if (!bounds) {
+        return false;
+      }
+
+      const viewportWidth = Number.isFinite(frame.width) && frame.width > 0
+        ? frame.width
+        : (this.viewportEl ? this.viewportEl.clientWidth : 0);
+      const viewportHeight = Number.isFinite(frame.height) && frame.height > 0
+        ? frame.height
+        : (this.viewportEl ? this.viewportEl.clientHeight : 0);
+      if (!viewportWidth || !viewportHeight) {
+        return false;
+      }
+
+      const padding = Number.isFinite(options.padding)
+        ? Math.max(0, options.padding)
+        : Math.max(20, Math.min(viewportWidth, viewportHeight) * (Number.isFinite(options.paddingFactor) ? options.paddingFactor : 0.08));
+      const widthAvailable = Math.max(1e-6, viewportWidth - padding * 2);
+      const heightAvailable = Math.max(1e-6, viewportHeight - padding * 2);
+      const spanX = Math.max(1e-6, bounds.maxX - bounds.minX);
+      const spanY = Math.max(1e-6, bounds.maxY - bounds.minY);
+      const targetScale = Math.max(1e-6, Math.min(widthAvailable / spanX, heightAvailable / spanY));
+      const center = {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2
+      };
+      const current = this.getActiveViewState(frame) || this.getAutoViewState(frame) || { rotationRad: 0 };
+      const rotation = Number.isFinite(current.rotationRad) ? current.rotationRad : 0;
+
+      this.applyViewState({
+        mode: 'custom',
+        center,
+        scale: targetScale,
+        rotationRad: rotation
+      });
+
+      return true;
+    }
+
     panView(deltaX, deltaY) {
       if (!Number.isFinite(deltaX) && !Number.isFinite(deltaY)) {
         return;

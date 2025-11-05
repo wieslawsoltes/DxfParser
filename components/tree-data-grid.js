@@ -5,6 +5,8 @@
         this.itemHeight = options.itemHeight || 24;
         this.copyCallback = options.copyCallback || null;
         this.openCallback = options.openCallback || null;
+        this.openAndZoomCallback = options.openAndZoomCallback || null;
+        this.openAndZoomPredicate = options.openAndZoomPredicate || null;
         this.onToggleExpand = options.onToggleExpand || null;
         this.onHandleClick = options.onHandleClick || null;
         this.hexViewerCallback = options.hexViewerCallback || null;
@@ -624,6 +626,16 @@
                 }
               });
               dataDiv.appendChild(openButton);
+              if (this.openAndZoomCallback && (!this.openAndZoomPredicate || this.openAndZoomPredicate(node))) {
+                const openZoomButton = document.createElement("button");
+                openZoomButton.textContent = "Open & Zoom";
+                openZoomButton.className = "open-zoom-button";
+                openZoomButton.addEventListener("click", (e) => {
+                  e.stopPropagation();
+                  this.openAndZoomCallback(node.id);
+                });
+                dataDiv.appendChild(openZoomButton);
+              }
             }
             if (!node.isProperty && node.properties) {
               const binaryProps = node.properties.filter(prop => Number(prop.code) === 310);
