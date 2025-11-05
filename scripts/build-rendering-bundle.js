@@ -12,16 +12,32 @@ const projectRoot = path.resolve(__dirname, '..');
 const distDir = path.join(projectRoot, 'dist');
 const bundlePath = path.join(distDir, 'dxf-rendering.global.js');
 
+const componentsDir = path.join(projectRoot, 'components');
+const preferredOrder = [
+  'rendering-entities.js',
+  'rendering-data-controller.js',
+  'rendering-surface-canvas.js',
+  'rendering-surface-webgl.js',
+  'rendering-text-layout.js',
+  'rendering-document-builder.js',
+  'rendering-scene-graph.js',
+  'rendering-tessellation.js',
+  'rendering-renderer.js',
+  'rendering-overlay.js'
+];
+
+// Discover all rendering modules so new files are automatically picked up by the bundle.
+const availableRenderingModules = fs.readdirSync(componentsDir)
+  .filter((file) => /^rendering-.*\.js$/.test(file))
+  .sort();
+
 const modules = [
-  'components/rendering-entities.js',
-  'components/rendering-data-controller.js',
-  'components/rendering-surface-canvas.js',
-  'components/rendering-surface-webgl.js',
-  'components/rendering-text-layout.js',
-  'components/rendering-document-builder.js',
-  'components/rendering-scene-graph.js',
-  'components/rendering-renderer.js',
-  'components/rendering-overlay.js'
+  ...preferredOrder
+    .filter((file) => availableRenderingModules.includes(file))
+    .map((file) => path.join('components', file)),
+  ...availableRenderingModules
+    .filter((file) => !preferredOrder.includes(file))
+    .map((file) => path.join('components', file))
 ];
 
 function ensureDistDirectory() {

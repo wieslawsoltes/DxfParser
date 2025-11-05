@@ -8,6 +8,7 @@
 //   components/rendering-text-layout.js
 //   components/rendering-document-builder.js
 //   components/rendering-scene-graph.js
+//   components/rendering-tessellation.js
 //   components/rendering-renderer.js
 //   components/rendering-overlay.js
 
@@ -740,7 +741,7 @@
       handle: colorBookHandle
     } : null;
 
-    return {
+    const metadata = {
       handle: handle || null,
       owner: owner || null,
       layer,
@@ -764,10 +765,26 @@
       spaceFlag,
       colorBook
     };
+
+    const defaults = context && context.entityDefaults ? context.entityDefaults : null;
+    if (defaults && typeof defaults === 'object') {
+      if ((!metadata.linetype || !String(metadata.linetype).trim()) && defaults.linetype) {
+        metadata.linetype = defaults.linetype;
+      }
+      if ((metadata.lineweight == null || Number.isNaN(metadata.lineweight)) && defaults.lineweight != null) {
+        metadata.lineweight = defaults.lineweight;
+      }
+      if ((!metadata.textStyle || !String(metadata.textStyle).trim()) && defaults.textStyle) {
+        metadata.textStyle = defaults.textStyle;
+      }
+    }
+
+    return metadata;
   }
 
   function extractGeometry(type, tags) {
     const map = buildCodeLookup(tags);
+    const upperType = type ? String(type).trim().toUpperCase() : 'UNKNOWN';
 
     function pointFromCodes(xCode, yCode, zCode) {
       return pointFromCodeMap(map, xCode, yCode, zCode);
@@ -789,7 +806,32 @@
     return points;
   }
 
-  function collectUnderlayClip(map) {
+  function collectPointCloudClip(map) {
+  const planeCount = toInt((map.get(73) || [])[0]) || 0;
+  if (planeCount <= 0) {
+    return null;
+  }
+  const coefficients = [];
+  const aVals = (map.get(170) || []).map(toFloat);
+  const bVals = (map.get(171) || []).map(toFloat);
+  const cVals = (map.get(172) || []).map(toFloat);
+  const dVals = (map.get(173) || []).map(toFloat);
+  const eVals = (map.get(174) || []).map(toFloat);
+  const fVals = (map.get(175) || []).map(toFloat);
+  for (let i = 0; i < planeCount; i++) {
+    coefficients.push({
+      a: aVals[i] ?? 0,
+      b: bVals[i] ?? 0,
+      c: cVals[i] ?? 0,
+      d: dVals[i] ?? 0,
+      e: eVals[i] ?? 0,
+      f: fVals[i] ?? 0
+    });
+  }
+  return coefficients.length ? coefficients : null;
+}
+
+function collectUnderlayClip(map) {
     const vertexCount = toInt((map.get(91) || [])[0]) || 0;
     if (vertexCount <= 0) {
       return null;
@@ -871,6 +913,20 @@
           position: pointFromCodes(10, 20, 30)
         };
       }
+      case 'MPOINT': {
+        return {
+          type: 'mpoint',
+          points: collectSeries(10, 20, 30),
+          basePoint: pointFromCodes(12, 22, 32),
+          direction: {
+            x: toFloat(map.get(11)?.[0]) ?? 0,
+            y: toFloat(map.get(21)?.[0]) ?? 0,
+            z: toFloat(map.get(31)?.[0]) ?? 0
+          },
+          flags: toInt(map.get(70)?.[0]) || 0,
+          normal: extractExtrusion(tags)
+        };
+      }
       case 'LIGHT': {
         const position = pointFromCodes(10, 20, 30);
         const target = pointFromCodes(11, 21, 31);
@@ -942,6 +998,47 @@
           ratio: toFloat(map.get(40)?.[0]) ?? 0,
           startAngle: toFloat(map.get(41)?.[0]) ?? 0,
           endAngle: toFloat(map.get(42)?.[0]) ?? 0
+        };
+      }
+      case 'SHAPE': {
+        return {
+          type: 'shape',
+          position: pointFromCodes(10, 20, 30),
+          name: map.get(2)?.[0] || null,
+          style: map.get(3)?.[0] || null,
+          size: toFloat(map.get(40)?.[0]) ?? null,
+          scale: toFloat(map.get(41)?.[0]) ?? 1,
+          rotation: toFloat(map.get(50)?.[0]) ?? 0,
+          oblique: toFloat(map.get(51)?.[0]) ?? 0,
+          widthFactor: toFloat(map.get(44)?.[0]) ?? 1,
+          thickness: toFloat(map.get(39)?.[0]) ?? null,
+          normal: extractExtrusion(tags)
+        };
+      }
+      case 'MLINE': {
+        const styleName = map.get(2)?.[0] || null;
+        const scale = toFloat(map.get(40)?.[0]) ?? 1;
+        const justification = toInt(map.get(70)?.[0]) || 0;
+        const flags = toInt(map.get(71)?.[0]) || 0;
+        const vertexCount = toInt(map.get(73)?.[0]) || null;
+        const vertices = collectSeries(10, 20, 30);
+        const directions = collectSeries(11, 21, 31);
+        const segmentVectors = collectSeries(12, 22, 32);
+        const miterAngles = (map.get(51) || []).map(toFloat);
+        return {
+          type: 'mline',
+          style: styleName,
+          styleHandle: map.get(340)?.[0] || null,
+          scale,
+          justification,
+          flags,
+          vertexCount,
+          vertices,
+          directions,
+          segmentVectors,
+          miterAngles,
+          isClosed: (flags & 1) === 1,
+          normal: extractExtrusion(tags)
         };
       }
       case 'HATCH': {
@@ -1041,6 +1138,42 @@
           axisVector,
           startPoint,
           points
+        };
+      }
+      case 'ARCALIGNEDTEXT': {
+        const textHeight = toFloat(map.get(141)?.[0]) ?? null;
+        const widthFactor = toFloat(map.get(41)?.[0]) ?? 1;
+        const offset = toFloat(map.get(73)?.[0]) ?? 0;
+        const characterSpacing = toFloat(map.get(42)?.[0]) ?? null;
+        return {
+          type: 'arcalignedtext',
+          text: map.get(1)?.[0] || '',
+          textStyle: map.get(7)?.[0] || null,
+          center: pointFromCodes(10, 20, 30),
+          radius: toFloat(map.get(40)?.[0]) ?? 0,
+          startAngle: toFloat(map.get(50)?.[0]) ?? 0,
+          endAngle: toFloat(map.get(51)?.[0]) ?? 0,
+          alignment: toInt(map.get(72)?.[0]) || 0,
+          offset,
+          widthFactor,
+          textHeight,
+          characterSpacing,
+          reverse: (toInt(map.get(74)?.[0]) || 0) === 1,
+          extrusion: extractExtrusion(tags)
+        };
+      }
+      case 'GEOPOSITIONMARKER': {
+        return {
+          type: 'geopositionmarker',
+          position: pointFromCodes(10, 20, 30),
+          designPoint: pointFromCodes(11, 21, 31),
+          referencePoint: pointFromCodes(12, 22, 32),
+          markerType: toInt(map.get(70)?.[0]) || 0,
+          displayMode: toInt(map.get(280)?.[0]) || 0,
+          text: map.get(304)?.join('') || map.get(3)?.join('') || map.get(1)?.join('') || '',
+          textHeight: toFloat(map.get(40)?.[0]) ?? null,
+          unitScale: toFloat(map.get(41)?.[0]) ?? null,
+          normal: extractExtrusion(tags)
         };
       }
       case 'TEXT': {
@@ -1193,6 +1326,49 @@
           textStyle: map.get(7)?.[0] || null
         };
       }
+      case 'POINTCLOUD':
+      case 'POINTCLOUDATTACH': {
+        const transparencyRaw = map.get(441)?.[0] || map.get(440)?.[0] || null;
+        const definitionHandle = map.get(331)?.[0] || map.get(340)?.[0] || null;
+        const reactorHandle = map.get(360)?.[0] || null;
+        const exRecordHandle = map.get(361)?.[0] || null;
+        return {
+          type: 'pointcloud',
+          subtype: upperType,
+          position: pointFromCodes(10, 20, 30),
+          scale: {
+            x: toFloat(map.get(41)?.[0]) ?? 1,
+            y: toFloat(map.get(42)?.[0]) ?? 1,
+            z: toFloat(map.get(43)?.[0]) ?? 1
+          },
+          rotation: toFloat(map.get(50)?.[0]) ?? 0,
+          hasClip: (toInt(map.get(70)?.[0]) || 0) !== 0,
+          showIntensity: (toInt(map.get(71)?.[0]) || 0) !== 0,
+          definitionHandle,
+          pointCloudDef: definitionHandle,
+          reactorHandle,
+          exRecordHandle,
+          density: toFloat(map.get(90)?.[0]) ?? null,
+          renderMode: toInt(map.get(280)?.[0]) || 0,
+          colorSource: toInt(map.get(281)?.[0]) || 0,
+          intensityLimits: {
+            min: toFloat(map.get(91)?.[0]) ?? null,
+            max: toFloat(map.get(92)?.[0]) ?? null
+          },
+          clipPlanes: collectPointCloudClip(map),
+          planeNormal: {
+            x: toFloat(map.get(210)?.[0]) ?? 0,
+            y: toFloat(map.get(220)?.[0]) ?? 0,
+            z: toFloat(map.get(230)?.[0]) ?? 1
+          },
+          trueColor: (() => {
+            const raw = map.get(420)?.[0] || map.get(421)?.[0] || null;
+            return raw ? parseTrueColor(raw) : null;
+          })(),
+          transparency: transparencyRaw ? parseTransparency(transparencyRaw) : null,
+          extrusion: extractExtrusion(tags)
+        };
+      }
       case 'INSERT': {
         return {
           type: 'insert',
@@ -1212,6 +1388,8 @@
         };
       }
       case 'DIMENSION': {
+        const dimensionStyleName = map.get(3)?.[0] || null;
+        const dimensionStyleHandle = map.get(107)?.[0] || map.get(340)?.[0] || null;
         const extension1 = pointFromCodes(14, 24, 34);
         const extension2 = pointFromCodes(15, 25, 35);
         const arrow1 = pointFromCodes(16, 26, 36);
@@ -1238,7 +1416,9 @@
           text: map.get(1)?.[0] || '',
           measurement: toFloat(map.get(42)?.[0]) ?? null,
           textHeight,
-          blockName: map.get(2)?.[0] || null
+          blockName: map.get(2)?.[0] || null,
+          dimensionStyle: dimensionStyleName,
+          dimensionStyleHandle
         };
       }
       case 'LEADER': {
@@ -1558,6 +1738,27 @@
           flags: map.get(70)?.map(toInt) || []
         };
       }
+      case 'POLYSOLID': {
+        const pathPoints = collectSeries(10, 20, 30);
+        const sweepDirection = pointFromCodes(12, 22, 32);
+        const elevation = toFloat(map.get(38)?.[0]) ?? 0;
+        const defaultWidth = toFloat(map.get(40)?.[0]) ?? null;
+        const startWidth = toFloat(map.get(41)?.[0]) ?? null;
+        const endWidth = toFloat(map.get(42)?.[0]) ?? null;
+        return {
+          type: 'polysolid',
+          points: pathPoints,
+          height: toFloat(map.get(43)?.[0]) ?? null,
+          defaultWidth,
+          startWidth,
+          endWidth,
+          justification: toInt(map.get(70)?.[0]) || 0,
+          sweepDirection,
+          elevation,
+          isClosed: (toInt(map.get(71)?.[0]) || 0) !== 0,
+          extrusion: extractExtrusion(tags)
+        };
+      }
       case '3DFACE':
       case 'TRACE':
       case 'SOLID':
@@ -1579,6 +1780,7 @@
           vertices
         };
       }
+      case 'BODY':
       case '3DSOLID':
       case 'REGION':
       case 'SURFACE': {
@@ -1622,6 +1824,41 @@
           boundingBox
         };
       }
+      case 'SECTION': {
+        const boundaryXs = (map.get(40) || []).map(toFloat);
+        const boundaryYs = (map.get(41) || []).map(toFloat);
+        const boundaryZs = (map.get(42) || []).map(toFloat);
+        const boundary = [];
+        const boundaryCount = Math.max(boundaryXs.length, boundaryYs.length, boundaryZs.length);
+        for (let idx = 0; idx < boundaryCount; idx++) {
+          boundary.push({
+            x: boundaryXs[idx] ?? 0,
+            y: boundaryYs[idx] ?? 0,
+            z: boundaryZs[idx] ?? 0
+          });
+        }
+        const sectionObjectHandle = map.get(331)?.[0] || null;
+        const sectionGeometryHandle = map.get(332)?.[0] || null;
+        const detailViewHandle = map.get(333)?.[0] || null;
+        return {
+          type: 'section',
+          name: map.get(2)?.[0] || null,
+          state: toInt(map.get(70)?.[0]) || 0,
+          liveSection: (toInt(map.get(71)?.[0]) || 0) !== 0,
+          planeOrigin: pointFromCodes(10, 20, 30),
+          targetPoint: pointFromCodes(11, 21, 31),
+          viewDirection: pointFromCodes(12, 22, 32),
+          verticalDirection: pointFromCodes(13, 23, 33),
+          normal: pointFromCodes(210, 220, 230),
+          boundary,
+          elevation: toFloat(map.get(38)?.[0]) ?? null,
+          viewStyleHandle: map.get(340)?.[0] || null,
+          backStyleHandle: map.get(341)?.[0] || null,
+          sectionObjectHandle,
+          sectionGeometryHandle,
+          detailViewHandle
+        };
+      }
       case 'IMAGE': {
         return {
           type: 'image',
@@ -1645,8 +1882,50 @@
             contrast: toInt(map.get(282)?.[0]) ?? 50,
             fade: toInt(map.get(283)?.[0]) ?? 0
           },
+          definitionHandle: map.get(340)?.[0] || null,
           imageDef: map.get(340)?.[0] || null,
+          reactorHandle: map.get(360)?.[0] || null,
           clipState: toInt(map.get(280)?.[0]) || 0
+        };
+      }
+      case 'ACAD_PROXY_ENTITY': {
+        const graphicsData = (map.get(310) || []).map((value) => value);
+        const entityData = (map.get(100) || []).map((value) => value);
+        const codeLookup = buildCodeLookup(tags);
+        return {
+          type: 'proxyEntity',
+          proxyType: toInt(map.get(90)?.[0]) || null,
+          applicationId: toInt(map.get(91)?.[0]) || null,
+          originalClassName: map.get(1)?.[0] || null,
+          lastUpdatedVersion: toInt(map.get(92)?.[0]) || null,
+          wmfbits: graphicsData,
+          persistentData: entityData,
+          position: pointFromCodes(10, 20, 30),
+          ownerHandle: map.get(330)?.[0] || null,
+          codeValues: codeLookup
+        };
+      }
+      case 'OLEFRAME':
+      case 'OLE2FRAME':
+      case 'UNDERLAYFRAME':
+      case 'OVERLAYFRAME': {
+        const rawPoints = collectSeries(10, 20, 30);
+        let framePoints = rawPoints.slice();
+        if (framePoints.length === 2) {
+          const p1 = framePoints[0];
+          const p2 = framePoints[1];
+          framePoints = [
+            { x: p1.x, y: p1.y, z: p1.z },
+            { x: p2.x, y: p1.y, z: p1.z },
+            { x: p2.x, y: p2.y, z: p2.z },
+            { x: p1.x, y: p2.y, z: p2.z }
+          ];
+        }
+        return {
+          type: 'frame',
+          frameType: upperType,
+          points: framePoints,
+          normal: extractExtrusion(tags)
         };
       }
       case 'PDFUNDERLAY':
@@ -1672,7 +1951,9 @@
           isOn: (toInt(map.get(70)?.[0]) || 0) === 0,
           isMonochrome: (toInt(map.get(290)?.[0]) || 0) === 1,
           clip: collectUnderlayClip(map),
-          underlayId: map.get(340)?.[0] || null
+          definitionHandle: map.get(340)?.[0] || null,
+          underlayId: map.get(340)?.[0] || null,
+          reactorHandle: map.get(360)?.[0] || null
         };
       }
       case 'VIEWPORT': {
@@ -1809,8 +2090,35 @@
 
     static fromTags(type, tags, context = {}) {
       const upperType = type ? String(type).trim().toUpperCase() : 'UNKNOWN';
+      const defaults = context.entityDefaults || null;
+      const dimStylesByHandle = context.dimStylesByHandle instanceof Map
+        ? context.dimStylesByHandle
+        : null;
+      const textStylesByHandle = context.textStylesByHandle instanceof Map
+        ? context.textStylesByHandle
+        : null;
+      const displaySettings = context.displaySettings || null;
+      const pointDisplayDefaults = displaySettings && displaySettings.point ? displaySettings.point : null;
       const metadata = extractCommonMetadata(upperType, tags, context);
       const geometry = extractGeometry(upperType, tags);
+      if (metadata.textStyle && context.tables && context.tables.textStyles
+        && !context.tables.textStyles[metadata.textStyle]) {
+        const normalizedTextHandle = normalizeHandle(metadata.textStyle);
+        if (normalizedTextHandle && textStylesByHandle && textStylesByHandle.get(normalizedTextHandle)) {
+          metadata.textStyle = textStylesByHandle.get(normalizedTextHandle);
+        } else if (normalizedTextHandle) {
+          const tablesTextStyles = context.tables.textStyles;
+          const matchedName = Object.keys(tablesTextStyles).find((name) => {
+            const entry = tablesTextStyles[name];
+            return entry && normalizeHandle(entry.handle) === normalizedTextHandle;
+          });
+          if (matchedName) {
+            metadata.textStyle = matchedName;
+          }
+        }
+      } else if (!metadata.textStyle && defaults && defaults.textStyle) {
+        metadata.textStyle = defaults.textStyle;
+      }
       const entityId = metadata.handle ||
         (typeof context.createEntityId === 'function'
           ? context.createEntityId(upperType)
@@ -1826,6 +2134,99 @@
       const resolvedColorBook = metadata.colorBook && context.tables && context.tables.colorBooks
         ? RenderableEntityFactory.resolveColorBookReference(context.tables.colorBooks, metadata.colorBook)
         : null;
+      const resolveByHandle = (container, handle) => {
+        if (!container || !handle) {
+          return null;
+        }
+        const normalized = normalizeHandle(handle);
+        if (normalized && Object.prototype.hasOwnProperty.call(container, normalized)) {
+          return container[normalized];
+        }
+        return Object.prototype.hasOwnProperty.call(container, handle) ? container[handle] : null;
+      };
+      const pointCloudDefinitions = context.pointClouds && context.pointClouds.definitions
+        ? context.pointClouds.definitions
+        : null;
+      const pointCloudReactors = context.pointClouds && context.pointClouds.reactors
+        ? context.pointClouds.reactors
+        : null;
+      const pointCloudExRecords = context.pointClouds && context.pointClouds.exRecords
+        ? context.pointClouds.exRecords
+        : null;
+      const dimStylesTable = context.tables && context.tables.dimStyles
+        ? context.tables.dimStyles
+        : null;
+      const geometryDimStyleName = geometry && geometry.dimensionStyle
+        ? String(geometry.dimensionStyle).trim()
+        : null;
+      const geometryDimStyleHandle = geometry && geometry.dimensionStyleHandle
+        ? geometry.dimensionStyleHandle
+        : null;
+      let dimensionStyleName = geometryDimStyleName || (defaults && defaults.dimStyle) || null;
+      let dimensionStyleHandle = geometryDimStyleHandle || (defaults && defaults.dimStyleHandle) || null;
+      let normalizedDimStyleHandle = null;
+      if (dimensionStyleHandle) {
+        normalizedDimStyleHandle = normalizeHandle(dimensionStyleHandle);
+        if (normalizedDimStyleHandle) {
+          dimensionStyleHandle = normalizedDimStyleHandle;
+        }
+      }
+      if (!dimensionStyleName && dimensionStyleHandle && dimStylesByHandle) {
+        const mapped = dimStylesByHandle.get(dimensionStyleHandle);
+        if (mapped) {
+          dimensionStyleName = mapped;
+        }
+      }
+      if (dimensionStyleName && dimStylesTable && !dimStylesTable[dimensionStyleName]) {
+        const upperName = dimensionStyleName.toUpperCase();
+        const match = Object.keys(dimStylesTable).find((name) => String(name).toUpperCase() === upperName);
+        if (match) {
+          dimensionStyleName = match;
+        }
+      }
+      let resolvedDimensionStyle = null;
+      if (dimStylesTable) {
+        if (dimensionStyleName && dimStylesTable[dimensionStyleName]) {
+          resolvedDimensionStyle = dimStylesTable[dimensionStyleName];
+        } else if (dimensionStyleHandle) {
+          if (dimStylesByHandle && dimStylesByHandle.get(dimensionStyleHandle)) {
+            const mapped = dimStylesByHandle.get(dimensionStyleHandle);
+            resolvedDimensionStyle = mapped && dimStylesTable[mapped] ? dimStylesTable[mapped] : null;
+            if (!dimensionStyleName && mapped && dimStylesTable[mapped]) {
+              dimensionStyleName = mapped;
+            }
+          } else {
+            const matchedName = Object.keys(dimStylesTable).find((name) => {
+              const entry = dimStylesTable[name];
+              return entry && normalizeHandle(entry.handle) === dimensionStyleHandle;
+            });
+            if (matchedName) {
+              resolvedDimensionStyle = dimStylesTable[matchedName];
+              if (!dimensionStyleName) {
+                dimensionStyleName = matchedName;
+              }
+            }
+          }
+        }
+      }
+
+      if (geometry && (upperType === 'POINT' || upperType === 'MPOINT')) {
+        if (pointDisplayDefaults) {
+          if (!Number.isFinite(geometry.pointSize) && Number.isFinite(pointDisplayDefaults.size)) {
+            geometry.pointSize = pointDisplayDefaults.size;
+          }
+          if (!Number.isFinite(geometry.pointMode) && Number.isFinite(pointDisplayDefaults.mode)) {
+            geometry.pointMode = pointDisplayDefaults.mode;
+          }
+        }
+        if (!Number.isFinite(geometry.pointMode)) {
+          geometry.pointMode = 0;
+        }
+      }
+
+      if (geometry && upperType === 'TRACE' && displaySettings && Number.isFinite(displaySettings.traceWidth)) {
+        geometry.traceWidth = displaySettings.traceWidth;
+      }
 
       return {
         id: entityId,
@@ -1853,6 +2254,8 @@
         shadowMode: metadata.shadowMode,
         spaceFlag: metadata.spaceFlag,
         colorBook: metadata.colorBook,
+        dimensionStyle: dimensionStyleName || null,
+        dimensionStyleHandle: dimensionStyleHandle || null,
         geometry,
         rawTags: tags.map((tag) => ({
           code: Number(tag.code),
@@ -1874,7 +2277,21 @@
           plotStyle: metadata.plotStyle && context.tables && context.tables.plotStyles
             ? RenderableEntityFactory.resolvePlotStyleReference(context.tables.plotStyles, metadata.plotStyle)
             : null,
-          colorBook: resolvedColorBook
+          colorBook: resolvedColorBook,
+          dimensionStyle: resolvedDimensionStyle,
+          imageDefinition: resolveByHandle(context.imageDefinitions, geometry && (geometry.definitionHandle || geometry.imageDef)),
+          imageDefReactor: resolveByHandle(context.imageDefReactors, geometry && geometry.reactorHandle),
+          underlayDefinition: resolveByHandle(context.underlayDefinitions, geometry && (geometry.definitionHandle || geometry.underlayId)),
+          pointCloudDefinition: resolveByHandle(pointCloudDefinitions, geometry && (geometry.definitionHandle || geometry.pointCloudDef)),
+          pointCloudReactor: resolveByHandle(pointCloudReactors, geometry && geometry.reactorHandle),
+          pointCloudExRecord: resolveByHandle(pointCloudExRecords, geometry && geometry.exRecordHandle),
+          sectionViewStyle: resolveByHandle(context.sectionViewStyles, geometry && geometry.viewStyleHandle),
+          detailViewStyle: resolveByHandle(context.detailViewStyles, geometry && geometry.backStyleHandle),
+          sectionObject: resolveByHandle(context.sectionObjects, geometry && geometry.sectionObjectHandle),
+          sectionGeometry: resolveByHandle(context.sectionGeometries, geometry && geometry.sectionGeometryHandle),
+          detailViewObject: resolveByHandle(context.detailViewObjects, geometry && geometry.detailViewHandle),
+          proxyObject: resolveByHandle(context.proxyObjects, metadata.handle),
+          rasterVariables: context.rasterVariables || null
         }
       };
     }
@@ -4078,6 +4495,21 @@
     build() {
       const tables = this.extractTables();
       const drawingProperties = this.extractDrawingProperties();
+      const resolvedEntityDefaults = this.resolveEntityDefaults(
+        drawingProperties ? drawingProperties.entityDefaults : null,
+        tables
+      );
+      const resolvedDisplaySettings = this.resolveDisplaySettings(
+        drawingProperties ? drawingProperties.display : null
+      );
+      const resolvedCoordinateDefaults = this.resolveCoordinateDefaults(
+        drawingProperties ? drawingProperties.coordinate : null
+      );
+      if (drawingProperties) {
+        drawingProperties.entityDefaults = resolvedEntityDefaults;
+        drawingProperties.display = resolvedDisplaySettings;
+        drawingProperties.coordinate = resolvedCoordinateDefaults;
+      }
       const plotInfrastructure = this.extractPlotInfrastructure();
       if (plotInfrastructure) {
         if (plotInfrastructure.plotStyles) {
@@ -4103,7 +4535,53 @@
       const materialCatalog = this.extractMaterials();
       const backgroundCatalog = this.extractBackgrounds();
       const sunCatalog = this.extractSuns();
-      const { entities, blocks } = this.extractEntities(tables, materialCatalog);
+      const auxiliaryObjects = this.extractAuxiliaryObjects();
+      const pointCloudResources = auxiliaryObjects.pointClouds || {
+        definitions: { byHandle: Object.create(null), list: [] },
+        reactors: { byHandle: Object.create(null), list: [] },
+        exRecords: { byHandle: Object.create(null), list: [] }
+      };
+      const imageDefinitionsByHandle = auxiliaryObjects.imageDefinitions && auxiliaryObjects.imageDefinitions.byHandle
+        ? auxiliaryObjects.imageDefinitions.byHandle
+        : Object.create(null);
+      const underlayDefinitionsByHandle = auxiliaryObjects.underlayDefinitions && auxiliaryObjects.underlayDefinitions.byHandle
+        ? auxiliaryObjects.underlayDefinitions.byHandle
+        : Object.create(null);
+      const sectionViewStylesByHandle = auxiliaryObjects.sectionViewStyles && auxiliaryObjects.sectionViewStyles.byHandle
+        ? auxiliaryObjects.sectionViewStyles.byHandle
+        : Object.create(null);
+      const detailViewStylesByHandle = auxiliaryObjects.detailViewStyles && auxiliaryObjects.detailViewStyles.byHandle
+        ? auxiliaryObjects.detailViewStyles.byHandle
+        : Object.create(null);
+      const sectionObjectsByHandle = auxiliaryObjects.sectionObjects && auxiliaryObjects.sectionObjects.byHandle
+        ? auxiliaryObjects.sectionObjects.byHandle
+        : Object.create(null);
+      const sectionGeometriesByHandle = auxiliaryObjects.sectionGeometries && auxiliaryObjects.sectionGeometries.byHandle
+        ? auxiliaryObjects.sectionGeometries.byHandle
+        : Object.create(null);
+      const detailViewObjectsByHandle = auxiliaryObjects.detailViewObjects && auxiliaryObjects.detailViewObjects.byHandle
+        ? auxiliaryObjects.detailViewObjects.byHandle
+        : Object.create(null);
+      const proxyObjectsByHandle = auxiliaryObjects.proxyObjects && auxiliaryObjects.proxyObjects.byHandle
+        ? auxiliaryObjects.proxyObjects.byHandle
+        : Object.create(null);
+      const datalinksByHandle = auxiliaryObjects.datalinks && auxiliaryObjects.datalinks.byHandle
+        ? auxiliaryObjects.datalinks.byHandle
+        : Object.create(null);
+      const dictionaryVariablesByName = auxiliaryObjects.dictionaryVariables && auxiliaryObjects.dictionaryVariables.byName
+        ? auxiliaryObjects.dictionaryVariables.byName
+        : Object.create(null);
+      const lightListsByHandle = auxiliaryObjects.lightLists && auxiliaryObjects.lightLists.byHandle
+        ? auxiliaryObjects.lightLists.byHandle
+        : Object.create(null);
+      const { entities, blocks } = this.extractEntities(
+        tables,
+        materialCatalog,
+        auxiliaryObjects,
+        resolvedEntityDefaults,
+        resolvedCoordinateDefaults,
+        resolvedDisplaySettings
+      );
 
       if (colorBooks && tables.layers) {
         const resolveColorBookReference = (reference) => {
@@ -4177,7 +4655,24 @@
         tables,
         materials: materialCatalog.byHandle,
         backgrounds: backgroundCatalog.byHandle,
-        suns: sunCatalog.byHandle
+        suns: sunCatalog.byHandle,
+        units: drawingProperties ? drawingProperties.units || null : null,
+        entityDefaults: resolvedEntityDefaults || null,
+        displaySettings: resolvedDisplaySettings || null,
+        coordinateDefaults: resolvedCoordinateDefaults || null,
+        imageDefinitions: imageDefinitionsByHandle,
+        underlayDefinitions: underlayDefinitionsByHandle,
+        pointClouds: pointCloudResources,
+        sectionViewStyles: sectionViewStylesByHandle,
+        detailViewStyles: detailViewStylesByHandle,
+        sectionObjects: sectionObjectsByHandle,
+        sectionGeometries: sectionGeometriesByHandle,
+        detailViewObjects: detailViewObjectsByHandle,
+        rasterVariables: auxiliaryObjects.rasterVariables || null,
+        proxyObjects: proxyObjectsByHandle,
+        datalinks: datalinksByHandle,
+        dictionaryVariables: dictionaryVariablesByName,
+        lightLists: lightListsByHandle
       });
 
       entities.forEach((entity) => sceneGraphBuilder.ingestEntity(entity));
@@ -4207,7 +4702,21 @@
         stats,
         drawingProperties,
         backgrounds: backgroundCatalog,
-        suns: sunCatalog
+        suns: sunCatalog,
+        imageDefinitions: auxiliaryObjects.imageDefinitions,
+        imageDefReactors: auxiliaryObjects.imageDefReactors,
+        rasterVariables: auxiliaryObjects.rasterVariables,
+        underlayDefinitions: auxiliaryObjects.underlayDefinitions,
+        pointClouds: auxiliaryObjects.pointClouds,
+        sectionViewStyles: auxiliaryObjects.sectionViewStyles,
+        detailViewStyles: auxiliaryObjects.detailViewStyles,
+        sectionObjects: auxiliaryObjects.sectionObjects,
+        sectionGeometries: auxiliaryObjects.sectionGeometries,
+        detailViewObjects: auxiliaryObjects.detailViewObjects,
+        proxyObjects: auxiliaryObjects.proxyObjects,
+        datalinks: auxiliaryObjects.datalinks,
+        dictionaryVariables: auxiliaryObjects.dictionaryVariables,
+        lightLists: auxiliaryObjects.lightLists
       };
     }
 
@@ -4218,7 +4727,49 @@
         insUnitsSource: null,
         measurement: null,
         scaleFactor: null,
-        basePoint: { x: null, y: null, z: null }
+        basePoint: { x: null, y: null, z: null },
+        ltScale: 1,
+        celTScale: 1,
+        psLtScale: 1
+      };
+
+      const entityDefaults = {
+        linetype: null,
+        linetypeHandle: null,
+        lineweight: null,
+        textStyle: null,
+        textStyleHandle: null,
+        dimStyle: null,
+        dimStyleHandle: null
+      };
+
+      const display = {
+        pointMode: 0,
+        pointSize: null,
+        fillMode: 1,
+        mirrorText: 1,
+        traceWidth: null
+      };
+
+      const coordinate = {
+        modelUcs: {
+          name: null,
+          origin: { x: null, y: null, z: null },
+          xAxis: { x: null, y: null, z: null },
+          yAxis: { x: null, y: null, z: null }
+        },
+        paperUcs: {
+          name: null,
+          origin: { x: null, y: null, z: null },
+          xAxis: { x: null, y: null, z: null },
+          yAxis: { x: null, y: null, z: null }
+        },
+        view: {
+          direction: { x: null, y: null, z: null },
+          vpoint: { x: null, y: null, z: null },
+          target: { x: null, y: null, z: null },
+          twist: null
+        }
       };
 
       const limits = {
@@ -4367,6 +4918,104 @@
                 units.insUnits = intVal;
               }
               break;
+            case '$LTSCALE':
+              if (floatVal != null) {
+                units.ltScale = floatVal;
+              }
+              break;
+            case '$CELTYPE':
+              if (trimmedValue) {
+                entityDefaults.linetype = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.linetypeHandle = trimmedValue;
+              }
+              break;
+            case '$CELTSCALE':
+              if (floatVal != null) {
+                units.celTScale = floatVal;
+              }
+              break;
+            case '$PSLTSCALE':
+              if (intVal != null) {
+                units.psLtScale = intVal;
+              }
+              break;
+            case '$CELWEIGHT':
+              if (intVal != null) {
+                entityDefaults.lineweight = intVal;
+              }
+              break;
+            case '$UCSNAME':
+              coordinate.modelUcs.name = trimmedValue || null;
+              break;
+            case '$UCSORG':
+              if (code === 10) {
+                coordinate.modelUcs.origin.x = floatVal;
+              } else if (code === 20) {
+                coordinate.modelUcs.origin.y = floatVal;
+              } else if (code === 30) {
+                coordinate.modelUcs.origin.z = floatVal;
+              }
+              break;
+            case '$UCSXDIR':
+              if (code === 10) {
+                coordinate.modelUcs.xAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.modelUcs.xAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.modelUcs.xAxis.z = floatVal;
+              }
+              break;
+            case '$UCSYDIR':
+              if (code === 10) {
+                coordinate.modelUcs.yAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.modelUcs.yAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.modelUcs.yAxis.z = floatVal;
+              }
+              break;
+            case '$PUCSNAME':
+              coordinate.paperUcs.name = trimmedValue || null;
+              break;
+            case '$PUCSORG':
+              if (code === 10) {
+                coordinate.paperUcs.origin.x = floatVal;
+              } else if (code === 20) {
+                coordinate.paperUcs.origin.y = floatVal;
+              } else if (code === 30) {
+                coordinate.paperUcs.origin.z = floatVal;
+              }
+              break;
+            case '$PUCSXDIR':
+              if (code === 10) {
+                coordinate.paperUcs.xAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.paperUcs.xAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.paperUcs.xAxis.z = floatVal;
+              }
+              break;
+            case '$PUCSYDIR':
+              if (code === 10) {
+                coordinate.paperUcs.yAxis.x = floatVal;
+              } else if (code === 20) {
+                coordinate.paperUcs.yAxis.y = floatVal;
+              } else if (code === 30) {
+                coordinate.paperUcs.yAxis.z = floatVal;
+              }
+              break;
+            case '$PDMODE':
+              if (intVal != null) {
+                display.pointMode = intVal;
+              }
+              break;
+            case '$PDSIZE':
+              if (floatVal != null) {
+                display.pointSize = floatVal;
+              }
+              break;
             case '$INSUNITSDEFTARGET':
               if (intVal != null) {
                 units.insUnitsTarget = intVal;
@@ -4395,6 +5044,78 @@
             case '$INSUNITSFACTOR':
               if (floatVal != null) {
                 units.scaleFactor = floatVal;
+              }
+              break;
+            case '$CELTEXTSTYLE':
+              if (trimmedValue) {
+                entityDefaults.textStyle = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.textStyleHandle = trimmedValue;
+              }
+              break;
+            case '$TEXTSTYLE':
+              if (trimmedValue) {
+                entityDefaults.textStyle = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.textStyleHandle = trimmedValue;
+              }
+              break;
+            case '$DIMSTYLE':
+              if (trimmedValue) {
+                entityDefaults.dimStyle = trimmedValue;
+              }
+              if (code === 340 && trimmedValue) {
+                entityDefaults.dimStyleHandle = trimmedValue;
+              }
+              break;
+            case '$FILLMODE':
+              if (intVal != null) {
+                display.fillMode = intVal;
+              }
+              break;
+            case '$MIRRTEXT':
+              if (intVal != null) {
+                display.mirrorText = intVal;
+              }
+              break;
+            case '$TRACEWID':
+              if (floatVal != null) {
+                display.traceWidth = floatVal;
+              }
+              break;
+            case '$VIEWDIR':
+              if (code === 16) {
+                coordinate.view.direction.x = floatVal;
+              } else if (code === 26) {
+                coordinate.view.direction.y = floatVal;
+              } else if (code === 36) {
+                coordinate.view.direction.z = floatVal;
+              }
+              break;
+            case '$VPOINT':
+              if (code === 16) {
+                coordinate.view.vpoint.x = floatVal;
+              } else if (code === 26) {
+                coordinate.view.vpoint.y = floatVal;
+              } else if (code === 36) {
+                coordinate.view.vpoint.z = floatVal;
+              }
+              break;
+            case '$VIEWTWIST':
+              if (floatVal != null) {
+                coordinate.view.twist = floatVal;
+              }
+              break;
+            case '$TARGET':
+            case '$VIEWTARGET':
+              if (code === 10 || code === 17) {
+                coordinate.view.target.x = floatVal;
+              } else if (code === 20 || code === 27) {
+                coordinate.view.target.y = floatVal;
+              } else if (code === 30 || code === 37) {
+                coordinate.view.target.z = floatVal;
               }
               break;
             case '$LIMMIN':
@@ -4620,7 +5341,10 @@
         limits,
         extents,
         metadata,
-        geographic
+        geographic,
+        entityDefaults,
+        display,
+        coordinate
       };
     }
 
@@ -5096,6 +5820,274 @@
       return catalog;
     }
 
+    _lookupTableNameByHandle(table, handle) {
+      if (!table || !handle) {
+        return null;
+      }
+      const normalized = normalizeHandle(handle);
+      if (!normalized) {
+        return null;
+      }
+      const entries = Object.keys(table);
+      for (let idx = 0; idx < entries.length; idx += 1) {
+        const name = entries[idx];
+        const entry = table[name];
+        if (!entry) {
+          continue;
+        }
+        const entryHandle = entry.handle ? normalizeHandle(entry.handle) : null;
+        if (entryHandle && entryHandle === normalized) {
+          return name;
+        }
+      }
+      return null;
+    }
+
+    _matchTableNameCaseInsensitive(table, candidate) {
+      if (!table || !candidate) {
+        return null;
+      }
+      const trimmed = String(candidate).trim();
+      if (!trimmed) {
+        return null;
+      }
+      if (Object.prototype.hasOwnProperty.call(table, trimmed)) {
+        return trimmed;
+      }
+      const upper = trimmed.toUpperCase();
+      const entries = Object.keys(table);
+      for (let idx = 0; idx < entries.length; idx += 1) {
+        const name = entries[idx];
+        if (String(name).toUpperCase() === upper) {
+          return name;
+        }
+      }
+      return null;
+    }
+
+    resolveEntityDefaults(defaults, tables = {}) {
+      if (!defaults || typeof defaults !== 'object') {
+        return null;
+      }
+      const result = {
+        linetype: null,
+        linetypeHandle: null,
+        lineweight: Number.isFinite(defaults.lineweight) ? defaults.lineweight : null,
+        textStyle: null,
+        textStyleHandle: null,
+        dimStyle: null,
+        dimStyleHandle: null
+      };
+
+      if (defaults.linetype) {
+        const lt = String(defaults.linetype).trim();
+        if (lt) {
+          result.linetype = lt;
+        }
+      }
+      if (defaults.linetypeHandle) {
+        const normalized = normalizeHandle(defaults.linetypeHandle);
+        if (normalized) {
+          result.linetypeHandle = normalized;
+        }
+      }
+      if (!result.linetype && result.linetypeHandle && tables && tables.linetypes) {
+        const name = this._lookupTableNameByHandle(tables.linetypes, result.linetypeHandle);
+        if (name) {
+          result.linetype = name;
+        }
+      }
+
+      if (defaults.textStyleHandle) {
+        const normalized = normalizeHandle(defaults.textStyleHandle);
+        if (normalized) {
+          result.textStyleHandle = normalized;
+        }
+      }
+      if (defaults.textStyle) {
+        const resolved = this._matchTableNameCaseInsensitive(tables.textStyles, defaults.textStyle) || String(defaults.textStyle).trim();
+        if (resolved) {
+          result.textStyle = resolved;
+        }
+      }
+      if (!result.textStyle && result.textStyleHandle && tables && tables.textStyles) {
+        const name = this._lookupTableNameByHandle(tables.textStyles, result.textStyleHandle);
+        if (name) {
+          result.textStyle = name;
+        }
+      }
+
+      if (defaults.dimStyleHandle) {
+        const normalized = normalizeHandle(defaults.dimStyleHandle);
+        if (normalized) {
+          result.dimStyleHandle = normalized;
+        }
+      }
+      if (defaults.dimStyle) {
+        const resolved = this._matchTableNameCaseInsensitive(tables.dimStyles, defaults.dimStyle) || String(defaults.dimStyle).trim();
+        if (resolved) {
+          result.dimStyle = resolved;
+        }
+      }
+      if (!result.dimStyle && result.dimStyleHandle && tables && tables.dimStyles) {
+        const name = this._lookupTableNameByHandle(tables.dimStyles, result.dimStyleHandle);
+        if (name) {
+          result.dimStyle = name;
+        }
+      }
+
+      const hasValue = Object.keys(result).some((key) => result[key] != null);
+      return hasValue ? result : null;
+    }
+
+    resolveDisplaySettings(settings) {
+      if (!settings || typeof settings !== 'object') {
+        return null;
+      }
+      const pointMode = Number.isFinite(settings.pointMode) ? settings.pointMode : 0;
+      const pointSize = Number.isFinite(settings.pointSize) ? settings.pointSize : null;
+      const fillMode = settings.fillMode != null ? settings.fillMode : 1;
+      const mirrorText = settings.mirrorText != null ? settings.mirrorText : 1;
+      const traceWidth = Number.isFinite(settings.traceWidth) ? settings.traceWidth : null;
+      return {
+        point: {
+          mode: pointMode,
+          size: pointSize
+        },
+        fillMode,
+        mirrorText,
+        traceWidth
+      };
+    }
+
+    resolveCoordinateDefaults(source) {
+      if (!source || typeof source !== 'object') {
+        return null;
+      }
+
+      const coerce = (value) => {
+        const floatVal = toFloat(value);
+        if (floatVal != null) {
+          return floatVal;
+        }
+        if (Number.isFinite(value)) {
+          return value;
+        }
+        return null;
+      };
+
+      const ensureVector = (vec, fallback) => {
+        const result = {
+          x: fallback && Number.isFinite(fallback.x) ? fallback.x : 0,
+          y: fallback && Number.isFinite(fallback.y) ? fallback.y : 0,
+          z: fallback && Number.isFinite(fallback.z) ? fallback.z : 0
+        };
+        if (vec && typeof vec === 'object') {
+          const x = coerce(vec.x);
+          const y = coerce(vec.y);
+          const z = coerce(vec.z);
+          if (x != null) result.x = x;
+          if (y != null) result.y = y;
+          if (z != null) result.z = z;
+        }
+        return result;
+      };
+
+      const vectorLength = (vector) => {
+        if (!vector) return 0;
+        return Math.hypot(
+          Number.isFinite(vector.x) ? vector.x : 0,
+          Number.isFinite(vector.y) ? vector.y : 0,
+          Number.isFinite(vector.z) ? vector.z : 0
+        );
+      };
+
+      const normalizeVectorLocal = (vector, fallback) => {
+        const length = vectorLength(vector);
+        if (length < 1e-9) {
+          if (fallback) {
+            return { x: fallback.x, y: fallback.y, z: fallback.z };
+          }
+          return null;
+        }
+        return {
+          x: (Number.isFinite(vector.x) ? vector.x : 0) / length,
+          y: (Number.isFinite(vector.y) ? vector.y : 0) / length,
+          z: (Number.isFinite(vector.z) ? vector.z : 0) / length
+        };
+      };
+
+      const cross = (a, b) => ({
+        x: (a.y || 0) * (b.z || 0) - (a.z || 0) * (b.y || 0),
+        y: (a.z || 0) * (b.x || 0) - (a.x || 0) * (b.z || 0),
+        z: (a.x || 0) * (b.y || 0) - (a.y || 0) * (b.x || 0)
+      });
+
+      const defaultXAxis = { x: 1, y: 0, z: 0 };
+      const defaultYAxis = { x: 0, y: 1, z: 0 };
+      const defaultZAxis = { x: 0, y: 0, z: 1 };
+
+      const model = source.modelUcs || {};
+      const modelOrigin = ensureVector(model.origin, { x: 0, y: 0, z: 0 });
+      let modelXAxis = normalizeVectorLocal(ensureVector(model.xAxis, defaultXAxis), defaultXAxis);
+      if (!modelXAxis) modelXAxis = { x: 1, y: 0, z: 0 };
+      let modelYAxis = normalizeVectorLocal(ensureVector(model.yAxis, defaultYAxis), null);
+      if (!modelYAxis) {
+        modelYAxis = { x: 0, y: 1, z: 0 };
+      }
+      let modelZAxis = normalizeVectorLocal(cross(modelXAxis, modelYAxis), defaultZAxis);
+      if (!modelZAxis) {
+        modelZAxis = { x: 0, y: 0, z: 1 };
+      }
+      modelYAxis = normalizeVectorLocal(cross(modelZAxis, modelXAxis), defaultYAxis) || { x: 0, y: 1, z: 0 };
+
+      const paper = source.paperUcs || {};
+      const paperOrigin = ensureVector(paper.origin, { x: 0, y: 0, z: 0 });
+      let paperXAxis = normalizeVectorLocal(ensureVector(paper.xAxis, defaultXAxis), defaultXAxis);
+      if (!paperXAxis) paperXAxis = { x: 1, y: 0, z: 0 };
+      let paperYAxis = normalizeVectorLocal(ensureVector(paper.yAxis, defaultYAxis), null);
+      if (!paperYAxis) {
+        paperYAxis = { x: 0, y: 1, z: 0 };
+      }
+      let paperZAxis = normalizeVectorLocal(cross(paperXAxis, paperYAxis), defaultZAxis);
+      if (!paperZAxis) {
+        paperZAxis = { x: 0, y: 0, z: 1 };
+      }
+      paperYAxis = normalizeVectorLocal(cross(paperZAxis, paperXAxis), defaultYAxis) || { x: 0, y: 1, z: 0 };
+
+      const view = source.view || {};
+      const viewDirectionRaw = ensureVector(view.direction, null);
+      const viewPointRaw = ensureVector(view.vpoint, null);
+      const viewDirection = normalizeVectorLocal(viewDirectionRaw, null)
+        || normalizeVectorLocal(viewPointRaw, defaultZAxis)
+        || { x: 0, y: 0, z: 1 };
+      const viewTarget = ensureVector(view.target, modelOrigin);
+      const viewTwist = Number.isFinite(view.twist) ? view.twist : 0;
+
+      return {
+        modelUcs: {
+          name: (model.name && String(model.name).trim()) || null,
+          origin: modelOrigin,
+          xAxis: modelXAxis,
+          yAxis: modelYAxis,
+          zAxis: modelZAxis
+        },
+        paperUcs: {
+          name: (paper.name && String(paper.name).trim()) || null,
+          origin: paperOrigin,
+          xAxis: paperXAxis,
+          yAxis: paperYAxis,
+          zAxis: paperZAxis
+        },
+        view: {
+          direction: viewDirection,
+          vpoint: normalizeVectorLocal(viewPointRaw, defaultZAxis) || { x: 0, y: 0, z: 1 },
+          target: viewTarget,
+          twist: viewTwist
+        }
+      };
+    }
+
     nextEntityId(type) {
       const sanitizedType = type || 'ENTITY';
       const id = `${sanitizedType}_${this.entityCounter}`;
@@ -5118,6 +6110,13 @@
       const multiLeaderStyleMap = new Map();
       const ucsMap = new Map();
       const vportMap = new Map();
+      const dimStyleMap = new Map();
+      const tableStyleMap = new Map();
+      const mlineStyleMap = new Map();
+      const scaleMap = new Map();
+      const appIdMap = new Map();
+      const regAppMap = new Map();
+      const viewMap = new Map();
 
       const collections = {
         LAYER: layerMap,
@@ -5127,7 +6126,14 @@
         BLOCK_RECORD: blockRecordMap,
         MULTILEADERSTYLE: multiLeaderStyleMap,
         UCS: ucsMap,
-        VPORT: vportMap
+        VPORT: vportMap,
+        DIMSTYLE: dimStyleMap,
+        TABLESTYLE: tableStyleMap,
+        MLINESTYLE: mlineStyleMap,
+        SCALE: scaleMap,
+        APPID: appIdMap,
+        REGAPP: regAppMap,
+        VIEW: viewMap
       };
 
       let section = null;
@@ -5221,7 +6227,14 @@
         blockRecords: utils.mapToPlainObject(blockRecordMap),
         multiLeaderStyles: utils.mapToPlainObject(multiLeaderStyleMap),
         ucs: utils.mapToPlainObject(ucsMap),
-        vports: utils.mapToPlainObject(vportMap)
+        vports: utils.mapToPlainObject(vportMap),
+        dimStyles: utils.mapToPlainObject(dimStyleMap),
+        tableStyles: utils.mapToPlainObject(tableStyleMap),
+        mlineStyles: utils.mapToPlainObject(mlineStyleMap),
+        scales: utils.mapToPlainObject(scaleMap),
+        appIds: utils.mapToPlainObject(appIdMap),
+        regApps: utils.mapToPlainObject(regAppMap),
+        views: utils.mapToPlainObject(viewMap)
       };
     }
 
@@ -5631,6 +6644,306 @@
       };
     }
 
+    extractAuxiliaryObjects() {
+      const imageDefinitions = { byHandle: Object.create(null), list: [] };
+      const imageDefReactors = { byHandle: Object.create(null), list: [] };
+      let rasterVariables = null;
+      const underlayDefinitions = { byHandle: Object.create(null), list: [] };
+      const pointCloudDefinitions = { byHandle: Object.create(null), list: [] };
+      const pointCloudReactors = { byHandle: Object.create(null), list: [] };
+      const pointCloudExRecords = { byHandle: Object.create(null), list: [] };
+      const sectionViewStyles = { byHandle: Object.create(null), list: [] };
+      const detailViewStyles = { byHandle: Object.create(null), list: [] };
+      const sectionObjects = { byHandle: Object.create(null), list: [] };
+      const sectionGeometries = { byHandle: Object.create(null), list: [] };
+      const detailViewObjects = { byHandle: Object.create(null), list: [] };
+      const proxyObjects = { byHandle: Object.create(null), list: [] };
+      const datalinks = { byHandle: Object.create(null), list: [] };
+      const dictionaryVariables = { byName: Object.create(null), list: [] };
+      const lightLists = { byHandle: Object.create(null), list: [] };
+
+      let section = null;
+      let i = 0;
+
+      while (i < this.tags.length) {
+        const tag = this.tags[i];
+        const code = Number(tag.code);
+        const rawValue = tag.value;
+        const stringValue = typeof rawValue === 'string'
+          ? rawValue
+          : (rawValue != null ? String(rawValue) : '');
+        const trimmedValue = stringValue.trim();
+        const upperValue = trimmedValue.toUpperCase();
+
+        if (code === 0) {
+          if (upperValue === 'SECTION') {
+            section = null;
+            i += 1;
+            while (i < this.tags.length) {
+              const lookahead = this.tags[i];
+              if (Number(lookahead.code) === 2) {
+                section = String(lookahead.value || '').trim().toUpperCase();
+                i += 1;
+                break;
+              }
+              if (Number(lookahead.code) === 0) {
+                break;
+              }
+              i += 1;
+            }
+            continue;
+          }
+
+          if (upperValue === 'ENDSEC') {
+            section = null;
+            i += 1;
+            continue;
+          }
+
+          if (section === 'OBJECTS') {
+            if (upperValue === 'IMAGEDEF') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const descriptor = this.parseImageDefinition(objectTags);
+              if (descriptor) {
+                if (descriptor.handleUpper) {
+                  imageDefinitions.byHandle[descriptor.handleUpper] = descriptor;
+                }
+                if (descriptor.handle && !imageDefinitions.byHandle[descriptor.handle]) {
+                  imageDefinitions.byHandle[descriptor.handle] = descriptor;
+                }
+                imageDefinitions.list.push(descriptor);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'IMAGEDEF_REACTOR') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const reactor = this.parseImageDefReactor(objectTags);
+              if (reactor) {
+                if (reactor.handleUpper) {
+                  imageDefReactors.byHandle[reactor.handleUpper] = reactor;
+                }
+                if (reactor.handle && !imageDefReactors.byHandle[reactor.handle]) {
+                  imageDefReactors.byHandle[reactor.handle] = reactor;
+                }
+                imageDefReactors.list.push(reactor);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'RASTERVARIABLES') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              rasterVariables = this.parseRasterVariables(objectTags);
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'PDFUNDERLAYDEFINITION' ||
+              upperValue === 'DWFUNDERLAYDEFINITION' ||
+              upperValue === 'DGNUNDERLAYDEFINITION') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const def = this.parseUnderlayDefinition(upperValue, objectTags);
+              if (def) {
+                const handleKey = def.handleUpper || def.handle;
+                if (handleKey) {
+                  underlayDefinitions.byHandle[handleKey] = def;
+                }
+                underlayDefinitions.list.push(def);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'POINTCLOUDDEF') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const def = this.parsePointCloudDefinition(objectTags);
+              if (def) {
+                const handleKey = def.handleUpper || def.handle;
+                if (handleKey) {
+                  pointCloudDefinitions.byHandle[handleKey] = def;
+                }
+                pointCloudDefinitions.list.push(def);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'POINTCLOUDDEF_REACTOR') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const reactor = this.parsePointCloudDefReactor(objectTags);
+              if (reactor) {
+                const handleKey = reactor.handleUpper || reactor.handle;
+                if (handleKey) {
+                  pointCloudReactors.byHandle[handleKey] = reactor;
+                }
+                pointCloudReactors.list.push(reactor);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'POINTCLOUDDEF_EX') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const exRecord = this.parsePointCloudExRecord(objectTags);
+              if (exRecord) {
+                const handleKey = exRecord.handleUpper || exRecord.handle;
+                if (handleKey) {
+                  pointCloudExRecords.byHandle[handleKey] = exRecord;
+                }
+                pointCloudExRecords.list.push(exRecord);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SECTIONVIEWSTYLE' || upperValue === 'DETAILVIEWSTYLE') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const style = this.parseViewStyle(upperValue, objectTags);
+              if (style) {
+                const handleKey = style.handleUpper || style.handle;
+                if (upperValue === 'SECTIONVIEWSTYLE') {
+                  if (handleKey) {
+                    sectionViewStyles.byHandle[handleKey] = style;
+                  }
+                  sectionViewStyles.list.push(style);
+                } else {
+                  if (handleKey) {
+                    detailViewStyles.byHandle[handleKey] = style;
+                  }
+                  detailViewStyles.list.push(style);
+                }
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SECTIONOBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const sectionObject = this.parseSectionObject(objectTags);
+              if (sectionObject) {
+                const handleKey = sectionObject.handleUpper || sectionObject.handle;
+                if (handleKey) {
+                  sectionObjects.byHandle[handleKey] = sectionObject;
+                }
+                sectionObjects.list.push(sectionObject);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SECTIONGEOMETRY') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const sectionGeometry = this.parseSectionGeometry(objectTags);
+              if (sectionGeometry) {
+                const handleKey = sectionGeometry.handleUpper || sectionGeometry.handle;
+                if (handleKey) {
+                  sectionGeometries.byHandle[handleKey] = sectionGeometry;
+                }
+                sectionGeometries.list.push(sectionGeometry);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'DETAILVIEWOBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const detailObject = this.parseDetailViewObject(objectTags);
+              if (detailObject) {
+                const handleKey = detailObject.handleUpper || detailObject.handle;
+                if (handleKey) {
+                  detailViewObjects.byHandle[handleKey] = detailObject;
+                }
+                detailViewObjects.list.push(detailObject);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'ACAD_PROXY_OBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const proxy = this.parseProxyObject(objectTags);
+              if (proxy) {
+                const handleKey = proxy.handleUpper || proxy.handle;
+                if (handleKey) {
+                  proxyObjects.byHandle[handleKey] = proxy;
+                }
+                proxyObjects.list.push(proxy);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'DATALINK') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const link = this.parseDatalinkObject(objectTags);
+              if (link) {
+                const handleKey = link.handleUpper || link.handle;
+                if (handleKey) {
+                  datalinks.byHandle[handleKey] = link;
+                }
+                datalinks.list.push(link);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'DICTIONARYVAR') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const dictVar = this.parseDictionaryVar(objectTags);
+              if (dictVar) {
+                const key = dictVar.nameUpper || dictVar.name || dictVar.handleUpper || dictVar.handle;
+                if (key) {
+                  dictionaryVariables.byName[key] = dictVar;
+                }
+                dictionaryVariables.list.push(dictVar);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'LIGHTLIST') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const listEntry = this.parseLightList(objectTags);
+              if (listEntry) {
+                const handleKey = listEntry.handleUpper || listEntry.handle;
+                if (handleKey) {
+                  lightLists.byHandle[handleKey] = listEntry;
+                }
+                lightLists.list.push(listEntry);
+              }
+              i = nextIndex;
+              continue;
+            }
+          }
+        }
+
+        i += 1;
+      }
+
+      return {
+        imageDefinitions,
+        imageDefReactors,
+        rasterVariables,
+        underlayDefinitions,
+        pointClouds: {
+          definitions: pointCloudDefinitions,
+          reactors: pointCloudReactors,
+          exRecords: pointCloudExRecords
+        },
+        sectionViewStyles,
+        detailViewStyles,
+        sectionObjects,
+        sectionGeometries,
+        detailViewObjects,
+        proxyObjects,
+        datalinks,
+        dictionaryVariables,
+        lightLists
+      };
+    }
+
     extractMaterials() {
       const byHandle = Object.create(null);
       const byName = Object.create(null);
@@ -5825,6 +7138,327 @@
       };
     }
 
+    parseImageDefinition(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'IMAGEDEF',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        filePath: utils.getFirstCodeValue(tags, 1) || null,
+        className: utils.getFirstCodeValue(tags, 2) || null,
+        imageSize: {
+          width: utils.toFloat(utils.getFirstCodeValue(tags, 10)),
+          height: utils.toFloat(utils.getFirstCodeValue(tags, 20))
+        },
+        pixelSize: {
+          width: utils.toFloat(utils.getFirstCodeValue(tags, 11)),
+          height: utils.toFloat(utils.getFirstCodeValue(tags, 21))
+        },
+        resolution: {
+          x: utils.toFloat(utils.getFirstCodeValue(tags, 12)),
+          y: utils.toFloat(utils.getFirstCodeValue(tags, 22))
+        },
+        loaded: (utils.toInt(utils.getFirstCodeValue(tags, 280)) || 0) !== 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseImageDefReactor(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'IMAGEDEF_REACTOR',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        imageDefinitionHandle: utils.getFirstCodeValue(tags, 331) || null,
+        imageEntityHandle: utils.getFirstCodeValue(tags, 340) || null,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseRasterVariables(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      return {
+        type: 'RASTERVARIABLES',
+        displayFrame: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        displayQuality: utils.toInt(utils.getFirstCodeValue(tags, 71)) || 0,
+        units: utils.toInt(utils.getFirstCodeValue(tags, 72)) || 0,
+        brightness: utils.toInt(utils.getFirstCodeValue(tags, 280)) ?? null,
+        contrast: utils.toInt(utils.getFirstCodeValue(tags, 281)) ?? null,
+        fade: utils.toInt(utils.getFirstCodeValue(tags, 282)) ?? null,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseUnderlayDefinition(type, tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type,
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        sourceFile: utils.getFirstCodeValue(tags, 1) || null,
+        name: utils.getFirstCodeValue(tags, 2) || null,
+        description: utils.getFirstCodeValue(tags, 3) || null,
+        flags: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parsePointCloudDefinition(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const codeLookup = this._buildCodeLookup(tags);
+      return {
+        type: 'POINTCLOUDDEF',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        filePath: utils.getFirstCodeValue(tags, 1) || null,
+        dataSource: utils.getFirstCodeValue(tags, 3) || null,
+        description: utils.getFirstCodeValue(tags, 300) || null,
+        pointCount: utils.toInt(utils.getFirstCodeValue(tags, 90)) || null,
+        codeValues: codeLookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parsePointCloudDefReactor(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'POINTCLOUDDEF_REACTOR',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        pointCloudHandle: utils.getFirstCodeValue(tags, 331) || null,
+        entityHandle: utils.getFirstCodeValue(tags, 340) || null,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parsePointCloudExRecord(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'POINTCLOUDDEF_EX',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseSectionObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lookup = this._buildCodeLookup(tags);
+      return {
+        type: 'SECTIONOBJECT',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        name: utils.getFirstCodeValue(tags, 2) || null,
+        description: utils.getFirstCodeValue(tags, 3) || null,
+        sectionType: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        state: utils.toInt(utils.getFirstCodeValue(tags, 90)) || 0,
+        parameters: lookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseSectionGeometry(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lookup = this._buildCodeLookup(tags);
+      return {
+        type: 'SECTIONGEOMETRY',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        linkedSection: utils.getFirstCodeValue(tags, 331) || null,
+        parameters: lookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseDetailViewObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lookup = this._buildCodeLookup(tags);
+      return {
+        type: 'DETAILVIEWOBJECT',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        label: utils.getFirstCodeValue(tags, 3) || null,
+        scale: utils.toFloat(utils.getFirstCodeValue(tags, 40)) ?? null,
+        viewStyleHandle: utils.getFirstCodeValue(tags, 340) || null,
+        parameters: lookup,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseViewStyle(type, tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type,
+        name: utils.getFirstCodeValue(tags, 2) || null,
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        description: utils.getFirstCodeValue(tags, 3) || null,
+        flags: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseProxyObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const graphicsData = [];
+      const stringData = [];
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (code === 310 || code === 311 || code === 312) {
+          graphicsData.push(tag.value);
+        } else if (code === 1000 || code === 1001) {
+          stringData.push(tag.value);
+        }
+      });
+      return {
+        type: 'ACAD_PROXY_OBJECT',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        applicationClassId: utils.toInt(utils.getFirstCodeValue(tags, 90)) || null,
+        originalDxfClassName: utils.getFirstCodeValue(tags, 91) || utils.getFirstCodeValue(tags, 1) || null,
+        graphicsData,
+        stringData,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseDatalinkObject(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'DATALINK',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        name: utils.getFirstCodeValue(tags, 3) || null,
+        description: utils.getFirstCodeValue(tags, 2) || null,
+        connectionString: utils.getFirstCodeValue(tags, 1) || null,
+        updateOption: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseDictionaryVar(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const name = utils.getFirstCodeValue(tags, 280) || utils.getFirstCodeValue(tags, 3) || null;
+      return {
+        type: 'DICTIONARYVAR',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        name,
+        nameUpper: name ? String(name).trim().toUpperCase() : null,
+        value: utils.getFirstCodeValue(tags, 1) || null,
+        flags: utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseLightList(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const lightHandles = [];
+      tags.forEach((tag) => {
+        if (Number(tag.code) === 330) {
+          lightHandles.push(tag.value);
+        }
+      });
+      return {
+        type: 'LIGHTLIST',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        lightHandles,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
     processTableRecord(collections, tableName, recordType, recordTags) {
       const upperTable = tableName.toUpperCase();
       const name = (utils.getFirstCodeValue(recordTags, 2) ||
@@ -6124,6 +7758,250 @@
           }))
         };
         collections[upperTable].set(name, entry);
+        return;
+      }
+
+      if (upperTable === 'DIMSTYLE' && recordType === 'DIMSTYLE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          dimensionType: utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'TABLESTYLE' && recordType === 'TABLESTYLE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        const cellMeta = new Map();
+        let currentCell = null;
+        recordTags.forEach((tag) => {
+          const code = Number(tag.code);
+          switch (code) {
+            case 171:
+              if (currentCell) {
+                cellMeta.set(`cell-${currentCell.id}`, currentCell);
+              }
+              currentCell = {
+                id: utils.toInt(tag.value) || 0,
+                properties: Object.create(null)
+              };
+              break;
+            case 172:
+            case 173:
+            case 174:
+            case 175:
+            case 176:
+            case 177:
+            case 178:
+            case 179:
+            case 271:
+            case 272:
+            case 273:
+              if (currentCell) {
+                currentCell.properties[`i${code}`] = utils.toInt(tag.value) || 0;
+              }
+              break;
+            case 90:
+            case 91:
+            case 92:
+              if (currentCell) {
+                currentCell.properties[`n${code}`] = utils.toFloat(tag.value) ?? null;
+              }
+              break;
+            default:
+              break;
+          }
+        });
+        if (currentCell) {
+          cellMeta.set(`cell-${currentCell.id}`, currentCell);
+        }
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          codeValues: codeLookup,
+          cellStyles: utils.mapToPlainObject(cellMeta),
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'MLINESTYLE' && recordType === 'MLINESTYLE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        const elements = [];
+        let currentElement = null;
+        recordTags.forEach((tag) => {
+          const code = Number(tag.code);
+          const rawValue = tag.value;
+          switch (code) {
+            case 49:
+              if (currentElement) {
+                elements.push(currentElement);
+              }
+              currentElement = {
+                offset: utils.toFloat(rawValue) ?? 0,
+                colorNumber: null,
+                trueColor: null,
+                linetype: null,
+                lineweight: null
+              };
+              break;
+            case 62:
+              if (currentElement) {
+                currentElement.colorNumber = utils.toInt(rawValue) ?? null;
+              }
+              break;
+            case 420:
+            case 421:
+              if (currentElement) {
+                currentElement.trueColor = utils.parseTrueColor
+                  ? utils.parseTrueColor(rawValue)
+                  : null;
+              }
+              break;
+            case 6:
+              if (currentElement) {
+                currentElement.linetype = typeof rawValue === 'string'
+                  ? rawValue.trim()
+                  : (rawValue != null ? String(rawValue) : null);
+              }
+              break;
+            case 51:
+              if (currentElement) {
+                currentElement.lineweight = utils.toFloat(rawValue) ?? null;
+              }
+              break;
+            default:
+              break;
+          }
+        });
+        if (currentElement) {
+          elements.push(currentElement);
+        }
+        const flags = utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0;
+        const capsFlags = utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0;
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags,
+          caps: {
+            startSuppressed: (capsFlags & 2) !== 0,
+            endSuppressed: (capsFlags & 4) !== 0,
+            jointsDisplayed: (capsFlags & 8) !== 0
+          },
+          fillColor: (() => {
+            const colorNumber = utils.toInt(utils.getFirstCodeValue(recordTags, 62));
+            const trueColorRaw = utils.getFirstCodeValue(recordTags, 421) || utils.getFirstCodeValue(recordTags, 420);
+            return {
+              colorNumber,
+              trueColor: trueColorRaw ? utils.parseTrueColor(trueColorRaw) : null
+            };
+          })(),
+          elements,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'SCALE' && recordType === 'SCALE') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          paperUnits: utils.toFloat(utils.getFirstCodeValue(recordTags, 40)) ?? null,
+          drawingUnits: utils.toFloat(utils.getFirstCodeValue(recordTags, 41)) ?? null,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'APPID' && recordType === 'APPID') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'REGAPP' && recordType === 'REGAPP') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if (upperTable === 'VIEW' && recordType === 'VIEW') {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        const codeLookup = this._buildCodeLookup(recordTags);
+        collections[upperTable].set(name, {
+          name,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          description: utils.getFirstCodeValue(recordTags, 3) || null,
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          height: utils.toFloat(utils.getFirstCodeValue(recordTags, 40)) ?? null,
+          width: utils.toFloat(utils.getFirstCodeValue(recordTags, 41)) ?? null,
+          center: this._extractPointFromLookup(codeLookup, 10, 20, 30),
+          target: this._extractPointFromLookup(codeLookup, 11, 21, 31),
+          direction: this._extractPointFromLookup(codeLookup, 16, 26, 36),
+          lensLength: utils.toFloat(utils.getFirstCodeValue(recordTags, 42)) ?? null,
+          frontClip: utils.toFloat(utils.getFirstCodeValue(recordTags, 43)) ?? null,
+          backClip: utils.toFloat(utils.getFirstCodeValue(recordTags, 44)) ?? null,
+          twist: utils.toFloat(utils.getFirstCodeValue(recordTags, 50)) ?? null,
+          viewMode: utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0,
+          renderMode: utils.toInt(utils.getFirstCodeValue(recordTags, 72)) || 0,
+          codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
         return;
       }
     }
@@ -6916,7 +8794,14 @@
       return material;
     }
 
-    extractEntities(tables, materialCatalog = {}) {
+    extractEntities(
+      tables,
+      materialCatalog = {},
+      auxiliaryObjects = {},
+      entityDefaults = null,
+      coordinateDefaults = null,
+      displaySettings = null
+    ) {
       const entities = [];
       const blocks = [];
       let section = null;
@@ -6926,6 +8811,87 @@
       const materialsByHandle = materialCatalog && materialCatalog.byHandle
         ? materialCatalog.byHandle
         : {};
+      const pointCloudResources = auxiliaryObjects.pointClouds || {};
+      const pointCloudDefinitionsByHandle = pointCloudResources.definitions && pointCloudResources.definitions.byHandle
+        ? pointCloudResources.definitions.byHandle
+        : {};
+      const pointCloudReactorsByHandle = pointCloudResources.reactors && pointCloudResources.reactors.byHandle
+        ? pointCloudResources.reactors.byHandle
+        : {};
+      const pointCloudExRecordsByHandle = pointCloudResources.exRecords && pointCloudResources.exRecords.byHandle
+        ? pointCloudResources.exRecords.byHandle
+        : {};
+      const imageDefinitionsByHandle = auxiliaryObjects.imageDefinitions && auxiliaryObjects.imageDefinitions.byHandle
+        ? auxiliaryObjects.imageDefinitions.byHandle
+        : {};
+      const imageDefReactorsByHandle = auxiliaryObjects.imageDefReactors && auxiliaryObjects.imageDefReactors.byHandle
+        ? auxiliaryObjects.imageDefReactors.byHandle
+        : {};
+      const underlayDefinitionsByHandle = auxiliaryObjects.underlayDefinitions && auxiliaryObjects.underlayDefinitions.byHandle
+        ? auxiliaryObjects.underlayDefinitions.byHandle
+        : {};
+      const sectionViewStylesByHandle = auxiliaryObjects.sectionViewStyles && auxiliaryObjects.sectionViewStyles.byHandle
+        ? auxiliaryObjects.sectionViewStyles.byHandle
+        : {};
+      const detailViewStylesByHandle = auxiliaryObjects.detailViewStyles && auxiliaryObjects.detailViewStyles.byHandle
+        ? auxiliaryObjects.detailViewStyles.byHandle
+        : {};
+      const sectionObjectsByHandle = auxiliaryObjects.sectionObjects && auxiliaryObjects.sectionObjects.byHandle
+        ? auxiliaryObjects.sectionObjects.byHandle
+        : {};
+      const sectionGeometriesByHandle = auxiliaryObjects.sectionGeometries && auxiliaryObjects.sectionGeometries.byHandle
+        ? auxiliaryObjects.sectionGeometries.byHandle
+        : {};
+      const detailViewObjectsByHandle = auxiliaryObjects.detailViewObjects && auxiliaryObjects.detailViewObjects.byHandle
+        ? auxiliaryObjects.detailViewObjects.byHandle
+        : {};
+      const proxyObjectsByHandle = auxiliaryObjects.proxyObjects && auxiliaryObjects.proxyObjects.byHandle
+        ? auxiliaryObjects.proxyObjects.byHandle
+        : {};
+      const datalinksByHandle = auxiliaryObjects.datalinks && auxiliaryObjects.datalinks.byHandle
+        ? auxiliaryObjects.datalinks.byHandle
+        : {};
+      const dictionaryVariablesByName = auxiliaryObjects.dictionaryVariables && auxiliaryObjects.dictionaryVariables.byName
+        ? auxiliaryObjects.dictionaryVariables.byName
+        : {};
+      const lightListsByHandle = auxiliaryObjects.lightLists && auxiliaryObjects.lightLists.byHandle
+        ? auxiliaryObjects.lightLists.byHandle
+        : {};
+      const resolvedEntityDefaults = entityDefaults && typeof entityDefaults === 'object'
+        ? entityDefaults
+        : null;
+      const resolvedCoordinateDefaults = coordinateDefaults && typeof coordinateDefaults === 'object'
+        ? coordinateDefaults
+        : null;
+      const resolvedDisplaySettings = displaySettings && typeof displaySettings === 'object'
+        ? displaySettings
+        : null;
+      const textStylesByHandle = new Map();
+      if (tables && tables.textStyles) {
+        Object.keys(tables.textStyles).forEach((name) => {
+          const entry = tables.textStyles[name];
+          if (!entry || !entry.handle) {
+            return;
+          }
+          const normalized = normalizeHandle(entry.handle);
+          if (normalized) {
+            textStylesByHandle.set(normalized, name);
+          }
+        });
+      }
+      const dimStylesByHandle = new Map();
+      if (tables && tables.dimStyles) {
+        Object.keys(tables.dimStyles).forEach((name) => {
+          const entry = tables.dimStyles[name];
+          if (!entry || !entry.handle) {
+            return;
+          }
+          const normalized = normalizeHandle(entry.handle);
+          if (normalized) {
+            dimStylesByHandle.set(normalized, name);
+          }
+        });
+      }
 
       const peekPending = () => pendingStack[pendingStack.length - 1] || null;
 
@@ -6982,7 +8948,27 @@
               blockName: section === 'BLOCKS' && currentBlock ? currentBlock.name : undefined,
               tables,
               materials: materialsByHandle,
-              createEntityId: (entType) => this.nextEntityId(entType)
+              imageDefinitions: imageDefinitionsByHandle,
+              imageDefReactors: imageDefReactorsByHandle,
+              underlayDefinitions: underlayDefinitionsByHandle,
+              pointClouds: {
+                definitions: pointCloudDefinitionsByHandle,
+                reactors: pointCloudReactorsByHandle,
+                exRecords: pointCloudExRecordsByHandle
+              },
+              sectionViewStyles: sectionViewStylesByHandle,
+              detailViewStyles: detailViewStylesByHandle,
+              proxyObjects: proxyObjectsByHandle,
+              datalinks: datalinksByHandle,
+              dictionaryVariables: dictionaryVariablesByName,
+              lightLists: lightListsByHandle,
+              rasterVariables: auxiliaryObjects.rasterVariables || null,
+              createEntityId: (entType) => this.nextEntityId(entType),
+              entityDefaults: resolvedEntityDefaults,
+              coordinateDefaults: resolvedCoordinateDefaults,
+              displaySettings: resolvedDisplaySettings,
+              textStylesByHandle,
+              dimStylesByHandle
             };
             const vertexEntity = namespace.RenderableEntityFactory.fromTags('VERTEX', vertexTags, context);
             if (section === 'BLOCKS' && currentBlock) {
@@ -7031,7 +9017,30 @@
             blockName: currentBlock ? currentBlock.name : undefined,
             tables,
             materials: materialsByHandle,
-            createEntityId: (entType) => this.nextEntityId(entType)
+            imageDefinitions: imageDefinitionsByHandle,
+            imageDefReactors: imageDefReactorsByHandle,
+            underlayDefinitions: underlayDefinitionsByHandle,
+            pointClouds: {
+              definitions: pointCloudDefinitionsByHandle,
+              reactors: pointCloudReactorsByHandle,
+              exRecords: pointCloudExRecordsByHandle
+            },
+            sectionViewStyles: sectionViewStylesByHandle,
+            detailViewStyles: detailViewStylesByHandle,
+            sectionObjects: sectionObjectsByHandle,
+            sectionGeometries: sectionGeometriesByHandle,
+            detailViewObjects: detailViewObjectsByHandle,
+            proxyObjects: proxyObjectsByHandle,
+            datalinks: datalinksByHandle,
+            dictionaryVariables: dictionaryVariablesByName,
+            lightLists: lightListsByHandle,
+            rasterVariables: auxiliaryObjects.rasterVariables || null,
+            createEntityId: (entType) => this.nextEntityId(entType),
+            entityDefaults: resolvedEntityDefaults,
+            coordinateDefaults: resolvedCoordinateDefaults,
+            displaySettings: resolvedDisplaySettings,
+            textStylesByHandle,
+            dimStylesByHandle
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -7059,7 +9068,30 @@
           const context = {
             tables,
             materials: materialsByHandle,
-            createEntityId: (entType) => this.nextEntityId(entType)
+            imageDefinitions: imageDefinitionsByHandle,
+            imageDefReactors: imageDefReactorsByHandle,
+            underlayDefinitions: underlayDefinitionsByHandle,
+            pointClouds: {
+              definitions: pointCloudDefinitionsByHandle,
+              reactors: pointCloudReactorsByHandle,
+              exRecords: pointCloudExRecordsByHandle
+            },
+            sectionViewStyles: sectionViewStylesByHandle,
+            detailViewStyles: detailViewStylesByHandle,
+            sectionObjects: sectionObjectsByHandle,
+            sectionGeometries: sectionGeometriesByHandle,
+            detailViewObjects: detailViewObjectsByHandle,
+            proxyObjects: proxyObjectsByHandle,
+            datalinks: datalinksByHandle,
+            dictionaryVariables: dictionaryVariablesByName,
+            lightLists: lightListsByHandle,
+            rasterVariables: auxiliaryObjects.rasterVariables || null,
+            createEntityId: (entType) => this.nextEntityId(entType),
+            entityDefaults: resolvedEntityDefaults,
+            coordinateDefaults: resolvedCoordinateDefaults,
+            displaySettings: resolvedDisplaySettings,
+            textStylesByHandle,
+            dimStylesByHandle
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -7212,6 +9244,52 @@
       };
     }
 
+    _mapRawTags(tags) {
+      if (!Array.isArray(tags)) {
+        return [];
+      }
+      return tags.map((tag) => ({
+        code: Number(tag.code),
+        value: tag.value
+      }));
+    }
+
+    _buildCodeLookup(tags) {
+      const lookup = Object.create(null);
+      if (!Array.isArray(tags)) {
+        return lookup;
+      }
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (!Number.isFinite(code)) {
+          return;
+        }
+        if (!lookup[code]) {
+          lookup[code] = [];
+        }
+        lookup[code].push(tag.value);
+      });
+      return lookup;
+    }
+
+    _extractPointFromLookup(lookup, xCode, yCode, zCode) {
+      if (!lookup) {
+        return null;
+      }
+      const xRaw = Array.isArray(lookup[xCode]) ? lookup[xCode][0] : lookup[xCode];
+      const yRaw = Array.isArray(lookup[yCode]) ? lookup[yCode][0] : lookup[yCode];
+      const zRaw = Array.isArray(lookup[zCode]) ? lookup[zCode][0] : lookup[zCode];
+      const hasValue = xRaw != null || yRaw != null || zRaw != null;
+      if (!hasValue) {
+        return null;
+      }
+      return {
+        x: utils.toFloat(xRaw) ?? 0,
+        y: utils.toFloat(yRaw) ?? 0,
+        z: utils.toFloat(zRaw) ?? 0
+      };
+    }
+
     buildBlockHeader(tags) {
       const name = (utils.getFirstCodeValue(tags, 2) ||
         utils.getFirstCodeValue(tags, 3) || '').trim() || this.nextBlockName();
@@ -7242,6 +9320,30 @@
     RenderingDocumentBuilder
   };
 }));
+function collectPointCloudClip(map) {
+  const planeCount = toInt((map.get(73) || [])[0]) || 0;
+  if (planeCount <= 0) {
+    return null;
+  }
+  const coefficients = [];
+  const aVals = (map.get(170) || []).map(toFloat);
+  const bVals = (map.get(171) || []).map(toFloat);
+  const cVals = (map.get(172) || []).map(toFloat);
+  const dVals = (map.get(173) || []).map(toFloat);
+  const eVals = (map.get(174) || []).map(toFloat);
+  const fVals = (map.get(175) || []).map(toFloat);
+  for (let i = 0; i < planeCount; i++) {
+    coefficients.push({
+      a: aVals[i] ?? 0,
+      b: bVals[i] ?? 0,
+      c: cVals[i] ?? 0,
+      d: dVals[i] ?? 0,
+      e: eVals[i] ?? 0,
+      f: fVals[i] ?? 0
+    });
+  }
+  return coefficients.length ? coefficients : null;
+}
 
 // ---- End: components/rendering-document-builder.js ----
 
@@ -7279,6 +9381,23 @@
       this.materials = options.materials || {};
       this.backgrounds = options.backgrounds || {};
       this.suns = options.suns || {};
+      this.units = options.units || null;
+      this.entityDefaults = options.entityDefaults || null;
+      this.displaySettings = options.displaySettings || null;
+      this.coordinateDefaults = options.coordinateDefaults || null;
+      this.imageDefinitions = options.imageDefinitions || {};
+      this.underlayDefinitions = options.underlayDefinitions || {};
+      this.pointClouds = options.pointClouds || {};
+      this.sectionViewStyles = options.sectionViewStyles || {};
+      this.detailViewStyles = options.detailViewStyles || {};
+      this.sectionObjects = options.sectionObjects || {};
+      this.sectionGeometries = options.sectionGeometries || {};
+      this.detailViewObjects = options.detailViewObjects || {};
+      this.rasterVariables = options.rasterVariables || null;
+      this.proxyObjects = options.proxyObjects || {};
+      this.datalinks = options.datalinks || {};
+      this.dictionaryVariables = options.dictionaryVariables || {};
+      this.lightLists = options.lightLists || {};
       this.modelSpace = [];
       this.paperSpaces = new Map();
       this.blockDefinitions = new Map();
@@ -7357,6 +9476,23 @@
         materials: this.materials,
         backgrounds: this.backgrounds,
         suns: this.suns,
+        units: this.units,
+        imageDefinitions: this.imageDefinitions,
+        underlayDefinitions: this.underlayDefinitions,
+        pointClouds: this.pointClouds,
+        sectionViewStyles: this.sectionViewStyles,
+        detailViewStyles: this.detailViewStyles,
+        sectionObjects: this.sectionObjects,
+        sectionGeometries: this.sectionGeometries,
+        detailViewObjects: this.detailViewObjects,
+        rasterVariables: this.rasterVariables,
+        proxyObjects: this.proxyObjects,
+        datalinks: this.datalinks,
+        dictionaryVariables: this.dictionaryVariables,
+        lightLists: this.lightLists,
+        entityDefaults: this.entityDefaults,
+        displaySettings: this.displaySettings,
+        coordinateDefaults: this.coordinateDefaults,
         environment: {
           backgrounds: this.backgrounds,
           suns: this.suns
@@ -7381,6 +9517,1221 @@
 
 // ---- End: components/rendering-scene-graph.js ----
 
+// ---- Begin: components/rendering-tessellation.js ----
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    define([], function () { return factory(root); });
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory(root);
+  } else {
+    factory(root);
+  }
+}((function () {
+  if (typeof globalThis !== "undefined") return globalThis;
+  if (typeof self !== "undefined") return self;
+  if (typeof window !== "undefined") return window;
+  if (typeof global !== "undefined") return global;
+  return {};
+}()), function (root) {
+  'use strict';
+
+  const namespace = root.DxfRendering = root.DxfRendering || {};
+
+  function vectorLength(vector) {
+    if (!vector || typeof vector !== 'object') {
+      return 0;
+    }
+    const x = Number.isFinite(vector.x) ? vector.x : 0;
+    const y = Number.isFinite(vector.y) ? vector.y : 0;
+    const z = Number.isFinite(vector.z) ? vector.z : 0;
+    return Math.hypot(x, y, z);
+  }
+
+  function normalizeVector(vector, fallback) {
+    const length = vectorLength(vector);
+    if (length < 1e-9) {
+      if (fallback) {
+        return { x: fallback.x || 0, y: fallback.y || 0, z: fallback.z || 0 };
+      }
+      return { x: 0, y: 0, z: 0 };
+    }
+    return {
+      x: (Number.isFinite(vector.x) ? vector.x : 0) / length,
+      y: (Number.isFinite(vector.y) ? vector.y : 0) / length,
+      z: (Number.isFinite(vector.z) ? vector.z : 0) / length
+    };
+  }
+
+  function triangulateFan(points) {
+    if (!Array.isArray(points) || points.length < 3) {
+      return [];
+    }
+    const triangles = [];
+    const base = points[0];
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      triangles.push([base, p1, p2]);
+    }
+    return triangles;
+  }
+
+  function buildBoundingBoxTriangles(outline) {
+    if (!outline || outline.length < 4) {
+      return [];
+    }
+    return triangulateFan(outline.slice(0, 4));
+  }
+
+  function polygonArea2D(points) {
+    if (!Array.isArray(points) || points.length < 3) {
+      return 0;
+    }
+    let area = 0;
+    for (let i = 0; i < points.length; i += 1) {
+      const p1 = points[i];
+      const p2 = points[(i + 1) % points.length];
+      const x1 = Number.isFinite(p1.x) ? p1.x : 0;
+      const y1 = Number.isFinite(p1.y) ? p1.y : 0;
+      const x2 = Number.isFinite(p2.x) ? p2.x : 0;
+      const y2 = Number.isFinite(p2.y) ? p2.y : 0;
+      area += (x1 * y2) - (x2 * y1);
+    }
+    return area * 0.5;
+  }
+
+  function pointInTriangle2D(point, a, b, c) {
+    const px = Number.isFinite(point.x) ? point.x : 0;
+    const py = Number.isFinite(point.y) ? point.y : 0;
+    const ax = Number.isFinite(a.x) ? a.x : 0;
+    const ay = Number.isFinite(a.y) ? a.y : 0;
+    const bx = Number.isFinite(b.x) ? b.x : 0;
+    const by = Number.isFinite(b.y) ? b.y : 0;
+    const cx = Number.isFinite(c.x) ? c.x : 0;
+    const cy = Number.isFinite(c.y) ? c.y : 0;
+
+    const v0x = cx - ax;
+    const v0y = cy - ay;
+    const v1x = bx - ax;
+    const v1y = by - ay;
+    const v2x = px - ax;
+    const v2y = py - ay;
+
+    const dot00 = v0x * v0x + v0y * v0y;
+    const dot01 = v0x * v1x + v0y * v1y;
+    const dot02 = v0x * v2x + v0y * v2y;
+    const dot11 = v1x * v1x + v1y * v1y;
+    const dot12 = v1x * v2x + v1y * v2y;
+
+    const denom = (dot00 * dot11) - (dot01 * dot01);
+    if (Math.abs(denom) < 1e-12) {
+      return false;
+    }
+    const invDenom = 1 / denom;
+    const u = ((dot11 * dot02) - (dot01 * dot12)) * invDenom;
+    const v = ((dot00 * dot12) - (dot01 * dot02)) * invDenom;
+    return u >= -1e-9 && v >= -1e-9 && (u + v) <= 1 + 1e-9;
+  }
+
+  function triangulatePolygon2D(points) {
+    if (!Array.isArray(points) || points.length < 3) {
+      return [];
+    }
+    const area = polygonArea2D(points);
+    if (Math.abs(area) < 1e-12) {
+      return [];
+    }
+    const orientation = area > 0 ? 1 : -1;
+    const vertices = points.map((pt) => ({
+      x: Number.isFinite(pt.x) ? pt.x : 0,
+      y: Number.isFinite(pt.y) ? pt.y : 0
+    }));
+    const indices = vertices.map((_, idx) => idx);
+    const triangles = [];
+    let guard = 0;
+    const maxIterations = indices.length * indices.length;
+
+    while (indices.length > 2 && guard < maxIterations) {
+      let earFound = false;
+      for (let i = 0; i < indices.length; i += 1) {
+        const prevIdx = indices[(i - 1 + indices.length) % indices.length];
+        const currIdx = indices[i];
+        const nextIdx = indices[(i + 1) % indices.length];
+        const prev = vertices[prevIdx];
+        const curr = vertices[currIdx];
+        const next = vertices[nextIdx];
+
+        const cross = ((curr.x - prev.x) * (next.y - prev.y)) - ((curr.y - prev.y) * (next.x - prev.x));
+        if (orientation > 0 ? cross <= 1e-9 : cross >= -1e-9) {
+          continue;
+        }
+
+        let hasPointInside = false;
+        for (let j = 0; j < indices.length; j += 1) {
+          const testIndex = indices[j];
+          if (testIndex === prevIdx || testIndex === currIdx || testIndex === nextIdx) {
+            continue;
+          }
+          if (pointInTriangle2D(vertices[testIndex], prev, curr, next)) {
+            hasPointInside = true;
+            break;
+          }
+        }
+        if (hasPointInside) {
+          continue;
+        }
+
+        triangles.push([prev, curr, next]);
+        indices.splice(i, 1);
+        earFound = true;
+        break;
+      }
+      if (!earFound) {
+        break;
+      }
+      guard += 1;
+    }
+
+    return triangles;
+  }
+
+  // Earcut triangulation (https://github.com/mapbox/earcut) - MIT License
+  function earcut(data, holeIndices, dim) {
+    dim = dim || 2;
+    const hasHoles = holeIndices && holeIndices.length;
+    const outerLen = hasHoles ? holeIndices[0] * dim : data.length;
+
+    let outerNode = linkedList(data, 0, outerLen, dim, true);
+    if (!outerNode) {
+      return [];
+    }
+
+    const triangles = [];
+    let minX;
+    let minY;
+    let maxX;
+    let maxY;
+    let x;
+    let y;
+    let size;
+
+    if (hasHoles) {
+      outerNode = eliminateHoles(data, holeIndices, outerNode, dim);
+    }
+
+    if (data.length > 80 * dim) {
+      minX = maxX = data[0];
+      minY = maxY = data[1];
+
+      for (let i = dim; i < outerLen; i += dim) {
+        x = data[i];
+        y = data[i + 1];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+
+      size = Math.max(maxX - minX, maxY - minY);
+    }
+
+    earcutLinked(outerNode, triangles, dim, minX, minY, size);
+
+    return triangles;
+  }
+
+  function linkedList(data, start, end, dim, clockwise) {
+    let last = null;
+
+    if (clockwise === (signedArea(data, start, end, dim) > 0)) {
+      for (let i = start; i < end; i += dim) {
+        last = insertNode(i, data[i], data[i + 1], last);
+      }
+    } else {
+      for (let i = end - dim; i >= start; i -= dim) {
+        last = insertNode(i, data[i], data[i + 1], last);
+      }
+    }
+
+    if (last && equals(last, last.next)) {
+      removeNode(last);
+      last = last.next;
+    }
+
+    return last;
+  }
+
+  function filterPoints(start, end = null) {
+    if (!start) {
+      return start;
+    }
+    if (!end) {
+      end = start;
+    }
+    let node = start;
+    let again;
+    do {
+      again = false;
+      if (!node.steiner && (equals(node, node.next) || area(node.prev, node, node.next) === 0)) {
+        removeNode(node);
+        node = end = node.prev;
+        if (node === node.next) {
+          return null;
+        }
+        again = true;
+      } else {
+        node = node.next;
+      }
+    } while (again || node !== end);
+    return end;
+  }
+
+  function earcutLinked(ear, triangles, dim, minX, minY, size, pass = 0) {
+    if (!ear) {
+      return;
+    }
+
+    if (!pass && size) {
+      indexCurve(ear, minX, minY, size);
+    }
+
+    let stop = ear;
+    let prev;
+    let next;
+
+    while (ear.prev !== ear.next) {
+      prev = ear.prev;
+      next = ear.next;
+
+      if (size ? isEarHashed(ear, minX, minY, size) : isEar(ear)) {
+        triangles.push(prev.i / dim);
+        triangles.push(ear.i / dim);
+        triangles.push(next.i / dim);
+
+        removeNode(ear);
+
+        ear = next.next;
+        stop = next.next;
+
+        continue;
+      }
+
+      ear = next;
+
+      if (ear === stop) {
+        if (!pass) {
+          earcutLinked(filterPoints(ear), triangles, dim, minX, minY, size, 1);
+        } else if (pass === 1) {
+          ear = cureLocalIntersections(filterPoints(ear), triangles, dim);
+          earcutLinked(ear, triangles, dim, minX, minY, size, 2);
+        } else if (pass === 2) {
+          splitEarcut(ear, triangles, dim, minX, minY, size);
+        }
+        break;
+      }
+    }
+  }
+
+  function isEar(ear) {
+    const a = ear.prev;
+    const b = ear;
+    const c = ear.next;
+
+    if (area(a, b, c) >= 0) {
+      return false;
+    }
+
+    let p = ear.next.next;
+
+    while (p !== ear.prev) {
+      if (pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, p.x, p.y) && area(p.prev, p, p.next) >= 0) {
+        return false;
+      }
+      p = p.next;
+    }
+
+    return true;
+  }
+
+  function isEarHashed(ear, minX, minY, size) {
+    const a = ear.prev;
+    const b = ear;
+    const c = ear.next;
+
+    if (area(a, b, c) >= 0) {
+      return false;
+    }
+
+    const minTX = Math.min(a.x, b.x, c.x);
+    const minTY = Math.min(a.y, b.y, c.y);
+    const maxTX = Math.max(a.x, b.x, c.x);
+    const maxTY = Math.max(a.y, b.y, c.y);
+
+    const minZ = zOrder(minTX, minTY, minX, minY, size);
+    const maxZ = zOrder(maxTX, maxTY, minX, minY, size);
+
+    let node = ear.prevZ;
+    let prevZ;
+    let nextZ;
+
+    while (node && node.z >= minZ && node !== ear) {
+      if (node.x >= minTX && node.y >= minTY && node.x <= maxTX && node.y <= maxTY &&
+        node !== a && node !== c &&
+        pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, node.x, node.y) &&
+        area(node.prev, node, node.next) >= 0) {
+        return false;
+      }
+      node = node.prevZ;
+    }
+
+    node = ear.nextZ;
+
+    while (node && node.z <= maxZ && node !== ear) {
+      if (node.x >= minTX && node.y >= minTY && node.x <= maxTX && node.y <= maxTY &&
+        node !== a && node !== c &&
+        pointInTriangle(a.x, a.y, b.x, b.y, c.x, c.y, node.x, node.y) &&
+        area(node.prev, node, node.next) >= 0) {
+        return false;
+      }
+      node = node.nextZ;
+    }
+
+    return true;
+  }
+
+  function cureLocalIntersections(start, triangles, dim) {
+    let node = start;
+    do {
+      const a = node.prev;
+      const b = node.next.next;
+
+      if (!equals(a, b) &&
+        intersects(a, node, node.next, b) &&
+        locallyInside(a, b) &&
+        locallyInside(b, a)) {
+        triangles.push(a.i / dim);
+        triangles.push(node.i / dim);
+        triangles.push(b.i / dim);
+
+        removeNode(node);
+        removeNode(node.next);
+
+        node = start = b;
+      }
+      node = node.next;
+    } while (node !== start);
+
+    return filterPoints(node);
+  }
+
+  function splitEarcut(start, triangles, dim, minX, minY, size) {
+    let node = start;
+    do {
+      let a = node.prev;
+      let b = node.next.next;
+      if (!equals(a, b) && intersects(a, node, node.next, b) && locallyInside(a, b) && locallyInside(b, a)) {
+        const splits = splitPolygon(node, b);
+        node = splits[0];
+        const splitNode = splits[1];
+        filterPoints(node, node.next);
+        filterPoints(splitNode, splitNode.next);
+        earcutLinked(node, triangles, dim, minX, minY, size);
+        earcutLinked(splitNode, triangles, dim, minX, minY, size);
+        return;
+      }
+      node = node.next;
+    } while (node !== start);
+  }
+
+  function eliminateHoles(data, holeIndices, outerNode, dim) {
+    const queue = [];
+    for (let i = 0, len = holeIndices.length; i < len; i += 1) {
+      const start = holeIndices[i] * dim;
+      const end = i < len - 1 ? holeIndices[i + 1] * dim : data.length;
+      const list = linkedList(data, start, end, dim, false);
+      if (list) {
+        queue.push(getLeftmost(list));
+      }
+    }
+    queue.sort((a, b) => a.x - b.x);
+    queue.forEach((hole) => {
+      eliminateHole(hole, outerNode);
+      outerNode = filterPoints(outerNode, outerNode.next);
+    });
+    return outerNode;
+  }
+
+  function eliminateHole(hole, outerNode) {
+    outerNode = findHoleBridge(hole, outerNode);
+    if (outerNode) {
+      const b = splitPolygon(outerNode, hole);
+      filterPoints(b[0], b[0].next);
+    }
+  }
+
+  function findHoleBridge(hole, outerNode) {
+    let p = outerNode;
+    const hx = hole.x;
+    const hy = hole.y;
+    let qx = -Infinity;
+    let m;
+
+    do {
+      if (hy <= p.y && hy >= p.next.y && p.next.y !== p.y) {
+        const x = p.x + ((hy - p.y) * (p.next.x - p.x)) / (p.next.y - p.y);
+        if (x <= hx && x > qx) {
+          qx = x;
+          if (x === hx) {
+            if (hy === p.y) {
+              return p;
+            }
+            if (hy === p.next.y) {
+              return p.next;
+            }
+          }
+          m = p.x < p.next.x ? p : p.next;
+        }
+      }
+      p = p.next;
+    } while (p !== outerNode);
+
+    if (!m) {
+      return null;
+    }
+
+    const stop = m;
+    let mx = m.x;
+    let my = m.y;
+    let tanMin = Infinity;
+    let tan;
+
+    p = m;
+    do {
+      if (hx >= p.x && p.x >= mx && hx !== p.x && pointInTriangle(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, p.x, p.y)) {
+        tan = Math.abs(hy - p.y) / (hx - p.x);
+        if ((locallyInside(p, hole) && locallyInside(hole, p) && (tan < tanMin ||
+            (tan === tanMin && p.x > m.x)))) {
+          m = p;
+          tanMin = tan;
+        }
+      }
+      p = p.next;
+    } while (p !== stop);
+
+    return m;
+  }
+
+  function indexCurve(start, minX, minY, size) {
+    let node = start;
+    do {
+      if (node.z === null) {
+        node.z = zOrder(node.x, node.y, minX, minY, size);
+      }
+      node.prevZ = node.prev;
+      node.nextZ = node.next;
+      node = node.next;
+    } while (node !== start);
+    node.prevZ.nextZ = null;
+    node.prevZ = null;
+    sortLinked(node);
+  }
+
+  function sortLinked(list) {
+    let inSize = 1;
+    let numMerges;
+    let p;
+    let q;
+    let pSize;
+    let qSize;
+    let e;
+
+    do {
+      p = list;
+      list = null;
+      let tail = null;
+      numMerges = 0;
+
+      while (p) {
+        numMerges += 1;
+        q = p;
+        pSize = 0;
+        for (let i = 0; i < inSize; i += 1) {
+          pSize += 1;
+          q = q.nextZ;
+          if (!q) {
+            break;
+          }
+        }
+        qSize = inSize;
+
+        while (pSize > 0 || (qSize > 0 && q)) {
+          if (pSize === 0) {
+            e = q;
+            q = q.nextZ;
+            qSize -= 1;
+          } else if (qSize === 0 || !q) {
+            e = p;
+            p = p.nextZ;
+            pSize -= 1;
+          } else if (p.z <= q.z) {
+            e = p;
+            p = p.nextZ;
+            pSize -= 1;
+          } else {
+            e = q;
+            q = q.nextZ;
+            qSize -= 1;
+          }
+
+          if (tail) {
+            tail.nextZ = e;
+          } else {
+            list = e;
+          }
+
+          e.prevZ = tail;
+          tail = e;
+        }
+
+        p = q;
+      }
+
+      tail.nextZ = null;
+      inSize *= 2;
+    } while (numMerges > 1);
+
+    return list;
+  }
+
+  function signedArea(data, start, end, dim) {
+    let sum = 0;
+    for (let i = start, j = end - dim; i < end; i += dim) {
+      sum += (data[j] - data[i]) * (data[i + 1] + data[j + 1]);
+      j = i;
+    }
+    return sum;
+  }
+
+  function insertNode(i, x, y, last) {
+    const node = {
+      i,
+      x,
+      y,
+      prev: null,
+      next: null,
+      z: null,
+      prevZ: null,
+      nextZ: null,
+      steiner: false
+    };
+
+    if (!last) {
+      node.prev = node;
+      node.next = node;
+    } else {
+      node.next = last.next;
+      node.prev = last;
+      last.next.prev = node;
+      last.next = node;
+    }
+    return node;
+  }
+
+  function removeNode(node) {
+    node.next.prev = node.prev;
+    node.prev.next = node.next;
+
+    if (node.prevZ) {
+      node.prevZ.nextZ = node.nextZ;
+    }
+    if (node.nextZ) {
+      node.nextZ.prevZ = node.prevZ;
+    }
+  }
+
+  function equals(p1, p2) {
+    return p1.x === p2.x && p1.y === p2.y;
+  }
+
+  function area(p, q, r) {
+    return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  }
+
+  function pointInTriangle(ax, ay, bx, by, cx, cy, px, py) {
+    return ((cx - px) * (ay - py) - (ax - px) * (cy - py)) >= 0 &&
+      ((ax - px) * (by - py) - (bx - px) * (ay - py)) >= 0 &&
+      ((bx - px) * (cy - py) - (cx - px) * (by - py)) >= 0;
+  }
+
+  function getLeftmost(start) {
+    let p = start;
+    let leftmost = start;
+    do {
+      if (p.x < leftmost.x || (p.x === leftmost.x && p.y < leftmost.y)) {
+        leftmost = p;
+      }
+      p = p.next;
+    } while (p !== start);
+    return leftmost;
+  }
+
+  function locallyInside(a, b) {
+    return area(a.prev, a, a.next) < 0
+      ? area(a, b, a.next) >= 0 && area(a, a.prev, b) >= 0
+      : area(a, b, a.prev) < 0 || area(a, a.next, b) < 0;
+  }
+
+  function intersects(p1, q1, p2, q2) {
+    if ((equals(p1, q1) && equals(p2, q2)) || (equals(p1, q2) && equals(p2, q1))) {
+      return true;
+    }
+    return (area(p1, q1, p2) > 0) !== (area(p1, q1, q2) > 0) &&
+      (area(p2, q2, p1) > 0) !== (area(p2, q2, q1) > 0);
+  }
+
+  function splitPolygon(a, b) {
+    const a2 = insertNode(a.i, a.x, a.y, a);
+    const b2 = insertNode(b.i, b.x, b.y, b);
+
+    const an = a.next;
+    const bp = b.prev;
+
+    a.next = b;
+    b.prev = a;
+
+    a2.next = an;
+    an.prev = a2;
+
+    b2.next = a2;
+    a2.prev = b2;
+
+    bp.next = b2;
+    b2.prev = bp;
+
+    return [a2, b2];
+  }
+
+  function zOrder(x, y, minX, minY, size) {
+    x = 32767 * (x - minX) / size;
+    y = 32767 * (y - minY) / size;
+
+    x = (x | (x << 8)) & 0x00ff00ff;
+    x = (x | (x << 4)) & 0x0f0f0f0f;
+    x = (x | (x << 2)) & 0x33333333;
+    x = (x | (x << 1)) & 0x55555555;
+
+    y = (y | (y << 8)) & 0x00ff00ff;
+    y = (y | (y << 4)) & 0x0f0f0f0f;
+    y = (y | (y << 2)) & 0x33333333;
+    y = (y | (y << 1)) & 0x55555555;
+
+    return x | (y << 1);
+  }
+
+  class TessellationEngine {
+    constructor() {}
+
+    tessellateSolid(geometry) {
+      if (!geometry) {
+        return null;
+      }
+
+      const collectLoops = () => {
+        const loops = [];
+        if (Array.isArray(geometry.outline2D) && geometry.outline2D.length) {
+          const outline = geometry.outline2D;
+          if (Array.isArray(outline[0])) {
+            outline.forEach((loop) => {
+              if (Array.isArray(loop) && loop.length >= 3) {
+                loops.push(loop);
+              }
+            });
+          } else if (outline.length >= 3) {
+            loops.push(outline);
+          }
+        }
+        if (Array.isArray(geometry.loops) && geometry.loops.length) {
+          geometry.loops.forEach((loop) => {
+            if (Array.isArray(loop) && loop.length >= 3) {
+              loops.push(loop);
+            }
+          });
+        }
+        return loops;
+      };
+
+      const rawLoops = collectLoops();
+      const sanitizeLoop = (loop) => {
+        const sanitized = [];
+        loop.forEach((pt) => {
+          const x = Number.isFinite(pt.x) ? pt.x : 0;
+          const y = Number.isFinite(pt.y) ? pt.y : 0;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return;
+          }
+          if (sanitized.length) {
+            const last = sanitized[sanitized.length - 1];
+            if (Math.hypot(x - last.x, y - last.y) < 1e-9) {
+              return;
+            }
+          }
+          sanitized.push({ x, y });
+        });
+        if (sanitized.length >= 3) {
+          const first = sanitized[0];
+          const last = sanitized[sanitized.length - 1];
+          if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) {
+            sanitized.pop();
+          }
+        }
+        return sanitized.length >= 3 ? sanitized : null;
+      };
+
+      const sanitizedLoops = rawLoops
+        .map(sanitizeLoop)
+        .filter(Boolean);
+
+      let outlineLoops = sanitizedLoops;
+
+      if ((!outlineLoops || !outlineLoops.length) && geometry.boundingBox) {
+        const box = geometry.boundingBox;
+        if ([box.minX, box.minY, box.maxX, box.maxY].every((v) => Number.isFinite(v))) {
+          outlineLoops = [[
+            { x: box.minX, y: box.minY },
+            { x: box.maxX, y: box.minY },
+            { x: box.maxX, y: box.maxY },
+            { x: box.minX, y: box.maxY }
+          ]];
+        }
+      }
+
+      if (!outlineLoops || !outlineLoops.length) {
+        return null;
+      }
+
+      const loopsProcessed = outlineLoops.map((loop, index) => {
+        const area = polygonArea2D(loop);
+        const shouldBePositive = index === 0;
+        const normalized = area === 0
+          ? loop.slice()
+          : (shouldBePositive ? (area > 0 ? loop.slice() : loop.slice().reverse())
+            : (area < 0 ? loop.slice() : loop.slice().reverse()));
+        const closed = this._ensureClosedOutline(normalized);
+        return {
+          open: normalized,
+          closed,
+          area: polygonArea2D(normalized)
+        };
+      }).filter((entry) => entry.open.length >= 3);
+
+      if (!loopsProcessed.length) {
+        return null;
+      }
+
+      const flattened = [];
+      const holeIndices = [];
+      const pointRefs = [];
+      loopsProcessed.forEach((entry, loopIndex) => {
+        if (loopIndex > 0) {
+          holeIndices.push(flattened.length / 2);
+        }
+        entry.open.forEach((pt) => {
+          flattened.push(pt.x, pt.y);
+          pointRefs.push(pt);
+        });
+      });
+
+      let triangles = [];
+      if (flattened.length >= 6) {
+        const indices = earcut(flattened, holeIndices.length ? holeIndices : null, 2);
+        if (indices && indices.length >= 3) {
+          for (let i = 0; i < indices.length; i += 3) {
+            const a = pointRefs[indices[i]];
+            const b = pointRefs[indices[i + 1]];
+            const c = pointRefs[indices[i + 2]];
+            if (a && b && c) {
+              triangles.push([a, b, c]);
+            }
+          }
+        }
+      }
+
+      if (!triangles.length) {
+        triangles = triangulateFan(loopsProcessed[0].closed);
+      }
+
+      const outlines = loopsProcessed.map((entry) => entry.closed);
+
+      return {
+        triangles,
+        outlines
+      };
+    }
+
+    tessellateMesh(geometry) {
+      if (!geometry || !Array.isArray(geometry.vertices) || geometry.vertices.length === 0) {
+        return null;
+      }
+
+      const vertices = geometry.vertices.map((vertex) => {
+        const pos = vertex.position || vertex;
+        return {
+          x: Number.isFinite(pos.x) ? pos.x : 0,
+          y: Number.isFinite(pos.y) ? pos.y : 0,
+          z: Number.isFinite(pos.z) ? pos.z : 0
+        };
+      });
+
+      const triangleList = [];
+      const outlines = [];
+
+      if (Array.isArray(geometry.faces) && geometry.faces.length) {
+        geometry.faces.forEach((face) => {
+          const indices = Array.isArray(face.indices) ? face.indices : [];
+          if (indices.length < 3) {
+            return;
+          }
+          const facePoints = indices.map((idx) => {
+            const normalizedIndex = Math.abs(idx) - 1;
+            return vertices[normalizedIndex] || null;
+          }).filter(Boolean);
+          if (facePoints.length < 3) {
+            return;
+          }
+          const flattened = facePoints.map((pt) => ({ x: pt.x, y: pt.y }));
+          const localTriangles = triangulateFan(flattened);
+          triangleList.push(...localTriangles);
+          outlines.push(this._ensureClosedOutline(flattened));
+        });
+      }
+
+      if (!triangleList.length) {
+        return null;
+      }
+
+      return {
+        triangles: triangleList,
+        outlines
+      };
+    }
+
+    _ensureClosedOutline(points) {
+      if (!Array.isArray(points) || points.length === 0) {
+        return [];
+      }
+      const outline = points.map((pt) => ({
+        x: Number.isFinite(pt.x) ? pt.x : 0,
+        y: Number.isFinite(pt.y) ? pt.y : 0
+      }));
+      const first = outline[0];
+      const last = outline[outline.length - 1];
+      if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
+        outline.push({ x: first.x, y: first.y });
+      }
+      return outline;
+    }
+  }
+
+  namespace.TessellationEngine = TessellationEngine;
+
+  TessellationEngine.prototype.tessellatePolysolid = function tessellatePolysolid(geometry) {
+    if (!geometry || !Array.isArray(geometry.points) || geometry.points.length < 2) {
+      return null;
+    }
+    const EPS = 1e-6;
+    const MIN_WIDTH = 1e-3;
+
+    const rawPoints = geometry.points.map((pt) => ({
+      x: Number.isFinite(pt.x) ? pt.x : 0,
+      y: Number.isFinite(pt.y) ? pt.y : 0
+    }));
+
+    const sanitized = [];
+    rawPoints.forEach((pt) => {
+      if (!Number.isFinite(pt.x) || !Number.isFinite(pt.y)) {
+        return;
+      }
+      if (sanitized.length) {
+        const last = sanitized[sanitized.length - 1];
+        if (Math.hypot(pt.x - last.x, pt.y - last.y) < EPS) {
+          return;
+        }
+      }
+      sanitized.push({ x: pt.x, y: pt.y });
+    });
+
+    if (sanitized.length < 2) {
+      return null;
+    }
+
+    let isClosed = !!geometry.isClosed;
+    if (sanitized.length >= 3) {
+      const first = sanitized[0];
+      const last = sanitized[sanitized.length - 1];
+      if (Math.hypot(first.x - last.x, first.y - last.y) < EPS) {
+        sanitized.pop();
+        isClosed = true;
+      }
+    } else {
+      isClosed = false;
+    }
+
+    const vertexCount = sanitized.length;
+    if (vertexCount < 2) {
+      return null;
+    }
+
+    const segments = [];
+    const segmentByStart = new Array(vertexCount).fill(null);
+    let totalLength = 0;
+    for (let i = 0; i < vertexCount; i += 1) {
+      let nextIndex = i + 1;
+      if (nextIndex >= vertexCount) {
+        if (!isClosed) {
+          break;
+        }
+        nextIndex = 0;
+      }
+      const start = sanitized[i];
+      const end = sanitized[nextIndex];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+      if (length < EPS) {
+        continue;
+      }
+      const dir = { x: dx / length, y: dy / length };
+      const segment = {
+        startIndex: i,
+        endIndex: nextIndex,
+        length,
+        direction: dir
+      };
+      segments.push(segment);
+      segmentByStart[i] = segment;
+      totalLength += length;
+    }
+
+    if (!segments.length) {
+      return null;
+    }
+
+    const cumulative = new Array(vertexCount).fill(0);
+    let running = 0;
+    for (let i = 0; i < vertexCount; i += 1) {
+      cumulative[i] = running;
+      const segment = segmentByStart[i];
+      if (segment) {
+        running += segment.length;
+      }
+    }
+
+    const candidateWidths = [
+      geometry.startWidth,
+      geometry.defaultWidth,
+      geometry.width,
+      geometry.endWidth
+    ];
+    let fallbackWidth = 0;
+    candidateWidths.forEach((value) => {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric) && Math.abs(numeric) > EPS && fallbackWidth === 0) {
+        fallbackWidth = Math.abs(numeric);
+      }
+    });
+    if (fallbackWidth <= 0) {
+      fallbackWidth = 1;
+    }
+    const startWidthRaw = Number(geometry.startWidth);
+    const endWidthRaw = Number(geometry.endWidth);
+    const defaultWidthRaw = Number(geometry.defaultWidth);
+    const startWidth = Number.isFinite(startWidthRaw) && Math.abs(startWidthRaw) > EPS
+      ? Math.abs(startWidthRaw)
+      : fallbackWidth;
+    const endWidth = Number.isFinite(endWidthRaw) && Math.abs(endWidthRaw) > EPS
+      ? Math.abs(endWidthRaw)
+      : startWidth;
+    const defaultWidth = Number.isFinite(defaultWidthRaw) && Math.abs(defaultWidthRaw) > EPS
+      ? Math.abs(defaultWidthRaw)
+      : fallbackWidth;
+
+    const widths = new Array(vertexCount);
+    for (let i = 0; i < vertexCount; i += 1) {
+      let widthValue;
+      if (!isClosed) {
+        if (totalLength > EPS) {
+          const t = cumulative[i] / totalLength;
+          widthValue = startWidth + (endWidth - startWidth) * Math.min(Math.max(t, 0), 1);
+        } else {
+          widthValue = startWidth;
+        }
+      } else {
+        widthValue = defaultWidth;
+      }
+      widths[i] = Math.max(Math.abs(widthValue) || fallbackWidth, MIN_WIDTH);
+    }
+    if (!isClosed && vertexCount >= 2) {
+      widths[vertexCount - 1] = Math.max(Math.abs(endWidth) || fallbackWidth, MIN_WIDTH);
+      widths[0] = Math.max(Math.abs(startWidth) || fallbackWidth, MIN_WIDTH);
+    }
+
+    const computeDirection = (from, to) => {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.hypot(dx, dy);
+      if (len < EPS) {
+        return null;
+      }
+      return { x: dx / len, y: dy / len };
+    };
+
+    const rotateLeft = (vec) => ({ x: -vec.y, y: vec.x });
+    const rotateRight = (vec) => ({ x: vec.y, y: -vec.x });
+
+    const computeOffsetPoint = (point, prevDirIn, nextDirIn, halfWidth, isLeft) => {
+      const normalizeDir = (dir) => {
+        if (!dir) {
+          return null;
+        }
+        const len = Math.hypot(dir.x, dir.y);
+        if (len < EPS) {
+          return null;
+        }
+        return { x: dir.x / len, y: dir.y / len };
+      };
+
+      let prevDir = normalizeDir(prevDirIn);
+      let nextDir = normalizeDir(nextDirIn);
+      if (!prevDir && nextDir) {
+        prevDir = { x: -nextDir.x, y: -nextDir.y };
+      } else if (!nextDir && prevDir) {
+        nextDir = { x: -prevDir.x, y: -prevDir.y };
+      }
+      if (!prevDir && !nextDir) {
+        return { x: point.x, y: point.y };
+      }
+
+      const perpendicular = isLeft ? rotateLeft : rotateRight;
+
+      if (!prevDir || !nextDir) {
+        const dir = prevDir || nextDir || { x: 1, y: 0 };
+        const normal = perpendicular(dir);
+        return {
+          x: point.x + normal.x * halfWidth,
+          y: point.y + normal.y * halfWidth
+        };
+      }
+
+      const normalPrev = perpendicular(prevDir);
+      const normalNext = perpendicular(nextDir);
+      const tangent = {
+        x: normalPrev.x + normalNext.x,
+        y: normalPrev.y + normalNext.y
+      };
+      const tangentLength = Math.hypot(tangent.x, tangent.y);
+      if (tangentLength < EPS) {
+        const normal = perpendicular(prevDir);
+        return {
+          x: point.x + normal.x * halfWidth,
+          y: point.y + normal.y * halfWidth
+        };
+      }
+
+      const miter = {
+        x: tangent.x / tangentLength,
+        y: tangent.y / tangentLength
+      };
+      let denom = (miter.x * normalNext.x) + (miter.y * normalNext.y);
+      if (Math.abs(denom) < EPS) {
+        const normal = perpendicular(prevDir);
+        return {
+          x: point.x + normal.x * halfWidth,
+          y: point.y + normal.y * halfWidth
+        };
+      }
+      let distance = halfWidth / denom;
+      if (!Number.isFinite(distance)) {
+        distance = halfWidth;
+      }
+      const maxDistance = halfWidth * 8;
+      if (Math.abs(distance) > maxDistance) {
+        distance = distance < 0 ? -maxDistance : maxDistance;
+      }
+      return {
+        x: point.x + miter.x * distance,
+        y: point.y + miter.y * distance
+      };
+    };
+
+    const leftPoints = new Array(vertexCount);
+    const rightPoints = new Array(vertexCount);
+    for (let i = 0; i < vertexCount; i += 1) {
+      const point = sanitized[i];
+      const widthValue = widths[i];
+      const halfWidth = Math.max(widthValue / 2, MIN_WIDTH);
+      const prevIndex = i === 0 ? (isClosed ? vertexCount - 1 : -1) : i - 1;
+      const nextIndex = i === vertexCount - 1 ? (isClosed ? 0 : -1) : i + 1;
+      const prevPoint = prevIndex >= 0 ? sanitized[prevIndex] : null;
+      const nextPoint = nextIndex >= 0 ? sanitized[nextIndex] : null;
+      const prevDir = prevPoint ? computeDirection(prevPoint, point) : null;
+      const nextDir = nextPoint ? computeDirection(point, nextPoint) : null;
+      leftPoints[i] = computeOffsetPoint(point, prevDir, nextDir, halfWidth, true);
+      rightPoints[i] = computeOffsetPoint(point, prevDir, nextDir, halfWidth, false);
+    }
+
+    const outlineSequence = [];
+    for (let i = 0; i < vertexCount; i += 1) {
+      outlineSequence.push({ x: leftPoints[i].x, y: leftPoints[i].y });
+    }
+    for (let i = vertexCount - 1; i >= 0; i -= 1) {
+      outlineSequence.push({ x: rightPoints[i].x, y: rightPoints[i].y });
+    }
+
+    const outlineClosed = this._ensureClosedOutline(outlineSequence);
+    const outlineForTriangulation = outlineClosed.length > 1
+      ? outlineClosed.slice(0, outlineClosed.length - 1)
+      : outlineClosed.slice();
+
+    let triangles = triangulatePolygon2D(outlineForTriangulation);
+
+    if (!triangles.length) {
+      triangles = [];
+      const segmentCount = isClosed ? vertexCount : vertexCount - 1;
+      for (let i = 0; i < segmentCount; i += 1) {
+        const nextIndex = (i + 1) % vertexCount;
+        const quad = [
+          leftPoints[i],
+          leftPoints[nextIndex],
+          rightPoints[nextIndex],
+          rightPoints[i]
+        ];
+        const area1 = ((quad[1].x - quad[0].x) * (quad[2].y - quad[0].y)) -
+          ((quad[1].y - quad[0].y) * (quad[2].x - quad[0].x));
+        if (Math.abs(area1) > EPS) {
+          triangles.push([quad[0], quad[1], quad[2]]);
+        }
+        const area2 = ((quad[2].x - quad[0].x) * (quad[3].y - quad[0].y)) -
+          ((quad[2].y - quad[0].y) * (quad[3].x - quad[0].x));
+        if (Math.abs(area2) > EPS) {
+          triangles.push([quad[0], quad[2], quad[3]]);
+        }
+      }
+    }
+
+    return {
+      triangles,
+      outlines: outlineClosed.length >= 3 ? [outlineClosed] : []
+    };
+  };
+
+  return {
+    TessellationEngine,
+    triangulateFan
+  };
+}));
+
+// ---- End: components/rendering-tessellation.js ----
+
 // ---- Begin: components/rendering-renderer.js ----
 (function (root, factory) {
   if (typeof define === "function" && define.amd) {
@@ -7401,6 +10752,17 @@
 
   const namespace = root.DxfRendering = root.DxfRendering || {};
   const globalScope = root;
+
+  if (!namespace.TessellationEngine && typeof require === 'function') {
+    try {
+      const tessellationModule = require('./rendering-tessellation.js');
+      if (tessellationModule && tessellationModule.TessellationEngine) {
+        namespace.TessellationEngine = tessellationModule.TessellationEngine;
+      }
+    } catch (err) {
+      // Optional tessellation module not available; fall back to legacy paths.
+    }
+  }
 
   const MAX_BLOCK_DEPTH = 8;
   const WIPEOUT_MASK_COLOR = {
@@ -7754,8 +11116,12 @@
     constructor(sceneGraph) {
       this.sceneGraph = sceneGraph || {};
       const tables = this.sceneGraph.tables || {};
+      this.tables = tables;
+      this.coordinateDefaults = this.sceneGraph.coordinateDefaults || null;
       this.activeVport = null;
       this.ucsLookup = this._buildUcsLookup(tables.ucs || {});
+      this.viewLookup = this._buildViewLookup(tables.views || {});
+      this.vportLookup = this._buildVportLookup(tables.vports || {});
       this.modelMatrix = this._computeModelMatrix(tables);
       this.paperMatrices = this._computePaperMatrices(tables);
     }
@@ -7784,6 +11150,60 @@
       return { byName, byHandle };
     }
 
+    _buildViewLookup(raw) {
+      const byName = new Map();
+      const byHandle = new Map();
+      if (raw && typeof raw === 'object') {
+        Object.keys(raw).forEach((key) => {
+          const entry = raw[key];
+          if (!entry || typeof entry !== 'object') {
+            return;
+          }
+          const name = ((entry.name != null ? entry.name : key) || '').toString().trim();
+          if (name) {
+            byName.set(name.toUpperCase(), entry);
+          }
+          if (entry.handle) {
+            const handleKey = String(entry.handle).trim();
+            if (handleKey) {
+              byHandle.set(handleKey.toUpperCase(), entry);
+            }
+          }
+          if (entry.handleUpper) {
+            byHandle.set(String(entry.handleUpper).trim().toUpperCase(), entry);
+          }
+        });
+      }
+      return { byName, byHandle };
+    }
+
+    _buildVportLookup(raw) {
+      const byName = new Map();
+      const byHandle = new Map();
+      if (raw && typeof raw === 'object') {
+        Object.keys(raw).forEach((key) => {
+          const entry = raw[key];
+          if (!entry || typeof entry !== 'object') {
+            return;
+          }
+          const name = ((entry.name != null ? entry.name : key) || '').toString().trim();
+          if (name) {
+            byName.set(name.toUpperCase(), entry);
+          }
+          if (entry.handle) {
+            const handleKey = String(entry.handle).trim();
+            if (handleKey) {
+              byHandle.set(handleKey.toUpperCase(), entry);
+            }
+          }
+          if (entry.handleUpper) {
+            byHandle.set(String(entry.handleUpper).trim().toUpperCase(), entry);
+          }
+        });
+      }
+      return { byName, byHandle };
+    }
+
     _computeModelMatrix(tables) {
       const vports = tables && tables.vports ? tables.vports : {};
       const vport = this._selectVport(vports);
@@ -7792,8 +11212,69 @@
       return this._matrixFromBasis(basis);
     }
 
-    _computePaperMatrices() {
-      return new Map();
+    _computePaperMatrices(tables) {
+      const matrices = new Map();
+      const defaults = this.coordinateDefaults && this.coordinateDefaults.paperUcs;
+      let defaultMatrix = null;
+      if (defaults && defaults.origin && defaults.xAxis && defaults.yAxis) {
+        const basis = this._basisFromAxes(defaults.origin, defaults.xAxis, defaults.yAxis);
+        if (basis) {
+          defaultMatrix = this._matrixFromBasis(basis);
+        }
+      }
+      if (defaultMatrix) {
+        matrices.set('PAPERSPACE', defaultMatrix);
+        matrices.set('*PAPER_SPACE', defaultMatrix);
+      }
+
+      const layoutsOrdered = tables && tables.layouts && Array.isArray(tables.layouts.ordered)
+        ? tables.layouts.ordered
+        : null;
+      let fallbackMatrix = defaultMatrix;
+      if (layoutsOrdered) {
+        layoutsOrdered.forEach((layout) => {
+          if (!layout || typeof layout !== 'object') {
+            return;
+          }
+          const basis = this._basisForLayout(layout);
+          if (!basis) {
+            return;
+          }
+          const matrix = this._matrixFromBasis(basis);
+          if (!fallbackMatrix) {
+            fallbackMatrix = matrix;
+          }
+          const keys = new Set();
+          if (layout.name) {
+            keys.add(layout.name.trim().toUpperCase());
+          }
+          if (layout.nameUpper) {
+            keys.add(String(layout.nameUpper).trim().toUpperCase());
+          }
+          if (layout.handleUpper) {
+            keys.add(String(layout.handleUpper).trim().toUpperCase());
+          }
+          if (layout.blockRecordHandleUpper) {
+            keys.add(String(layout.blockRecordHandleUpper).trim().toUpperCase());
+          }
+          keys.forEach((key) => {
+            if (!key) {
+              return;
+            }
+            matrices.set(key, matrix);
+          });
+        });
+      }
+
+      if (!matrices.has('PAPERSPACE')) {
+        const matrix = fallbackMatrix || this._matrixFromBasis(this._defaultBasis());
+        matrices.set('PAPERSPACE', matrix);
+      }
+      if (!matrices.has('*PAPER_SPACE')) {
+        matrices.set('*PAPER_SPACE', matrices.get('PAPERSPACE'));
+      }
+
+      return matrices;
     }
 
     _selectVport(vports) {
@@ -7818,7 +11299,14 @@
           return lookup.get(candidate);
         }
       }
-      return vports[entries[0]];
+      if (entries.length) {
+        const candidate = vports[entries[0]];
+        if (candidate) {
+          return Object.assign({}, candidate);
+        }
+      }
+      const fallback = this._vportFromCoordinateDefaults();
+      return fallback ? fallback : null;
     }
 
     getActiveVport() {
@@ -7843,7 +11331,7 @@
       const ucsCandidate = this._lookupUcs(vport.ucsHandle, vport.ucsName) ||
         this._lookupUcs(vport.baseUcsHandle, null);
       if (ucsCandidate) {
-        return this._basisFromAxes(ucsCandidate.origin, ucsCandidate.xAxis, ucsCandidate.yAxis);
+          return this._basisFromAxes(ucsCandidate.origin, ucsCandidate.xAxis, ucsCandidate.yAxis);
       }
 
       return this._basisFromView(vport);
@@ -7860,6 +11348,38 @@
         const nameKey = String(name).trim().toUpperCase();
         if (nameKey && this.ucsLookup.byName.has(nameKey)) {
           return this.ucsLookup.byName.get(nameKey);
+        }
+      }
+      return null;
+    }
+
+    _lookupView(handle, name) {
+      if (handle) {
+        const handleKey = String(handle).trim().toUpperCase();
+        if (handleKey && this.viewLookup.byHandle.has(handleKey)) {
+          return this.viewLookup.byHandle.get(handleKey);
+        }
+      }
+      if (name) {
+        const nameKey = String(name).trim().toUpperCase();
+        if (nameKey && this.viewLookup.byName.has(nameKey)) {
+          return this.viewLookup.byName.get(nameKey);
+        }
+      }
+      return null;
+    }
+
+    _lookupVport(handle, name) {
+      if (handle) {
+        const handleKey = String(handle).trim().toUpperCase();
+        if (handleKey && this.vportLookup.byHandle.has(handleKey)) {
+          return this.vportLookup.byHandle.get(handleKey);
+        }
+      }
+      if (name) {
+        const nameKey = String(name).trim().toUpperCase();
+        if (nameKey && this.vportLookup.byName.has(nameKey)) {
+          return this.vportLookup.byName.get(nameKey);
         }
       }
       return null;
@@ -7892,8 +11412,77 @@
       };
     }
 
+    _isFiniteVector3(vector) {
+      return !!(vector &&
+        Number.isFinite(vector.x) &&
+        Number.isFinite(vector.y) &&
+        Number.isFinite(vector.z));
+    }
+
+    _basisForLayout(layout) {
+      if (!layout || typeof layout !== 'object') {
+        return null;
+      }
+      if (this._isFiniteVector3(layout.ucsOrigin) &&
+        this._isFiniteVector3(layout.ucsXAxis) &&
+        this._isFiniteVector3(layout.ucsYAxis)) {
+        const basis = this._basisFromAxes(layout.ucsOrigin, layout.ucsXAxis, layout.ucsYAxis);
+        if (basis) {
+          return basis;
+        }
+      }
+
+      const ucsCandidate = this._lookupUcs(layout.ucsHandle, layout.ucsName) ||
+        this._lookupUcs(layout.baseUcsHandle, null);
+      if (ucsCandidate) {
+        const basis = this._basisFromAxes(ucsCandidate.origin, ucsCandidate.xAxis, ucsCandidate.yAxis);
+        if (basis) {
+          return basis;
+        }
+      }
+
+      const viewBasis = this._basisFromLayoutView(layout);
+      if (viewBasis) {
+        return viewBasis;
+      }
+
+      const vportCandidate = this._lookupVport(layout.viewportHandle, layout.viewportName);
+      if (vportCandidate) {
+        return this._basisFromVport(vportCandidate, this.tables);
+      }
+
+      return null;
+    }
+
+    _basisFromLayoutView(layout) {
+      if (!layout || !layout.plotSettings) {
+        return null;
+      }
+      const strings = layout.plotSettings.strings || {};
+      const viewName = strings.plotViewName || strings.viewToPlot || null;
+      let viewEntry = null;
+      if (viewName) {
+        viewEntry = this._lookupView(null, viewName);
+      }
+      if (!viewEntry && layout.viewHandle) {
+        viewEntry = this._lookupView(layout.viewHandle, null);
+      }
+      if (!viewEntry) {
+        return null;
+      }
+      const adapted = {
+        viewDirection: viewEntry.direction || viewEntry.viewDirection || null,
+        viewTarget: viewEntry.target || viewEntry.viewTarget || null,
+        viewTwist: Number.isFinite(viewEntry.twist)
+          ? viewEntry.twist
+          : (Number.isFinite(viewEntry.viewTwist) ? viewEntry.viewTwist : null)
+      };
+      return this._basisFromView(adapted);
+    }
+
     _basisFromView(vport) {
-      const viewDir = normalizeVector(vport.viewDirection, { x: 0, y: 0, z: 1 });
+      const fallbackDir = this._fallbackViewDirection();
+      const viewDir = normalizeVector(vport.viewDirection, fallbackDir);
       const defaultUp = Math.abs(viewDir.z) > 0.999
         ? { x: 0, y: 1, z: 0 }
         : { x: 0, y: 0, z: 1 };
@@ -7909,7 +11498,10 @@
       } else {
         yAxis = normalizeVector(yAxis, { x: 0, y: 1, z: 0 });
       }
-      const twistDeg = Number.isFinite(vport.viewTwist) ? vport.viewTwist : 0;
+      const headerTwist = this.coordinateDefaults && this.coordinateDefaults.view
+        ? Number(this.coordinateDefaults.view.twist) || 0
+        : 0;
+      const twistDeg = Number.isFinite(vport.viewTwist) ? vport.viewTwist : headerTwist;
       if (Math.abs(twistDeg) > 1e-6) {
         const twistRad = twistDeg * Math.PI / 180;
         const cos = Math.cos(twistRad);
@@ -7933,7 +11525,7 @@
             y: Number.isFinite(vport.viewTarget.y) ? vport.viewTarget.y : 0,
             z: Number.isFinite(vport.viewTarget.z) ? vport.viewTarget.z : 0
           }
-        : { x: 0, y: 0, z: 0 };
+        : this._fallbackModelOrigin();
       return {
         origin,
         xAxis,
@@ -7985,6 +11577,59 @@
       }
       return identityMatrix();
     }
+
+    _vportFromCoordinateDefaults() {
+      if (!this.coordinateDefaults) {
+        return null;
+      }
+      const model = this.coordinateDefaults.modelUcs || {};
+      const view = this.coordinateDefaults.view || {};
+      const vport = {};
+      if (model.origin && model.xAxis && model.yAxis) {
+        vport.ucsPerViewport = true;
+        vport.ucsOrigin = Object.assign({}, model.origin);
+        vport.ucsXAxis = Object.assign({}, model.xAxis);
+        vport.ucsYAxis = Object.assign({}, model.yAxis);
+      }
+      if (view.direction) {
+        vport.viewDirection = Object.assign({}, view.direction);
+      }
+      if (view.target) {
+        vport.viewTarget = Object.assign({}, view.target);
+      }
+      if (Number.isFinite(view.twist)) {
+        vport.viewTwist = view.twist;
+      }
+      return Object.keys(vport).length ? vport : null;
+    }
+
+    _fallbackViewDirection() {
+      const defaults = this.coordinateDefaults && this.coordinateDefaults.view;
+      if (!defaults) {
+        return { x: 0, y: 0, z: 1 };
+      }
+      const dir = normalizeVector(defaults.direction, null);
+      if (dir && vectorLength(dir) >= 1e-6) {
+        return dir;
+      }
+      const vpoint = normalizeVector(defaults.vpoint, null);
+      if (vpoint && vectorLength(vpoint) >= 1e-6) {
+        return vpoint;
+      }
+      return { x: 0, y: 0, z: 1 };
+    }
+
+    _fallbackModelOrigin() {
+      const defaults = this.coordinateDefaults && this.coordinateDefaults.modelUcs;
+      if (!defaults || !defaults.origin) {
+        return { x: 0, y: 0, z: 0 };
+      }
+      return {
+        x: Number.isFinite(defaults.origin.x) ? defaults.origin.x : 0,
+        y: Number.isFinite(defaults.origin.y) ? defaults.origin.y : 0,
+        z: Number.isFinite(defaults.origin.z) ? defaults.origin.z : 0
+      };
+    }
   }
 
   namespace.CoordinateSystemResolver = CoordinateSystemResolver;
@@ -8019,6 +11664,23 @@
       this.onCanvasReplaced = null;
       this.environment = null;
       this.visualStyleOverride = null;
+      this.linetypeSettings = {
+        ltScale: 1,
+        celTScale: 1,
+        psLtScale: null
+      };
+      this.displaySettings = {
+        point: {
+          mode: 0,
+          size: null
+        },
+        fillMode: 1,
+        mirrorText: 1,
+        traceWidth: null
+      };
+      this.tessellator = namespace.TessellationEngine
+        ? new namespace.TessellationEngine()
+        : null;
     }
 
     static getVisualStylePresets() {
@@ -8505,6 +12167,32 @@
         this._materialCacheSource = materials;
       }
       const tables = sceneGraph.tables || {};
+      const units = sceneGraph.units || {};
+      const normalizeScale = (value, fallback) => {
+        if (Number.isFinite(value) && value !== 0) {
+          return Math.abs(value);
+        }
+        return fallback;
+      };
+      const linetypeSettings = {
+        ltScale: normalizeScale(units.ltScale, 1),
+        celTScale: normalizeScale(units.celTScale, 1),
+        psLtScale: Number.isFinite(units.psLtScale) ? units.psLtScale : null
+      };
+      this.linetypeSettings = linetypeSettings;
+      frame.linetypeSettings = Object.assign({}, linetypeSettings);
+
+      const displaySettings = this._normalizeDisplaySettings(sceneGraph.displaySettings || null);
+      this.displaySettings = displaySettings;
+      frame.displaySettings = {
+        point: {
+          mode: displaySettings.point.mode,
+          size: displaySettings.point.size
+        },
+        fillMode: displaySettings.fillMode,
+        mirrorText: displaySettings.mirrorText,
+        traceWidth: displaySettings.traceWidth
+      };
 
       const coordinateResolver = namespace.CoordinateSystemResolver
         ? new namespace.CoordinateSystemResolver(sceneGraph)
@@ -8728,6 +12416,28 @@
             });
             break;
           }
+          case 'MLINE': {
+            if (!geometry.vertices || geometry.vertices.length < 2) return;
+            const verts = geometry.vertices.map((pt) => ({
+              x: Number.isFinite(pt.x) ? pt.x : 0,
+              y: Number.isFinite(pt.y) ? pt.y : 0
+            }));
+            const transformed = transformPoints(verts, transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            const isClosed = !!geometry.isClosed && transformed.length > 2;
+            if (isClosed && !this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
+              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+            }
+            rawPolylines.push({
+              points: transformed,
+              color,
+              lineweight: this._resolveLineweight(entity),
+              linetype: this._resolveLinetype(entity, tables),
+              worldBounds: this._computeBoundsFromPoints(transformed),
+              meta: makeMeta({ geometryKind: 'polyline', isClosed, family: 'mline', style: geometry.style || null })
+            });
+            break;
+          }
           case 'ARC': {
             if (!geometry.center || !Number.isFinite(geometry.radius)) return;
             const arcPoints = this._sampleArc(
@@ -8812,19 +12522,115 @@
             });
             break;
           }
+          case 'POLYSOLID': {
+            this._addPolysolidGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, color, materialDescriptor, makeMeta);
+            break;
+          }
           case 'POINT': {
             if (!geometry.position) return;
-            const pt = applyMatrix(transform, geometry.position);
-            updateBounds(pt.x, pt.y);
-          rawPoints.push({
-            position: [pt.x, pt.y],
-            color,
-            size: geometry.size || 4,
-            worldBounds: { minX: pt.x, minY: pt.y, maxX: pt.x, maxY: pt.y },
-            meta: makeMeta({ geometryKind: 'point' })
-          });
-          break;
-        }
+            const config = this._resolvePointDisplayConfig(geometry, transform);
+            const worldPoint = applyMatrix(transform, geometry.position);
+            updateBounds(worldPoint.x, worldPoint.y);
+            if (!config) {
+              rawPoints.push({
+                position: [worldPoint.x, worldPoint.y],
+                color,
+                colorCss: color && color.css ? color.css : undefined,
+                size: 4,
+                worldBounds: { minX: worldPoint.x, minY: worldPoint.y, maxX: worldPoint.x, maxY: worldPoint.y },
+                meta: makeMeta({ geometryKind: 'point', pointMode: 0 })
+              });
+              break;
+            }
+            if (config.shapes.circle) {
+              rawPoints.push({
+                position: [worldPoint.x, worldPoint.y],
+                color,
+                colorCss: color && color.css ? color.css : undefined,
+                size: config.pixelSize,
+                worldBounds: { minX: worldPoint.x, minY: worldPoint.y, maxX: worldPoint.x, maxY: worldPoint.y },
+                meta: makeMeta({ geometryKind: 'point', pointMode: config.mode })
+              });
+            }
+            this._emitPointShapes({
+              center: geometry.position,
+              transform,
+              updateBounds,
+              polylineCollector: rawPolylines,
+              color,
+              lineweight: this._resolveLineweight(entity),
+              makeMeta,
+              config,
+              family: 'point'
+            });
+            break;
+          }
+          case 'MPOINT': {
+            if (!geometry.points || !geometry.points.length) return;
+            const config = this._resolvePointDisplayConfig(geometry, transform);
+            if (!config) {
+              geometry.points.forEach((pt) => {
+                const mapped = applyMatrix(transform, pt);
+                updateBounds(mapped.x, mapped.y);
+                rawPoints.push({
+                  position: [mapped.x, mapped.y],
+                  color,
+                  colorCss: color && color.css ? color.css : undefined,
+                  size: 4,
+                  worldBounds: { minX: mapped.x, minY: mapped.y, maxX: mapped.x, maxY: mapped.y },
+                  meta: makeMeta({ geometryKind: 'point', family: 'mpoint', pointMode: 0 })
+                });
+              });
+              break;
+            }
+            geometry.points.forEach((pt) => {
+              const mapped = applyMatrix(transform, pt);
+              updateBounds(mapped.x, mapped.y);
+              if (config.shapes.circle) {
+                rawPoints.push({
+                  position: [mapped.x, mapped.y],
+                  color,
+                  colorCss: color && color.css ? color.css : undefined,
+                  size: config.pixelSize,
+                  worldBounds: { minX: mapped.x, minY: mapped.y, maxX: mapped.x, maxY: mapped.y },
+                  meta: makeMeta({ geometryKind: 'point', family: 'mpoint', pointMode: config.mode })
+                });
+              }
+              this._emitPointShapes({
+                center: pt,
+                transform,
+                updateBounds,
+                polylineCollector: rawPolylines,
+                color,
+                lineweight: this._resolveLineweight(entity),
+                makeMeta,
+                config,
+                family: 'mpoint'
+              });
+            });
+            break;
+          }
+          case 'SHAPE': {
+            if (!geometry.position) return;
+            const content = geometry.name || geometry.style || 'SHAPE';
+            this._queueSingleLineText({
+              kind: 'SHAPE',
+              entity,
+              geometry: {
+                position: geometry.position,
+                rotation: geometry.rotation || 0,
+                height: geometry.size || 12,
+                textStyle: geometry.style || null,
+                content
+              },
+              transform,
+              rawTexts,
+              updateBounds,
+              color,
+              meta: makeMeta({ geometryKind: 'text', textKind: 'SHAPE' })
+            });
+            break;
+          }
         case 'LIGHT': {
           if (!geometry.position) return;
           const mapped = applyMatrix(transform, geometry.position);
@@ -8871,6 +12677,18 @@
           break;
         }
         case 'HATCH': {
+          if (!this._isFillEnabled()) {
+            this._emitHatchOutlines({
+              entity,
+              geometry,
+              transform,
+              updateBounds,
+              polylineCollector: rawPolylines,
+              color,
+              makeMeta
+            });
+            break;
+          }
           this._processHatchEntity({
             entity,
             geometry,
@@ -8883,7 +12701,21 @@
             });
             break;
           }
+          case 'TRACE':
           case 'SOLID': {
+            if (!this._isFillEnabled()) {
+              this._emitSolidOutline({
+                entity,
+                geometry,
+                transform,
+                updateBounds,
+                polylineCollector: rawPolylines,
+                color,
+                lineweight: this._resolveLineweight(entity),
+                makeMeta
+              });
+              break;
+            }
             this._processSolidEntity({
               geometry,
               transform,
@@ -8996,6 +12828,37 @@
           });
           break;
         }
+        case 'ARCALIGNEDTEXT': {
+            if (!geometry || !geometry.center) {
+              break;
+            }
+            const radius = Number.isFinite(geometry.radius) ? geometry.radius : 0;
+            const startRad = Number.isFinite(geometry.startAngle) ? geometry.startAngle * Math.PI / 180 : 0;
+            const endRad = Number.isFinite(geometry.endAngle) ? geometry.endAngle * Math.PI / 180 : startRad;
+            const midAngle = startRad + (endRad - startRad) / 2;
+            const anchorX = geometry.center.x + radius * Math.cos(midAngle);
+            const anchorY = geometry.center.y + radius * Math.sin(midAngle);
+            const tangentAngle = midAngle + (geometry.reverse ? Math.PI / 2 : -Math.PI / 2);
+            const textGeometry = {
+              position: { x: anchorX, y: anchorY },
+              rotation: tangentAngle * 180 / Math.PI,
+              height: geometry.textHeight || geometry.height || Math.max(Math.abs(radius) * 0.05, 8),
+              textStyle: geometry.textStyle || null,
+              widthFactor: geometry.widthFactor ?? 1,
+              content: geometry.text || ''
+            };
+            this._queueSingleLineText({
+              kind: 'ARCALIGNEDTEXT',
+              entity,
+              geometry: textGeometry,
+              transform,
+              rawTexts,
+              updateBounds,
+              color,
+              meta: makeMeta({ geometryKind: 'text', textKind: 'ARCALIGNEDTEXT' })
+            });
+            break;
+          }
         case 'TEXT': {
             this._queueSingleLineText({
               kind: 'TEXT',
@@ -9129,6 +12992,13 @@
             updateBounds(worldPosition.x, worldPosition.y);
             const localRotation = geometry.rotation ? geometry.rotation * Math.PI / 180 : 0;
             const rotation = matrixRotation(transform) + localRotation;
+            let appliedRotation = rotation;
+            if (this.displaySettings && this.displaySettings.mirrorText === 0) {
+              const det = (transform.a * transform.d) - (transform.b * transform.c);
+              if (det < 0) {
+                appliedRotation += Math.PI;
+              }
+            }
             const scales = matrixScale(transform);
             const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
             const baseHeight = geometry.height || 12;
@@ -9142,7 +13012,7 @@
               geometry,
               color,
               worldPosition,
-              rotation,
+              rotation: appliedRotation,
               worldHeight,
               baseHeight,
               scaleMagnitude: avgScale,
@@ -9159,6 +13029,13 @@
             updateBounds(worldPosition.x, worldPosition.y);
             const localRotation = geometry.rotation ? geometry.rotation * Math.PI / 180 : 0;
             const rotation = matrixRotation(transform) + localRotation;
+            let appliedRotation = rotation;
+            if (this.displaySettings && this.displaySettings.mirrorText === 0) {
+              const det = (transform.a * transform.d) - (transform.b * transform.c);
+              if (det < 0) {
+                appliedRotation += Math.PI;
+              }
+            }
             const scales = matrixScale(transform);
             const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
             const baseHeight = geometry.height || 6;
@@ -9171,13 +13048,68 @@
               geometry,
               color,
               worldPosition,
-              rotation,
+              rotation: appliedRotation,
               worldHeight,
               baseHeight,
               scaleMagnitude: avgScale,
               styleName,
               content: geometry.text || '',
               meta: makeMeta({ geometryKind: 'text', textKind: 'TOLERANCE' })
+            });
+            break;
+          }
+        case 'GEOPOSITIONMARKER': {
+            const position = geometry.position || { x: 0, y: 0 };
+            const mapped = applyMatrix(transform, position);
+            updateBounds(mapped.x, mapped.y);
+            const unitScale = geometry.unitScale != null ? Math.abs(geometry.unitScale) : 1;
+            const size = Math.max(8, unitScale * 6);
+            rawPoints.push({
+              position: [mapped.x, mapped.y],
+              color,
+              size,
+              worldBounds: { minX: mapped.x, minY: mapped.y, maxX: mapped.x, maxY: mapped.y },
+              meta: makeMeta({ geometryKind: 'geolocation' })
+            });
+            if (geometry.text) {
+              this._queueSingleLineText({
+                kind: 'GEOPOSITIONMARKER',
+                entity,
+                geometry: {
+                  position,
+                  rotation: 0,
+                  height: geometry.textHeight || 12,
+                  textStyle: geometry.textStyle || null,
+                  content: geometry.text
+                },
+                transform,
+                rawTexts,
+                updateBounds,
+                color,
+                meta: makeMeta({ geometryKind: 'text', textKind: 'GEOPOSITION' })
+              });
+            }
+            break;
+          }
+        case 'POINTCLOUD':
+        case 'POINTCLOUDATTACH': {
+            const basePosition = geometry.position || { x: 0, y: 0 };
+            const mapped = applyMatrix(transform, basePosition);
+            updateBounds(mapped.x, mapped.y);
+            const scale = geometry.scale || { x: 1, y: 1, z: 1 };
+            const scaleMagnitude = Math.max(Math.abs(scale.x || 1), Math.abs(scale.y || 1), Math.abs(scale.z || 1));
+            rawPoints.push({
+              position: [mapped.x, mapped.y],
+              color,
+              size: Math.max(6, scaleMagnitude * 4),
+              worldBounds: { minX: mapped.x, minY: mapped.y, maxX: mapped.x, maxY: mapped.y },
+              meta: makeMeta({
+                geometryKind: 'pointcloud',
+                definitionHandle: geometry.definitionHandle || null,
+                intensityEnabled: geometry.showIntensity || false,
+                intensityLimits: geometry.intensityLimits || null,
+                colorSource: geometry.colorSource || 0
+              })
             });
             break;
           }
@@ -9236,30 +13168,69 @@
         }
         case 'MESH':
         case 'POLYFACE_MESH': {
-          this._addMeshGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, color, materialDescriptor);
+          this._addMeshGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, color, materialDescriptor, makeMeta);
           break;
         }
+        case 'BODY':
         case '3DSOLID':
         case 'REGION':
         case 'SURFACE': {
-          let outline = null;
-          if (geometry.outline2D && geometry.outline2D.length >= 3) {
-            outline = geometry.outline2D.map((pt) => ({ x: pt.x, y: pt.y }));
-          } else if (geometry.boundingBox) {
-            outline = this._outlineFromBoundingBox(geometry.boundingBox);
+          this._addSolidGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, color, materialDescriptor, makeMeta);
+          break;
+        }
+        case 'SECTION': {
+          this._addSectionCutGeometry({
+            entity,
+            geometry,
+            transform,
+            updateBounds,
+            polylineCollector: rawPolylines,
+            fillCollector: rawFills,
+            color,
+            material: materialDescriptor,
+            makeMeta,
+            tables
+          });
+          break;
+        }
+        case 'FRAME': {
+          if (!geometry.points || geometry.points.length < 2) {
+            break;
           }
-          if (outline && outline.length >= 3) {
-            const transformed = transformPoints(outline, transform);
-            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
-            const screen = transformed.concat([{ x: transformed[0].x, y: transformed[0].y }]);
-            rawFills.push({ points: screen, color, material: materialDescriptor });
+          const transformed = transformPoints(geometry.points, transform);
+          transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+          if (!this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
+            transformed.push({ x: transformed[0].x, y: transformed[0].y });
+          }
+          rawPolylines.push({
+            points: transformed,
+            color,
+            lineweight: this._resolveLineweight(entity),
+            linetype: this._resolveLinetype(entity, tables),
+            worldBounds: this._computeBoundsFromPoints(transformed),
+            meta: makeMeta({ geometryKind: 'polyline', isClosed: true, family: geometry.frameType ? geometry.frameType.toLowerCase() : 'frame' })
+          });
+          break;
+        }
+        case 'PROXYENTITY': {
+          if (geometry.position) {
+            const projected = applyMatrix(transform, geometry.position);
+            updateBounds(projected.x, projected.y);
+            const size = Math.max(6, this._resolveLineweight(entity) || 6);
+            rawPoints.push({
+              position: [projected.x, projected.y],
+              color,
+              size,
+              worldBounds: { minX: projected.x, minY: projected.y, maxX: projected.x, maxY: projected.y },
+              meta: makeMeta({ geometryKind: 'proxy' })
+            });
           }
           break;
         }
-          default: {
-            break;
-          }
+        default: {
+          break;
         }
+      }
       };
 
       renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue) => {
@@ -9450,6 +13421,26 @@
 
       const hatchAssociations = [];
 
+      const cloneSectionAssociation = (assoc) => {
+        if (!assoc) {
+          return null;
+        }
+        const copy = Object.assign({}, assoc);
+        if (Array.isArray(assoc.sourceHandles)) {
+          copy.sourceHandles = assoc.sourceHandles.slice();
+        }
+        if (Array.isArray(assoc.boundary)) {
+          copy.boundary = assoc.boundary.map((pt) => ({
+            x: Number.isFinite(pt.x) ? pt.x : 0,
+            y: Number.isFinite(pt.y) ? pt.y : 0
+          }));
+        }
+        if (assoc.worldBounds) {
+          copy.worldBounds = Object.assign({}, assoc.worldBounds);
+        }
+        return copy;
+      };
+
       rawFills.forEach((rawFill) => {
         const normalized = this._normalizeRawFillEntry(rawFill);
         if (!normalized || !Array.isArray(normalized.contours) || !normalized.contours.length) {
@@ -9499,6 +13490,7 @@
           worldContours: normalized.contours,
           sourceHandles: Array.isArray(normalized.sourceHandles) ? normalized.sourceHandles.slice() : [],
           associative: !!normalized.associative,
+          sectionAssociation: cloneSectionAssociation(normalized.sectionAssociation),
           material: normalized.material || null,
           hasHoles,
           meta: normalized.meta || null,
@@ -9571,13 +13563,15 @@
           fillType: fillRecord.type,
           hasHoles,
           sourceHandles: fillRecord.sourceHandles.slice(),
-          source: 'fill'
+          source: 'fill',
+          sectionAssociation: cloneSectionAssociation(fillRecord.sectionAssociation)
         });
 
         if (fillRecord.associative && fillRecord.sourceHandles.length) {
           hatchAssociations.push({
             hatch: fillRecord,
-            handles: fillRecord.sourceHandles.slice()
+            handles: fillRecord.sourceHandles.slice(),
+            sectionAssociation: cloneSectionAssociation(fillRecord.sectionAssociation)
           });
         }
       });
@@ -9926,16 +13920,671 @@
       if (!entry || !Array.isArray(entry.elements) || !entry.elements.length) {
         return null;
       }
-      const scale = Number.isFinite(entity.linetypeScale) && entity.linetypeScale !== 0
-        ? Math.abs(entity.linetypeScale)
+      const settings = this.linetypeSettings || {};
+      const globalScale = Number.isFinite(settings.ltScale) && settings.ltScale !== 0
+        ? Math.abs(settings.ltScale)
         : 1;
+      const defaultEntityScale = Number.isFinite(settings.celTScale) && settings.celTScale !== 0
+        ? Math.abs(settings.celTScale)
+        : 1;
+      let entityScale = Number.isFinite(entity.linetypeScale) && entity.linetypeScale !== 0
+        ? Math.abs(entity.linetypeScale)
+        : defaultEntityScale;
+      if (!Number.isFinite(entityScale) || entityScale === 0) {
+        entityScale = 1;
+      }
+      let effectiveScale = entityScale * globalScale;
+      const space = (entity.space || '').toLowerCase();
+      if (space === 'paper') {
+        const psSetting = settings.psLtScale;
+        if (psSetting === 1) {
+          effectiveScale = entityScale;
+        } else if (Number.isFinite(psSetting) && psSetting !== 0 && psSetting !== 1) {
+          effectiveScale = entityScale * Math.abs(psSetting);
+        }
+      }
+      if (!Number.isFinite(effectiveScale) || effectiveScale === 0) {
+        effectiveScale = 1;
+      }
       return {
         name: entry.name || directName || (entity.resolved && entity.resolved.layer && entity.resolved.layer.linetype) || null,
         description: entry.description || null,
         patternLength: entry.patternLength || null,
         elements: entry.elements,
-        scale
+        scale: effectiveScale
       };
+    }
+
+    _normalizeDisplaySettings(settings) {
+      const normalized = {
+        point: {
+          mode: 0,
+          size: null
+        },
+        fillMode: 1,
+        mirrorText: 1,
+        traceWidth: null
+      };
+      if (!settings || typeof settings !== 'object') {
+        return normalized;
+      }
+      if (settings.point && typeof settings.point === 'object') {
+        if (Number.isFinite(settings.point.mode)) {
+          normalized.point.mode = settings.point.mode;
+        }
+        if (Number.isFinite(settings.point.size)) {
+          normalized.point.size = settings.point.size;
+        }
+      }
+      if (settings.fillMode != null) {
+        normalized.fillMode = settings.fillMode;
+      }
+      if (settings.mirrorText != null) {
+        normalized.mirrorText = settings.mirrorText;
+      }
+      if (Number.isFinite(settings.traceWidth)) {
+        normalized.traceWidth = settings.traceWidth;
+      }
+      return normalized;
+    }
+
+    _decodePointMode(mode) {
+      const normalized = Number.isFinite(mode) ? mode : 0;
+      const shapes = {
+        circle: false,
+        square: false,
+        plus: false,
+        cross: false,
+        tick: false
+      };
+      const base = normalized & 31;
+      switch (base) {
+        case 0:
+          shapes.circle = true;
+          break;
+        case 1:
+          break;
+        case 2:
+          shapes.plus = true;
+          break;
+        case 3:
+          shapes.cross = true;
+          break;
+        case 4:
+          shapes.tick = true;
+          break;
+        default:
+          shapes.circle = true;
+          break;
+      }
+      if (normalized & 32) {
+        shapes.circle = true;
+      }
+      if (normalized & 64) {
+        shapes.square = true;
+      }
+      if (normalized & 128) {
+        shapes.plus = true;
+      }
+      if (normalized & 256) {
+        shapes.cross = true;
+      }
+      return shapes;
+    }
+
+    _resolvePointDisplayConfig(geometry, transform) {
+      if (!geometry || !transform) {
+        return null;
+      }
+      const display = this.displaySettings || {};
+      const pointDefaults = display.point || {};
+      const mode = Number.isFinite(geometry.pointMode)
+        ? geometry.pointMode
+        : (Number.isFinite(pointDefaults.mode) ? pointDefaults.mode : 0);
+      const shapes = this._decodePointMode(mode);
+      const hasShape = shapes.circle || shapes.square || shapes.plus || shapes.cross || shapes.tick;
+      if (!hasShape) {
+        return null;
+      }
+      let sizeCandidate = Number.isFinite(geometry.pointSize) ? geometry.pointSize : null;
+      if (!Number.isFinite(sizeCandidate) && Number.isFinite(pointDefaults.size)) {
+        sizeCandidate = pointDefaults.size;
+      }
+      const scales = matrixScale(transform);
+      const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
+      let pixelSize;
+      let worldSize;
+      if (!Number.isFinite(sizeCandidate) || sizeCandidate === 0) {
+        pixelSize = 4;
+        worldSize = pixelSize / avgScale;
+      } else if (sizeCandidate < 0) {
+        pixelSize = Math.abs(sizeCandidate);
+        worldSize = pixelSize / avgScale;
+      } else {
+        worldSize = Math.abs(sizeCandidate);
+        pixelSize = Math.abs(worldSize * avgScale);
+      }
+      pixelSize = Math.max(1.5, pixelSize);
+      worldSize = Math.max(1e-6, worldSize);
+      return {
+        mode,
+        pixelSize,
+        worldSize,
+        shapes,
+        avgScale
+      };
+    }
+
+    _pointsToFloatArray(points) {
+      if (!Array.isArray(points)) {
+        return [];
+      }
+      const data = [];
+      points.forEach((pt) => {
+        const x = Number.isFinite(pt.x) ? pt.x : 0;
+        const y = Number.isFinite(pt.y) ? pt.y : 0;
+        data.push(x, y);
+      });
+      return data;
+    }
+
+    _ensureClosedPolyline(points) {
+      if (!Array.isArray(points) || points.length === 0) {
+        return [];
+      }
+      const closed = points.slice();
+      const first = closed[0];
+      const last = closed[closed.length - 1];
+      if (!this._pointsApproxEqual(first, last)) {
+        closed.push({ x: first.x, y: first.y });
+      }
+      return closed;
+    }
+
+    _trianglesFromOutline(outline) {
+      if (!Array.isArray(outline) || outline.length < 3) {
+        return [];
+      }
+      const triangles = [];
+      const base = outline[0];
+      for (let i = 1; i < outline.length - 1; i += 1) {
+        triangles.push([base, outline[i], outline[i + 1]]);
+      }
+      return triangles;
+    }
+
+    _adjustColorAlpha(color, factor, minimum = 0) {
+      const base = cloneColor(color);
+      const currentAlpha = base.a != null ? base.a : 1;
+      const alpha = Math.max(minimum, Math.min(1, currentAlpha * factor));
+      base.a = alpha;
+      base.css = `rgba(${Math.round(base.r * 255)}, ${Math.round(base.g * 255)}, ${Math.round(base.b * 255)}, ${alpha.toFixed(3)})`;
+      return base;
+    }
+
+    _intColorToRgb(value) {
+      const intVal = Number(value);
+      if (!Number.isFinite(intVal)) {
+        return null;
+      }
+      return {
+        r: (intVal >> 16) & 0xff,
+        g: (intVal >> 8) & 0xff,
+        b: intVal & 0xff
+      };
+    }
+
+    _resolveSectionFillColor(entity, fallbackColor) {
+      const style = entity && entity.resolved ? entity.resolved.sectionViewStyle : null;
+      const codeValues = style && style.codeValues ? style.codeValues : null;
+      if (codeValues) {
+        if (codeValues[420] && codeValues[420].length) {
+          const rgb = this._intColorToRgb(codeValues[420][0]);
+          if (rgb) {
+            return this._createColorFromRgb(rgb, 1);
+          }
+        }
+        if (codeValues[62] && codeValues[62].length) {
+          const index = Number(codeValues[62][0]);
+          if (Number.isFinite(index)) {
+            const rgb = this._aciToRgb(index);
+            return this._createColorFromRgb(rgb, 1);
+          }
+        }
+      }
+      return cloneColor(fallbackColor);
+    }
+
+    _resolveSectionStyle(entity, fallbackColor) {
+      const style = entity && entity.resolved ? entity.resolved.sectionViewStyle : null;
+      const fillColor = this._resolveSectionFillColor(entity, fallbackColor);
+      const codeValues = style && style.codeValues ? style.codeValues : null;
+      const flags = style && Number.isFinite(style.flags) ? style.flags : 0;
+
+      const getValues = (code) => {
+        if (!codeValues) {
+          return null;
+        }
+        const key = String(code);
+        const raw = codeValues[key];
+        if (raw == null) {
+          return null;
+        }
+        return Array.isArray(raw) ? raw : [raw];
+      };
+
+      const toBoolean = (raw) => {
+        if (raw == null) {
+          return null;
+        }
+        if (typeof raw === 'boolean') {
+          return raw;
+        }
+        if (typeof raw === 'number') {
+          return Number.isFinite(raw) ? Math.abs(raw) > 1e-9 : null;
+        }
+        const text = String(raw).trim().toLowerCase();
+        if (!text) {
+          return null;
+        }
+        if (text === 'true' || text === 't' || text === 'yes' || text === 'y' || text === 'on') {
+          return true;
+        }
+        if (text === 'false' || text === 'f' || text === 'no' || text === 'n' || text === 'off') {
+          return false;
+        }
+        const numeric = Number(text);
+        if (Number.isFinite(numeric)) {
+          return Math.abs(numeric) > 1e-9;
+        }
+        return null;
+      };
+
+      const toNumber = (raw) => {
+        if (raw == null) {
+          return null;
+        }
+        if (typeof raw === 'number') {
+          return Number.isFinite(raw) ? raw : null;
+        }
+        const text = String(raw).trim();
+        if (!text) {
+          return null;
+        }
+        const numeric = Number(text);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+
+      const toStringValue = (raw) => {
+        if (raw == null) {
+          return null;
+        }
+        const text = String(raw).trim();
+        return text || null;
+      };
+
+      const clampByte = (value) => {
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+          return null;
+        }
+        return Math.min(Math.max(Math.round(num), 0), 255);
+      };
+
+      const toColor = (raw, alpha = 1) => {
+        if (raw == null) {
+          return null;
+        }
+        if (typeof raw === 'object' && raw !== null) {
+          const r = clampByte(raw.r);
+          const g = clampByte(raw.g);
+          const b = clampByte(raw.b);
+          if ([r, g, b].every((component) => component != null)) {
+            return this._createColorFromRgb({ r, g, b }, alpha);
+          }
+        }
+        if (typeof raw === 'number') {
+          if (Number.isFinite(raw) && Math.abs(raw) >= 256) {
+            return this._createColorFromRgb(this._intColorToRgb(raw), alpha);
+          }
+          return null;
+        }
+        const text = String(raw).trim();
+        if (!text) {
+          return null;
+        }
+        if (/^0x[0-9a-f]{6,8}$/i.test(text)) {
+          const numeric = parseInt(text, 16);
+          return this._createColorFromRgb(this._intColorToRgb(numeric), alpha);
+        }
+        if (/^#?[0-9a-f]{6}$/i.test(text)) {
+          const hex = text.startsWith('#') ? text.slice(1) : text;
+          const numeric = parseInt(hex, 16);
+          const r = (numeric >> 16) & 0xff;
+          const g = (numeric >> 8) & 0xff;
+          const b = numeric & 0xff;
+          return this._createColorFromRgb({ r, g, b }, alpha);
+        }
+        const rgbMatch = text.match(/^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/);
+        if (rgbMatch) {
+          const r = clampByte(rgbMatch[1]);
+          const g = clampByte(rgbMatch[2]);
+          const b = clampByte(rgbMatch[3]);
+          if ([r, g, b].every((component) => component != null)) {
+            return this._createColorFromRgb({ r, g, b }, alpha);
+          }
+        }
+        const numeric = Number(text);
+        if (Number.isFinite(numeric) && Math.abs(numeric) >= 256) {
+          return this._createColorFromRgb(this._intColorToRgb(numeric), alpha);
+        }
+        return null;
+      };
+
+      const booleanCache = new Map();
+
+      const readBoolean = (code) => {
+        if (booleanCache.has(code)) {
+          return booleanCache.get(code);
+        }
+        const values = getValues(code);
+        if (!values) {
+          booleanCache.set(code, null);
+          return null;
+        }
+        let value = null;
+        for (let i = 0; i < values.length; i += 1) {
+          value = toBoolean(values[i]);
+          if (value != null) {
+            break;
+          }
+        }
+        booleanCache.set(code, value);
+        return value;
+      };
+
+      const parseBoolean = (codes, fallback) => {
+        const list = Array.isArray(codes) ? codes : [codes];
+        for (let i = 0; i < list.length; i += 1) {
+          const value = readBoolean(list[i]);
+          if (value != null) {
+            return value;
+          }
+        }
+        return fallback;
+      };
+
+      const parseNumber = (codes, fallback) => {
+        const list = Array.isArray(codes) ? codes : [codes];
+        for (let i = 0; i < list.length; i += 1) {
+          const values = getValues(list[i]);
+          if (!values) {
+            continue;
+          }
+          for (let j = 0; j < values.length; j += 1) {
+            const numeric = toNumber(values[j]);
+            if (numeric != null) {
+              return numeric;
+            }
+          }
+        }
+        return fallback;
+      };
+
+      const parseString = (codes, fallback) => {
+        const list = Array.isArray(codes) ? codes : [codes];
+        for (let i = 0; i < list.length; i += 1) {
+          const values = getValues(list[i]);
+          if (!values) {
+            continue;
+          }
+          for (let j = 0; j < values.length; j += 1) {
+            const text = toStringValue(values[j]);
+            if (text) {
+              return text;
+            }
+          }
+        }
+        return fallback;
+      };
+
+      const parseColor = (trueColorCodes, colorIndexCodes, alpha = 1) => {
+        const colorCodes = Array.isArray(trueColorCodes) ? trueColorCodes : [trueColorCodes];
+        for (let i = 0; i < colorCodes.length; i += 1) {
+          const values = getValues(colorCodes[i]);
+          if (!values) {
+            continue;
+          }
+          for (let j = 0; j < values.length; j += 1) {
+            const color = toColor(values[j], alpha);
+            if (color) {
+              return color;
+            }
+          }
+        }
+        const indexCodes = Array.isArray(colorIndexCodes) ? colorIndexCodes : [colorIndexCodes];
+        for (let i = 0; i < indexCodes.length; i += 1) {
+          const values = getValues(indexCodes[i]);
+          if (!values) {
+            continue;
+          }
+          for (let j = 0; j < values.length; j += 1) {
+            const numeric = toNumber(values[j]);
+            if (numeric == null) {
+              continue;
+            }
+            const rgb = this._aciToRgb(Math.round(numeric));
+            if (rgb) {
+              return this._createColorFromRgb(rgb, alpha);
+            }
+          }
+        }
+        return null;
+      };
+
+      const backgroundColor = parseColor([421, 423, 433, 435], [63, 64], 0.65);
+      const hatchColor = parseColor([422, 424, 434], [94, 95], 0.85)
+        || (fillColor ? this._adjustColorAlpha(fillColor, 0.85, 0.4) : null);
+      const patternName = parseString([430, 3, 300], null);
+      const patternLibrary = parseString([431, 4, 301], null);
+      const hatchAngle = parseNumber([50, 40, 53], 0);
+      const hatchScale = parseNumber([41, 44, 54], 1);
+      const hatchSpacing = parseNumber([42, 55], null);
+
+      const cutHatchEnabled = parseBoolean([290], true);
+      const backgroundFillEnabled = parseBoolean([291], !!backgroundColor);
+      const bendLinesEnabled = parseBoolean([292], true);
+
+      const boolMeta = Object.create(null);
+      if (codeValues) {
+        const trackedCodes = [290, 291, 292, 293, 294, 295, 296, 297, 298, 299];
+        trackedCodes.forEach((code) => {
+          const value = readBoolean(code);
+          if (value != null) {
+            boolMeta[code] = value;
+          }
+        });
+      }
+
+      const styleColor = fillColor ? cloneColor(fillColor) : cloneColor(fallbackColor);
+      return {
+        cutFillColor: styleColor,
+        backgroundColor: backgroundColor ? cloneColor(backgroundColor) : null,
+        hatchColor: hatchColor ? cloneColor(hatchColor) : null,
+        hatchPattern: patternName || null,
+        hatchLibrary: patternLibrary || null,
+        hatchAngle,
+        hatchScale,
+        hatchSpacing,
+        cutHatchEnabled,
+        backgroundFillEnabled,
+        bendLinesEnabled,
+        meta: {
+          name: style && style.name ? style.name : null,
+          handle: style && (style.handleUpper || style.handle) ? (style.handleUpper || style.handle) : null,
+          flags,
+          hatchPattern: patternName || null,
+          hatchLibrary: patternLibrary || null,
+          bools: Object.keys(boolMeta).length ? boolMeta : null
+        }
+      };
+    }
+
+    _getSectionParamFloat(parameters, code, index = 0) {
+      if (!parameters || !Object.prototype.hasOwnProperty.call(parameters, code)) {
+        return null;
+      }
+      const values = parameters[code];
+      const raw = Array.isArray(values) ? values[index] : values;
+      const numeric = Number(raw);
+      return Number.isFinite(numeric) ? numeric : null;
+    }
+
+    _resolveSectionDepth(entity) {
+      const sectionObject = entity && entity.resolved ? entity.resolved.sectionObject : null;
+      const parameters = sectionObject ? sectionObject.parameters : null;
+      if (!parameters) {
+        return null;
+      }
+      const depthCodes = [42, 41, 43, 45, 112];
+      for (let i = 0; i < depthCodes.length; i += 1) {
+        const value = this._getSectionParamFloat(parameters, depthCodes[i]);
+        if (value != null && Math.abs(value) > 1e-6) {
+          return value;
+        }
+      }
+      return null;
+    }
+
+    _emitPointShapes({ center, transform, updateBounds, polylineCollector, color, lineweight, makeMeta, config, family }) {
+      if (!center || !config || !polylineCollector) {
+        return;
+      }
+      const half = config.worldSize * 0.5;
+      const segments = [];
+      if (config.shapes.plus) {
+        segments.push([
+          { x: center.x - half, y: center.y },
+          { x: center.x + half, y: center.y }
+        ]);
+        segments.push([
+          { x: center.x, y: center.y - half },
+          { x: center.x, y: center.y + half }
+        ]);
+      }
+      if (config.shapes.cross) {
+        segments.push([
+          { x: center.x - half, y: center.y - half },
+          { x: center.x + half, y: center.y + half }
+        ]);
+        segments.push([
+          { x: center.x - half, y: center.y + half },
+          { x: center.x + half, y: center.y - half }
+        ]);
+      }
+      if (config.shapes.tick && !config.shapes.cross) {
+        segments.push([
+          { x: center.x - half, y: center.y - half * 0.25 },
+          { x: center.x + half, y: center.y + half }
+        ]);
+      }
+      const metaBase = { geometryKind: 'polyline', isClosed: false, family: family || 'point', pointMode: config.mode };
+      const lw = Number.isFinite(lineweight) ? lineweight : null;
+      segments.forEach((segment, index) => {
+        const transformed = transformPoints(segment, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color: cloneColor(color),
+          lineweight: lw,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: makeMeta(Object.assign({}, metaBase, { shape: 'segment', segmentIndex: index }))
+        });
+      });
+      if (config.shapes.square) {
+        const square = [
+          { x: center.x - half, y: center.y - half },
+          { x: center.x + half, y: center.y - half },
+          { x: center.x + half, y: center.y + half },
+          { x: center.x - half, y: center.y + half },
+          { x: center.x - half, y: center.y - half }
+        ];
+        const transformed = transformPoints(square, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color: cloneColor(color),
+          lineweight: lw,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: makeMeta(Object.assign({}, metaBase, { isClosed: true, shape: 'square' }))
+        });
+      }
+    }
+
+    _isFillEnabled() {
+      const settings = this.displaySettings || {};
+      return settings.fillMode !== 0;
+    }
+
+    _emitHatchOutlines({ entity, geometry, transform, updateBounds, polylineCollector, color, makeMeta }) {
+      if (!geometry || !polylineCollector) {
+        return;
+      }
+      const contours = this._normalizeHatchContours(geometry);
+      if (!contours || !contours.length) {
+        return;
+      }
+      const lineweight = this._resolveLineweight(entity);
+      contours.forEach((contour, index) => {
+        if (!contour || !Array.isArray(contour.points) || contour.points.length < 2) {
+          return;
+        }
+        const transformed = transformPoints(contour.points, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color: cloneColor(color),
+          lineweight,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'hatch-outline', contourIndex: index })
+        });
+      });
+    }
+
+    _emitSolidOutline({ entity, geometry, transform, updateBounds, polylineCollector, color, lineweight, makeMeta }) {
+      if (!geometry || !polylineCollector) {
+        return;
+      }
+      const outline = this._extractSolidOutline(geometry);
+      if (!outline || outline.length < 3) {
+        return;
+      }
+      const transformed = transformPoints(outline, transform);
+      if (!transformed || transformed.length < 3) {
+        return;
+      }
+      const firstPoint = transformed[0];
+      const lastPoint = transformed[transformed.length - 1];
+      if (!this._pointsApproxEqual(firstPoint, lastPoint)) {
+        transformed.push({ x: firstPoint.x, y: firstPoint.y });
+      }
+      transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+      let effectiveLineweight = Number.isFinite(lineweight) ? lineweight : null;
+      if (effectiveLineweight == null && entity && typeof entity.type === 'string' && entity.type.toUpperCase() === 'TRACE') {
+        if (this.displaySettings && Number.isFinite(this.displaySettings.traceWidth)) {
+          effectiveLineweight = Math.abs(this.displaySettings.traceWidth * 100);
+        }
+      }
+      if (effectiveLineweight == null && geometry && Number.isFinite(geometry.traceWidth)) {
+        effectiveLineweight = Math.abs(geometry.traceWidth * 100);
+      }
+      polylineCollector.push({
+        points: transformed,
+        color: cloneColor(color),
+        lineweight: effectiveLineweight,
+        worldBounds: this._computeBoundsFromPoints(transformed),
+        meta: makeMeta({ geometryKind: 'polyline', isClosed: true, family: (entity && entity.type ? entity.type.toLowerCase() : 'solid-outline') })
+      });
     }
 
     _colorFromCellColor(colorData, fallbackColor) {
@@ -10824,6 +15473,13 @@
       }
       const localRotation = geometry.rotation ? geometry.rotation * Math.PI / 180 : 0;
       const rotation = matrixRotation(options.transform) + localRotation;
+      let appliedRotation = rotation;
+      if (this.displaySettings && this.displaySettings.mirrorText === 0) {
+        const det = (options.transform.a * options.transform.d) - (options.transform.b * options.transform.c);
+        if (det < 0) {
+          appliedRotation += Math.PI;
+        }
+      }
       const scales = matrixScale(options.transform);
       const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
       const resolvedTextStyle = options.entity.resolved && options.entity.resolved.textStyle
@@ -10857,7 +15513,7 @@
         geometry,
         color: options.color,
         worldPosition,
-        rotation,
+        rotation: appliedRotation,
         worldHeight,
         baseHeight,
         scaleMagnitude: avgScale,
@@ -13025,7 +17681,44 @@
       }
     }
 
-    _addMeshGeometry(entity, geometry, transform, updateBounds, polylineCollector, fillCollector, color, material) {
+    _addMeshGeometry(entity, geometry, transform, updateBounds, polylineCollector, fillCollector, color, material, makeMeta) {
+      if (!geometry) {
+        return;
+      }
+      if (this.tessellator) {
+        const tessellated = this.tessellator.tessellateMesh(geometry);
+        if (tessellated && Array.isArray(tessellated.triangles) && tessellated.triangles.length) {
+          tessellated.triangles.forEach((triangle) => {
+            const transformed = transformPoints(triangle, transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            const data = this._pointsToFloatArray(transformed);
+            if (data.length >= 6) {
+              fillCollector.push({
+                triangles: new Float32Array(data),
+                color,
+                material: material || null,
+                meta: makeMeta ? makeMeta({ geometryKind: 'fill', fillKind: 'mesh' }) : null
+              });
+            }
+          });
+          if (Array.isArray(tessellated.outlines)) {
+            tessellated.outlines.forEach((outline) => {
+              if (!outline || outline.length < 2) return;
+              const transformed = transformPoints(outline, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+              polylineCollector.push({
+                points: transformed,
+                color,
+                lineweight: this._resolveLineweight(entity),
+                worldBounds: this._computeBoundsFromPoints(transformed),
+                meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1]), family: 'mesh-outline' }) : null
+              });
+            });
+          }
+          return;
+        }
+      }
+
       if (!geometry.vertices || geometry.vertices.length === 0) return;
       const vertices = geometry.vertices.map((v) => applyMatrix(transform, { x: v.position.x, y: v.position.y }));
       vertices.forEach((pt) => updateBounds(pt.x, pt.y));
@@ -13039,9 +17732,14 @@
           }).filter(Boolean);
           if (facePts.length < 3) return;
           const triangles = triangulateFan(facePts);
-          if (triangles.length >= 6) {
-            fillCollector.push({ triangles: new Float32Array(triangles), color, material: material || null });
-          }
+          triangles.forEach((triangle) => {
+            const floatVerts = new Float32Array(triangle.length * 2);
+            triangle.forEach((pt, idx) => {
+              floatVerts[idx * 2] = pt.x;
+              floatVerts[idx * 2 + 1] = pt.y;
+            });
+            fillCollector.push({ triangles: floatVerts, color, material: material || null });
+          });
         });
       } else {
         for (let i = 0; i < vertices.length - 1; i++) {
@@ -13053,7 +17751,467 @@
         }
       }
     }
-  }
+
+    _addSolidGeometry(entity, geometry, transform, updateBounds, polylineCollector, fillCollector, color, material, makeMeta) {
+      if (!geometry) {
+        return;
+      }
+      const lineweight = this._resolveLineweight(entity);
+      if (this.tessellator) {
+        const tessellated = this.tessellator.tessellateSolid(geometry);
+        if (tessellated && Array.isArray(tessellated.triangles) && tessellated.triangles.length) {
+          tessellated.triangles.forEach((triangle) => {
+            const transformed = transformPoints(triangle, transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            const data = this._pointsToFloatArray(transformed);
+            if (data.length >= 6) {
+              fillCollector.push({
+                triangles: new Float32Array(data),
+                color,
+                material: material || null,
+                meta: makeMeta ? makeMeta({ geometryKind: 'fill', fillKind: 'solid' }) : null
+              });
+            }
+          });
+          if (Array.isArray(tessellated.outlines)) {
+            tessellated.outlines.forEach((outline) => {
+              if (!outline || outline.length < 2) return;
+              const transformed = transformPoints(outline, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+              polylineCollector.push({
+                points: transformed,
+                color,
+                lineweight,
+                worldBounds: this._computeBoundsFromPoints(transformed),
+                meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'solid-outline' }) : null
+              });
+            });
+          }
+          return;
+        }
+      }
+
+      let outline = null;
+      if (geometry.outline2D && geometry.outline2D.length >= 3) {
+        outline = geometry.outline2D.map((pt) => ({ x: pt.x, y: pt.y }));
+      } else if (geometry.boundingBox) {
+        outline = this._outlineFromBoundingBox(geometry.boundingBox);
+      }
+      if (outline && outline.length >= 3) {
+        const triangles = this._trianglesFromOutline(outline);
+        if (triangles.length) {
+          triangles.forEach((triangle) => {
+            const transformed = transformPoints(triangle, transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            const data = this._pointsToFloatArray(transformed);
+            if (data.length >= 6) {
+              fillCollector.push({
+                triangles: new Float32Array(data),
+                color,
+                material: material || null,
+                meta: makeMeta ? makeMeta({ geometryKind: 'fill', fillKind: 'solid' }) : null
+              });
+            }
+          });
+        } else {
+          const transformed = transformPoints(outline, transform);
+          transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+          const closed = this._ensureClosedPolyline(transformed);
+          fillCollector.push({ points: closed, color, material: material || null });
+        }
+        const transformedOutline = transformPoints(outline, transform);
+        transformedOutline.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformedOutline,
+          color,
+          lineweight,
+          worldBounds: this._computeBoundsFromPoints(transformedOutline),
+          meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'solid-outline' }) : null
+        });
+      }
+    }
+
+    _addPolysolidGeometry(entity, geometry, transform, updateBounds, polylineCollector, fillCollector, color, material, makeMeta) {
+      if (!geometry || !geometry.points || geometry.points.length < 2) {
+        return;
+      }
+      const lineweight = this._resolveLineweight(entity);
+      if (this.tessellator && typeof this.tessellator.tessellatePolysolid === 'function') {
+        const tessellated = this.tessellator.tessellatePolysolid(geometry);
+        if (tessellated) {
+          if (Array.isArray(tessellated.triangles)) {
+            tessellated.triangles.forEach((triangle) => {
+              const transformed = transformPoints(triangle, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+              const data = this._pointsToFloatArray(transformed);
+              if (data.length >= 6) {
+                fillCollector.push({
+                  triangles: new Float32Array(data),
+                  color,
+                  material: material || null,
+                  meta: makeMeta ? makeMeta({ geometryKind: 'fill', fillKind: 'polysolid' }) : null
+                });
+              }
+            });
+          }
+          if (Array.isArray(tessellated.outlines)) {
+            tessellated.outlines.forEach((outline) => {
+              if (!outline || outline.length < 2) return;
+              const transformed = transformPoints(outline, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+              polylineCollector.push({
+                points: transformed,
+                color,
+                lineweight,
+                worldBounds: this._computeBoundsFromPoints(transformed),
+                meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'polysolid-outline' }) : null
+              });
+            });
+          }
+          return;
+        }
+      }
+
+      const verts = geometry.points.map((pt) => ({
+        x: Number.isFinite(pt.x) ? pt.x : 0,
+        y: Number.isFinite(pt.y) ? pt.y : 0
+      }));
+      const transformed = transformPoints(verts, transform);
+      transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+      const isClosed = !!geometry.isClosed && transformed.length > 2;
+      if (isClosed && !this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
+        transformed.push({ x: transformed[0].x, y: transformed[0].y });
+      }
+      polylineCollector.push({
+        points: transformed,
+        color,
+        lineweight,
+        worldBounds: this._computeBoundsFromPoints(transformed),
+        meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed, family: 'polysolid' }) : null
+      });
+    }
+
+    _addSectionCutGeometry({ entity, geometry, transform, updateBounds, polylineCollector, fillCollector, color, material, makeMeta, tables }) {
+      if (!geometry) {
+        return;
+      }
+
+      const sectionColor = color || cloneColor(null);
+      const sectionStyle = this._resolveSectionStyle(entity, sectionColor);
+      const showHatch = sectionStyle.cutHatchEnabled !== false;
+      const showBendLines = sectionStyle.bendLinesEnabled !== false;
+      const lineweight = this._resolveLineweight(entity);
+      const linetype = this._resolveLinetype(entity, tables);
+      const boundary3d = Array.isArray(geometry.boundary) ? geometry.boundary : null;
+      const boundary2d = boundary3d
+        ? boundary3d.map((pt) => ({
+            x: Number.isFinite(pt.x) ? pt.x : 0,
+            y: Number.isFinite(pt.y) ? pt.y : 0
+          }))
+        : null;
+
+      const sectionObject = entity && entity.resolved ? entity.resolved.sectionObject : null;
+      const sectionGeometryRecord = entity && entity.resolved ? entity.resolved.sectionGeometry : null;
+      const detailViewObject = entity && entity.resolved ? entity.resolved.detailViewObject : null;
+      const normalizeHandle = (value) => this._normalizeHandle(value);
+
+      const sourceHandles = [];
+      const pushHandle = (value) => {
+        const normalized = normalizeHandle(value);
+        if (normalized && !sourceHandles.includes(normalized)) {
+          sourceHandles.push(normalized);
+        }
+      };
+      pushHandle(entity && entity.handle);
+      pushHandle(geometry && geometry.sectionGeometryHandle);
+      pushHandle(geometry && geometry.sectionObjectHandle);
+      pushHandle(geometry && geometry.detailViewHandle);
+      pushHandle(sectionGeometryRecord && (sectionGeometryRecord.handleUpper || sectionGeometryRecord.handle));
+      pushHandle(sectionObject && (sectionObject.handleUpper || sectionObject.handle));
+      pushHandle(detailViewObject && (detailViewObject.handleUpper || detailViewObject.handle));
+
+      const sectionHandle = normalizeHandle(geometry && geometry.sectionObjectHandle
+        ? geometry.sectionObjectHandle
+        : (sectionObject && (sectionObject.handleUpper || sectionObject.handle)));
+      const sectionGeometryHandle = normalizeHandle(geometry && geometry.sectionGeometryHandle
+        ? geometry.sectionGeometryHandle
+        : (sectionGeometryRecord && (sectionGeometryRecord.handleUpper || sectionGeometryRecord.handle)));
+      const detailHandle = normalizeHandle(geometry && geometry.detailViewHandle
+        ? geometry.detailViewHandle
+        : (detailViewObject && (detailViewObject.handleUpper || detailViewObject.handle)));
+      const sectionName = geometry && geometry.name ? geometry.name : (sectionObject && sectionObject.name) || null;
+      const sectionDescription = sectionObject && sectionObject.description ? sectionObject.description : null;
+      const isAssociative = sourceHandles.length > 0;
+
+      let sectionAssociation = null;
+      if (isAssociative) {
+        sectionAssociation = {
+          sectionHandle,
+          geometryHandle: sectionGeometryHandle,
+          detailHandle,
+          name: sectionName,
+          description: sectionDescription,
+          sectionType: sectionObject && Number.isFinite(sectionObject.sectionType) ? sectionObject.sectionType : null,
+          state: sectionObject && Number.isFinite(sectionObject.state) ? sectionObject.state : null,
+          liveSection: !!geometry.liveSection,
+          parameters: sectionObject ? sectionObject.parameters || null : null,
+          sourceHandles: sourceHandles.slice()
+        };
+      }
+      const cloneAssociation = () => {
+        if (!sectionAssociation) {
+          return null;
+        }
+        const copy = Object.assign({}, sectionAssociation);
+        if (Array.isArray(sectionAssociation.sourceHandles)) {
+          copy.sourceHandles = sectionAssociation.sourceHandles.slice();
+        }
+        if (Array.isArray(sectionAssociation.boundary)) {
+          copy.boundary = sectionAssociation.boundary.map((pt) => ({ x: pt.x, y: pt.y }));
+        }
+        if (sectionAssociation.worldBounds) {
+          copy.worldBounds = Object.assign({}, sectionAssociation.worldBounds);
+        }
+        return copy;
+      };
+
+      const triangleList = [];
+      const addTriangle = (pts) => {
+        if (!Array.isArray(pts) || pts.length < 3) {
+          return;
+        }
+        const transformed = transformPoints(pts, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        triangleList.push(transformed);
+      };
+
+      let transformedBoundary = null;
+      let boundaryPoints = null;
+      let boundaryContours = null;
+      let boundaryBounds = null;
+      if (boundary2d && boundary2d.length >= 3) {
+        if (this.tessellator) {
+          const tessellated = this.tessellator.tessellateSolid({ outline2D: boundary2d });
+          if (tessellated && Array.isArray(tessellated.triangles)) {
+            tessellated.triangles.forEach(addTriangle);
+          }
+          if (!transformedBoundary && tessellated && Array.isArray(tessellated.outlines) && tessellated.outlines.length) {
+            const outline = tessellated.outlines[0];
+            transformedBoundary = transformPoints(outline, transform);
+            transformedBoundary.forEach((pt) => updateBounds(pt.x, pt.y));
+          }
+        }
+        if (!triangleList.length) {
+          const fallbackTriangles = this._trianglesFromOutline(boundary2d);
+          fallbackTriangles.forEach(addTriangle);
+        }
+        if (!transformedBoundary) {
+          transformedBoundary = transformPoints(boundary2d, transform);
+          transformedBoundary.forEach((pt) => updateBounds(pt.x, pt.y));
+        }
+        if (transformedBoundary && transformedBoundary.length) {
+          boundaryPoints = transformedBoundary.map((pt) => ({ x: pt.x, y: pt.y }));
+          boundaryBounds = this._computeBoundsFromPoints(boundaryPoints);
+          boundaryContours = [{ isHole: false, points: boundaryPoints }];
+          if (sectionAssociation) {
+            sectionAssociation.boundary = boundaryPoints.map((pt) => ({ x: pt.x, y: pt.y }));
+            sectionAssociation.worldBounds = boundaryBounds ? Object.assign({}, boundaryBounds) : null;
+          }
+          polylineCollector.push({
+            points: transformedBoundary,
+            color: sectionColor,
+            lineweight,
+            linetype,
+            worldBounds: boundaryBounds ? Object.assign({}, boundaryBounds) : null,
+            meta: makeMeta
+              ? makeMeta({
+                  geometryKind: 'polyline',
+                  isClosed: true,
+                  family: 'section-boundary',
+                  sectionStyle: sectionStyle.meta,
+                  sectionAssociation: cloneAssociation()
+                })
+              : null
+          });
+        }
+      }
+
+      const baseFillColor = sectionStyle.backgroundFillEnabled
+        ? (sectionStyle.backgroundColor ||
+            this._adjustColorAlpha(sectionStyle.cutFillColor || sectionColor, 0.45, 0.25))
+        : (sectionStyle.cutFillColor || this._adjustColorAlpha(sectionColor, 0.45, 0.25));
+      const fillKind = sectionStyle.backgroundFillEnabled ? 'section-background' : 'section';
+      const cloneContours = () => {
+        if (!boundaryContours) {
+          return null;
+        }
+        return boundaryContours.map((contour) => ({
+          isHole: !!contour.isHole,
+          points: contour.points.map((pt) => ({ x: pt.x, y: pt.y }))
+        }));
+      };
+      const createFillEntry = (extras) => {
+        const entry = Object.assign({
+          color: baseFillColor,
+          material: material || null,
+          sourceHandles: sourceHandles.slice(),
+          associative: isAssociative,
+          sectionAssociation: cloneAssociation()
+        }, extras || {});
+        if (boundaryContours) {
+          entry.contours = cloneContours();
+          entry.worldBounds = boundaryBounds ? Object.assign({}, boundaryBounds) : null;
+        }
+        if (makeMeta) {
+          entry.meta = makeMeta({
+            geometryKind: 'fill',
+            fillKind,
+            sectionStyle: sectionStyle.meta,
+            sectionAssociation: cloneAssociation()
+          });
+        }
+        return entry;
+      };
+
+      if (triangleList.length && baseFillColor) {
+        const flattened = [];
+        triangleList.forEach((triangle) => {
+          triangle.forEach((pt) => {
+            flattened.push(pt.x, pt.y);
+          });
+        });
+        if (flattened.length >= 6) {
+          fillCollector.push(createFillEntry({
+            triangles: new Float32Array(flattened)
+          }));
+        }
+      } else if (!triangleList.length && transformedBoundary && transformedBoundary.length >= 3 && baseFillColor) {
+        const closed = this._ensureClosedPolyline(transformedBoundary);
+        fillCollector.push(createFillEntry({
+          points: closed
+        }));
+      }
+
+      if (showHatch && triangleList.length) {
+        const hatchStrokeColor = sectionStyle.hatchColor || this._adjustColorAlpha(sectionColor, 0.8, 0.4);
+        triangleList.forEach((triangle, index) => {
+          const p0 = triangle[0];
+          const p1 = triangle[1];
+          const p2 = triangle[2];
+          const area = Math.abs(((p1.x - p0.x) * (p2.y - p0.y)) - ((p2.x - p0.x) * (p1.y - p0.y))) * 0.5;
+          if (!Number.isFinite(area) || area < 1e-6) {
+            return;
+          }
+          const mid01 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+          const mid12 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+          const hatchSegment = [mid01, mid12];
+          const transformedSegment = transformPoints(hatchSegment, transform);
+          transformedSegment.forEach((pt) => updateBounds(pt.x, pt.y));
+          polylineCollector.push({
+            points: transformedSegment,
+            color: hatchStrokeColor,
+            lineweight: Math.max(0.4, this._lineweightToPx(entity.lineweight) * 0.4),
+            worldBounds: this._computeBoundsFromPoints(transformedSegment),
+            meta: makeMeta
+              ? makeMeta({
+                  geometryKind: 'polyline',
+                  family: 'section-hatch',
+                  segmentIndex: index,
+                  sectionStyle: Object.assign({}, sectionStyle.meta, {
+                    hatchPattern: sectionStyle.hatchPattern,
+                    hatchAngle: sectionStyle.hatchAngle,
+                    hatchScale: sectionStyle.hatchScale
+                  }),
+                  sectionAssociation: cloneAssociation()
+                })
+              : null
+          });
+        });
+      }
+
+      const depthValue = this._resolveSectionDepth(entity);
+      if (
+        showBendLines &&
+        transformedBoundary &&
+        transformedBoundary.length &&
+        depthValue != null &&
+        Math.abs(depthValue) > 1e-6 &&
+        boundary3d &&
+        boundary3d.length >= 3
+      ) {
+        const viewDir = geometry.viewDirection || {};
+        let offset = { x: 0, y: -depthValue };
+        const len = Math.hypot(Number(viewDir.x) || 0, Number(viewDir.y) || 0);
+        if (len > 1e-6) {
+          offset = {
+            x: (viewDir.x / len) * depthValue,
+            y: (viewDir.y / len) * depthValue
+          };
+        }
+        const depthBoundary = boundary3d.map((pt) => ({
+          x: (Number.isFinite(pt.x) ? pt.x : 0) + offset.x,
+          y: (Number.isFinite(pt.y) ? pt.y : 0) + offset.y
+        }));
+        const transformedDepth = transformPoints(depthBoundary, transform);
+        transformedDepth.forEach((pt) => updateBounds(pt.x, pt.y));
+        const bendColor = sectionStyle.hatchColor || this._adjustColorAlpha(sectionColor, 0.85, 0.5);
+        polylineCollector.push({
+          points: transformedDepth,
+          color: bendColor,
+          lineweight,
+          linetype,
+          worldBounds: this._computeBoundsFromPoints(transformedDepth),
+          meta: makeMeta
+            ? makeMeta({
+                geometryKind: 'polyline',
+                isClosed: true,
+                family: 'section-depth',
+                sectionStyle: sectionStyle.meta,
+                sectionAssociation: cloneAssociation()
+              })
+            : null
+        });
+
+        const connectorStep = Math.max(1, Math.floor(transformedBoundary.length / 8));
+        for (let i = 0; i < transformedBoundary.length && i < transformedDepth.length; i += connectorStep) {
+          const connector = [transformedBoundary[i], transformedDepth[Math.min(i, transformedDepth.length - 1)]];
+          polylineCollector.push({
+            points: connector,
+            color: this._adjustColorAlpha(bendColor, 0.85, 0.45),
+            lineweight: Math.max(0.4, this._lineweightToPx(entity.lineweight) * 0.5),
+            worldBounds: this._computeBoundsFromPoints(connector),
+            meta: makeMeta
+              ? makeMeta({
+                  geometryKind: 'polyline',
+                  family: 'section-depth-connector',
+                  sectionStyle: sectionStyle.meta,
+                  sectionAssociation: cloneAssociation()
+                })
+              : null
+          });
+        }
+      }
+
+      if (showBendLines && geometry.planeOrigin && geometry.targetPoint) {
+        const axisPoints = transformPoints([geometry.planeOrigin, geometry.targetPoint], transform);
+        axisPoints.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: axisPoints,
+          color: sectionStyle.hatchColor || this._adjustColorAlpha(sectionColor, 0.85, 0.45),
+          lineweight: Math.max(0.6, this._lineweightToPx(entity.lineweight) * 0.75),
+          worldBounds: this._computeBoundsFromPoints(axisPoints),
+          meta: makeMeta
+            ? makeMeta({
+                geometryKind: 'polyline',
+                family: 'section-axis',
+                sectionStyle: sectionStyle.meta,
+                sectionAssociation: cloneAssociation()
+              })
+            : null
+        });
+      }
+    }
+    }
 
   namespace.RenderingSurfaceManager = RenderingSurfaceManager;
 
@@ -13090,6 +18248,10 @@
     closeBtn: '#closeRenderingOverlayBtn',
     titleEl: '#renderingOverlayTitle',
     summaryContainer: '#renderingOverlaySummary',
+    infoTabButton: '#renderingOverlayInfoTab',
+    layersTabButton: '#renderingOverlayLayersTab',
+    infoTabPanel: '#renderingOverlayInfoPanel',
+    layersTabPanel: '#renderingOverlayLayersPanel',
     layerManagerContainer: '#renderingOverlayLayerManager',
     layerManagerStatus: '#layerManagerStatus',
     layerManagerFilterInput: '#layerManagerFilter',
@@ -13136,6 +18298,11 @@
       this.closeBtn = null;
       this.titleEl = null;
       this.summaryContainer = null;
+      this.infoTabButton = null;
+      this.layersTabButton = null;
+      this.infoTabPanel = null;
+      this.layersTabPanel = null;
+      this.activeInfoTab = 'info';
       this.layerManagerContainer = null;
       this.layerManagerStatus = null;
       this.layerManagerFilterInput = null;
@@ -13221,6 +18388,8 @@
       this.visualStyleSpecifierToOption = new Map();
       this.keydownListenerTarget = null;
 
+      this.boundInfoTabClick = () => this.setInformationTab('info', { focus: true });
+      this.boundLayersTabClick = () => this.setInformationTab('layers', { focus: true });
       this.boundClose = () => this.close();
       this.boundOnKeyDown = (event) => this.handleOverlayKeyDown(event);
       this.boundPointerDown = (event) => this.handlePointerDown(event);
@@ -13928,6 +19097,10 @@
       this.closeBtn = find('closeBtn');
       this.titleEl = find('titleEl');
       this.summaryContainer = find('summaryContainer');
+      this.infoTabButton = find('infoTabButton');
+      this.layersTabButton = find('layersTabButton');
+      this.infoTabPanel = find('infoTabPanel');
+      this.layersTabPanel = find('layersTabPanel');
       this.layerManagerContainer = find('layerManagerContainer');
       this.layerManagerStatus = find('layerManagerStatus');
       this.layerManagerFilterInput = find('layerManagerFilterInput');
@@ -13983,6 +19156,13 @@
         this.selectionToolbar.setAttribute('aria-hidden', 'true');
         this.selectionToolbar.style.display = 'none';
       }
+      if (this.infoTabButton) {
+        this.infoTabButton.addEventListener('click', this.boundInfoTabClick);
+      }
+      if (this.layersTabButton) {
+        this.layersTabButton.addEventListener('click', this.boundLayersTabClick);
+      }
+      this.setInformationTab(this.activeInfoTab);
       if (this.viewportEl && !this.pointerListenersAttached) {
         this.viewportEl.addEventListener('pointerdown', this.boundPointerDown, true);
         this.viewportEl.addEventListener('pointermove', this.boundPointerMove);
@@ -14109,9 +19289,54 @@
       this.updateViewNavigationUi();
     }
 
+    setInformationTab(tabId, options = {}) {
+      const nextTab = tabId === 'layers' ? 'layers' : 'info';
+      const focusRequested = options.focus === true;
+      this.activeInfoTab = nextTab;
+      const infoActive = nextTab === 'info';
+      if (this.infoTabButton) {
+        this.infoTabButton.classList.toggle('active', infoActive);
+        this.infoTabButton.setAttribute('aria-selected', infoActive ? 'true' : 'false');
+        if (focusRequested && infoActive) {
+          this.infoTabButton.focus();
+        }
+      }
+      if (this.layersTabButton) {
+        this.layersTabButton.classList.toggle('active', !infoActive);
+        this.layersTabButton.setAttribute('aria-selected', !infoActive ? 'true' : 'false');
+        if (focusRequested && !infoActive) {
+          this.layersTabButton.focus();
+        }
+      }
+      if (this.infoTabPanel) {
+        if (infoActive) {
+          this.infoTabPanel.removeAttribute('hidden');
+          this.infoTabPanel.classList.add('active');
+        } else {
+          this.infoTabPanel.setAttribute('hidden', 'true');
+          this.infoTabPanel.classList.remove('active');
+        }
+      }
+      if (this.layersTabPanel) {
+        if (!infoActive) {
+          this.layersTabPanel.removeAttribute('hidden');
+          this.layersTabPanel.classList.add('active');
+        } else {
+          this.layersTabPanel.setAttribute('hidden', 'true');
+          this.layersTabPanel.classList.remove('active');
+        }
+      }
+    }
+
     dispose() {
       if (this.closeBtn) {
         this.closeBtn.removeEventListener('click', this.boundClose);
+      }
+      if (this.infoTabButton) {
+        this.infoTabButton.removeEventListener('click', this.boundInfoTabClick);
+      }
+      if (this.layersTabButton) {
+        this.layersTabButton.removeEventListener('click', this.boundLayersTabClick);
       }
       if (this.keydownListenerTarget) {
         this.keydownListenerTarget.removeEventListener('keydown', this.boundOnKeyDown);
@@ -14174,6 +19399,11 @@
       this.closeBtn = null;
       this.titleEl = null;
       this.summaryContainer = null;
+      this.infoTabButton = null;
+      this.layersTabButton = null;
+      this.infoTabPanel = null;
+      this.layersTabPanel = null;
+      this.activeInfoTab = 'info';
       this.layerManagerContainer = null;
       this.layerManagerStatus = null;
       this.layerManagerFilterInput = null;
@@ -15650,6 +20880,7 @@
       this.clearSnapIndicator({ silent: true });
       this.refreshViewportOverlays(null);
       this.updateMeasurementToolbarUI();
+      this.setInformationTab('info');
       this.currentTabId = null;
       this.currentPane = null;
       this.currentSceneGraph = null;
