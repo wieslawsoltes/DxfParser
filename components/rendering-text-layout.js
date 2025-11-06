@@ -115,7 +115,7 @@
 
       const backgroundCss = this._resolveBackground(rawText);
 
-      return {
+      const layout = {
         kind,
         screenPosition: rawText.screenPosition || [0, 0],
         rotationRad,
@@ -137,6 +137,10 @@
         widthFactor: effectiveWidthFactor,
         rawContent: baseContent
       };
+      if (rawText.decodedMText && Array.isArray(rawText.decodedMText.runs)) {
+        layout.richRuns = rawText.decodedMText.runs;
+      }
+      return layout;
     }
 
     _extractContent(kind, rawText) {
@@ -145,7 +149,11 @@
           return this._decodeDxfText(rawText.content || rawText.geometry?.content || '');
         case 'MTEXT': {
           const content = rawText.geometry ? rawText.geometry.text : rawText.content;
-          return this._decodeMText(content || '');
+          const decoded = this._decodeMText(content || '');
+          if (rawText && typeof rawText === 'object') {
+            rawText.decodedMText = decoded;
+          }
+          return decoded.text;
         }
         case 'TOLERANCE': {
           if (rawText.geometry && Array.isArray(rawText.geometry.segments) && rawText.geometry.segments.length) {
@@ -170,41 +178,270 @@
 
     _decodeMText(value) {
       if (!value || typeof value !== 'string') {
-        return '';
+        return { text: '', runs: [] };
       }
-      let text = '';
-      for (let i = 0; i < value.length; i++) {
+
+      const baseState = () => ({
+        bold: false,
+        italic: false,
+        underline: false,
+        overline: false,
+        strike: false,
+        color: null,
+        font: null,
+        heightScale: 1,
+        widthScale: 1,
+        oblique: 0,
+        tracking: 0,
+        alignment: null
+      });
+
+      const cloneState = (state) => Object.assign({}, state);
+      let state = baseState();
+      const stack = [];
+      const runs = [];
+      let buffer = '';
+
+      const flush = () => {
+        if (!buffer) {
+          return;
+        }
+        runs.push({ text: buffer, style: cloneState(state) });
+        buffer = '';
+      };
+
+      const pushChar = (ch) => {
+        buffer += ch;
+      };
+
+      const readParameter = (startIndex) => {
+        let text = '';
+        let idx = startIndex;
+        while (idx < value.length) {
+          const current = value[idx];
+          if (current === ';') {
+            break;
+          }
+          text += current;
+          idx += 1;
+        }
+        return { text: text.trim(), nextIndex: idx };
+      };
+
+      const formatStack = (content) => {
+        if (!content) {
+          return '';
+        }
+        let cleaned = content.replace(/[{}]/g, '');
+        if (cleaned.includes('#')) {
+          const parts = cleaned.split('#');
+          return parts.join('/');
+        }
+        if (cleaned.includes('^')) {
+          const parts = cleaned.split('^');
+          if (parts.length === 2) {
+            return `${parts[0]}/${parts[1]}`;
+          }
+        }
+        if (cleaned.includes('/')) {
+          const parts = cleaned.split('/');
+          if (parts.length === 2) {
+            return `${parts[0]}/${parts[1]}`;
+          }
+        }
+        return cleaned;
+      };
+
+      for (let i = 0; i < value.length; i += 1) {
         const ch = value[i];
-        if (ch === '\\') {
+        if (ch === '{') {
+          stack.push(cloneState(state));
+          continue;
+        }
+        if (ch === '}') {
+          flush();
+          state = stack.pop() || baseState();
+          continue;
+        }
+        if (ch === '^') {
           const next = value[i + 1];
-          if (next === 'P' || next === 'p' || next === 'N' || next === 'n') {
-            text += '\n';
-            i += 1;
+          if (!next) {
             continue;
           }
-          if (next === '\\') {
-            text += '\\';
-            i += 1;
-            continue;
+          flush();
+          const code = next.toLowerCase();
+          if (code === 'i') {
+            state.italic = !state.italic;
+          } else if (code === 'o') {
+            state.overline = !state.overline;
+          } else if (code === 'b') {
+            state.bold = !state.bold;
           }
-          if (next === '~') {
-            text += '\u00A0';
-            i += 1;
-            continue;
+          i += 1;
+          continue;
+        }
+        if (ch === '\\') {
+          i += 1;
+          if (i >= value.length) {
+            break;
           }
-          // Skip formatting codes such as \A, \H, \W, etc.
-          const formatMatch = value.slice(i + 1).match(/^([AaCHwWQqTtObBlL])[^\\;]*[;x]?/);
-          if (formatMatch) {
-            i += formatMatch[0].length;
-            continue;
+          const code = value[i];
+          switch (code) {
+            case '\\':
+              pushChar('\\');
+              break;
+            case '{':
+              pushChar('{');
+              break;
+            case '}':
+              pushChar('}');
+              break;
+            case '~':
+              pushChar('\u00A0');
+              break;
+            case 'P':
+            case 'p':
+            case 'N':
+            case 'n':
+              flush();
+              pushChar('\n');
+              break;
+            case 'L':
+              flush();
+              state.underline = true;
+              break;
+            case 'l':
+              flush();
+              state.underline = false;
+              break;
+            case 'O':
+              flush();
+              state.overline = true;
+              break;
+            case 'o':
+              flush();
+              state.overline = false;
+              break;
+            case 'K':
+              flush();
+              state.strike = true;
+              break;
+            case 'k':
+              flush();
+              state.strike = false;
+              break;
+            case 'A': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                state.alignment = param.text;
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'C': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const [index] = param.text.split(',');
+                const numeric = parseInt(index, 10);
+                if (Number.isInteger(numeric)) {
+                  flush();
+                  state.color = numeric;
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'F': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const [font] = param.text.split('|');
+                flush();
+                state.font = font || null;
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'H': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const cleaned = param.text.replace(/[xX]$/, '');
+                const numeric = parseFloat(cleaned);
+                if (Number.isFinite(numeric) && numeric !== 0) {
+                  flush();
+                  state.heightScale = Math.abs(numeric);
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'W': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const numeric = parseFloat(param.text);
+                if (Number.isFinite(numeric) && numeric !== 0) {
+                  flush();
+                  state.widthScale = Math.abs(numeric);
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'T': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const numeric = parseFloat(param.text);
+                if (Number.isFinite(numeric)) {
+                  flush();
+                  state.tracking = numeric;
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'Q': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const numeric = parseFloat(param.text);
+                if (Number.isFinite(numeric)) {
+                  flush();
+                  state.oblique = numeric;
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'S': {
+              const param = readParameter(i + 1);
+              const formatted = formatStack(param.text);
+              if (formatted) {
+                pushChar(formatted);
+              }
+              i = param.nextIndex;
+              break;
+            }
+            default:
+              pushChar(code);
+              break;
           }
+          continue;
         }
         if (ch === '{' || ch === '}') {
           continue;
         }
-        text += ch;
+        pushChar(ch);
       }
-      return this._decodeDxfText(text);
+
+      flush();
+
+      runs.forEach((run) => {
+        run.text = this._decodeDxfText(run.text);
+      });
+
+      const mergedText = runs.map((run) => run.text).join('');
+      return {
+        text: mergedText,
+        runs: runs.filter((run) => run.text && run.text.length)
+      };
     }
 
     _decodeDxfText(value) {

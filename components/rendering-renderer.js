@@ -1433,6 +1433,11 @@
       }
       const tables = sceneGraph.tables || {};
       const units = sceneGraph.units || {};
+      const primaryUnits = this._normalizeUnitsCode(units.insUnits);
+      const blockUnitsLookup = this._buildBlockUnitsLookup(
+        tables.blockRecords || {},
+        sceneGraph.blockMetadata || {}
+      );
       const normalizeScale = (value, fallback) => {
         if (Number.isFinite(value) && value !== 0) {
           return Math.abs(value);
@@ -1574,7 +1579,7 @@
 
       let renderBlockContent = () => {};
 
-      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive) => {
+      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive, contextUnits) => {
         if (!entity || depth > MAX_BLOCK_DEPTH) {
           return;
         }
@@ -1582,6 +1587,9 @@
         const geometry = entity.geometry || {};
         blockStack = blockStack || [];
         highlightActive = !!highlightActive;
+        const activeUnits = this._normalizeUnitsCode(
+          contextUnits != null ? contextUnits : primaryUnits
+        );
         const handle = this._normalizeHandle(entity.handle || entity.id || null);
         const isolationActive = this.entityIsolation && this.entityIsolation.size > 0;
         const isContainerEntity = type === 'INSERT';
@@ -2045,7 +2053,8 @@
             depth,
             visitedBlocks,
             blockStack,
-            highlightActive
+            highlightActive,
+            contextUnits: activeUnits
           });
           break;
         }
@@ -2068,7 +2077,8 @@
             depth,
             visitedBlocks,
             blockStack,
-            highlightActive
+            highlightActive,
+            contextUnits: activeUnits
           });
           break;
         }
@@ -2089,7 +2099,8 @@
             depth,
             visitedBlocks,
             blockStack,
-            highlightActive
+            highlightActive,
+            contextUnits: activeUnits
           });
           break;
         }
@@ -2255,9 +2266,25 @@
             if (!geometry.position) return;
             const worldPosition = applyMatrix(transform, geometry.position);
             updateBounds(worldPosition.x, worldPosition.y);
-            const localRotation = geometry.rotation ? geometry.rotation * Math.PI / 180 : 0;
-            const rotation = matrixRotation(transform) + localRotation;
-            let appliedRotation = rotation;
+            const direction = geometry.direction || null;
+            let directionRotation = null;
+            let directionScale = null;
+            if (direction && (Number.isFinite(direction.x) || Number.isFinite(direction.y))) {
+              const dirVector = {
+                x: Number.isFinite(direction.x) ? direction.x : 0,
+                y: Number.isFinite(direction.y) ? direction.y : 0
+              };
+              const transformedDir = applyMatrixToVector(transform, dirVector);
+              const len = Math.hypot(transformedDir.x, transformedDir.y);
+              if (len > 1e-6) {
+                directionRotation = Math.atan2(transformedDir.y, transformedDir.x);
+                directionScale = len;
+              }
+            }
+            let appliedRotation = directionRotation != null ? directionRotation : matrixRotation(transform);
+            if (Number.isFinite(geometry.rotation)) {
+              appliedRotation += geometry.rotation * Math.PI / 180;
+            }
             if (this.displaySettings && this.displaySettings.mirrorText === 0) {
               const det = (transform.a * transform.d) - (transform.b * transform.c);
               if (det < 0) {
@@ -2268,7 +2295,8 @@
             const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
             const baseHeight = geometry.height || 12;
             const worldHeight = baseHeight * avgScale;
-            const referenceWidthWorld = geometry.referenceWidth ? geometry.referenceWidth * avgScale : null;
+            const widthScale = directionScale != null ? directionScale : avgScale;
+            const referenceWidthWorld = geometry.referenceWidth ? geometry.referenceWidth * widthScale : null;
             const styleName = entity.textStyle ||
               (entity.resolved && entity.resolved.textStyle ? entity.resolved.textStyle.name : (geometry.textStyle || null));
             rawTexts.push({
@@ -2401,10 +2429,17 @@
             : { x: 0, y: 0 };
           const baseTransform = translateMatrix(-basePoint.x, -basePoint.y);
 
-          const sx = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
-          const sy = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : 1;
-          const sz = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
-          const localScale = scaleMatrix(sx, sy !== 0 ? sy : sz || 1);
+          const blockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
+          const unitScale = this._unitConversionFactor(blockUnits, activeUnits);
+          const scaleX = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
+          let scaleY = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
+          const scaleZ = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
+          if (scaleY == null || scaleY === 0) {
+            scaleY = scaleZ !== 0 ? scaleZ : 1;
+          }
+          const effectiveScaleX = (scaleX !== 0 ? scaleX : 1) * unitScale;
+          const effectiveScaleY = (scaleY !== 0 ? scaleY : 1) * unitScale;
+          const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY);
           const rotation = rotateMatrix((geometry.rotation || 0) * Math.PI / 180);
           const translate = translateMatrix(
             geometry.position ? geometry.position.x : 0,
@@ -2417,12 +2452,21 @@
           const rowCount = geometry.rowCount || 1;
           const columnSpacing = geometry.columnSpacing || 0;
           const rowSpacing = geometry.rowSpacing || 0;
+          const childContextUnits = blockUnits != null ? blockUnits : activeUnits;
 
           for (let row = 0; row < rowCount; row++) {
             for (let col = 0; col < columnCount; col++) {
               const offset = translateMatrix(col * columnSpacing, row * rowSpacing);
               const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, baseTransform));
-              block.entities.forEach((child) => processEntity(child, composedTransform, depth + 1, visitedStack, (blockStack || []).concat(blockName), nextHighlight));
+              block.entities.forEach((child) => processEntity(
+                child,
+                composedTransform,
+                depth + 1,
+                visitedStack,
+                (blockStack || []).concat(blockName),
+                nextHighlight,
+                childContextUnits
+              ));
             }
           }
           break;
@@ -2498,7 +2542,7 @@
       }
       };
 
-      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue) => {
+      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue, parentUnits) => {
         const resolvedName = blockName || null;
         if (!resolvedName) {
           return;
@@ -2513,13 +2557,26 @@
         }
         const nextVisited = (visitedStackValue || []).concat(resolvedName);
         const nextStack = (blockStackValue || []).concat(resolvedName);
-        blockRef.entities.forEach((child) => processEntity(child, matrix, nextDepth, nextVisited, nextStack, highlightValue || false));
+        const normalizedParentUnits = this._normalizeUnitsCode(
+          parentUnits != null ? parentUnits : primaryUnits
+        );
+        const blockUnits = this._lookupBlockUnits(resolvedName, blockUnitsLookup);
+        const childUnits = blockUnits != null ? blockUnits : normalizedParentUnits;
+        blockRef.entities.forEach((child) => processEntity(
+          child,
+          matrix,
+          nextDepth,
+          nextVisited,
+          nextStack,
+          highlightValue || false,
+          childUnits
+        ));
       };
 
       const processModelSpace = sceneGraph.modelSpace || [];
       processModelSpace.forEach((entity) => {
         const baseMatrix = resolveBaseMatrixForEntity(entity);
-        processEntity(entity, baseMatrix, 0, [], [], false);
+        processEntity(entity, baseMatrix, 0, [], [], false, primaryUnits);
       });
 
       if (bounds.minX === Infinity) {
@@ -3217,6 +3274,179 @@
         patternLength: entry.patternLength || null,
         elements: entry.elements,
         scale: effectiveScale
+      };
+    }
+
+    _normalizeUnitsCode(code) {
+      if (code == null) {
+        return null;
+      }
+      const numeric = Number(code);
+      if (!Number.isFinite(numeric)) {
+        return null;
+      }
+      const coerced = Math.trunc(numeric);
+      return Number.isFinite(coerced) ? coerced : null;
+    }
+
+    _unitFactorFromCode(code) {
+      const normalized = this._normalizeUnitsCode(code);
+      if (normalized == null) {
+        return 1;
+      }
+      const factors = {
+        0: 1, // Unitless
+        1: 0.0254, // Inches
+        2: 0.3048, // Feet
+        3: 1609.344, // Miles
+        4: 0.001, // Millimeters
+        5: 0.01, // Centimeters
+        6: 1, // Meters
+        7: 1000, // Kilometers
+        8: 2.54e-7, // Micro-inches
+        9: 2.54e-5, // Mils (thousandth of inch)
+        10: 0.9144, // Yards
+        11: 1e-10, // Angstroms
+        12: 1e-9, // Nanometers
+        13: 1e-6, // Micrometers
+        14: 0.1, // Decimeters
+        15: 10, // Decameters
+        16: 100, // Hectometers
+        17: 1e9, // Gigameters
+        18: 1.495978707e11, // Astronomical units
+        19: 9.460730472e15, // Light years
+        20: 3.085677582e16, // Parsecs
+        21: 0.3048006096012192 // US Survey Feet
+      };
+      if (Object.prototype.hasOwnProperty.call(factors, normalized)) {
+        return factors[normalized];
+      }
+      return 1;
+    }
+
+    _unitConversionFactor(sourceCode, targetCode) {
+      const sourceFactor = this._unitFactorFromCode(sourceCode);
+      const targetFactor = this._unitFactorFromCode(targetCode);
+      if (!Number.isFinite(sourceFactor) || !Number.isFinite(targetFactor) || targetFactor === 0) {
+        return 1;
+      }
+      return sourceFactor / targetFactor;
+    }
+
+    _buildBlockUnitsLookup(blockRecords = {}, blockMetadata = {}) {
+      const lookup = new Map();
+      const assign = (key, units) => {
+        if (key == null || units == null) {
+          return;
+        }
+        const trimmed = String(key).trim();
+        if (!trimmed) {
+          return;
+        }
+        lookup.set(trimmed, units);
+        lookup.set(trimmed.toUpperCase(), units);
+      };
+      const assignHandle = (handle, units) => {
+        const normalized = this._normalizeHandle(handle);
+        if (!normalized || units == null) {
+          return;
+        }
+        lookup.set(normalized, units);
+      };
+
+      Object.keys(blockRecords).forEach((name) => {
+        const record = blockRecords[name];
+        if (!record || !Number.isFinite(record.units)) {
+          return;
+        }
+        assign(record.name || name, record.units);
+        assign(name, record.units);
+        assignHandle(record.handle, record.units);
+      });
+
+      if (blockMetadata && typeof blockMetadata === 'object') {
+        Object.keys(blockMetadata).forEach((name) => {
+          const entry = blockMetadata[name];
+          if (!entry || !Number.isFinite(entry.units)) {
+            return;
+          }
+          assign(entry.name || name, entry.units);
+          assign(name, entry.units);
+          assignHandle(entry.handle, entry.units);
+        });
+      }
+
+      return lookup;
+    }
+
+    _lookupBlockUnits(blockName, lookup) {
+      if (!lookup || !blockName) {
+        return null;
+      }
+      const raw = String(blockName).trim();
+      if (!raw) {
+        return null;
+      }
+      if (lookup.has(raw)) {
+        return lookup.get(raw);
+      }
+      const upper = raw.toUpperCase();
+      if (lookup.has(upper)) {
+        return lookup.get(upper);
+      }
+      const normalized = this._normalizeHandle(raw);
+      if (normalized && lookup.has(normalized)) {
+        return lookup.get(normalized);
+      }
+      return null;
+    }
+
+    _resolveDimensionStyleMetrics(entity) {
+      const defaults = {
+        scale: 1,
+        arrowSize: null,
+        textHeight: null,
+        textGap: null,
+        extensionOffset: null,
+        extensionExtension: null
+      };
+      if (!entity || !entity.resolved || !entity.resolved.dimensionStyle) {
+        return defaults;
+      }
+      const style = entity.resolved.dimensionStyle;
+      const lookup = style.codeValues || {};
+      const pickFloat = (code) => {
+        const values = lookup[code] ?? lookup[String(code)];
+        if (values == null) {
+          return null;
+        }
+        if (Array.isArray(values)) {
+          for (let i = 0; i < values.length; i += 1) {
+            const candidate = parseFloat(values[i]);
+            if (Number.isFinite(candidate)) {
+              return candidate;
+            }
+          }
+          return null;
+        }
+        const numeric = parseFloat(values);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+
+      const scale = pickFloat(40) ?? 1;
+      const arrowBase = pickFloat(41);
+      const textHeightBase = pickFloat(140);
+      const textGapBase = pickFloat(147);
+      const extensionOffsetBase = pickFloat(42);
+      const extensionExtensionBase = pickFloat(44);
+
+      return {
+        scale,
+        arrowSize: arrowBase != null ? arrowBase * scale : null,
+        textHeight: textHeightBase != null ? textHeightBase * scale : null,
+        textGap: textGapBase != null ? textGapBase * scale : null,
+        extensionOffset: extensionOffsetBase != null ? extensionOffsetBase * scale : null,
+        extensionExtension: extensionExtensionBase != null ? extensionExtensionBase * scale : null
       };
     }
 
@@ -4192,7 +4422,8 @@
         depth,
         visitedBlocks,
         blockStack,
-        highlightActive
+        highlightActive,
+        contextUnits
       } = options;
 
       const rowCount = geometry.rowCount || (Array.isArray(geometry.rowHeights) ? geometry.rowHeights.length : 0);
@@ -4368,7 +4599,8 @@
                   (depth || 0) + 1,
                   visitedBlocks || [],
                   blockStack || [],
-                  !!highlightActive
+                  !!highlightActive,
+                  contextUnits
                 );
               }
             }
@@ -4399,7 +4631,8 @@
         depth,
         visitedBlocks,
         blockStack,
-        highlightActive
+        highlightActive,
+        contextUnits
       } = options;
 
       const sourcePoints = Array.isArray(geometry.vertexPoints)
@@ -4536,7 +4769,7 @@
         const blockName = getBlockNameByHandle(blockHandle);
         if (blockName) {
           const contentTransform = multiplyMatrix(transform, translateMatrix(anchorPoint.x, anchorPoint.y));
-          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive);
+          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive, contextUnits);
         }
       }
     }
@@ -4732,7 +4965,11 @@
       if (!geometry.position) {
         return false;
       }
-      const worldPosition = applyMatrix(options.transform, geometry.position);
+      const insertionWorldPosition = applyMatrix(options.transform, geometry.position);
+      const alignmentPointWorld = geometry.alignmentPoint
+        ? applyMatrix(options.transform, geometry.alignmentPoint)
+        : null;
+      const worldPosition = alignmentPointWorld || insertionWorldPosition;
       if (typeof options.updateBounds === 'function') {
         options.updateBounds(worldPosition.x, worldPosition.y);
       }
@@ -4757,9 +4994,6 @@
       const worldHeight = baseHeight * avgScale;
       const styleName = options.entity.textStyle ||
         (resolvedTextStyle ? resolvedTextStyle.name : (geometry.textStyle || null));
-      const alignmentPoint = geometry.alignmentPoint
-        ? applyMatrix(options.transform, geometry.alignmentPoint)
-        : null;
       let content = options.contentOverride;
       if (content == null) {
         if (typeof geometry.content === 'string') {
@@ -4778,12 +5012,13 @@
         geometry,
         color: options.color,
         worldPosition,
+        insertionWorldPosition,
         rotation: appliedRotation,
         worldHeight,
         baseHeight,
         scaleMagnitude: avgScale,
         styleName,
-        alignmentPoint,
+        alignmentPoint: alignmentPointWorld,
         content: typeof content === 'string' ? content : String(content ?? ''),
         interaction: options.interaction || null,
         meta: options.meta || null
@@ -6719,13 +6954,31 @@
       const arrow2 = geometry.arrow2Point;
       const extension1 = geometry.extensionLine1Point;
       const extension2 = geometry.extensionLine2Point;
+      const dimStyleMetrics = this._resolveDimensionStyleMetrics(entity);
       const weight = this._lineweightToPx(entity.lineweight);
-      const baseLabelHeight = geometry.textHeight || geometry.height || geometry.measurement || 3;
+      const resolvedTextHeight = Number.isFinite(geometry.textHeight) && geometry.textHeight > 0
+        ? geometry.textHeight
+        : (Number.isFinite(geometry.height) && geometry.height > 0 ? geometry.height : null);
+      let baseLabelHeight = Number.isFinite(resolvedTextHeight) && resolvedTextHeight > 0
+        ? resolvedTextHeight
+        : null;
+      if (!(Number.isFinite(baseLabelHeight) && baseLabelHeight > 0)) {
+        baseLabelHeight = dimStyleMetrics.textHeight != null && dimStyleMetrics.textHeight > 0
+          ? dimStyleMetrics.textHeight
+          : 3;
+      }
       const type = geometry.dimensionType & 7;
       const baseStyleName = entity.textStyle ||
         (entity.resolved && entity.resolved.textStyle ? entity.resolved.textStyle.name : (geometry.textStyle || null));
       const label = this._formatDimensionLabel(geometry);
-      const arrowScale = Math.max(baseLabelHeight * 0.8, 3);
+      const arrowFromGeometry = Number.isFinite(geometry.arrowSize) && geometry.arrowSize > 0
+        ? geometry.arrowSize
+        : null;
+      const arrowScale = arrowFromGeometry != null
+        ? arrowFromGeometry
+        : (dimStyleMetrics.arrowSize != null && dimStyleMetrics.arrowSize > 0
+          ? dimStyleMetrics.arrowSize
+          : Math.max(baseLabelHeight * 0.8, 3));
       const center = geometry.dimensionLinePoint || geometry.definitionPoint || null;
 
       switch (type) {

@@ -3329,7 +3329,7 @@ function collectUnderlayClip(map) {
 
       const backgroundCss = this._resolveBackground(rawText);
 
-      return {
+      const layout = {
         kind,
         screenPosition: rawText.screenPosition || [0, 0],
         rotationRad,
@@ -3351,6 +3351,10 @@ function collectUnderlayClip(map) {
         widthFactor: effectiveWidthFactor,
         rawContent: baseContent
       };
+      if (rawText.decodedMText && Array.isArray(rawText.decodedMText.runs)) {
+        layout.richRuns = rawText.decodedMText.runs;
+      }
+      return layout;
     }
 
     _extractContent(kind, rawText) {
@@ -3359,7 +3363,11 @@ function collectUnderlayClip(map) {
           return this._decodeDxfText(rawText.content || rawText.geometry?.content || '');
         case 'MTEXT': {
           const content = rawText.geometry ? rawText.geometry.text : rawText.content;
-          return this._decodeMText(content || '');
+          const decoded = this._decodeMText(content || '');
+          if (rawText && typeof rawText === 'object') {
+            rawText.decodedMText = decoded;
+          }
+          return decoded.text;
         }
         case 'TOLERANCE': {
           if (rawText.geometry && Array.isArray(rawText.geometry.segments) && rawText.geometry.segments.length) {
@@ -3384,41 +3392,270 @@ function collectUnderlayClip(map) {
 
     _decodeMText(value) {
       if (!value || typeof value !== 'string') {
-        return '';
+        return { text: '', runs: [] };
       }
-      let text = '';
-      for (let i = 0; i < value.length; i++) {
+
+      const baseState = () => ({
+        bold: false,
+        italic: false,
+        underline: false,
+        overline: false,
+        strike: false,
+        color: null,
+        font: null,
+        heightScale: 1,
+        widthScale: 1,
+        oblique: 0,
+        tracking: 0,
+        alignment: null
+      });
+
+      const cloneState = (state) => Object.assign({}, state);
+      let state = baseState();
+      const stack = [];
+      const runs = [];
+      let buffer = '';
+
+      const flush = () => {
+        if (!buffer) {
+          return;
+        }
+        runs.push({ text: buffer, style: cloneState(state) });
+        buffer = '';
+      };
+
+      const pushChar = (ch) => {
+        buffer += ch;
+      };
+
+      const readParameter = (startIndex) => {
+        let text = '';
+        let idx = startIndex;
+        while (idx < value.length) {
+          const current = value[idx];
+          if (current === ';') {
+            break;
+          }
+          text += current;
+          idx += 1;
+        }
+        return { text: text.trim(), nextIndex: idx };
+      };
+
+      const formatStack = (content) => {
+        if (!content) {
+          return '';
+        }
+        let cleaned = content.replace(/[{}]/g, '');
+        if (cleaned.includes('#')) {
+          const parts = cleaned.split('#');
+          return parts.join('/');
+        }
+        if (cleaned.includes('^')) {
+          const parts = cleaned.split('^');
+          if (parts.length === 2) {
+            return `${parts[0]}/${parts[1]}`;
+          }
+        }
+        if (cleaned.includes('/')) {
+          const parts = cleaned.split('/');
+          if (parts.length === 2) {
+            return `${parts[0]}/${parts[1]}`;
+          }
+        }
+        return cleaned;
+      };
+
+      for (let i = 0; i < value.length; i += 1) {
         const ch = value[i];
-        if (ch === '\\') {
+        if (ch === '{') {
+          stack.push(cloneState(state));
+          continue;
+        }
+        if (ch === '}') {
+          flush();
+          state = stack.pop() || baseState();
+          continue;
+        }
+        if (ch === '^') {
           const next = value[i + 1];
-          if (next === 'P' || next === 'p' || next === 'N' || next === 'n') {
-            text += '\n';
-            i += 1;
+          if (!next) {
             continue;
           }
-          if (next === '\\') {
-            text += '\\';
-            i += 1;
-            continue;
+          flush();
+          const code = next.toLowerCase();
+          if (code === 'i') {
+            state.italic = !state.italic;
+          } else if (code === 'o') {
+            state.overline = !state.overline;
+          } else if (code === 'b') {
+            state.bold = !state.bold;
           }
-          if (next === '~') {
-            text += '\u00A0';
-            i += 1;
-            continue;
+          i += 1;
+          continue;
+        }
+        if (ch === '\\') {
+          i += 1;
+          if (i >= value.length) {
+            break;
           }
-          // Skip formatting codes such as \A, \H, \W, etc.
-          const formatMatch = value.slice(i + 1).match(/^([AaCHwWQqTtObBlL])[^\\;]*[;x]?/);
-          if (formatMatch) {
-            i += formatMatch[0].length;
-            continue;
+          const code = value[i];
+          switch (code) {
+            case '\\':
+              pushChar('\\');
+              break;
+            case '{':
+              pushChar('{');
+              break;
+            case '}':
+              pushChar('}');
+              break;
+            case '~':
+              pushChar('\u00A0');
+              break;
+            case 'P':
+            case 'p':
+            case 'N':
+            case 'n':
+              flush();
+              pushChar('\n');
+              break;
+            case 'L':
+              flush();
+              state.underline = true;
+              break;
+            case 'l':
+              flush();
+              state.underline = false;
+              break;
+            case 'O':
+              flush();
+              state.overline = true;
+              break;
+            case 'o':
+              flush();
+              state.overline = false;
+              break;
+            case 'K':
+              flush();
+              state.strike = true;
+              break;
+            case 'k':
+              flush();
+              state.strike = false;
+              break;
+            case 'A': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                state.alignment = param.text;
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'C': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const [index] = param.text.split(',');
+                const numeric = parseInt(index, 10);
+                if (Number.isInteger(numeric)) {
+                  flush();
+                  state.color = numeric;
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'F': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const [font] = param.text.split('|');
+                flush();
+                state.font = font || null;
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'H': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const cleaned = param.text.replace(/[xX]$/, '');
+                const numeric = parseFloat(cleaned);
+                if (Number.isFinite(numeric) && numeric !== 0) {
+                  flush();
+                  state.heightScale = Math.abs(numeric);
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'W': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const numeric = parseFloat(param.text);
+                if (Number.isFinite(numeric) && numeric !== 0) {
+                  flush();
+                  state.widthScale = Math.abs(numeric);
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'T': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const numeric = parseFloat(param.text);
+                if (Number.isFinite(numeric)) {
+                  flush();
+                  state.tracking = numeric;
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'Q': {
+              const param = readParameter(i + 1);
+              if (param.text) {
+                const numeric = parseFloat(param.text);
+                if (Number.isFinite(numeric)) {
+                  flush();
+                  state.oblique = numeric;
+                }
+              }
+              i = param.nextIndex;
+              break;
+            }
+            case 'S': {
+              const param = readParameter(i + 1);
+              const formatted = formatStack(param.text);
+              if (formatted) {
+                pushChar(formatted);
+              }
+              i = param.nextIndex;
+              break;
+            }
+            default:
+              pushChar(code);
+              break;
           }
+          continue;
         }
         if (ch === '{' || ch === '}') {
           continue;
         }
-        text += ch;
+        pushChar(ch);
       }
-      return this._decodeDxfText(text);
+
+      flush();
+
+      runs.forEach((run) => {
+        run.text = this._decodeDxfText(run.text);
+      });
+
+      const mergedText = runs.map((run) => run.text).join('');
+      return {
+        text: mergedText,
+        runs: runs.filter((run) => run.text && run.text.length)
+      };
     }
 
     _decodeDxfText(value) {
@@ -5544,6 +5781,7 @@ function collectUnderlayClip(map) {
             handle: null,
             description: null,
             basePoint: { x: 0, y: 0, z: 0 },
+            units: null,
             attributeDefinitions: [],
             attributeTags: new Set(),
             attributePreview: new Map(),
@@ -5705,6 +5943,28 @@ function collectUnderlayClip(map) {
           });
         }
       });
+
+      const blockRecords = sceneGraph.tables && sceneGraph.tables.blockRecords
+        ? sceneGraph.tables.blockRecords
+        : null;
+      if (blockRecords && typeof blockRecords === 'object') {
+        Object.keys(blockRecords).forEach((key) => {
+          const record = blockRecords[key];
+          if (!record) {
+            return;
+          }
+          const entry = ensureEntry(record.name || key);
+          if (!entry) {
+            return;
+          }
+          if (record.handle && !entry.handle) {
+            entry.handle = record.handle;
+          }
+          if (Number.isFinite(record.units)) {
+            entry.units = record.units;
+          }
+        });
+      }
 
       const gatherInserts = (entities, context = {}) => {
         if (!Array.isArray(entities)) {
@@ -7620,12 +7880,14 @@ function collectUnderlayClip(map) {
       }
 
       if (upperTable === 'BLOCK_RECORD' && recordType === 'BLOCK_RECORD') {
+        const units = utils.toInt(utils.getFirstCodeValue(recordTags, 280));
         collections[upperTable].set(name, {
           name,
           handle: utils.getFirstCodeValue(recordTags, 5) || null,
           layoutHandle: utils.getFirstCodeValue(recordTags, 340) || null,
           designCenterPath: utils.getFirstCodeValue(recordTags, 402) || null,
-          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          units: Number.isFinite(units) ? units : null
         });
         return;
       }
@@ -12169,6 +12431,11 @@ function collectPointCloudClip(map) {
       }
       const tables = sceneGraph.tables || {};
       const units = sceneGraph.units || {};
+      const primaryUnits = this._normalizeUnitsCode(units.insUnits);
+      const blockUnitsLookup = this._buildBlockUnitsLookup(
+        tables.blockRecords || {},
+        sceneGraph.blockMetadata || {}
+      );
       const normalizeScale = (value, fallback) => {
         if (Number.isFinite(value) && value !== 0) {
           return Math.abs(value);
@@ -12310,7 +12577,7 @@ function collectPointCloudClip(map) {
 
       let renderBlockContent = () => {};
 
-      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive) => {
+      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive, contextUnits) => {
         if (!entity || depth > MAX_BLOCK_DEPTH) {
           return;
         }
@@ -12318,6 +12585,9 @@ function collectPointCloudClip(map) {
         const geometry = entity.geometry || {};
         blockStack = blockStack || [];
         highlightActive = !!highlightActive;
+        const activeUnits = this._normalizeUnitsCode(
+          contextUnits != null ? contextUnits : primaryUnits
+        );
         const handle = this._normalizeHandle(entity.handle || entity.id || null);
         const isolationActive = this.entityIsolation && this.entityIsolation.size > 0;
         const isContainerEntity = type === 'INSERT';
@@ -12781,7 +13051,8 @@ function collectPointCloudClip(map) {
             depth,
             visitedBlocks,
             blockStack,
-            highlightActive
+            highlightActive,
+            contextUnits: activeUnits
           });
           break;
         }
@@ -12804,7 +13075,8 @@ function collectPointCloudClip(map) {
             depth,
             visitedBlocks,
             blockStack,
-            highlightActive
+            highlightActive,
+            contextUnits: activeUnits
           });
           break;
         }
@@ -12825,7 +13097,8 @@ function collectPointCloudClip(map) {
             depth,
             visitedBlocks,
             blockStack,
-            highlightActive
+            highlightActive,
+            contextUnits: activeUnits
           });
           break;
         }
@@ -12991,9 +13264,25 @@ function collectPointCloudClip(map) {
             if (!geometry.position) return;
             const worldPosition = applyMatrix(transform, geometry.position);
             updateBounds(worldPosition.x, worldPosition.y);
-            const localRotation = geometry.rotation ? geometry.rotation * Math.PI / 180 : 0;
-            const rotation = matrixRotation(transform) + localRotation;
-            let appliedRotation = rotation;
+            const direction = geometry.direction || null;
+            let directionRotation = null;
+            let directionScale = null;
+            if (direction && (Number.isFinite(direction.x) || Number.isFinite(direction.y))) {
+              const dirVector = {
+                x: Number.isFinite(direction.x) ? direction.x : 0,
+                y: Number.isFinite(direction.y) ? direction.y : 0
+              };
+              const transformedDir = applyMatrixToVector(transform, dirVector);
+              const len = Math.hypot(transformedDir.x, transformedDir.y);
+              if (len > 1e-6) {
+                directionRotation = Math.atan2(transformedDir.y, transformedDir.x);
+                directionScale = len;
+              }
+            }
+            let appliedRotation = directionRotation != null ? directionRotation : matrixRotation(transform);
+            if (Number.isFinite(geometry.rotation)) {
+              appliedRotation += geometry.rotation * Math.PI / 180;
+            }
             if (this.displaySettings && this.displaySettings.mirrorText === 0) {
               const det = (transform.a * transform.d) - (transform.b * transform.c);
               if (det < 0) {
@@ -13004,7 +13293,8 @@ function collectPointCloudClip(map) {
             const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
             const baseHeight = geometry.height || 12;
             const worldHeight = baseHeight * avgScale;
-            const referenceWidthWorld = geometry.referenceWidth ? geometry.referenceWidth * avgScale : null;
+            const widthScale = directionScale != null ? directionScale : avgScale;
+            const referenceWidthWorld = geometry.referenceWidth ? geometry.referenceWidth * widthScale : null;
             const styleName = entity.textStyle ||
               (entity.resolved && entity.resolved.textStyle ? entity.resolved.textStyle.name : (geometry.textStyle || null));
             rawTexts.push({
@@ -13137,10 +13427,17 @@ function collectPointCloudClip(map) {
             : { x: 0, y: 0 };
           const baseTransform = translateMatrix(-basePoint.x, -basePoint.y);
 
-          const sx = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
-          const sy = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : 1;
-          const sz = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
-          const localScale = scaleMatrix(sx, sy !== 0 ? sy : sz || 1);
+          const blockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
+          const unitScale = this._unitConversionFactor(blockUnits, activeUnits);
+          const scaleX = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
+          let scaleY = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
+          const scaleZ = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
+          if (scaleY == null || scaleY === 0) {
+            scaleY = scaleZ !== 0 ? scaleZ : 1;
+          }
+          const effectiveScaleX = (scaleX !== 0 ? scaleX : 1) * unitScale;
+          const effectiveScaleY = (scaleY !== 0 ? scaleY : 1) * unitScale;
+          const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY);
           const rotation = rotateMatrix((geometry.rotation || 0) * Math.PI / 180);
           const translate = translateMatrix(
             geometry.position ? geometry.position.x : 0,
@@ -13153,12 +13450,21 @@ function collectPointCloudClip(map) {
           const rowCount = geometry.rowCount || 1;
           const columnSpacing = geometry.columnSpacing || 0;
           const rowSpacing = geometry.rowSpacing || 0;
+          const childContextUnits = blockUnits != null ? blockUnits : activeUnits;
 
           for (let row = 0; row < rowCount; row++) {
             for (let col = 0; col < columnCount; col++) {
               const offset = translateMatrix(col * columnSpacing, row * rowSpacing);
               const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, baseTransform));
-              block.entities.forEach((child) => processEntity(child, composedTransform, depth + 1, visitedStack, (blockStack || []).concat(blockName), nextHighlight));
+              block.entities.forEach((child) => processEntity(
+                child,
+                composedTransform,
+                depth + 1,
+                visitedStack,
+                (blockStack || []).concat(blockName),
+                nextHighlight,
+                childContextUnits
+              ));
             }
           }
           break;
@@ -13234,7 +13540,7 @@ function collectPointCloudClip(map) {
       }
       };
 
-      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue) => {
+      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue, parentUnits) => {
         const resolvedName = blockName || null;
         if (!resolvedName) {
           return;
@@ -13249,13 +13555,26 @@ function collectPointCloudClip(map) {
         }
         const nextVisited = (visitedStackValue || []).concat(resolvedName);
         const nextStack = (blockStackValue || []).concat(resolvedName);
-        blockRef.entities.forEach((child) => processEntity(child, matrix, nextDepth, nextVisited, nextStack, highlightValue || false));
+        const normalizedParentUnits = this._normalizeUnitsCode(
+          parentUnits != null ? parentUnits : primaryUnits
+        );
+        const blockUnits = this._lookupBlockUnits(resolvedName, blockUnitsLookup);
+        const childUnits = blockUnits != null ? blockUnits : normalizedParentUnits;
+        blockRef.entities.forEach((child) => processEntity(
+          child,
+          matrix,
+          nextDepth,
+          nextVisited,
+          nextStack,
+          highlightValue || false,
+          childUnits
+        ));
       };
 
       const processModelSpace = sceneGraph.modelSpace || [];
       processModelSpace.forEach((entity) => {
         const baseMatrix = resolveBaseMatrixForEntity(entity);
-        processEntity(entity, baseMatrix, 0, [], [], false);
+        processEntity(entity, baseMatrix, 0, [], [], false, primaryUnits);
       });
 
       if (bounds.minX === Infinity) {
@@ -13953,6 +14272,179 @@ function collectPointCloudClip(map) {
         patternLength: entry.patternLength || null,
         elements: entry.elements,
         scale: effectiveScale
+      };
+    }
+
+    _normalizeUnitsCode(code) {
+      if (code == null) {
+        return null;
+      }
+      const numeric = Number(code);
+      if (!Number.isFinite(numeric)) {
+        return null;
+      }
+      const coerced = Math.trunc(numeric);
+      return Number.isFinite(coerced) ? coerced : null;
+    }
+
+    _unitFactorFromCode(code) {
+      const normalized = this._normalizeUnitsCode(code);
+      if (normalized == null) {
+        return 1;
+      }
+      const factors = {
+        0: 1, // Unitless
+        1: 0.0254, // Inches
+        2: 0.3048, // Feet
+        3: 1609.344, // Miles
+        4: 0.001, // Millimeters
+        5: 0.01, // Centimeters
+        6: 1, // Meters
+        7: 1000, // Kilometers
+        8: 2.54e-7, // Micro-inches
+        9: 2.54e-5, // Mils (thousandth of inch)
+        10: 0.9144, // Yards
+        11: 1e-10, // Angstroms
+        12: 1e-9, // Nanometers
+        13: 1e-6, // Micrometers
+        14: 0.1, // Decimeters
+        15: 10, // Decameters
+        16: 100, // Hectometers
+        17: 1e9, // Gigameters
+        18: 1.495978707e11, // Astronomical units
+        19: 9.460730472e15, // Light years
+        20: 3.085677582e16, // Parsecs
+        21: 0.3048006096012192 // US Survey Feet
+      };
+      if (Object.prototype.hasOwnProperty.call(factors, normalized)) {
+        return factors[normalized];
+      }
+      return 1;
+    }
+
+    _unitConversionFactor(sourceCode, targetCode) {
+      const sourceFactor = this._unitFactorFromCode(sourceCode);
+      const targetFactor = this._unitFactorFromCode(targetCode);
+      if (!Number.isFinite(sourceFactor) || !Number.isFinite(targetFactor) || targetFactor === 0) {
+        return 1;
+      }
+      return sourceFactor / targetFactor;
+    }
+
+    _buildBlockUnitsLookup(blockRecords = {}, blockMetadata = {}) {
+      const lookup = new Map();
+      const assign = (key, units) => {
+        if (key == null || units == null) {
+          return;
+        }
+        const trimmed = String(key).trim();
+        if (!trimmed) {
+          return;
+        }
+        lookup.set(trimmed, units);
+        lookup.set(trimmed.toUpperCase(), units);
+      };
+      const assignHandle = (handle, units) => {
+        const normalized = this._normalizeHandle(handle);
+        if (!normalized || units == null) {
+          return;
+        }
+        lookup.set(normalized, units);
+      };
+
+      Object.keys(blockRecords).forEach((name) => {
+        const record = blockRecords[name];
+        if (!record || !Number.isFinite(record.units)) {
+          return;
+        }
+        assign(record.name || name, record.units);
+        assign(name, record.units);
+        assignHandle(record.handle, record.units);
+      });
+
+      if (blockMetadata && typeof blockMetadata === 'object') {
+        Object.keys(blockMetadata).forEach((name) => {
+          const entry = blockMetadata[name];
+          if (!entry || !Number.isFinite(entry.units)) {
+            return;
+          }
+          assign(entry.name || name, entry.units);
+          assign(name, entry.units);
+          assignHandle(entry.handle, entry.units);
+        });
+      }
+
+      return lookup;
+    }
+
+    _lookupBlockUnits(blockName, lookup) {
+      if (!lookup || !blockName) {
+        return null;
+      }
+      const raw = String(blockName).trim();
+      if (!raw) {
+        return null;
+      }
+      if (lookup.has(raw)) {
+        return lookup.get(raw);
+      }
+      const upper = raw.toUpperCase();
+      if (lookup.has(upper)) {
+        return lookup.get(upper);
+      }
+      const normalized = this._normalizeHandle(raw);
+      if (normalized && lookup.has(normalized)) {
+        return lookup.get(normalized);
+      }
+      return null;
+    }
+
+    _resolveDimensionStyleMetrics(entity) {
+      const defaults = {
+        scale: 1,
+        arrowSize: null,
+        textHeight: null,
+        textGap: null,
+        extensionOffset: null,
+        extensionExtension: null
+      };
+      if (!entity || !entity.resolved || !entity.resolved.dimensionStyle) {
+        return defaults;
+      }
+      const style = entity.resolved.dimensionStyle;
+      const lookup = style.codeValues || {};
+      const pickFloat = (code) => {
+        const values = lookup[code] ?? lookup[String(code)];
+        if (values == null) {
+          return null;
+        }
+        if (Array.isArray(values)) {
+          for (let i = 0; i < values.length; i += 1) {
+            const candidate = parseFloat(values[i]);
+            if (Number.isFinite(candidate)) {
+              return candidate;
+            }
+          }
+          return null;
+        }
+        const numeric = parseFloat(values);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+
+      const scale = pickFloat(40) ?? 1;
+      const arrowBase = pickFloat(41);
+      const textHeightBase = pickFloat(140);
+      const textGapBase = pickFloat(147);
+      const extensionOffsetBase = pickFloat(42);
+      const extensionExtensionBase = pickFloat(44);
+
+      return {
+        scale,
+        arrowSize: arrowBase != null ? arrowBase * scale : null,
+        textHeight: textHeightBase != null ? textHeightBase * scale : null,
+        textGap: textGapBase != null ? textGapBase * scale : null,
+        extensionOffset: extensionOffsetBase != null ? extensionOffsetBase * scale : null,
+        extensionExtension: extensionExtensionBase != null ? extensionExtensionBase * scale : null
       };
     }
 
@@ -14928,7 +15420,8 @@ function collectPointCloudClip(map) {
         depth,
         visitedBlocks,
         blockStack,
-        highlightActive
+        highlightActive,
+        contextUnits
       } = options;
 
       const rowCount = geometry.rowCount || (Array.isArray(geometry.rowHeights) ? geometry.rowHeights.length : 0);
@@ -15104,7 +15597,8 @@ function collectPointCloudClip(map) {
                   (depth || 0) + 1,
                   visitedBlocks || [],
                   blockStack || [],
-                  !!highlightActive
+                  !!highlightActive,
+                  contextUnits
                 );
               }
             }
@@ -15135,7 +15629,8 @@ function collectPointCloudClip(map) {
         depth,
         visitedBlocks,
         blockStack,
-        highlightActive
+        highlightActive,
+        contextUnits
       } = options;
 
       const sourcePoints = Array.isArray(geometry.vertexPoints)
@@ -15272,7 +15767,7 @@ function collectPointCloudClip(map) {
         const blockName = getBlockNameByHandle(blockHandle);
         if (blockName) {
           const contentTransform = multiplyMatrix(transform, translateMatrix(anchorPoint.x, anchorPoint.y));
-          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive);
+          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive, contextUnits);
         }
       }
     }
@@ -15468,7 +15963,11 @@ function collectPointCloudClip(map) {
       if (!geometry.position) {
         return false;
       }
-      const worldPosition = applyMatrix(options.transform, geometry.position);
+      const insertionWorldPosition = applyMatrix(options.transform, geometry.position);
+      const alignmentPointWorld = geometry.alignmentPoint
+        ? applyMatrix(options.transform, geometry.alignmentPoint)
+        : null;
+      const worldPosition = alignmentPointWorld || insertionWorldPosition;
       if (typeof options.updateBounds === 'function') {
         options.updateBounds(worldPosition.x, worldPosition.y);
       }
@@ -15493,9 +15992,6 @@ function collectPointCloudClip(map) {
       const worldHeight = baseHeight * avgScale;
       const styleName = options.entity.textStyle ||
         (resolvedTextStyle ? resolvedTextStyle.name : (geometry.textStyle || null));
-      const alignmentPoint = geometry.alignmentPoint
-        ? applyMatrix(options.transform, geometry.alignmentPoint)
-        : null;
       let content = options.contentOverride;
       if (content == null) {
         if (typeof geometry.content === 'string') {
@@ -15514,12 +16010,13 @@ function collectPointCloudClip(map) {
         geometry,
         color: options.color,
         worldPosition,
+        insertionWorldPosition,
         rotation: appliedRotation,
         worldHeight,
         baseHeight,
         scaleMagnitude: avgScale,
         styleName,
-        alignmentPoint,
+        alignmentPoint: alignmentPointWorld,
         content: typeof content === 'string' ? content : String(content ?? ''),
         interaction: options.interaction || null,
         meta: options.meta || null
@@ -17455,13 +17952,31 @@ function collectPointCloudClip(map) {
       const arrow2 = geometry.arrow2Point;
       const extension1 = geometry.extensionLine1Point;
       const extension2 = geometry.extensionLine2Point;
+      const dimStyleMetrics = this._resolveDimensionStyleMetrics(entity);
       const weight = this._lineweightToPx(entity.lineweight);
-      const baseLabelHeight = geometry.textHeight || geometry.height || geometry.measurement || 3;
+      const resolvedTextHeight = Number.isFinite(geometry.textHeight) && geometry.textHeight > 0
+        ? geometry.textHeight
+        : (Number.isFinite(geometry.height) && geometry.height > 0 ? geometry.height : null);
+      let baseLabelHeight = Number.isFinite(resolvedTextHeight) && resolvedTextHeight > 0
+        ? resolvedTextHeight
+        : null;
+      if (!(Number.isFinite(baseLabelHeight) && baseLabelHeight > 0)) {
+        baseLabelHeight = dimStyleMetrics.textHeight != null && dimStyleMetrics.textHeight > 0
+          ? dimStyleMetrics.textHeight
+          : 3;
+      }
       const type = geometry.dimensionType & 7;
       const baseStyleName = entity.textStyle ||
         (entity.resolved && entity.resolved.textStyle ? entity.resolved.textStyle.name : (geometry.textStyle || null));
       const label = this._formatDimensionLabel(geometry);
-      const arrowScale = Math.max(baseLabelHeight * 0.8, 3);
+      const arrowFromGeometry = Number.isFinite(geometry.arrowSize) && geometry.arrowSize > 0
+        ? geometry.arrowSize
+        : null;
+      const arrowScale = arrowFromGeometry != null
+        ? arrowFromGeometry
+        : (dimStyleMetrics.arrowSize != null && dimStyleMetrics.arrowSize > 0
+          ? dimStyleMetrics.arrowSize
+          : Math.max(baseLabelHeight * 0.8, 3));
       const center = geometry.dimensionLinePoint || geometry.definitionPoint || null;
 
       switch (type) {
@@ -24577,7 +25092,64 @@ function collectPointCloudClip(map) {
         if (!text || !text.screenPosition) return;
         const span = this.createElement('div');
         span.className = 'rendering-text-run';
-        span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+        const richRuns = (text.richRuns && text.richRuns.length)
+          ? text.richRuns
+          : (text.rawText && text.rawText.decodedMText && Array.isArray(text.rawText.decodedMText.runs)
+              ? text.rawText.decodedMText.runs
+              : null);
+        if (richRuns && richRuns.length) {
+          span.textContent = '';
+          const applyRunStyle = (node, runStyle) => {
+            if (!node || !runStyle) {
+              return;
+            }
+            if (runStyle.bold) {
+              node.style.fontWeight = 'bold';
+            }
+            if (runStyle.italic) {
+              node.style.fontStyle = 'italic';
+            }
+            const decorations = [];
+            if (runStyle.underline) {
+              decorations.push('underline');
+            }
+            if (runStyle.overline) {
+              decorations.push('overline');
+            }
+            if (runStyle.strike) {
+              decorations.push('line-through');
+            }
+            if (decorations.length) {
+              node.style.textDecoration = decorations.join(' ');
+            }
+            if (runStyle.font) {
+              node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
+            }
+            if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
+              node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
+            }
+          };
+          richRuns.forEach((run) => {
+            const segments = String(run.text || '').split('\n');
+            segments.forEach((segment, segmentIndex) => {
+              const runNode = this.createElement('span');
+              if (!runNode) {
+                return;
+              }
+              runNode.textContent = segment;
+              applyRunStyle(runNode, run.style || null);
+              span.appendChild(runNode);
+              if (segmentIndex < segments.length - 1) {
+                const br = this.createElement('br');
+                if (br) {
+                  span.appendChild(br);
+                }
+              }
+            });
+          });
+        } else {
+          span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+        }
         span.style.position = 'absolute';
         span.style.left = '0px';
         span.style.top = '0px';

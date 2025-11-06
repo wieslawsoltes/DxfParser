@@ -6351,7 +6351,64 @@
         if (!text || !text.screenPosition) return;
         const span = this.createElement('div');
         span.className = 'rendering-text-run';
-        span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+        const richRuns = (text.richRuns && text.richRuns.length)
+          ? text.richRuns
+          : (text.rawText && text.rawText.decodedMText && Array.isArray(text.rawText.decodedMText.runs)
+              ? text.rawText.decodedMText.runs
+              : null);
+        if (richRuns && richRuns.length) {
+          span.textContent = '';
+          const applyRunStyle = (node, runStyle) => {
+            if (!node || !runStyle) {
+              return;
+            }
+            if (runStyle.bold) {
+              node.style.fontWeight = 'bold';
+            }
+            if (runStyle.italic) {
+              node.style.fontStyle = 'italic';
+            }
+            const decorations = [];
+            if (runStyle.underline) {
+              decorations.push('underline');
+            }
+            if (runStyle.overline) {
+              decorations.push('overline');
+            }
+            if (runStyle.strike) {
+              decorations.push('line-through');
+            }
+            if (decorations.length) {
+              node.style.textDecoration = decorations.join(' ');
+            }
+            if (runStyle.font) {
+              node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
+            }
+            if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
+              node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
+            }
+          };
+          richRuns.forEach((run) => {
+            const segments = String(run.text || '').split('\n');
+            segments.forEach((segment, segmentIndex) => {
+              const runNode = this.createElement('span');
+              if (!runNode) {
+                return;
+              }
+              runNode.textContent = segment;
+              applyRunStyle(runNode, run.style || null);
+              span.appendChild(runNode);
+              if (segmentIndex < segments.length - 1) {
+                const br = this.createElement('br');
+                if (br) {
+                  span.appendChild(br);
+                }
+              }
+            });
+          });
+        } else {
+          span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+        }
         span.style.position = 'absolute';
         span.style.left = '0px';
         span.style.top = '0px';

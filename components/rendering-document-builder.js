@@ -1771,6 +1771,7 @@
             handle: null,
             description: null,
             basePoint: { x: 0, y: 0, z: 0 },
+            units: null,
             attributeDefinitions: [],
             attributeTags: new Set(),
             attributePreview: new Map(),
@@ -1932,6 +1933,28 @@
           });
         }
       });
+
+      const blockRecords = sceneGraph.tables && sceneGraph.tables.blockRecords
+        ? sceneGraph.tables.blockRecords
+        : null;
+      if (blockRecords && typeof blockRecords === 'object') {
+        Object.keys(blockRecords).forEach((key) => {
+          const record = blockRecords[key];
+          if (!record) {
+            return;
+          }
+          const entry = ensureEntry(record.name || key);
+          if (!entry) {
+            return;
+          }
+          if (record.handle && !entry.handle) {
+            entry.handle = record.handle;
+          }
+          if (Number.isFinite(record.units)) {
+            entry.units = record.units;
+          }
+        });
+      }
 
       const gatherInserts = (entities, context = {}) => {
         if (!Array.isArray(entities)) {
@@ -3847,12 +3870,14 @@
       }
 
       if (upperTable === 'BLOCK_RECORD' && recordType === 'BLOCK_RECORD') {
+        const units = utils.toInt(utils.getFirstCodeValue(recordTags, 280));
         collections[upperTable].set(name, {
           name,
           handle: utils.getFirstCodeValue(recordTags, 5) || null,
           layoutHandle: utils.getFirstCodeValue(recordTags, 340) || null,
           designCenterPath: utils.getFirstCodeValue(recordTags, 402) || null,
-          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
+          units: Number.isFinite(units) ? units : null
         });
         return;
       }
