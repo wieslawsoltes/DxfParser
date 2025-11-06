@@ -2430,7 +2430,10 @@
           const baseTransform = translateMatrix(-basePoint.x, -basePoint.y);
 
           const blockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
-          const unitScale = this._unitConversionFactor(blockUnits, activeUnits);
+          const shouldConvertUnits = blockUnits != null && activeUnits != null && blockUnits !== activeUnits;
+          const unitScale = shouldConvertUnits
+            ? this._unitConversionFactor(blockUnits, activeUnits)
+            : 1;
           const scaleX = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
           let scaleY = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
           const scaleZ = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
