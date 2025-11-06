@@ -1435,6 +1435,14 @@ function collectUnderlayClip(map) {
       case 'DIMENSION': {
         const dimensionStyleName = map.get(3)?.[0] || null;
         const dimensionStyleHandle = map.get(107)?.[0] || map.get(340)?.[0] || null;
+        const dimensionTypeRaw = toInt(map.get(70)?.[0]) || 0;
+        const dimensionSubtype = dimensionTypeRaw & 7;
+        const dimensionFlagBits = dimensionTypeRaw & ~7;
+        const dimensionAssociativity = toInt(map.get(280)?.[0]) ?? null;
+        const dimensionAssociativityPoint = toInt(map.get(281)?.[0]) ?? null;
+        const ordinateType = dimensionSubtype === 6
+          ? ((dimensionTypeRaw >> 3) & 3)
+          : null;
         const extension1 = pointFromCodes(14, 24, 34);
         const extension2 = pointFromCodes(15, 25, 35);
         const arrow1 = pointFromCodes(16, 26, 36);
@@ -1446,9 +1454,29 @@ function collectUnderlayClip(map) {
         const arcDefinitionPoints = [];
         if (arcPoint1) arcDefinitionPoints.push(arcPoint1);
         if (arcPoint2) arcDefinitionPoints.push(arcPoint2);
+        const associativeHandleCodes = new Set([331, 332, 361, 362, 363, 364]);
+        const associativeHandlesSet = new Set();
+        tags.forEach((tag) => {
+          const code = Number(tag.code);
+          if (!Number.isFinite(code)) {
+            return;
+          }
+          if (associativeHandleCodes.has(code)) {
+            const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+            if (rawHandle) {
+              associativeHandlesSet.add(rawHandle.toUpperCase());
+            }
+          }
+        });
+        const associativeHandles = Array.from(associativeHandlesSet);
         return {
           type: 'dimension',
-          dimensionType: toInt(map.get(70)?.[0]) || 0,
+          dimensionType: dimensionTypeRaw,
+          dimensionSubtype,
+          dimensionFlags: dimensionFlagBits,
+          dimensionAssociativity,
+          dimensionAssociativityPoint,
+          ordinateType,
           definitionPoint: pointFromCodes(10, 20, 30),
           textPoint: pointFromCodes(11, 21, 31),
           dimensionLinePoint: pointFromCodes(13, 23, 33),
@@ -1461,9 +1489,12 @@ function collectUnderlayClip(map) {
           text: map.get(1)?.[0] || '',
           measurement: toFloat(map.get(42)?.[0]) ?? null,
           textHeight,
+          rotation: toFloat(map.get(50)?.[0]) ?? null,
           blockName: map.get(2)?.[0] || null,
           dimensionStyle: dimensionStyleName,
-          dimensionStyleHandle
+          dimensionStyleHandle,
+          associativeHandles,
+          dimensionAssociativeHandles: associativeHandles.slice()
         };
       }
       case 'LEADER': {
@@ -2255,6 +2286,134 @@ function collectUnderlayClip(map) {
         }
       }
 
+      if (geometry && upperType === 'DIMENSION') {
+        if (!geometry.units && context.units) {
+          const units = context.units || null;
+          geometry.units = units
+            ? {
+                insUnits: units.insUnits != null ? units.insUnits : null,
+                insUnitsSource: units.insUnitsSource != null ? units.insUnitsSource : null,
+                insUnitsTarget: units.insUnitsTarget != null ? units.insUnitsTarget : null
+              }
+            : null;
+        }
+
+        const dimStyleParams = resolvedDimensionStyle && resolvedDimensionStyle.parameters
+          ? resolvedDimensionStyle.parameters
+          : null;
+        if (dimStyleParams) {
+          if (dimStyleParams.linearFactor != null && !Number.isNaN(dimStyleParams.linearFactor)) {
+            geometry.dimensionLinearFactor = dimStyleParams.linearFactor;
+          }
+          if (dimStyleParams.overallScale != null && !Number.isNaN(dimStyleParams.overallScale)) {
+            geometry.dimensionScaleFactor = dimStyleParams.overallScale;
+          }
+          if (dimStyleParams.toleranceScale != null && !Number.isNaN(dimStyleParams.toleranceScale)) {
+            geometry.dimensionToleranceScale = dimStyleParams.toleranceScale;
+          }
+          const dimScaleFactor = geometry.dimensionScaleFactor != null && !Number.isNaN(geometry.dimensionScaleFactor)
+            ? geometry.dimensionScaleFactor
+            : 1;
+          if (dimStyleParams.dimensionLineIncrement != null && !Number.isNaN(dimStyleParams.dimensionLineIncrement)) {
+            geometry.dimensionLineIncrement = dimStyleParams.dimensionLineIncrement * dimScaleFactor;
+          }
+          if (dimStyleParams.dimensionLineExtension != null && !Number.isNaN(dimStyleParams.dimensionLineExtension)) {
+            geometry.dimensionLineExtension = dimStyleParams.dimensionLineExtension * dimScaleFactor;
+          }
+          if (dimStyleParams.tickSize != null && !Number.isNaN(dimStyleParams.tickSize)) {
+            geometry.dimensionTickSize = dimStyleParams.tickSize * dimScaleFactor;
+          }
+          if (dimStyleParams.tolerancePlus != null && !Number.isNaN(dimStyleParams.tolerancePlus)) {
+            geometry.dimensionToleranceUpper = dimStyleParams.tolerancePlus;
+          }
+          if (dimStyleParams.toleranceMinus != null && !Number.isNaN(dimStyleParams.toleranceMinus)) {
+            geometry.dimensionToleranceLower = dimStyleParams.toleranceMinus;
+          }
+        }
+
+        const dimStyleToggles = resolvedDimensionStyle && resolvedDimensionStyle.toggles
+          ? resolvedDimensionStyle.toggles
+          : null;
+        if (dimStyleToggles && dimStyleToggles.suppressExtensionLine1 != null) {
+          geometry.extensionLine1Suppressed = dimStyleToggles.suppressExtensionLine1;
+        }
+        if (dimStyleToggles && dimStyleToggles.suppressExtensionLine2 != null) {
+          geometry.extensionLine2Suppressed = dimStyleToggles.suppressExtensionLine2;
+        }
+        if (dimStyleToggles) {
+          geometry.dimensionStyleToggles = dimStyleToggles;
+        }
+
+        const dimStyleMeasurement = resolvedDimensionStyle && resolvedDimensionStyle.measurement
+          ? resolvedDimensionStyle.measurement
+          : null;
+        if (dimStyleMeasurement) {
+          geometry.dimensionMeasurementSettings = dimStyleMeasurement;
+        }
+
+        const dimStyleAlternateUnits = resolvedDimensionStyle && resolvedDimensionStyle.alternateUnits
+          ? resolvedDimensionStyle.alternateUnits
+          : null;
+        if (dimStyleAlternateUnits) {
+          geometry.dimensionAlternateUnits = dimStyleAlternateUnits;
+        }
+
+        const dimStyleText = resolvedDimensionStyle && resolvedDimensionStyle.text
+          ? resolvedDimensionStyle.text
+          : null;
+        if (dimStyleText) {
+          geometry.dimensionTextOverrides = dimStyleText;
+        }
+
+        const dimStyleReferences = resolvedDimensionStyle && resolvedDimensionStyle.references
+          ? resolvedDimensionStyle.references
+          : null;
+        if (dimStyleReferences) {
+          const extractHandle = (entry) => {
+            if (!entry) {
+              return null;
+            }
+            if (entry.handleUpper) {
+              return entry.handleUpper;
+            }
+            if (entry.handle) {
+              return normalizeHandle(entry.handle);
+            }
+            return null;
+          };
+          const textStyleHandle = extractHandle(dimStyleReferences.textStyle);
+          if (textStyleHandle) {
+            geometry.dimensionTextStyleHandle = textStyleHandle;
+            if (!metadata.textStyle) {
+              const resolvedTextStyle = textStylesByHandle
+                ? (textStylesByHandle.get(textStyleHandle) ||
+                  textStylesByHandle.get(String(textStyleHandle).toUpperCase()))
+                : null;
+              if (resolvedTextStyle) {
+                metadata.textStyle = resolvedTextStyle;
+                geometry.dimensionTextStyle = resolvedTextStyle;
+              }
+            }
+          }
+          geometry.dimensionArrowBlocks = {
+            primary: extractHandle(dimStyleReferences.arrowBlock),
+            first: extractHandle(dimStyleReferences.firstArrowBlock),
+            second: extractHandle(dimStyleReferences.secondArrowBlock),
+            leader: extractHandle(dimStyleReferences.leaderArrowBlock)
+          };
+          geometry.dimensionLineLinetypeHandle = extractHandle(dimStyleReferences.dimensionLineLinetype);
+          geometry.extensionLine1LinetypeHandle = extractHandle(dimStyleReferences.extensionLine1Linetype);
+          geometry.extensionLine2LinetypeHandle = extractHandle(dimStyleReferences.extensionLine2Linetype);
+        }
+
+        if (!Array.isArray(geometry.dimensionAssociativeHandles)) {
+          const rawAssocHandles = Array.isArray(geometry.associativeHandles) ? geometry.associativeHandles : [];
+          geometry.dimensionAssociativeHandles = rawAssocHandles
+            .map((handle) => normalizeHandle(handle))
+            .filter(Boolean);
+        }
+      }
+
       if (geometry && (upperType === 'POINT' || upperType === 'MPOINT')) {
         if (pointDisplayDefaults) {
           if (!Number.isFinite(geometry.pointSize) && Number.isFinite(pointDisplayDefaults.size)) {
@@ -2336,7 +2495,16 @@ function collectUnderlayClip(map) {
           sectionGeometry: resolveByHandle(context.sectionGeometries, geometry && geometry.sectionGeometryHandle),
           detailViewObject: resolveByHandle(context.detailViewObjects, geometry && geometry.detailViewHandle),
           proxyObject: resolveByHandle(context.proxyObjects, metadata.handle),
-          rasterVariables: context.rasterVariables || null
+          rasterVariables: context.rasterVariables || null,
+          associativity: (geometry && (geometry.dimensionAssociativity != null || (geometry.dimensionAssociativeHandles && geometry.dimensionAssociativeHandles.length)))
+            ? {
+                mode: geometry.dimensionAssociativity != null ? geometry.dimensionAssociativity : null,
+                pointIndex: geometry.dimensionAssociativityPoint != null ? geometry.dimensionAssociativityPoint : null,
+                handles: Array.isArray(geometry.dimensionAssociativeHandles)
+                  ? geometry.dimensionAssociativeHandles.slice()
+                  : []
+              }
+            : null
         }
       };
     }
@@ -7003,7 +7171,8 @@ function collectUnderlayClip(map) {
         auxiliaryObjects,
         resolvedEntityDefaults,
         resolvedCoordinateDefaults,
-        resolvedDisplaySettings
+        resolvedDisplaySettings,
+        drawingProperties
       );
 
       if (colorBooks && tables.layers) {
@@ -10223,6 +10392,7 @@ function collectUnderlayClip(map) {
         const handle = utils.getFirstCodeValue(recordTags, 5) || null;
         const owner = utils.getFirstCodeValue(recordTags, 330) || null;
         const codeLookup = this._buildCodeLookup(recordTags);
+        const parsedDimStyle = this._decodeDimStyle(codeLookup);
         collections[upperTable].set(name, {
           name,
           handle,
@@ -10232,6 +10402,14 @@ function collectUnderlayClip(map) {
           description: utils.getFirstCodeValue(recordTags, 3) || null,
           flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
           dimensionType: utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0,
+          parameters: parsedDimStyle.parameters,
+          toggles: parsedDimStyle.toggles,
+          measurement: parsedDimStyle.measurement,
+          alternateUnits: parsedDimStyle.alternateUnits,
+          references: parsedDimStyle.references,
+          colors: parsedDimStyle.colors,
+          lineweights: parsedDimStyle.lineweights,
+          rawFlagCodes: parsedDimStyle.rawFlagCodes,
           codeValues: codeLookup,
           rawTags: this._mapRawTags(recordTags)
         });
@@ -11258,7 +11436,8 @@ function collectUnderlayClip(map) {
       auxiliaryObjects = {},
       entityDefaults = null,
       coordinateDefaults = null,
-      displaySettings = null
+      displaySettings = null,
+      drawingProperties = null
     ) {
       const entities = [];
       const blocks = [];
@@ -11426,7 +11605,8 @@ function collectUnderlayClip(map) {
               coordinateDefaults: resolvedCoordinateDefaults,
               displaySettings: resolvedDisplaySettings,
               textStylesByHandle,
-              dimStylesByHandle
+              dimStylesByHandle,
+              units: drawingProperties ? (drawingProperties.units || null) : null
             };
             const vertexEntity = namespace.RenderableEntityFactory.fromTags('VERTEX', vertexTags, context);
             if (section === 'BLOCKS' && currentBlock) {
@@ -11498,7 +11678,8 @@ function collectUnderlayClip(map) {
             coordinateDefaults: resolvedCoordinateDefaults,
             displaySettings: resolvedDisplaySettings,
             textStylesByHandle,
-            dimStylesByHandle
+            dimStylesByHandle,
+            units: drawingProperties ? (drawingProperties.units || null) : null
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -11549,7 +11730,8 @@ function collectUnderlayClip(map) {
             coordinateDefaults: resolvedCoordinateDefaults,
             displaySettings: resolvedDisplaySettings,
             textStylesByHandle,
-            dimStylesByHandle
+            dimStylesByHandle,
+            units: drawingProperties ? (drawingProperties.units || null) : null
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -11710,6 +11892,211 @@ function collectUnderlayClip(map) {
         code: Number(tag.code),
         value: tag.value
       }));
+    }
+
+    _decodeDimStyle(codeLookup) {
+      const pickFirst = (code) => {
+        if (!codeLookup || !Object.prototype.hasOwnProperty.call(codeLookup, code)) {
+          return null;
+        }
+        const values = codeLookup[code];
+        if (!Array.isArray(values)) {
+          return values != null ? values : null;
+        }
+        for (let i = 0; i < values.length; i += 1) {
+          if (values[i] != null) {
+            return values[i];
+          }
+        }
+        return null;
+      };
+      const pickString = (code) => {
+        const raw = pickFirst(code);
+        if (raw == null) {
+          return null;
+        }
+        const stringValue = typeof raw === 'string' ? raw : String(raw);
+        const trimmed = stringValue.trim();
+        return trimmed ? trimmed : null;
+      };
+      const pickFloat = (code) => {
+        const raw = pickFirst(code);
+        if (raw == null) {
+          return null;
+        }
+        const numeric = utils.toFloat ? utils.toFloat(raw) : parseFloat(raw);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+      const pickInt = (code) => {
+        const raw = pickFirst(code);
+        if (raw == null) {
+          return null;
+        }
+        const numeric = utils.toInt ? utils.toInt(raw) : parseInt(raw, 10);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+      const pickBool = (code) => {
+        const numeric = pickInt(code);
+        if (numeric == null) {
+          return null;
+        }
+        return numeric !== 0;
+      };
+      const pickHandle = (code) => {
+        const handle = pickString(code);
+        if (!handle) {
+          return null;
+        }
+        const normalized = normalizeHandle(handle);
+        return {
+          handle,
+          handleUpper: normalized
+        };
+      };
+      const prune = (record) => {
+        if (!record || typeof record !== 'object') {
+          return null;
+        }
+        const result = {};
+        Object.keys(record).forEach((key) => {
+          const value = record[key];
+          if (value == null) {
+            return;
+          }
+          if (typeof value === 'object' && !Array.isArray(value)) {
+            const nested = prune(value);
+            if (nested && Object.keys(nested).length) {
+              result[key] = nested;
+            }
+          } else {
+            result[key] = value;
+          }
+        });
+        return Object.keys(result).length ? result : null;
+      };
+
+      const parameters = prune({
+        overallScale: pickFloat(40),
+        arrowSize: pickFloat(41),
+        extensionOffset: pickFloat(42),
+        dimensionLineIncrement: pickFloat(43),
+        extensionExtension: pickFloat(44),
+        roundDistance: pickFloat(45),
+        dimensionLineExtension: pickFloat(46),
+        tolerancePlus: pickFloat(47),
+        toleranceMinus: pickFloat(48),
+        jogAngle: pickFloat(49),
+        textHeight: pickFloat(140),
+        centerMarkSize: pickFloat(141),
+        tickSize: pickFloat(142),
+        alternateUnitScale: pickFloat(143),
+        linearFactor: pickFloat(144),
+        textVerticalPosition: pickFloat(145),
+        toleranceScale: pickFloat(146),
+        textGap: pickFloat(147),
+        alternateUnitRounding: pickFloat(148)
+      });
+
+      const toggles = prune({
+        textInsideHorizontal: pickBool(73),
+        textOutsideHorizontal: pickBool(74),
+        suppressFirstDimensionLine: pickBool(75),
+        suppressSecondDimensionLine: pickBool(76),
+        suppressExtensionLine1: pickBool(280),
+        suppressExtensionLine2: pickBool(281),
+        textInsideAlign: pickBool(282),
+        textOutsideAlign: pickBool(283),
+        forceTextInsideExtensions: pickBool(284),
+        suppressOutsideExtensionLines: pickBool(285),
+        arrowheadsMatchDimensionStyle: pickBool(286),
+        scaleDimensionLineByOverallScale: pickBool(287),
+        textFlipArrow: pickBool(288),
+        suppressDimensionLine: pickBool(289)
+      });
+
+      const measurement = prune({
+        toleranceEnabled: pickBool(71),
+        limitsEnabled: pickBool(72),
+        linearUnitFormat: pickInt(270),
+        linearPrecision: pickInt(271),
+        tolerancePrecision: pickInt(272),
+        alternateUnitFormat: pickInt(273),
+        alternateUnitPrecision: pickInt(274),
+        angularUnitFormat: pickInt(275),
+        angularPrecision: pickInt(276),
+        fractionalFormat: pickInt(277),
+        zeroSuppression: pickInt(278),
+        angularZeroSuppression: pickInt(279),
+        toleranceJustification: pickInt(175),
+        toleranceZeroSuppression: pickInt(179),
+        textMovement: pickInt(289),
+        textJustification: pickInt(290)
+      });
+
+      const alternateUnits = prune({
+        enabled: pickBool(170),
+        multiplier: pickFloat(171),
+        precision: pickInt(172),
+        tolerancePrecision: pickInt(173),
+        zeroSuppression: pickInt(174),
+        toleranceZeroSuppression: pickInt(175),
+        format: pickInt(176),
+        rounding: pickFloat(148)
+      });
+
+      const text = prune({
+        primary: pickString(3),
+        alternate: pickString(4)
+      });
+
+      const references = prune({
+        textStyle: pickHandle(340),
+        leaderArrowBlock: pickHandle(341),
+        arrowBlock: pickHandle(342),
+        firstArrowBlock: pickHandle(343),
+        secondArrowBlock: pickHandle(344),
+        dimensionLineLinetype: pickHandle(346),
+        extensionLine1Linetype: pickHandle(347),
+        extensionLine2Linetype: pickHandle(348)
+      });
+
+      const colors = prune({
+        dimensionLineColorNumber: pickInt(62),
+        extensionLineColorNumber: pickInt(63),
+        textColorNumber: pickInt(64),
+        dimensionLineTrueColor: pickFirst(420),
+        extensionLineTrueColor: pickFirst(421)
+      });
+
+      const lineweights = prune({
+        dimensionLine: pickInt(371),
+        extensionLine1: pickInt(372),
+        extensionLine2: pickInt(373)
+      });
+
+      const rawFlagCodes = {};
+      const flagCodes = [
+        280, 281, 282, 283, 284, 285, 286, 287, 288, 289,
+        290, 291, 292, 293, 294, 295, 296, 297, 298, 299
+      ];
+      flagCodes.forEach((code) => {
+        const value = pickInt(code);
+        if (value != null) {
+          rawFlagCodes[code] = value;
+        }
+      });
+
+      return {
+        parameters,
+        toggles,
+        measurement,
+        alternateUnits,
+        text,
+        references,
+        colors,
+        lineweights,
+        rawFlagCodes: Object.keys(rawFlagCodes).length ? rawFlagCodes : null
+      };
     }
 
     _buildCodeLookup(tags) {
@@ -15672,7 +16059,25 @@ function collectPointCloudClip(map) {
           break;
         }
         case 'DIMENSION': {
-          this._addDimensionGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawTexts, color, makeMeta);
+          this._addDimensionGeometry(
+            entity,
+            geometry,
+            transform,
+            updateBounds,
+            rawPolylines,
+            rawTexts,
+            color,
+            makeMeta,
+            contextUnits,
+            {
+              renderBlockContent,
+              getBlockNameByHandle,
+              depth,
+              visitedBlocks,
+              blockStack,
+              highlight: highlightActive
+            }
+          );
           break;
         }
         case 'MESH':
@@ -16650,6 +17055,57 @@ function collectPointCloudClip(map) {
       };
     }
 
+    _resolveDimensionMeasurementFactor(options = {}) {
+      const { geometry, entity, contextUnits } = options || {};
+      let factor = 1;
+      const applyFactor = (value) => {
+        if (!Number.isFinite(value) || value === 0) {
+          return;
+        }
+        factor *= value;
+      };
+
+      const style = entity && entity.resolved ? entity.resolved.dimensionStyle : null;
+      const styleParameters = style && style.parameters ? style.parameters : null;
+
+      const dimensionSubtype = geometry && Number.isFinite(geometry.dimensionSubtype)
+        ? geometry.dimensionSubtype
+        : (geometry && Number.isFinite(geometry.dimensionType)
+          ? (geometry.dimensionType & 7)
+          : null);
+      const isAngular = dimensionSubtype === 2 || dimensionSubtype === 5;
+
+      if (!isAngular) {
+        if (geometry && Number.isFinite(geometry.dimensionLinearFactor)) {
+          applyFactor(geometry.dimensionLinearFactor);
+        } else if (styleParameters && Number.isFinite(styleParameters.linearFactor)) {
+          applyFactor(styleParameters.linearFactor);
+        }
+
+        if (geometry && Number.isFinite(geometry.dimensionScaleFactor)) {
+          applyFactor(geometry.dimensionScaleFactor);
+        } else if (styleParameters && Number.isFinite(styleParameters.overallScale)) {
+          applyFactor(styleParameters.overallScale);
+        }
+
+        const geometryUnits = geometry && geometry.units ? geometry.units : null;
+        const sourceUnits = geometryUnits && geometryUnits.insUnits != null
+          ? geometryUnits.insUnits
+          : null;
+        const targetUnits = geometryUnits && geometryUnits.insUnitsTarget != null
+          ? geometryUnits.insUnitsTarget
+          : null;
+
+        if (sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits) {
+          applyFactor(this._unitConversionFactor(sourceUnits, targetUnits));
+        } else if (sourceUnits != null && contextUnits != null && sourceUnits !== contextUnits) {
+          applyFactor(this._unitConversionFactor(sourceUnits, contextUnits));
+        }
+      }
+
+      return factor;
+    }
+
     _normalizeDisplaySettings(settings) {
       const normalized = {
         point: {
@@ -17602,6 +18058,200 @@ function collectPointCloudClip(map) {
       });
     }
 
+    _renderDimensionArrow(options = {}) {
+      const descriptor = options.descriptor || { kind: 'open' };
+      const {
+        tip,
+        toward,
+        size,
+        transform,
+        updateBounds,
+        polylineCollector,
+        color,
+        weight,
+        metaFactory,
+        lineweight,
+        renderBlockContent,
+        getBlockNameByHandle,
+        depth = 0,
+        visitedBlocks = [],
+        blockStack = [],
+        highlight = false,
+        contextUnits
+      } = options;
+      if (!tip || !toward) {
+        return;
+      }
+      switch (descriptor.kind) {
+        case 'tick':
+          this._addDimensionTickHead(tip, toward, size, transform, updateBounds, polylineCollector, color, weight, metaFactory, lineweight);
+          return;
+        case 'block': {
+          const success = this._addDimensionArrowBlock({
+            tip,
+            toward,
+            size,
+            transform,
+            renderBlockContent,
+            getBlockNameByHandle,
+            handle: descriptor.handle,
+            depth,
+            visitedBlocks,
+            blockStack,
+            highlight,
+            contextUnits
+          });
+          if (success) {
+            return;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+      this._addDimensionArrowHead(tip, toward, size, transform, updateBounds, polylineCollector, color, weight, metaFactory, lineweight);
+    }
+
+    _addDimensionTickHead(tip, toward, size, transform, updateBounds, polylineCollector, color, weight, metaFactory, lineweight) {
+      if (!tip || !toward || !Number.isFinite(size) || size <= 0) {
+        return;
+      }
+      const direction = { x: toward.x - tip.x, y: toward.y - tip.y };
+      const length = this._vectorLength(direction);
+      if (length < 1e-6) {
+        return;
+      }
+      const unit = { x: direction.x / length, y: direction.y / length };
+      const cos = Math.cos(Math.PI / 4);
+      const sin = Math.sin(Math.PI / 4);
+      const rotated = {
+        x: unit.x * cos - unit.y * sin,
+        y: unit.x * sin + unit.y * cos
+      };
+      const offset = { x: rotated.x * size, y: rotated.y * size };
+      const start = { x: tip.x - offset.x, y: tip.y - offset.y };
+      const end = { x: tip.x + offset.x, y: tip.y + offset.y };
+      const transformed = transformPoints([start, end], transform);
+      transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+      polylineCollector.push({
+        points: transformed,
+        color,
+        lineweight,
+        weight: weight || 1,
+        worldBounds: this._computeBoundsFromPoints(transformed),
+        meta: typeof metaFactory === 'function'
+          ? metaFactory({ geometryKind: 'polyline', dimensionPart: 'arrowhead' })
+          : null
+      });
+    }
+
+    _addDimensionArrowBlock(options = {}) {
+      const {
+        tip,
+        toward,
+        size,
+        transform,
+        renderBlockContent,
+        getBlockNameByHandle,
+        handle,
+        depth = 0,
+        visitedBlocks = [],
+        blockStack = [],
+        highlight = false,
+        contextUnits
+      } = options;
+      if (!tip || !toward || !handle) {
+        return false;
+      }
+      if (typeof renderBlockContent !== 'function' || typeof getBlockNameByHandle !== 'function') {
+        return false;
+      }
+      const direction = { x: toward.x - tip.x, y: toward.y - tip.y };
+      const length = this._vectorLength(direction);
+      if (length < 1e-6) {
+        return false;
+      }
+      const blockName = getBlockNameByHandle(handle);
+      if (!blockName) {
+        return false;
+      }
+      const rotation = Math.atan2(direction.y, direction.x);
+      const scaleFactor = Number.isFinite(size) && size !== 0 ? size : length;
+      const localScale = scaleMatrix(scaleFactor, scaleFactor);
+      const localRotation = rotateMatrix(rotation);
+      const localTranslation = translateMatrix(tip.x, tip.y);
+      const composed = multiplyMatrix(transform, multiplyMatrix(localTranslation, multiplyMatrix(localRotation, localScale)));
+      renderBlockContent(blockName, composed, depth + 1, visitedBlocks, blockStack, highlight, contextUnits);
+      return true;
+    }
+
+    _buildDimensionArcPoints(center, start, end, options = {}) {
+      if (!center || !start || !end) {
+        return null;
+      }
+      const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
+      const endAngle = Math.atan2(end.y - center.y, end.x - center.x);
+      let sweep = endAngle - startAngle;
+      if (options.clockwise) {
+        while (sweep > 0) {
+          sweep -= Math.PI * 2;
+        }
+      } else {
+        while (sweep < 0) {
+          sweep += Math.PI * 2;
+        }
+      }
+      if (Math.abs(sweep) < 1e-6) {
+        return [start, end];
+      }
+      const segments = Math.max(4, Number.isFinite(options.segments) ? options.segments : Math.ceil(Math.abs(sweep) / (Math.PI / 24)));
+      const radius = Math.hypot(start.x - center.x, start.y - center.y);
+      if (!(radius > 1e-6)) {
+        return [start, end];
+      }
+      const step = sweep / segments;
+      const points = [];
+      for (let i = 0; i <= segments; i += 1) {
+        const angle = startAngle + step * i;
+        points.push({
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius
+        });
+      }
+      return points;
+    }
+
+    _addCenterMark(center, size, transform, updateBounds, polylineCollector, color, metaFactory, lineweight) {
+      if (!center || !Number.isFinite(size) || size <= 0) {
+        return;
+      }
+      const half = size * 0.5;
+      const segments = [
+        [
+          { x: center.x - half, y: center.y },
+          { x: center.x + half, y: center.y }
+        ],
+        [
+          { x: center.x, y: center.y - half },
+          { x: center.x, y: center.y + half }
+        ]
+      ];
+      segments.forEach((segment) => {
+        const transformed = transformPoints(segment, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color,
+          lineweight,
+          weight: this._lineweightToPx(lineweight),
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: typeof metaFactory === 'function'
+            ? metaFactory({ geometryKind: 'polyline', dimensionPart: 'centerMark' })
+            : null
+        });
+      });
+    }
+
     _addTableGeometry(options) {
       if (!options || !options.geometry) {
         return;
@@ -17974,7 +18624,7 @@ function collectPointCloudClip(map) {
       }
     }
 
-    _calculateDimensionMeasurement(geometry) {
+    _calculateDimensionMeasurement(geometry, options = {}) {
       if (!geometry) {
         return null;
       }
@@ -17984,12 +18634,15 @@ function collectPointCloudClip(map) {
         return Math.hypot((b.x || 0) - (a.x || 0), (b.y || 0) - (a.y || 0));
       };
 
+      let measurement = null;
+
       switch (type) {
         case 0:
         case 1: {
           const p1 = geometry.extensionLine1Point || geometry.definitionPoint;
           const p2 = geometry.extensionLine2Point || geometry.dimensionLinePoint;
-          return distance(p1, p2);
+          measurement = distance(p1, p2);
+          break;
         }
         case 2:
         case 5: {
@@ -18001,20 +18654,21 @@ function collectPointCloudClip(map) {
             const v2 = { x: a2.x - center.x, y: a2.y - center.y };
             const dot = v1.x * v2.x + v1.y * v2.y;
             const det = v1.x * v2.y - v1.y * v2.x;
-            const angle = Math.abs(Math.atan2(det, dot)) * 180 / Math.PI;
-            return angle;
+            measurement = Math.abs(Math.atan2(det, dot)) * 180 / Math.PI;
           }
           break;
         }
         case 3: {
           const a1 = geometry.arrow1Point || geometry.definitionPoint;
           const a2 = geometry.arrow2Point || geometry.dimensionLinePoint;
-          return distance(a1, a2);
+          measurement = distance(a1, a2);
+          break;
         }
         case 4: {
           const center = geometry.definitionPoint || geometry.dimensionLinePoint;
           const tip = geometry.arrow1Point || geometry.dimensionLinePoint;
-          return distance(center, tip);
+          measurement = distance(center, tip);
+          break;
         }
         case 6: {
           const origin = geometry.definitionPoint;
@@ -18022,7 +18676,16 @@ function collectPointCloudClip(map) {
           if (origin && leader) {
             const dx = leader.x - origin.x;
             const dy = leader.y - origin.y;
-            return Math.max(Math.abs(dx), Math.abs(dy));
+            const ordinateType = Number.isFinite(geometry.ordinateType) ? geometry.ordinateType : null;
+            let component = null;
+            if (ordinateType === 1) {
+              component = dx;
+            } else if (ordinateType === 2) {
+              component = dy;
+            } else {
+              component = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+            }
+            measurement = Math.abs(component != null ? component : 0);
           }
           break;
         }
@@ -18030,17 +18693,33 @@ function collectPointCloudClip(map) {
           break;
       }
 
-      return geometry.measurement != null ? geometry.measurement : null;
+      if (!Number.isFinite(measurement) && geometry.measurement != null) {
+        measurement = geometry.measurement;
+      }
+
+      if (!Number.isFinite(measurement)) {
+        return geometry.measurement != null ? geometry.measurement : null;
+      }
+
+      const factor = this._resolveDimensionMeasurementFactor({
+        geometry,
+        entity: options.entity || null,
+        contextUnits: options.contextUnits != null ? options.contextUnits : null
+      });
+      if (Number.isFinite(factor) && factor !== 1) {
+        measurement *= factor;
+      }
+      return measurement;
     }
 
-    _formatDimensionLabel(geometry) {
+    _formatDimensionLabel(geometry, options = {}) {
       if (!geometry) {
         return '';
       }
-      const measurementValue = this._calculateDimensionMeasurement(geometry);
+      const measurementValue = this._calculateDimensionMeasurement(geometry, options);
       const preferredValue = geometry.measurement != null ? geometry.measurement : measurementValue;
       const formattedMeasurement = preferredValue != null
-        ? this._formatDimensionMeasurement(preferredValue, geometry)
+        ? this._formatDimensionMeasurement(preferredValue, geometry, options)
         : '';
       const raw = geometry.text != null ? geometry.text.trim() : '';
       if (!raw) {
@@ -18052,24 +18731,633 @@ function collectPointCloudClip(map) {
       return raw;
     }
 
-    _formatDimensionMeasurement(value, geometry) {
+    _formatDimensionMeasurement(value, geometry, options = {}) {
       if (!Number.isFinite(value)) {
         return '';
       }
+      const entity = options.entity || null;
+      const styleInfo = entity && entity.resolved ? entity.resolved.dimensionStyle : null;
+      const measurementSettings = options.measurementSettings
+        || (geometry && geometry.dimensionMeasurementSettings)
+        || (styleInfo && styleInfo.measurement)
+        || {};
+      const styleParameters = options.styleParameters
+        || (styleInfo && styleInfo.parameters)
+        || null;
+      const alternateSettings = options.alternateSettings
+        || (geometry && geometry.dimensionAlternateUnits)
+        || (styleInfo && styleInfo.alternateUnits)
+        || null;
+      const textOverrides = options.textOverrides
+        || (geometry && geometry.dimensionTextOverrides)
+        || (styleInfo && styleInfo.text)
+        || null;
+      const measurementUnitsCode = this._resolveMeasurementUnitsCode(
+        geometry,
+        options.contextUnits != null ? options.contextUnits : null
+      );
       const type = geometry ? (geometry.dimensionType & 7) : 0;
-      const precision = geometry && Number.isFinite(geometry.textHeight) ? 4 : 3;
-      const formatted = this._trimTrailingZeros(value.toFixed(precision));
-      switch (type) {
-        case 2:
-        case 5:
-          return `${formatted}\u00B0`;
-        case 3:
-          return `\u2300${formatted}`;
-        case 4:
-          return `R${formatted}`;
-        default:
-          return formatted;
+      const dimensionPrefix = type === 3
+        ? '\u2300'
+        : (type === 4 ? 'R' : '');
+
+      if (type === 2 || type === 5) {
+        return this._formatAngularMeasurement(value, {
+          geometry,
+          measurementSettings,
+          styleParameters,
+          textOverrides,
+          measurementUnitsCode,
+          contextUnits: options.contextUnits != null ? options.contextUnits : null
+        });
       }
+
+      const primaryLines = this._buildPrimaryMeasurementLines(value, {
+        geometry,
+        measurementSettings,
+        styleParameters,
+        textOverrides,
+        dimensionPrefix,
+        measurementUnitsCode,
+        contextUnits: options.contextUnits != null ? options.contextUnits : null
+      });
+
+      const alternateLines = this._buildAlternateMeasurementLines(value, {
+        geometry,
+        measurementSettings,
+        alternateSettings,
+        styleParameters,
+        textOverrides,
+        dimensionPrefix,
+        measurementUnitsCode,
+        contextUnits: options.contextUnits != null ? options.contextUnits : null
+      });
+
+      const lines = primaryLines.concat(alternateLines);
+      return lines.join('\n');
+    }
+
+    _buildPrimaryMeasurementLines(value, context = {}) {
+      const measurementSettings = context.measurementSettings || {};
+      const textOverrides = context.textOverrides || {};
+      const numericString = this._formatLinearValue(value, measurementSettings, context);
+      const baseValueString = (context.dimensionPrefix || '') + numericString;
+      return this._buildToleranceLines({
+        value,
+        baseValueString,
+        measurementSettings,
+        styleParameters: context.styleParameters || null,
+        geometry: context.geometry || null,
+        textPattern: textOverrides.primary || null,
+        measurementUnitsCode: context.measurementUnitsCode || null,
+        toleranceMultiplier: 1,
+        formatValue: (val, opts = {}) => {
+          const settings = opts.measurementSettings || measurementSettings;
+          const localContext = Object.assign({}, context, opts, {
+            measurementSettings: settings
+          });
+          const formatted = this._formatLinearValue(val, settings, localContext);
+          if (opts.skipPrefix) {
+            return formatted;
+          }
+          return (context.dimensionPrefix || '') + formatted;
+        }
+      });
+    }
+
+    _buildAlternateMeasurementLines(value, context = {}) {
+      const alternateSettings = context.alternateSettings;
+      if (!alternateSettings || !alternateSettings.enabled) {
+        return [];
+      }
+      const measurementSettings = context.measurementSettings || {};
+      const styleParameters = context.styleParameters || null;
+      const textOverrides = context.textOverrides || {};
+      const multiplier = Number.isFinite(alternateSettings.multiplier) && alternateSettings.multiplier !== 0
+        ? alternateSettings.multiplier
+        : (styleParameters && Number.isFinite(styleParameters.alternateUnitScale)
+          ? styleParameters.alternateUnitScale
+          : 1);
+      const alternateUnitFormat = alternateSettings.format != null
+        ? alternateSettings.format
+        : (measurementSettings.alternateUnitFormat != null ? measurementSettings.alternateUnitFormat : measurementSettings.linearUnitFormat);
+      const alternatePrecision = alternateSettings.precision != null
+        ? alternateSettings.precision
+        : (measurementSettings.alternateUnitPrecision != null ? measurementSettings.alternateUnitPrecision : measurementSettings.linearPrecision);
+      const altZeroSuppression = alternateSettings.zeroSuppression != null
+        ? alternateSettings.zeroSuppression
+        : (measurementSettings.alternateZeroSuppression != null ? measurementSettings.alternateZeroSuppression : measurementSettings.zeroSuppression);
+      const altTolerancePrecision = alternateSettings.tolerancePrecision != null
+        ? alternateSettings.tolerancePrecision
+        : (measurementSettings.alternateTolerancePrecision != null ? measurementSettings.alternateTolerancePrecision : measurementSettings.tolerancePrecision);
+      const altToleranceZeroSuppression = alternateSettings.toleranceZeroSuppression != null
+        ? alternateSettings.toleranceZeroSuppression
+        : (measurementSettings.alternateToleranceZeroSuppression != null ? measurementSettings.alternateToleranceZeroSuppression : measurementSettings.toleranceZeroSuppression);
+
+      const altMeasurementSettings = Object.assign({}, measurementSettings, {
+        linearUnitFormat: alternateUnitFormat,
+        linearPrecision: alternatePrecision,
+        zeroSuppression: altZeroSuppression,
+        tolerancePrecision: altTolerancePrecision,
+        toleranceZeroSuppression: altToleranceZeroSuppression
+      });
+
+      const altValue = value * multiplier;
+      const numericString = this._formatLinearValue(altValue, altMeasurementSettings, Object.assign({}, context, {
+        measurementSettings: altMeasurementSettings,
+        isAlternate: true
+      }));
+      const baseValueString = (context.dimensionPrefix || '') + numericString;
+      const toleranceLines = this._buildToleranceLines({
+        value: altValue,
+        baseValueString,
+        measurementSettings: altMeasurementSettings,
+        styleParameters,
+        geometry: context.geometry || null,
+        textPattern: textOverrides.alternate || null,
+        measurementUnitsCode: context.measurementUnitsCode || null,
+        toleranceMultiplier: multiplier,
+        formatValue: (val, opts = {}) => {
+          const settings = opts.measurementSettings || altMeasurementSettings;
+          const localContext = Object.assign({}, context, opts, {
+            measurementSettings: settings,
+            isAlternate: true
+          });
+          const formatted = this._formatLinearValue(val, settings, localContext);
+          if (opts.skipPrefix) {
+            return formatted;
+          }
+          return (context.dimensionPrefix || '') + formatted;
+        }
+      });
+
+      if (!(textOverrides && textOverrides.alternate)) {
+        if (toleranceLines.length === 0) {
+          toleranceLines.push(`[${baseValueString}]`);
+        } else {
+          for (let i = 0; i < toleranceLines.length; i += 1) {
+            const line = toleranceLines[i];
+            toleranceLines[i] = line != null && String(line).startsWith('[')
+              ? line
+              : `[${line}]`;
+          }
+        }
+      }
+
+      return toleranceLines;
+    }
+
+    _buildToleranceLines(config = {}) {
+      const measurementSettings = config.measurementSettings || {};
+      const styleParameters = config.styleParameters || null;
+      const geometry = config.geometry || null;
+      const textPattern = config.textPattern || null;
+      const formatValue = typeof config.formatValue === 'function'
+        ? config.formatValue
+        : ((val) => String(val));
+      const toleranceMultiplier = Number.isFinite(config.toleranceMultiplier)
+        ? config.toleranceMultiplier
+        : 1;
+      const baseLine = this._applyDimensionTextPattern(
+        config.baseValueString != null ? config.baseValueString : '',
+        textPattern
+      );
+      if (!measurementSettings.toleranceEnabled) {
+        return [baseLine];
+      }
+
+      const toleranceScaleBase = geometry && Number.isFinite(geometry.dimensionToleranceScale)
+        ? geometry.dimensionToleranceScale
+        : (styleParameters && Number.isFinite(styleParameters.toleranceScale)
+          ? styleParameters.toleranceScale
+          : 1);
+      const toleranceScale = toleranceScaleBase * toleranceMultiplier;
+      const rawUpper = geometry && Number.isFinite(geometry.dimensionToleranceUpper)
+        ? geometry.dimensionToleranceUpper
+        : (styleParameters && Number.isFinite(styleParameters.tolerancePlus) ? styleParameters.tolerancePlus : 0);
+      const rawLower = geometry && Number.isFinite(geometry.dimensionToleranceLower)
+        ? geometry.dimensionToleranceLower
+        : (styleParameters && Number.isFinite(styleParameters.toleranceMinus) ? styleParameters.toleranceMinus : 0);
+      const tolUpper = (Number.isFinite(rawUpper) ? rawUpper : 0) * toleranceScale;
+      const tolLower = (Number.isFinite(rawLower) ? rawLower : 0) * toleranceScale;
+
+      const epsilon = 1e-9;
+      if (!(Math.abs(tolUpper) > epsilon || Math.abs(tolLower) > epsilon)) {
+        return [baseLine];
+      }
+
+      const tolerancePrecision = measurementSettings.tolerancePrecision != null
+        ? measurementSettings.tolerancePrecision
+        : measurementSettings.linearPrecision;
+      const toleranceMeasurementSettings = Object.assign({}, measurementSettings);
+      if (tolerancePrecision != null) {
+        toleranceMeasurementSettings.linearPrecision = tolerancePrecision;
+      }
+      if (measurementSettings.toleranceZeroSuppression != null) {
+        toleranceMeasurementSettings.zeroSuppression = measurementSettings.toleranceZeroSuppression;
+      }
+
+      const lines = [];
+      if (measurementSettings.limitsEnabled) {
+        const upperValue = config.value + tolUpper;
+        const lowerValue = config.value - tolLower;
+        const upperStr = formatValue(upperValue, { measurementSettings: toleranceMeasurementSettings });
+        const lowerStr = formatValue(lowerValue, { measurementSettings: toleranceMeasurementSettings });
+        lines.push(this._applyDimensionTextPattern(upperStr, textPattern));
+        lines.push(this._applyDimensionTextPattern(lowerStr, textPattern));
+        return lines;
+      }
+
+      lines.push(baseLine);
+
+      if (Math.abs(tolUpper) > epsilon) {
+        const plusStr = formatValue(tolUpper, {
+          measurementSettings: toleranceMeasurementSettings,
+          isTolerance: true,
+          skipPrefix: true
+        });
+        if (plusStr !== '') {
+          lines.push(`+${plusStr}`);
+        }
+      }
+
+      if (Math.abs(tolLower) > epsilon) {
+        const minusStr = formatValue(tolLower, {
+          measurementSettings: toleranceMeasurementSettings,
+          isTolerance: true,
+          skipPrefix: true
+        });
+        if (minusStr !== '') {
+          lines.push(`-${minusStr}`);
+        }
+      }
+
+      return lines;
+    }
+
+    _applyDimensionTextPattern(valueString, pattern) {
+      const base = valueString != null ? String(valueString) : '';
+      if (!pattern) {
+        return base;
+      }
+      if (pattern.includes('<>')) {
+        return pattern.replace(/<>/g, base);
+      }
+      return `${base}${pattern}`;
+    }
+
+    _formatLinearValue(value, measurementSettings = {}, context = {}) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const unitFormat = Number.isFinite(measurementSettings.linearUnitFormat)
+        ? measurementSettings.linearUnitFormat
+        : 1;
+      const precision = Number.isFinite(measurementSettings.linearPrecision)
+        ? measurementSettings.linearPrecision
+        : 3;
+      const zeroSuppression = Number.isFinite(measurementSettings.zeroSuppression)
+        ? measurementSettings.zeroSuppression
+        : 0;
+
+      switch (unitFormat) {
+        case 0:
+          return this._formatScientificLinearValue(value, precision, zeroSuppression);
+        case 2:
+          return this._formatEngineeringValue(value, precision, zeroSuppression, context);
+        case 3:
+          return this._formatArchitecturalValue(value, precision, zeroSuppression, context);
+        case 4:
+          return this._formatFractionalValue(value, precision, zeroSuppression, context);
+        default:
+          return this._formatDecimalLinearValue(value, precision, zeroSuppression, context);
+      }
+    }
+
+    _formatDecimalLinearValue(value, precision, zeroSuppression, context = {}) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const decimalPlaces = Number.isFinite(precision) && precision >= 0 ? precision : 3;
+      let formatted = value.toFixed(decimalPlaces);
+      if ((zeroSuppression & 2) === 2) {
+        formatted = this._trimTrailingZeros(formatted);
+      }
+      if ((zeroSuppression & 1) === 1) {
+        formatted = formatted.replace(/^(-?)0\./, '$1.');
+      }
+      return formatted;
+    }
+
+    _formatScientificLinearValue(value, precision, zeroSuppression) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const expPrecision = Number.isFinite(precision) && precision >= 0 ? precision : 3;
+      let formatted = value.toExponential(expPrecision);
+      if ((zeroSuppression & 1) === 1) {
+        formatted = formatted.replace(/^(-?)0\./, '$1.');
+      }
+      return formatted;
+    }
+
+    _formatEngineeringValue(value, precision, zeroSuppression, context = {}) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const inches = this._convertLinearValue(value, context.measurementUnitsCode, 1);
+      if (!Number.isFinite(inches)) {
+        return '';
+      }
+      const sign = inches < 0 ? -1 : 1;
+      let abs = Math.abs(inches);
+      let feet = Math.floor(abs / 12);
+      abs -= feet * 12;
+      const inchString = this._formatDecimalLinearValue(abs, precision, zeroSuppression, context);
+      const suppressFeet = (zeroSuppression & 4) === 4 && feet === 0;
+      const suppressInches = (zeroSuppression & 8) === 8 && Math.abs(abs) < 1e-9;
+      const signPrefix = sign < 0 ? '-' : '';
+      const parts = [];
+      if (!suppressFeet) {
+        parts.push(`${feet}'`);
+      }
+      if (!suppressInches) {
+        const inchPart = `${inchString}"`;
+        if (!suppressFeet) {
+          parts[parts.length - 1] = `${parts[parts.length - 1]}-${inchPart}`;
+        } else {
+          parts.push(inchPart);
+        }
+      }
+      if (!parts.length) {
+        parts.push('0"');
+      }
+      return signPrefix + parts.join('');
+    }
+
+    _formatArchitecturalValue(value, precision, zeroSuppression, context = {}) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const inches = this._convertLinearValue(value, context.measurementUnitsCode, 1);
+      if (!Number.isFinite(inches)) {
+        return '';
+      }
+      const sign = inches < 0 ? -1 : 1;
+      let abs = Math.abs(inches);
+      let feet = Math.floor(abs / 12);
+      abs -= feet * 12;
+      let wholeInches = Math.floor(abs);
+      let fractional = abs - wholeInches;
+      const denominator = Math.pow(2, Math.min(Math.max(precision, 0) + 1, 8));
+      let numerator = Math.round(fractional * denominator);
+      if (numerator === denominator) {
+        numerator = 0;
+        wholeInches += 1;
+        if (wholeInches >= 12) {
+          feet += 1;
+          wholeInches = 0;
+        }
+      }
+      const fraction = this._formatFraction(numerator, denominator);
+      const suppressFeet = (zeroSuppression & 4) === 4 && feet === 0;
+      const suppressInches = (zeroSuppression & 8) === 8 && wholeInches === 0 && !fraction;
+      const signPrefix = sign < 0 ? '-' : '';
+
+      const inchParts = [];
+      if (!suppressInches) {
+        inchParts.push(String(wholeInches));
+      }
+      if (fraction) {
+        inchParts.push(fraction);
+      }
+      let inchString = inchParts.join(inchParts.length > 1 ? ' ' : '');
+      if (!inchString && fraction) {
+        inchString = fraction;
+      }
+      if (inchString) {
+        inchString += '"';
+      }
+
+      const parts = [];
+      if (!suppressFeet) {
+        parts.push(`${feet}'`);
+      }
+      if (inchString) {
+        if (!suppressFeet) {
+          parts[parts.length - 1] = `${parts[parts.length - 1]}-${inchString}`;
+        } else {
+          parts.push(inchString);
+        }
+      }
+      if (!parts.length) {
+        parts.push('0"');
+      }
+      return signPrefix + parts.join('');
+    }
+
+    _formatFractionalValue(value, precision, zeroSuppression, context = {}) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const inches = this._convertLinearValue(value, context.measurementUnitsCode, 1);
+      if (!Number.isFinite(inches)) {
+        return '';
+      }
+      const sign = inches < 0 ? -1 : 1;
+      const abs = Math.abs(inches);
+      let whole = Math.floor(abs);
+      let fractional = abs - whole;
+      const denominator = Math.pow(2, Math.min(Math.max(precision, 0) + 1, 8));
+      let numerator = Math.round(fractional * denominator);
+      if (numerator === denominator) {
+        numerator = 0;
+        whole += 1;
+      }
+      const fraction = this._formatFraction(numerator, denominator);
+      const suppressInches = (zeroSuppression & 8) === 8 && whole === 0 && !fraction;
+      const signPrefix = sign < 0 ? '-' : '';
+      const parts = [];
+      if (!suppressInches) {
+        parts.push(String(whole));
+      }
+      if (fraction) {
+        parts.push(fraction);
+      }
+      if (!parts.length) {
+        parts.push('0');
+      }
+      return `${signPrefix}${parts.join(parts.length > 1 ? ' ' : '')}"`;
+    }
+
+    _formatFraction(numerator, denominator) {
+      if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+        return '';
+      }
+      if (numerator === 0) {
+        return '';
+      }
+      const absNumerator = Math.abs(numerator);
+      const absDenominator = Math.abs(denominator);
+      const divisor = this._gcd(absNumerator, absDenominator);
+      return `${absNumerator / divisor}/${absDenominator / divisor}`;
+    }
+
+    _gcd(a, b) {
+      let x = Math.abs(a);
+      let y = Math.abs(b);
+      while (y) {
+        const temp = y;
+        y = x % y;
+        x = temp;
+      }
+      return x || 1;
+    }
+
+    _convertLinearValue(value, fromUnitCode, toUnitCode) {
+      if (!Number.isFinite(value)) {
+        return value;
+      }
+      const source = this._normalizeUnitsCode(fromUnitCode);
+      const target = this._normalizeUnitsCode(toUnitCode);
+      if (source == null || target == null || source === target) {
+        return value;
+      }
+      const factor = this._unitConversionFactor(source, target);
+      return value * factor;
+    }
+
+    _resolveMeasurementUnitsCode(geometry, contextUnits) {
+      if (geometry && geometry.units) {
+        if (geometry.units.insUnitsTarget != null) {
+          return this._normalizeUnitsCode(geometry.units.insUnitsTarget);
+        }
+        if (geometry.units.insUnits != null) {
+          return this._normalizeUnitsCode(geometry.units.insUnits);
+        }
+      }
+      if (contextUnits != null) {
+        return this._normalizeUnitsCode(contextUnits);
+      }
+      return null;
+    }
+
+    _formatAngularMeasurement(value, context = {}) {
+      const measurementSettings = context.measurementSettings || {};
+      const textOverrides = context.textOverrides || {};
+      const baseValueString = this._formatAngularValueString(value, {
+        format: measurementSettings.angularUnitFormat,
+        precision: measurementSettings.angularPrecision,
+        zeroSuppression: measurementSettings.angularZeroSuppression
+      });
+      const lines = this._buildToleranceLines({
+        value,
+        baseValueString,
+        measurementSettings,
+        styleParameters: context.styleParameters || null,
+        geometry: context.geometry || null,
+        textPattern: textOverrides.primary || null,
+        measurementUnitsCode: context.measurementUnitsCode || null,
+        toleranceMultiplier: 1,
+        formatValue: (val, opts = {}) => {
+          const precision = opts.precision != null ? opts.precision : measurementSettings.angularPrecision;
+          return this._formatAngularValueString(val, {
+            format: measurementSettings.angularUnitFormat,
+            precision,
+            zeroSuppression: measurementSettings.angularZeroSuppression
+          });
+        }
+      });
+      return lines.join('\n');
+    }
+
+    _formatAngularValueString(value, options = {}) {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+      const format = Number.isFinite(options.format) ? options.format : 0;
+      const precision = Number.isFinite(options.precision) ? options.precision : 2;
+      const zeroSuppression = Number.isFinite(options.zeroSuppression) ? options.zeroSuppression : 0;
+
+      switch (format) {
+        case 1:
+          return this._formatDegMinValue(value, precision, zeroSuppression);
+        case 2:
+          return this._formatDegMinSecValue(value, precision, zeroSuppression);
+        case 3:
+          return this._formatGradientValue(value, precision, zeroSuppression);
+        case 4:
+          return this._formatRadianValue(value, precision, zeroSuppression);
+        default:
+          return this._formatDecimalAngularValue(value, precision, zeroSuppression);
+      }
+    }
+
+    _formatDecimalAngularValue(value, precision, zeroSuppression) {
+      const formatted = this._formatDecimalLinearValue(value, precision, zeroSuppression);
+      return `${formatted}\u00B0`;
+    }
+
+    _formatGradientValue(value, precision, zeroSuppression) {
+      const grads = value * (200 / 180);
+      return `${this._formatDecimalLinearValue(grads, precision, zeroSuppression)}g`;
+    }
+
+    _formatRadianValue(value, precision, zeroSuppression) {
+      const radians = value * (Math.PI / 180);
+      return `${this._formatDecimalLinearValue(radians, precision, zeroSuppression)}rad`;
+    }
+
+    _formatDegMinValue(value, precision, zeroSuppression) {
+      const sign = value < 0 ? -1 : 1;
+      let abs = Math.abs(value);
+      let degrees = Math.floor(abs);
+      let minutes = (abs - degrees) * 60;
+      const minutePrecision = Math.max(0, Number.isFinite(precision) ? precision : 0);
+      if (minutes >= 60 - 1e-9) {
+        minutes = 0;
+        degrees += 1;
+      }
+      let minuteString = this._formatDecimalLinearValue(minutes, minutePrecision, zeroSuppression);
+      if ((zeroSuppression & 2) === 2) {
+        minuteString = this._trimTrailingZeros(minuteString);
+      }
+      const includeMinutes = !(Math.abs(minutes) < 1e-9 && (zeroSuppression & 2) === 2);
+      const signPrefix = sign < 0 ? '-' : '';
+      return `${signPrefix}${degrees}\u00B0${includeMinutes ? `${minuteString}'` : ''}`;
+    }
+
+    _formatDegMinSecValue(value, precision, zeroSuppression) {
+      const sign = value < 0 ? -1 : 1;
+      let abs = Math.abs(value);
+      let degrees = Math.floor(abs);
+      let minutesTotal = (abs - degrees) * 60;
+      let minutes = Math.floor(minutesTotal);
+      let seconds = (minutesTotal - minutes) * 60;
+      if (seconds >= 60 - 1e-9) {
+        seconds = 0;
+        minutes += 1;
+      }
+      if (minutes >= 60) {
+        minutes = 0;
+        degrees += 1;
+      }
+      const secondPrecision = Math.max(0, Number.isFinite(precision) ? precision : 0);
+      let secondString = this._formatDecimalLinearValue(seconds, secondPrecision, zeroSuppression);
+      if ((zeroSuppression & 2) === 2) {
+        secondString = this._trimTrailingZeros(secondString);
+      }
+      const includeMinutes = !(Math.abs(minutes) < 1e-9 && (zeroSuppression & 2) === 2 && Math.abs(seconds) < 1e-9);
+      const includeSeconds = !(Math.abs(seconds) < 1e-9 && (zeroSuppression & 2) === 2);
+      const signPrefix = sign < 0 ? '-' : '';
+      let result = `${signPrefix}${degrees}\u00B0`;
+      if (includeMinutes) {
+        result += `${minutes}'`;
+      }
+      if (includeSeconds) {
+        result += `${secondString}"`;
+      }
+      return result;
     }
 
     _trimTrailingZeros(value) {
@@ -20100,7 +21388,13 @@ function collectPointCloudClip(map) {
       ];
     }
 
-    _addDimensionGeometry(entity, geometry, transform, updateBounds, polylineCollector, textCollector, color, metaFactory) {
+    _addDimensionGeometry(entity, geometry, transform, updateBounds, polylineCollector, textCollector, color, metaFactory, contextUnits, options = {}) {
+      const renderBlockContent = typeof options.renderBlockContent === 'function' ? options.renderBlockContent : null;
+      const getBlockNameByHandle = typeof options.getBlockNameByHandle === 'function' ? options.getBlockNameByHandle : null;
+      const optionDepth = Number.isFinite(options.depth) ? options.depth : 0;
+      const optionVisitedBlocks = Array.isArray(options.visitedBlocks) ? options.visitedBlocks : [];
+      const optionBlockStack = Array.isArray(options.blockStack) ? options.blockStack : [];
+      const optionHighlight = !!options.highlight;
       const createPolylineMeta = (overrides) => {
         if (typeof metaFactory !== 'function') {
           return null;
@@ -20147,6 +21441,190 @@ function collectPointCloudClip(map) {
         return;
       }
 
+      const styleInfo = entity && entity.resolved ? entity.resolved.dimensionStyle : null;
+      const styleParameters = styleInfo && styleInfo.parameters ? styleInfo.parameters : null;
+      const styleToggles = styleInfo && styleInfo.toggles ? styleInfo.toggles : null;
+      const measurementSettings = geometry && geometry.dimensionMeasurementSettings
+        ? geometry.dimensionMeasurementSettings
+        : (styleInfo && styleInfo.measurement ? styleInfo.measurement : null);
+      const alternateSettings = geometry && geometry.dimensionAlternateUnits
+        ? geometry.dimensionAlternateUnits
+        : (styleInfo && styleInfo.alternateUnits ? styleInfo.alternateUnits : null);
+      const textOverrides = geometry && geometry.dimensionTextOverrides
+        ? geometry.dimensionTextOverrides
+        : (styleInfo && styleInfo.text ? styleInfo.text : null);
+      const dimStyleMetrics = this._resolveDimensionStyleMetrics(entity);
+      const dimensionFlags = geometry.dimensionFlags || 0;
+      const isBaselineDimension = (dimensionFlags & 16) === 16;
+      const isContinuedDimension = (dimensionFlags & 32) === 32;
+      const dimensionScale = Number.isFinite(geometry.dimensionScaleFactor) ? geometry.dimensionScaleFactor : 1;
+      const obliqueAngleRad = Number.isFinite(geometry.obliqueAngle) ? geometry.obliqueAngle * Math.PI / 180 : 0;
+      const hasOblique = Math.abs(obliqueAngleRad) > 1e-6;
+      const extensionOffsetValue = Number.isFinite(dimStyleMetrics.extensionOffset)
+        ? dimStyleMetrics.extensionOffset
+        : (Number.isFinite(styleParameters && styleParameters.extensionOffset) ? styleParameters.extensionOffset * dimensionScale : 0);
+      const extensionExtensionValue = Number.isFinite(dimStyleMetrics.extensionExtension)
+        ? dimStyleMetrics.extensionExtension
+        : (Number.isFinite(styleParameters && styleParameters.extensionExtension) ? styleParameters.extensionExtension * dimensionScale : 0);
+      const dimensionLineExtensionValue = Number.isFinite(geometry.dimensionLineExtension)
+        ? geometry.dimensionLineExtension
+        : (Number.isFinite(styleParameters && styleParameters.dimensionLineExtension)
+          ? styleParameters.dimensionLineExtension * dimensionScale
+          : null);
+      const dimensionLineIncrementValue = Number.isFinite(geometry.dimensionLineIncrement)
+        ? geometry.dimensionLineIncrement
+        : (Number.isFinite(styleParameters && styleParameters.dimensionLineIncrement)
+          ? styleParameters.dimensionLineIncrement * dimensionScale
+          : null);
+      const tickSizeValue = Number.isFinite(geometry.dimensionTickSize)
+        ? geometry.dimensionTickSize * dimensionScale
+        : (Number.isFinite(styleParameters && styleParameters.tickSize) ? styleParameters.tickSize * dimensionScale : null);
+      const centerMarkSize = Number.isFinite(styleParameters && styleParameters.centerMarkSize)
+        ? styleParameters.centerMarkSize * dimensionScale
+        : null;
+      const arrowBlocks = geometry.dimensionArrowBlocks || null;
+      const suppressExtension1 = geometry.extensionLine1Suppressed === true || (styleToggles && styleToggles.suppressExtensionLine1) || false;
+      const suppressExtension2 = geometry.extensionLine2Suppressed === true || (styleToggles && styleToggles.suppressExtensionLine2) || false;
+      const skipExtension1 = suppressExtension1 || isContinuedDimension;
+      const skipExtension2 = suppressExtension2;
+
+      const rotatePoint = (point, pivot, angle) => {
+        if (!point || !pivot || !Number.isFinite(angle) || Math.abs(angle) < 1e-9) {
+          return point;
+        }
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const dx = point.x - pivot.x;
+        const dy = point.y - pivot.y;
+        return {
+          x: pivot.x + dx * cos - dy * sin,
+          y: pivot.y + dx * sin + dy * cos
+        };
+      };
+
+      const normalizeUnit = (dx, dy) => {
+        const length = Math.hypot(dx, dy);
+        if (!(length > 1e-6)) {
+          return { x: 0, y: 0, length: 0 };
+        }
+        return { x: dx / length, y: dy / length, length };
+      };
+
+      const adjustExtensionSegment = (start, end) => {
+        if (!start || !end) {
+          return null;
+        }
+        const direction = normalizeUnit(end.x - start.x, end.y - start.y);
+        if (!(direction.length > 1e-6)) {
+          return { start, end, unit: { x: 0, y: 0 } };
+        }
+        let adjustedStart = start;
+        if (extensionOffsetValue > 0) {
+          const effective = Math.min(extensionOffsetValue, Math.max(0, direction.length - 1e-6));
+          adjustedStart = {
+            x: start.x + direction.x * effective,
+            y: start.y + direction.y * effective
+          };
+        }
+        let adjustedEnd = end;
+        if (extensionExtensionValue && extensionExtensionValue !== 0) {
+          adjustedEnd = {
+            x: end.x + direction.x * extensionExtensionValue,
+            y: end.y + direction.y * extensionExtensionValue
+          };
+        }
+        return {
+          start: adjustedStart,
+          end: adjustedEnd,
+          unit: { x: direction.x, y: direction.y }
+        };
+      };
+
+      const adjustDimensionLineSegment = (start, end) => {
+        if (!start || !end) {
+          return null;
+        }
+        const direction = normalizeUnit(end.x - start.x, end.y - start.y);
+        if (!(direction.length > 1e-6)) {
+          return { start, end, unit: { x: 0, y: 0 } };
+        }
+        let adjustedStart = start;
+        let adjustedEnd = end;
+        if (Number.isFinite(dimensionLineExtensionValue) && dimensionLineExtensionValue !== 0) {
+          adjustedStart = {
+            x: adjustedStart.x - direction.x * dimensionLineExtensionValue,
+            y: adjustedStart.y - direction.y * dimensionLineExtensionValue
+          };
+          adjustedEnd = {
+            x: adjustedEnd.x + direction.x * dimensionLineExtensionValue,
+            y: adjustedEnd.y + direction.y * dimensionLineExtensionValue
+          };
+        }
+        return {
+          start: adjustedStart,
+          end: adjustedEnd,
+          unit: { x: direction.x, y: direction.y }
+        };
+      };
+
+      const rotateSegment = (segment, pivot) => {
+        if (!segment) {
+          return null;
+        }
+        if (!hasOblique || !pivot) {
+          return segment;
+        }
+        const rotatedStart = rotatePoint(segment.start, pivot, obliqueAngleRad);
+        const rotatedEnd = rotatePoint(segment.end, pivot, obliqueAngleRad);
+        const direction = normalizeUnit(rotatedEnd.x - rotatedStart.x, rotatedEnd.y - rotatedStart.y);
+        return {
+          start: rotatedStart,
+          end: rotatedEnd,
+          unit: { x: direction.x, y: direction.y }
+        };
+      };
+
+      const applyPerpendicularOffset = (segment, distance) => {
+        if (!segment || !Number.isFinite(distance) || Math.abs(distance) < 1e-6) {
+          return segment;
+        }
+        const direction = normalizeUnit(segment.end.x - segment.start.x, segment.end.y - segment.start.y);
+        if (!(direction.length > 1e-6)) {
+          return segment;
+        }
+        const nx = -direction.y;
+        const ny = direction.x;
+        return {
+          start: {
+            x: segment.start.x + nx * distance,
+            y: segment.start.y + ny * distance
+          },
+          end: {
+            x: segment.end.x + nx * distance,
+            y: segment.end.y + ny * distance
+          },
+          unit: { x: direction.x, y: direction.y }
+        };
+      };
+
+      const resolveArrowDescriptor = (index) => {
+        if (tickSizeValue != null && tickSizeValue > 0) {
+          return { kind: 'tick', size: tickSizeValue };
+        }
+        if (arrowBlocks) {
+          let handle = null;
+          if (index === 0) {
+            handle = arrowBlocks.first || arrowBlocks.primary || null;
+          } else if (index === 1) {
+            handle = arrowBlocks.second || arrowBlocks.primary || null;
+          }
+          if (handle) {
+            return { kind: 'block', handle };
+          }
+        }
+        return { kind: 'open' };
+      };
+
       const definitionPoint = geometry.definitionPoint;
       const dimensionLinePoint = geometry.dimensionLinePoint;
       const textPoint = geometry.textPoint;
@@ -20154,7 +21632,6 @@ function collectPointCloudClip(map) {
       const arrow2 = geometry.arrow2Point;
       const extension1 = geometry.extensionLine1Point;
       const extension2 = geometry.extensionLine2Point;
-      const dimStyleMetrics = this._resolveDimensionStyleMetrics(entity);
       const weight = this._lineweightToPx(entity.lineweight);
       const resolvedTextHeight = Number.isFinite(geometry.textHeight) && geometry.textHeight > 0
         ? geometry.textHeight
@@ -20170,7 +21647,15 @@ function collectPointCloudClip(map) {
       const type = geometry.dimensionType & 7;
       const baseStyleName = entity.textStyle ||
         (entity.resolved && entity.resolved.textStyle ? entity.resolved.textStyle.name : (geometry.textStyle || null));
-      const label = this._formatDimensionLabel(geometry);
+      const label = this._formatDimensionLabel(geometry, {
+        entity,
+        contextUnits,
+        measurementSettings,
+        alternateSettings,
+        textOverrides,
+        styleParameters,
+        styleToggles
+      });
       const arrowFromGeometry = Number.isFinite(geometry.arrowSize) && geometry.arrowSize > 0
         ? geometry.arrowSize
         : null;
@@ -20179,96 +21664,127 @@ function collectPointCloudClip(map) {
         : (dimStyleMetrics.arrowSize != null && dimStyleMetrics.arrowSize > 0
           ? dimStyleMetrics.arrowSize
           : Math.max(baseLabelHeight * 0.8, 3));
+      const drawArrowHead = (tip, base, index) => {
+        if (!tip || !base) {
+          return;
+        }
+        const descriptor = resolveArrowDescriptor(index);
+        this._renderDimensionArrow({
+          tip,
+          toward: base,
+          size: arrowScale,
+          descriptor,
+          transform,
+          updateBounds,
+          polylineCollector,
+          color,
+          weight,
+          metaFactory,
+          lineweight: entity.lineweight,
+          renderBlockContent,
+          getBlockNameByHandle,
+          depth: optionDepth,
+          visitedBlocks: optionVisitedBlocks,
+          blockStack: optionBlockStack,
+          highlight: optionHighlight,
+          contextUnits
+        });
+      };
       const center = geometry.dimensionLinePoint || geometry.definitionPoint || null;
+
+      let dimensionSegment = null;
+      let dimensionNormal = null;
 
       switch (type) {
         case 0: // rotated / linear
         case 1: { // aligned
-          addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
-          if (extension1 && definitionPoint) {
-            addLine(extension1, definitionPoint, weight * 0.8, 'extensionLine1');
+          dimensionSegment = adjustDimensionLineSegment(definitionPoint, dimensionLinePoint);
+          if (dimensionSegment) {
+            dimensionSegment = rotateSegment(dimensionSegment, dimensionSegment.start || definitionPoint || dimensionLinePoint);
+            if (isBaselineDimension && Number.isFinite(dimensionLineIncrementValue) && dimensionLineIncrementValue !== 0) {
+              dimensionSegment = applyPerpendicularOffset(dimensionSegment, dimensionLineIncrementValue);
+            }
+            addLine(dimensionSegment.start, dimensionSegment.end, weight, 'dimensionLine');
+          } else if (definitionPoint && dimensionLinePoint) {
+            addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
           }
-          if (extension2 && dimensionLinePoint) {
-            addLine(extension2, dimensionLinePoint, weight * 0.8, 'extensionLine2');
-          }
-          if (arrow1 && (dimensionLinePoint || definitionPoint)) {
-            this._addDimensionArrowHead(
-              arrow1,
-              dimensionLinePoint || definitionPoint,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
+          const dimensionLineStart = dimensionSegment ? dimensionSegment.start : (definitionPoint || dimensionLinePoint);
+          const dimensionLineEnd = dimensionSegment ? dimensionSegment.end : (dimensionLinePoint || definitionPoint);
+          const extensionTarget1 = dimensionLineStart || definitionPoint;
+          const extensionTarget2 = dimensionLineEnd || dimensionLinePoint;
+          if (dimensionSegment) {
+            dimensionNormal = { x: -dimensionSegment.unit.y, y: dimensionSegment.unit.x };
+          } else if (dimensionLineStart && dimensionLineEnd) {
+            const fallbackDirection = normalizeUnit(
+              dimensionLineEnd.x - dimensionLineStart.x,
+              dimensionLineEnd.y - dimensionLineStart.y
             );
+            if (fallbackDirection.length > 1e-6) {
+              dimensionNormal = { x: -fallbackDirection.y, y: fallbackDirection.x };
+            }
           }
-          if (arrow2 && (definitionPoint || dimensionLinePoint)) {
-            this._addDimensionArrowHead(
-              arrow2,
-              definitionPoint || dimensionLinePoint,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
-            );
+          if (!skipExtension1 && extension1 && extensionTarget1) {
+            let extensionSegment1 = adjustExtensionSegment(extension1, extensionTarget1);
+            extensionSegment1 = rotateSegment(extensionSegment1, extension1);
+            addLine(extensionSegment1.start, extensionSegment1.end, weight * 0.8, 'extensionLine1');
+          }
+          if (!skipExtension2 && extension2 && extensionTarget2) {
+            let extensionSegment2 = adjustExtensionSegment(extension2, extensionTarget2);
+            extensionSegment2 = rotateSegment(extensionSegment2, extension2);
+            addLine(extensionSegment2.start, extensionSegment2.end, weight * 0.8, 'extensionLine2');
+          }
+          if (arrow1 && dimensionLineStart) {
+            drawArrowHead(arrow1, dimensionLineStart, 0);
+          }
+          if (arrow2 && dimensionLineEnd) {
+            drawArrowHead(arrow2, dimensionLineEnd, 1);
           }
           break;
         }
         case 2: // angular
         case 5: { // angular 3pt
-          if (extension1 && arrow1) {
-            addLine(extension1, arrow1, weight * 0.85);
+          const arcCenter = center || dimensionLinePoint || definitionPoint;
+          const extensionTarget1 = arrow1 || arcCenter;
+          const extensionTarget2 = arrow2 || arcCenter;
+          if (!skipExtension1 && extension1 && extensionTarget1) {
+            let extensionSegment1 = adjustExtensionSegment(extension1, extensionTarget1);
+            extensionSegment1 = rotateSegment(extensionSegment1, extension1);
+            addLine(extensionSegment1.start, extensionSegment1.end, weight * 0.85, 'extensionLine1');
           }
-          if (extension2 && arrow2) {
-            addLine(extension2, arrow2, weight * 0.85);
+          if (!skipExtension2 && extension2 && extensionTarget2) {
+            let extensionSegment2 = adjustExtensionSegment(extension2, extensionTarget2);
+            extensionSegment2 = rotateSegment(extensionSegment2, extension2);
+            addLine(extensionSegment2.start, extensionSegment2.end, weight * 0.85, 'extensionLine2');
           }
 
-          const arcPoints = [];
-          if (arrow1) arcPoints.push(arrow1);
-          if (geometry.arcDefinitionPoints && geometry.arcDefinitionPoints.length) {
+          let arcPoints = null;
+          if (arcCenter && arrow1 && arrow2) {
+            const det = (arrow1.x - arcCenter.x) * (arrow2.y - arcCenter.y) - (arrow1.y - arcCenter.y) * (arrow2.x - arcCenter.x);
+            const clockwise = det < 0;
+            const dot = (arrow1.x - arcCenter.x) * (arrow2.x - arcCenter.x) + (arrow1.y - arcCenter.y) * (arrow2.y - arcCenter.y);
+            const rawAngle = Math.abs(Math.atan2(det, dot));
+            const segments = Math.max(8, Math.ceil((rawAngle > 1e-6 ? rawAngle : Math.PI / 6) / (Math.PI / 36)));
+            arcPoints = this._buildDimensionArcPoints(arcCenter, arrow1, arrow2, { clockwise, segments });
+          } else if (geometry.arcDefinitionPoints && geometry.arcDefinitionPoints.length >= 2) {
+            arcPoints = [];
+            if (arrow1) {
+              arcPoints.push(arrow1);
+            }
             geometry.arcDefinitionPoints.forEach((pt) => arcPoints.push(pt));
-          } else if (center) {
-            arcPoints.push(center);
+            if (arrow2) {
+              arcPoints.push(arrow2);
+            }
           }
-          if (arrow2) arcPoints.push(arrow2);
-          if (arcPoints.length >= 2) {
+
+          if (arcPoints && arcPoints.length >= 2) {
             addPolyline(arcPoints, weight, 'dimensionArc');
           }
 
-          if (center && arrow1) {
-            this._addDimensionArrowHead(
-              arrow1,
-              center,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
-            );
+          if (arcCenter && arrow1) {
+            drawArrowHead(arrow1, arcCenter, 0);
           }
-          if (center && arrow2) {
-            this._addDimensionArrowHead(
-              arrow2,
-              center,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
-            );
+          if (arcCenter && arrow2) {
+            drawArrowHead(arrow2, arcCenter, 1);
           }
           break;
         }
@@ -20276,37 +21792,25 @@ function collectPointCloudClip(map) {
           if (arrow1 && arrow2) {
             addLine(arrow1, arrow2, weight, 'diameter');
           } else if (definitionPoint && dimensionLinePoint) {
-            addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
+            let diameterSegment = adjustDimensionLineSegment(definitionPoint, dimensionLinePoint);
+            diameterSegment = rotateSegment(diameterSegment, definitionPoint);
+            if (diameterSegment) {
+              addLine(diameterSegment.start, diameterSegment.end, weight, 'dimensionLine');
+            } else {
+              addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
+            }
           }
-          if (center && arrow1) {
-            addLine(center, arrow1, weight * 0.8, 'radius');
-            this._addDimensionArrowHead(
-              arrow1,
-              center,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
-            );
+          const diameterCenter = center || definitionPoint || dimensionLinePoint;
+          if (diameterCenter && arrow1) {
+            addLine(diameterCenter, arrow1, weight * 0.8, 'radius');
+            drawArrowHead(arrow1, diameterCenter, 0);
           }
-          if (center && arrow2) {
-            addLine(center, arrow2, weight * 0.8, 'radius');
-            this._addDimensionArrowHead(
-              arrow2,
-              center,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
-            );
+          if (diameterCenter && arrow2) {
+            addLine(diameterCenter, arrow2, weight * 0.8, 'radius');
+            drawArrowHead(arrow2, diameterCenter, 1);
+          }
+          if (diameterCenter && Number.isFinite(centerMarkSize) && centerMarkSize > 0) {
+            this._addCenterMark(diameterCenter, centerMarkSize, transform, updateBounds, polylineCollector, color, metaFactory, entity.lineweight);
           }
           break;
         }
@@ -20315,21 +21819,14 @@ function collectPointCloudClip(map) {
           const origin = definitionPoint || dimensionLinePoint;
           if (origin && tip) {
             addLine(origin, tip, weight, 'radius');
-            this._addDimensionArrowHead(
-              tip,
-              origin,
-              arrowScale,
-              transform,
-              updateBounds,
-              polylineCollector,
-              color,
-              weight,
-              metaFactory,
-              entity.lineweight
-            );
+            const arrowIndex = arrow1 ? 0 : 1;
+            drawArrowHead(tip, origin, arrowIndex);
           }
           if (geometry.arcDefinitionPoints && geometry.arcDefinitionPoints.length >= 2) {
             addPolyline(geometry.arcDefinitionPoints, weight * 0.8, 'arc');
+          }
+          if (origin && Number.isFinite(centerMarkSize) && centerMarkSize > 0) {
+            this._addCenterMark(origin, centerMarkSize, transform, updateBounds, polylineCollector, color, metaFactory, entity.lineweight);
           }
           break;
         }
@@ -20340,31 +21837,13 @@ function collectPointCloudClip(map) {
             addLine(origin, leader, weight, 'ordinate');
             if (arrow1) {
               addLine(leader, arrow1, weight, 'ordinate');
-              this._addDimensionArrowHead(
-                arrow1,
-                origin,
-                arrowScale,
-                transform,
-                updateBounds,
-                polylineCollector,
-                color,
-                weight,
-                metaFactory,
-                entity.lineweight
-              );
+              drawArrowHead(arrow1, origin, 0);
             } else {
-              this._addDimensionArrowHead(
-                leader,
-                origin,
-                arrowScale,
-                transform,
-                updateBounds,
-                polylineCollector,
-                color,
-                weight,
-                metaFactory,
-                entity.lineweight
-              );
+              drawArrowHead(leader, origin, 0);
+            }
+            const axisVector = normalizeUnit(leader.x - origin.x, leader.y - origin.y);
+            if (axisVector.length > 1e-6) {
+              dimensionNormal = { x: axisVector.x, y: axisVector.y };
             }
           }
           break;
@@ -20375,12 +21854,29 @@ function collectPointCloudClip(map) {
 
       const textAnchor = textPoint || dimensionLinePoint || definitionPoint || center;
       if (label && textAnchor) {
-        const position = applyMatrix(transform, textAnchor);
+        const textMovementMode = measurementSettings && measurementSettings.textMovement != null
+          ? measurementSettings.textMovement
+          : null;
+        const textIsOutside = textMovementMode === 1 || textMovementMode === 2;
+        let effectiveTextAnchor = textAnchor;
+        if (!geometry.textPoint && textIsOutside && dimensionNormal) {
+          const gap = dimStyleMetrics.textGap != null ? dimStyleMetrics.textGap : 0;
+          const offsetMagnitude = Math.max(gap, baseLabelHeight * 0.5) + arrowScale * 0.5;
+          effectiveTextAnchor = {
+            x: textAnchor.x + dimensionNormal.x * offsetMagnitude,
+            y: textAnchor.y + dimensionNormal.y * offsetMagnitude
+          };
+        }
+        const position = applyMatrix(transform, effectiveTextAnchor);
         updateBounds(position.x, position.y);
         const scale = matrixScale(transform);
         const avgScale = ((Math.abs(scale.sx) + Math.abs(scale.sy)) / 2) || 1;
         const rotationBase = this._resolveDimensionTextRotation(geometry) + ((geometry.obliqueAngle || 0) * Math.PI / 180);
-        const rotation = matrixRotation(transform) + rotationBase;
+        let rotation = matrixRotation(transform) + rotationBase;
+        if ((styleToggles && styleToggles.textOutsideHorizontal && textIsOutside)
+          || (styleToggles && styleToggles.textInsideHorizontal && !textIsOutside)) {
+          rotation = matrixRotation(transform);
+        }
         const worldHeight = baseLabelHeight * avgScale;
         textCollector.push({
           kind: 'TEXT',

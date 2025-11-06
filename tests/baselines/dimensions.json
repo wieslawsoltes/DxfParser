@@ -1,0 +1,29 @@
+{
+  "name": "dimension-parity",
+  "dxf": "../data/advanced-geometry.dxf",
+  "expectedStats": {
+    "modelSpaceEntities": 13,
+    "paperSpaceLayouts": 0,
+    "paperSpaceEntities": 0,
+    "blockCount": 0,
+    "blockEntities": 0,
+    "renderableEntities": 13,
+    "dimensions.total": 1,
+    "dimensions.linear": 1,
+    "dimensions.angular": 0,
+    "dimensions.diameter": 0,
+    "dimensions.radius": 0,
+    "dimensions.ordinate": 0,
+    "dimensions.ordinateX": 0,
+    "dimensions.ordinateY": 0,
+    "dimensions.alternateEnabled": 0,
+    "dimensions.toleranceEnabled": 0,
+    "dimensions.associative": 0,
+    "dimensions.associativeHandles": 0,
+    "dimensions.arrowheads": 4,
+    "dimensions.centerMarks": 0,
+    "dimensions.dimensionLines": 1,
+    "dimensions.labels": 0
+  },
+  "referenceSvg": "../trueview/advanced.svg"
+}

@@ -95,7 +95,11 @@
           
           // Index handles
           if (node.handle) {
-            this.handleMap.set(node.handle, node);
+            const handleValue = String(node.handle).trim();
+            if (handleValue) {
+              this.handleMap.set(handleValue, node);
+              this.handleMap.set(handleValue.toUpperCase(), node);
+            }
           }
           
           // Count object types
@@ -885,12 +889,12 @@
 
        checkDimensionRendering() {
          this.traverseTree(this.dxfTree, (node) => {
-           if (node.type && node.type.startsWith('DIMENSION')) {
-             const dimStyle = this.getPropertyValue(node, 3);
-             const textHeight = this.getPropertyValue(node, 140);
-             
-             if (!dimStyle || dimStyle === '') {
-               this.addIssue('rendering', {
+          if (node.type && node.type.startsWith('DIMENSION')) {
+            const dimStyle = this.getPropertyValue(node, 3);
+            const textHeight = this.getPropertyValue(node, 140);
+            
+            if (!dimStyle || dimStyle === '') {
+              this.addIssue('rendering', {
                  severity: 'warning',
                  title: 'Dimension Missing Style',
                  description: 'Dimension entity is missing dimension style reference.',
@@ -905,14 +909,41 @@
                  severity: 'warning',
                  title: 'Invalid Dimension Text Height',
                  description: `Dimension text height (${textHeight}) is invalid, text may not be visible.`,
-                 category: 'Dimension Rendering',
-                 location: `Line ${node.line}`,
-                 actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
-               });
-             }
-           }
-         });
-       }
+                category: 'Dimension Rendering',
+                location: `Line ${node.line}`,
+                actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
+              });
+            }
+            
+            const normalizeHandle = (value) => {
+              if (!value && value !== 0) {
+                return null;
+              }
+              return String(value).trim().toUpperCase();
+            };
+            const arrowHandleCodes = [342, 343, 344];
+            const missingArrowHandles = [];
+            arrowHandleCodes.forEach((code) => {
+              const rawValue = this.getPropertyValue(node, code);
+              const normalized = normalizeHandle(rawValue);
+              if (normalized && !this.handleMap.has(normalized)) {
+                missingArrowHandles.push(normalized);
+              }
+            });
+            if (missingArrowHandles.length) {
+              const uniqueHandles = [...new Set(missingArrowHandles)];
+              this.addIssue('rendering', {
+                severity: 'warning',
+                title: 'Dimension Arrow Block Not Found',
+                description: `Dimension references custom arrow block handle(s) ${uniqueHandles.join(', ')}, but no matching block definition was indexed.`,
+                category: 'Dimension Rendering',
+                location: `Line ${node.line}`,
+                actions: [{ type: 'navigate', data: node.id, label: 'Go to Dimension' }]
+              });
+            }
+          }
+        });
+      }
 
        checkSplineValidity() {
          this.traverseTree(this.dxfTree, (node) => {

@@ -114,6 +114,133 @@ function loadBaselines(dir) {
   }));
 }
 
+function collectDimensionEntities(sceneGraph) {
+  const result = [];
+  if (!sceneGraph || typeof sceneGraph !== 'object') {
+    return result;
+  }
+  const visit = (collection) => {
+    if (!Array.isArray(collection)) {
+      return;
+    }
+    collection.forEach((entity) => {
+      if (entity && entity.type === 'DIMENSION') {
+        result.push(entity);
+      }
+    });
+  };
+  visit(sceneGraph.modelSpace);
+  if (Array.isArray(sceneGraph.paperSpace)) {
+    visit(sceneGraph.paperSpace);
+  }
+  if (sceneGraph.paperSpaces && typeof sceneGraph.paperSpaces === 'object') {
+    Object.values(sceneGraph.paperSpaces).forEach((space) => visit(space));
+  }
+  return result;
+}
+
+function computeDimensionMetrics(sceneGraph, frame) {
+  const metrics = {};
+  const entities = collectDimensionEntities(sceneGraph);
+  if (!entities.length) {
+    return metrics;
+  }
+
+  let linear = 0;
+  let angular = 0;
+  let diameter = 0;
+  let radius = 0;
+  let ordinate = 0;
+  let ordinateX = 0;
+  let ordinateY = 0;
+  let alternateEnabled = 0;
+  let toleranceEnabled = 0;
+  let associativeDimensions = 0;
+  let associativeHandles = 0;
+
+  entities.forEach((entity) => {
+    const geometry = entity.geometry || {};
+    const subtypeRaw = Number.isFinite(geometry.dimensionSubtype)
+      ? geometry.dimensionSubtype
+      : (Number.isFinite(geometry.dimensionType) ? geometry.dimensionType : 0);
+    const subtype = subtypeRaw & 7;
+    switch (subtype) {
+      case 0:
+      case 1:
+        linear += 1;
+        break;
+      case 2:
+      case 5:
+        angular += 1;
+        break;
+      case 3:
+        diameter += 1;
+        break;
+      case 4:
+        radius += 1;
+        break;
+      case 6:
+        ordinate += 1;
+        if (geometry.ordinateType === 1) {
+          ordinateX += 1;
+        } else if (geometry.ordinateType === 2) {
+          ordinateY += 1;
+        }
+        break;
+      default:
+        break;
+    }
+    if (geometry.dimensionAlternateUnits && geometry.dimensionAlternateUnits.enabled) {
+      alternateEnabled += 1;
+    }
+    if (geometry.dimensionMeasurementSettings && geometry.dimensionMeasurementSettings.toleranceEnabled) {
+      toleranceEnabled += 1;
+    }
+    const assocHandles = Array.isArray(geometry.dimensionAssociativeHandles)
+      ? geometry.dimensionAssociativeHandles
+      : (Array.isArray(geometry.associativeHandles) ? geometry.associativeHandles : []);
+    const assocMode = geometry.dimensionAssociativity != null ? geometry.dimensionAssociativity : null;
+    const isAssociative = (assocMode != null && assocMode !== 0) || (assocHandles && assocHandles.length);
+    if (isAssociative) {
+      associativeDimensions += 1;
+      associativeHandles += assocHandles.length;
+    }
+  });
+
+  metrics['dimensions.total'] = entities.length;
+  metrics['dimensions.linear'] = linear;
+  metrics['dimensions.angular'] = angular;
+  metrics['dimensions.diameter'] = diameter;
+  metrics['dimensions.radius'] = radius;
+  metrics['dimensions.ordinate'] = ordinate;
+  metrics['dimensions.ordinateX'] = ordinateX;
+  metrics['dimensions.ordinateY'] = ordinateY;
+  metrics['dimensions.alternateEnabled'] = alternateEnabled;
+  metrics['dimensions.toleranceEnabled'] = toleranceEnabled;
+  metrics['dimensions.associative'] = associativeDimensions;
+  metrics['dimensions.associativeHandles'] = associativeHandles;
+
+  if (frame && typeof frame === 'object') {
+    if (Array.isArray(frame.polylines)) {
+      metrics['dimensions.arrowheads'] = frame.polylines.filter((poly) => poly.meta && poly.meta.dimensionPart === 'arrowhead').length;
+      metrics['dimensions.centerMarks'] = frame.polylines.filter((poly) => poly.meta && poly.meta.dimensionPart === 'centerMark').length;
+      metrics['dimensions.dimensionLines'] = frame.polylines.filter((poly) => poly.meta && poly.meta.dimensionPart === 'dimensionLine').length;
+    }
+    if (Array.isArray(frame.texts)) {
+      const labels = frame.texts
+        .filter((text) => text.meta && text.meta.dimensionPart === 'label')
+        .map((text) => (text.content || '').trim())
+        .filter((text) => text.length);
+      metrics['dimensions.labels'] = labels.length;
+      if (labels.length) {
+        metrics['dimensions.labelSample'] = labels.slice(0, 3).join('|');
+      }
+    }
+  }
+
+  return metrics;
+}
+
 function compareStats(expected, actual) {
   const keys = Object.keys(expected);
   const mismatches = [];
@@ -144,15 +271,29 @@ async function runBaselineCheck(baseline, options = {}) {
     doc.stats || {}
   );
 
+  let frameManager = null;
+  let frame = null;
+  if (RenderingSurfaceManager && doc.sceneGraph) {
+    try {
+      frameManager = new RenderingSurfaceManager();
+      frameManager.width = 1024;
+      frameManager.height = 768;
+      frameManager.devicePixelRatio = 1;
+      frame = frameManager._buildFrame(doc.sceneGraph);
+    } catch (err) {
+      frameManager = null;
+      frame = null;
+      console.warn('Unable to build rendering frame for parity metrics:', err.message);
+    }
+  }
+
+  const dimensionMetrics = computeDimensionMetrics(doc.sceneGraph, frame);
+  Object.assign(actualStats, dimensionMetrics);
+
   let frameSnapshot = null;
   let frameSvg = null;
-  if ((options.capture || options.generateSvg || options.pngDiff) && RenderingSurfaceManager && doc.sceneGraph) {
+  if (frame && (options.capture || options.generateSvg || options.pngDiff)) {
     try {
-      const manager = new RenderingSurfaceManager();
-      manager.width = 1024;
-      manager.height = 768;
-      manager.devicePixelRatio = 1;
-      const frame = manager._buildFrame(doc.sceneGraph);
       if (options.capture) {
         frameSnapshot = serializeFrame(frame);
       }

@@ -808,7 +808,8 @@
         auxiliaryObjects,
         resolvedEntityDefaults,
         resolvedCoordinateDefaults,
-        resolvedDisplaySettings
+        resolvedDisplaySettings,
+        drawingProperties
       );
 
       if (colorBooks && tables.layers) {
@@ -4028,6 +4029,7 @@
         const handle = utils.getFirstCodeValue(recordTags, 5) || null;
         const owner = utils.getFirstCodeValue(recordTags, 330) || null;
         const codeLookup = this._buildCodeLookup(recordTags);
+        const parsedDimStyle = this._decodeDimStyle(codeLookup);
         collections[upperTable].set(name, {
           name,
           handle,
@@ -4037,6 +4039,14 @@
           description: utils.getFirstCodeValue(recordTags, 3) || null,
           flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
           dimensionType: utils.toInt(utils.getFirstCodeValue(recordTags, 71)) || 0,
+          parameters: parsedDimStyle.parameters,
+          toggles: parsedDimStyle.toggles,
+          measurement: parsedDimStyle.measurement,
+          alternateUnits: parsedDimStyle.alternateUnits,
+          references: parsedDimStyle.references,
+          colors: parsedDimStyle.colors,
+          lineweights: parsedDimStyle.lineweights,
+          rawFlagCodes: parsedDimStyle.rawFlagCodes,
           codeValues: codeLookup,
           rawTags: this._mapRawTags(recordTags)
         });
@@ -5063,7 +5073,8 @@
       auxiliaryObjects = {},
       entityDefaults = null,
       coordinateDefaults = null,
-      displaySettings = null
+      displaySettings = null,
+      drawingProperties = null
     ) {
       const entities = [];
       const blocks = [];
@@ -5231,7 +5242,8 @@
               coordinateDefaults: resolvedCoordinateDefaults,
               displaySettings: resolvedDisplaySettings,
               textStylesByHandle,
-              dimStylesByHandle
+              dimStylesByHandle,
+              units: drawingProperties ? (drawingProperties.units || null) : null
             };
             const vertexEntity = namespace.RenderableEntityFactory.fromTags('VERTEX', vertexTags, context);
             if (section === 'BLOCKS' && currentBlock) {
@@ -5303,7 +5315,8 @@
             coordinateDefaults: resolvedCoordinateDefaults,
             displaySettings: resolvedDisplaySettings,
             textStylesByHandle,
-            dimStylesByHandle
+            dimStylesByHandle,
+            units: drawingProperties ? (drawingProperties.units || null) : null
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -5354,7 +5367,8 @@
             coordinateDefaults: resolvedCoordinateDefaults,
             displaySettings: resolvedDisplaySettings,
             textStylesByHandle,
-            dimStylesByHandle
+            dimStylesByHandle,
+            units: drawingProperties ? (drawingProperties.units || null) : null
           };
           const { tags: entityTags, nextIndex } = this.collectEntityTags(i + 1);
           if (upperValue === 'POLYLINE' || upperValue === 'POLYFACE_MESH' || upperValue === 'MESH') {
@@ -5515,6 +5529,211 @@
         code: Number(tag.code),
         value: tag.value
       }));
+    }
+
+    _decodeDimStyle(codeLookup) {
+      const pickFirst = (code) => {
+        if (!codeLookup || !Object.prototype.hasOwnProperty.call(codeLookup, code)) {
+          return null;
+        }
+        const values = codeLookup[code];
+        if (!Array.isArray(values)) {
+          return values != null ? values : null;
+        }
+        for (let i = 0; i < values.length; i += 1) {
+          if (values[i] != null) {
+            return values[i];
+          }
+        }
+        return null;
+      };
+      const pickString = (code) => {
+        const raw = pickFirst(code);
+        if (raw == null) {
+          return null;
+        }
+        const stringValue = typeof raw === 'string' ? raw : String(raw);
+        const trimmed = stringValue.trim();
+        return trimmed ? trimmed : null;
+      };
+      const pickFloat = (code) => {
+        const raw = pickFirst(code);
+        if (raw == null) {
+          return null;
+        }
+        const numeric = utils.toFloat ? utils.toFloat(raw) : parseFloat(raw);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+      const pickInt = (code) => {
+        const raw = pickFirst(code);
+        if (raw == null) {
+          return null;
+        }
+        const numeric = utils.toInt ? utils.toInt(raw) : parseInt(raw, 10);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+      const pickBool = (code) => {
+        const numeric = pickInt(code);
+        if (numeric == null) {
+          return null;
+        }
+        return numeric !== 0;
+      };
+      const pickHandle = (code) => {
+        const handle = pickString(code);
+        if (!handle) {
+          return null;
+        }
+        const normalized = normalizeHandle(handle);
+        return {
+          handle,
+          handleUpper: normalized
+        };
+      };
+      const prune = (record) => {
+        if (!record || typeof record !== 'object') {
+          return null;
+        }
+        const result = {};
+        Object.keys(record).forEach((key) => {
+          const value = record[key];
+          if (value == null) {
+            return;
+          }
+          if (typeof value === 'object' && !Array.isArray(value)) {
+            const nested = prune(value);
+            if (nested && Object.keys(nested).length) {
+              result[key] = nested;
+            }
+          } else {
+            result[key] = value;
+          }
+        });
+        return Object.keys(result).length ? result : null;
+      };
+
+      const parameters = prune({
+        overallScale: pickFloat(40),
+        arrowSize: pickFloat(41),
+        extensionOffset: pickFloat(42),
+        dimensionLineIncrement: pickFloat(43),
+        extensionExtension: pickFloat(44),
+        roundDistance: pickFloat(45),
+        dimensionLineExtension: pickFloat(46),
+        tolerancePlus: pickFloat(47),
+        toleranceMinus: pickFloat(48),
+        jogAngle: pickFloat(49),
+        textHeight: pickFloat(140),
+        centerMarkSize: pickFloat(141),
+        tickSize: pickFloat(142),
+        alternateUnitScale: pickFloat(143),
+        linearFactor: pickFloat(144),
+        textVerticalPosition: pickFloat(145),
+        toleranceScale: pickFloat(146),
+        textGap: pickFloat(147),
+        alternateUnitRounding: pickFloat(148)
+      });
+
+      const toggles = prune({
+        textInsideHorizontal: pickBool(73),
+        textOutsideHorizontal: pickBool(74),
+        suppressFirstDimensionLine: pickBool(75),
+        suppressSecondDimensionLine: pickBool(76),
+        suppressExtensionLine1: pickBool(280),
+        suppressExtensionLine2: pickBool(281),
+        textInsideAlign: pickBool(282),
+        textOutsideAlign: pickBool(283),
+        forceTextInsideExtensions: pickBool(284),
+        suppressOutsideExtensionLines: pickBool(285),
+        arrowheadsMatchDimensionStyle: pickBool(286),
+        scaleDimensionLineByOverallScale: pickBool(287),
+        textFlipArrow: pickBool(288),
+        suppressDimensionLine: pickBool(289)
+      });
+
+      const measurement = prune({
+        toleranceEnabled: pickBool(71),
+        limitsEnabled: pickBool(72),
+        linearUnitFormat: pickInt(270),
+        linearPrecision: pickInt(271),
+        tolerancePrecision: pickInt(272),
+        alternateUnitFormat: pickInt(273),
+        alternateUnitPrecision: pickInt(274),
+        angularUnitFormat: pickInt(275),
+        angularPrecision: pickInt(276),
+        fractionalFormat: pickInt(277),
+        zeroSuppression: pickInt(278),
+        angularZeroSuppression: pickInt(279),
+        toleranceJustification: pickInt(175),
+        toleranceZeroSuppression: pickInt(179),
+        textMovement: pickInt(289),
+        textJustification: pickInt(290)
+      });
+
+      const alternateUnits = prune({
+        enabled: pickBool(170),
+        multiplier: pickFloat(171),
+        precision: pickInt(172),
+        tolerancePrecision: pickInt(173),
+        zeroSuppression: pickInt(174),
+        toleranceZeroSuppression: pickInt(175),
+        format: pickInt(176),
+        rounding: pickFloat(148)
+      });
+
+      const text = prune({
+        primary: pickString(3),
+        alternate: pickString(4)
+      });
+
+      const references = prune({
+        textStyle: pickHandle(340),
+        leaderArrowBlock: pickHandle(341),
+        arrowBlock: pickHandle(342),
+        firstArrowBlock: pickHandle(343),
+        secondArrowBlock: pickHandle(344),
+        dimensionLineLinetype: pickHandle(346),
+        extensionLine1Linetype: pickHandle(347),
+        extensionLine2Linetype: pickHandle(348)
+      });
+
+      const colors = prune({
+        dimensionLineColorNumber: pickInt(62),
+        extensionLineColorNumber: pickInt(63),
+        textColorNumber: pickInt(64),
+        dimensionLineTrueColor: pickFirst(420),
+        extensionLineTrueColor: pickFirst(421)
+      });
+
+      const lineweights = prune({
+        dimensionLine: pickInt(371),
+        extensionLine1: pickInt(372),
+        extensionLine2: pickInt(373)
+      });
+
+      const rawFlagCodes = {};
+      const flagCodes = [
+        280, 281, 282, 283, 284, 285, 286, 287, 288, 289,
+        290, 291, 292, 293, 294, 295, 296, 297, 298, 299
+      ];
+      flagCodes.forEach((code) => {
+        const value = pickInt(code);
+        if (value != null) {
+          rawFlagCodes[code] = value;
+        }
+      });
+
+      return {
+        parameters,
+        toggles,
+        measurement,
+        alternateUnits,
+        text,
+        references,
+        colors,
+        lineweights,
+        rawFlagCodes: Object.keys(rawFlagCodes).length ? rawFlagCodes : null
+      };
     }
 
     _buildCodeLookup(tags) {

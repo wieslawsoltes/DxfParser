@@ -1418,6 +1418,14 @@ function collectUnderlayClip(map) {
       case 'DIMENSION': {
         const dimensionStyleName = map.get(3)?.[0] || null;
         const dimensionStyleHandle = map.get(107)?.[0] || map.get(340)?.[0] || null;
+        const dimensionTypeRaw = toInt(map.get(70)?.[0]) || 0;
+        const dimensionSubtype = dimensionTypeRaw & 7;
+        const dimensionFlagBits = dimensionTypeRaw & ~7;
+        const dimensionAssociativity = toInt(map.get(280)?.[0]) ?? null;
+        const dimensionAssociativityPoint = toInt(map.get(281)?.[0]) ?? null;
+        const ordinateType = dimensionSubtype === 6
+          ? ((dimensionTypeRaw >> 3) & 3)
+          : null;
         const extension1 = pointFromCodes(14, 24, 34);
         const extension2 = pointFromCodes(15, 25, 35);
         const arrow1 = pointFromCodes(16, 26, 36);
@@ -1429,9 +1437,29 @@ function collectUnderlayClip(map) {
         const arcDefinitionPoints = [];
         if (arcPoint1) arcDefinitionPoints.push(arcPoint1);
         if (arcPoint2) arcDefinitionPoints.push(arcPoint2);
+        const associativeHandleCodes = new Set([331, 332, 361, 362, 363, 364]);
+        const associativeHandlesSet = new Set();
+        tags.forEach((tag) => {
+          const code = Number(tag.code);
+          if (!Number.isFinite(code)) {
+            return;
+          }
+          if (associativeHandleCodes.has(code)) {
+            const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+            if (rawHandle) {
+              associativeHandlesSet.add(rawHandle.toUpperCase());
+            }
+          }
+        });
+        const associativeHandles = Array.from(associativeHandlesSet);
         return {
           type: 'dimension',
-          dimensionType: toInt(map.get(70)?.[0]) || 0,
+          dimensionType: dimensionTypeRaw,
+          dimensionSubtype,
+          dimensionFlags: dimensionFlagBits,
+          dimensionAssociativity,
+          dimensionAssociativityPoint,
+          ordinateType,
           definitionPoint: pointFromCodes(10, 20, 30),
           textPoint: pointFromCodes(11, 21, 31),
           dimensionLinePoint: pointFromCodes(13, 23, 33),
@@ -1444,9 +1472,12 @@ function collectUnderlayClip(map) {
           text: map.get(1)?.[0] || '',
           measurement: toFloat(map.get(42)?.[0]) ?? null,
           textHeight,
+          rotation: toFloat(map.get(50)?.[0]) ?? null,
           blockName: map.get(2)?.[0] || null,
           dimensionStyle: dimensionStyleName,
-          dimensionStyleHandle
+          dimensionStyleHandle,
+          associativeHandles,
+          dimensionAssociativeHandles: associativeHandles.slice()
         };
       }
       case 'LEADER': {
@@ -2238,6 +2269,134 @@ function collectUnderlayClip(map) {
         }
       }
 
+      if (geometry && upperType === 'DIMENSION') {
+        if (!geometry.units && context.units) {
+          const units = context.units || null;
+          geometry.units = units
+            ? {
+                insUnits: units.insUnits != null ? units.insUnits : null,
+                insUnitsSource: units.insUnitsSource != null ? units.insUnitsSource : null,
+                insUnitsTarget: units.insUnitsTarget != null ? units.insUnitsTarget : null
+              }
+            : null;
+        }
+
+        const dimStyleParams = resolvedDimensionStyle && resolvedDimensionStyle.parameters
+          ? resolvedDimensionStyle.parameters
+          : null;
+        if (dimStyleParams) {
+          if (dimStyleParams.linearFactor != null && !Number.isNaN(dimStyleParams.linearFactor)) {
+            geometry.dimensionLinearFactor = dimStyleParams.linearFactor;
+          }
+          if (dimStyleParams.overallScale != null && !Number.isNaN(dimStyleParams.overallScale)) {
+            geometry.dimensionScaleFactor = dimStyleParams.overallScale;
+          }
+          if (dimStyleParams.toleranceScale != null && !Number.isNaN(dimStyleParams.toleranceScale)) {
+            geometry.dimensionToleranceScale = dimStyleParams.toleranceScale;
+          }
+          const dimScaleFactor = geometry.dimensionScaleFactor != null && !Number.isNaN(geometry.dimensionScaleFactor)
+            ? geometry.dimensionScaleFactor
+            : 1;
+          if (dimStyleParams.dimensionLineIncrement != null && !Number.isNaN(dimStyleParams.dimensionLineIncrement)) {
+            geometry.dimensionLineIncrement = dimStyleParams.dimensionLineIncrement * dimScaleFactor;
+          }
+          if (dimStyleParams.dimensionLineExtension != null && !Number.isNaN(dimStyleParams.dimensionLineExtension)) {
+            geometry.dimensionLineExtension = dimStyleParams.dimensionLineExtension * dimScaleFactor;
+          }
+          if (dimStyleParams.tickSize != null && !Number.isNaN(dimStyleParams.tickSize)) {
+            geometry.dimensionTickSize = dimStyleParams.tickSize * dimScaleFactor;
+          }
+          if (dimStyleParams.tolerancePlus != null && !Number.isNaN(dimStyleParams.tolerancePlus)) {
+            geometry.dimensionToleranceUpper = dimStyleParams.tolerancePlus;
+          }
+          if (dimStyleParams.toleranceMinus != null && !Number.isNaN(dimStyleParams.toleranceMinus)) {
+            geometry.dimensionToleranceLower = dimStyleParams.toleranceMinus;
+          }
+        }
+
+        const dimStyleToggles = resolvedDimensionStyle && resolvedDimensionStyle.toggles
+          ? resolvedDimensionStyle.toggles
+          : null;
+        if (dimStyleToggles && dimStyleToggles.suppressExtensionLine1 != null) {
+          geometry.extensionLine1Suppressed = dimStyleToggles.suppressExtensionLine1;
+        }
+        if (dimStyleToggles && dimStyleToggles.suppressExtensionLine2 != null) {
+          geometry.extensionLine2Suppressed = dimStyleToggles.suppressExtensionLine2;
+        }
+        if (dimStyleToggles) {
+          geometry.dimensionStyleToggles = dimStyleToggles;
+        }
+
+        const dimStyleMeasurement = resolvedDimensionStyle && resolvedDimensionStyle.measurement
+          ? resolvedDimensionStyle.measurement
+          : null;
+        if (dimStyleMeasurement) {
+          geometry.dimensionMeasurementSettings = dimStyleMeasurement;
+        }
+
+        const dimStyleAlternateUnits = resolvedDimensionStyle && resolvedDimensionStyle.alternateUnits
+          ? resolvedDimensionStyle.alternateUnits
+          : null;
+        if (dimStyleAlternateUnits) {
+          geometry.dimensionAlternateUnits = dimStyleAlternateUnits;
+        }
+
+        const dimStyleText = resolvedDimensionStyle && resolvedDimensionStyle.text
+          ? resolvedDimensionStyle.text
+          : null;
+        if (dimStyleText) {
+          geometry.dimensionTextOverrides = dimStyleText;
+        }
+
+        const dimStyleReferences = resolvedDimensionStyle && resolvedDimensionStyle.references
+          ? resolvedDimensionStyle.references
+          : null;
+        if (dimStyleReferences) {
+          const extractHandle = (entry) => {
+            if (!entry) {
+              return null;
+            }
+            if (entry.handleUpper) {
+              return entry.handleUpper;
+            }
+            if (entry.handle) {
+              return normalizeHandle(entry.handle);
+            }
+            return null;
+          };
+          const textStyleHandle = extractHandle(dimStyleReferences.textStyle);
+          if (textStyleHandle) {
+            geometry.dimensionTextStyleHandle = textStyleHandle;
+            if (!metadata.textStyle) {
+              const resolvedTextStyle = textStylesByHandle
+                ? (textStylesByHandle.get(textStyleHandle) ||
+                  textStylesByHandle.get(String(textStyleHandle).toUpperCase()))
+                : null;
+              if (resolvedTextStyle) {
+                metadata.textStyle = resolvedTextStyle;
+                geometry.dimensionTextStyle = resolvedTextStyle;
+              }
+            }
+          }
+          geometry.dimensionArrowBlocks = {
+            primary: extractHandle(dimStyleReferences.arrowBlock),
+            first: extractHandle(dimStyleReferences.firstArrowBlock),
+            second: extractHandle(dimStyleReferences.secondArrowBlock),
+            leader: extractHandle(dimStyleReferences.leaderArrowBlock)
+          };
+          geometry.dimensionLineLinetypeHandle = extractHandle(dimStyleReferences.dimensionLineLinetype);
+          geometry.extensionLine1LinetypeHandle = extractHandle(dimStyleReferences.extensionLine1Linetype);
+          geometry.extensionLine2LinetypeHandle = extractHandle(dimStyleReferences.extensionLine2Linetype);
+        }
+
+        if (!Array.isArray(geometry.dimensionAssociativeHandles)) {
+          const rawAssocHandles = Array.isArray(geometry.associativeHandles) ? geometry.associativeHandles : [];
+          geometry.dimensionAssociativeHandles = rawAssocHandles
+            .map((handle) => normalizeHandle(handle))
+            .filter(Boolean);
+        }
+      }
+
       if (geometry && (upperType === 'POINT' || upperType === 'MPOINT')) {
         if (pointDisplayDefaults) {
           if (!Number.isFinite(geometry.pointSize) && Number.isFinite(pointDisplayDefaults.size)) {
@@ -2319,7 +2478,16 @@ function collectUnderlayClip(map) {
           sectionGeometry: resolveByHandle(context.sectionGeometries, geometry && geometry.sectionGeometryHandle),
           detailViewObject: resolveByHandle(context.detailViewObjects, geometry && geometry.detailViewHandle),
           proxyObject: resolveByHandle(context.proxyObjects, metadata.handle),
-          rasterVariables: context.rasterVariables || null
+          rasterVariables: context.rasterVariables || null,
+          associativity: (geometry && (geometry.dimensionAssociativity != null || (geometry.dimensionAssociativeHandles && geometry.dimensionAssociativeHandles.length)))
+            ? {
+                mode: geometry.dimensionAssociativity != null ? geometry.dimensionAssociativity : null,
+                pointIndex: geometry.dimensionAssociativityPoint != null ? geometry.dimensionAssociativityPoint : null,
+                handles: Array.isArray(geometry.dimensionAssociativeHandles)
+                  ? geometry.dimensionAssociativeHandles.slice()
+                  : []
+              }
+            : null
         }
       };
     }
