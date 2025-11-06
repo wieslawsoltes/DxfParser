@@ -2467,9 +2467,6 @@
           row.effective.effectiveIsLocked ? 'layer-manager-row--locked' : '',
           row.overrides && Object.keys(row.overrides).length ? 'layer-manager-row--overridden' : ''
         ].filter(Boolean).join(' ');
-        const spacesLabel = row.usage.spaces && row.usage.spaces.length
-          ? row.usage.spaces.join(', ')
-          : '—';
         const plotStyleDescriptor = row.base.basePlotStyleDescriptor || null;
         const plotStyleLabel = plotStyleDescriptor
           ? (plotStyleDescriptor.label || '—')
@@ -2483,7 +2480,7 @@
                 <span class="layer-color-swatch" style="background:${row.effective.effectiveColorCss};"></span>
                 <div class="layer-name-block">
                   <div class="layer-name-text">${row.base.name}</div>
-                  <div class="layer-name-meta">Entities: ${row.usage.count || 0} • Spaces: ${spacesLabel}</div>
+                  <div class="layer-name-meta">Entities: ${row.usage.count || 0}</div>
                 </div>
               </td>
               <td class="layer-manager-cell layer-manager-toggle">
