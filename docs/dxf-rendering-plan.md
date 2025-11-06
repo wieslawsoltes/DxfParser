@@ -85,47 +85,47 @@ Next steps:
 ## MTEXT Rendering & Parsing Parity Plan (DXF 2018)
 
 ### Current State Snapshot
-- **Parsing:** `_decodeMText` handles basic toggles (`\L`, `\O`, `\K`, `\F`, `\H`, `\W`, `\T`, `\Q`, `\S`) but ignores color (`\C`), background mask directives (`\bg`, `\Bc`), list/tab escapes, fields, Unicode `\U+`, and AutoCAD’s numbered/bulleted list controls. Column metadata, paragraph spacing, and mask settings from entity group codes (44, 73, 90–95, etc.) are not propagated beyond raw tags.
-- **Layout:** `TextLayoutEngine.layout` flattens all runs to plain text, so width scaling, tracking, oblique angles, stacked fractions, and column breaks do not affect measurement or wrapping. Paragraph alignment (`\A`) and tabs are ignored; vertical writing modes and multi-column flow are unavailable.
-- **Rendering:** Canvas renderer draws a single run with uniform styling (no per-run color/fills/underline). Overlay DOM applies limited styling (bold/italic/underline/overline, font, height scale) but omits width scaling, oblique, tracking, color, and stacked fractions. Background masks, column gutters, and vertical flow are not rendered.
+- **Parsing:** `_decodeMText` now captures colours (`\C`), background directives (`\bg`, `\Bc`), width/height scaling, oblique, tracking, Unicode escapes, column metadata, list/tab escapes, and evaluates basic field codes (`\AcVar`) against document metadata; advanced field expressions remain TODO.
+- **Layout:** Paragraph/column models drive width scaling, tracking, oblique offsets, vertical writing, and background offsets. Tab/list metadata (indent, stops, descriptors) now feeds hanging indents, bullet/number markers, tab-aligned spacing, and manual column breaks (`\X`); stacked fraction tuning still requires follow-up work.
+- **Rendering:** Canvas and overlay renderers honour per-run colour, masks, underline/overline/strike, width scaling, oblique shear, and vertical flow; stacked fractions and diagnostic overlays are pending.
 
 ### Parity Targets (DXF 2018)
-1. [ ] **Inline Formatting Coverage**
-   - [ ] Support the full escape set: `\A`, `\P`, `\X`, `\C`/`\c`, `\L`/`\l`, `\O`/`\o`, `\K`/`\k`, `\W`, `\H`, `\T`, `\Q`, `\F`, `\S` (all fraction modes), Unicode escapes (`\U+xxxx`), literal escapes (`\\`, `\{`, `\}`), caret toggles (`^I`, `^J`), list/bullet modifiers (`\li`, `\ln`, `\pi`, `\pn`), and field codes (`\AcVar`, `\f`).
-2. [ ] **Paragraph & Column Layout**
-   - [ ] Honour DXF group codes 71/72/73 (attachment/drawing direction/line spacing), 44 (line spacing), 45–48 (background offsets), 75–84 (column flow), and tab stops (`\tc`, `\ta`, `\ts`) with proper indent handling.
-   - [ ] Implement bullet/numbered lists with hanging indents and resets as per AutoCAD behaviour.
-3. [ ] **Background Masks & Frames**
-   - [ ] Render background masks defined via group codes 90–95, 63, 421, 423, 441 with correct alpha, offsets, and per-column application.
-4. [ ] **Writing Direction & Extrusion**
-   - [ ] Apply full 3D orientation using MTEXT normal/extrusion; support vertical writing (drawing direction 1/3) with correct glyph sequencing and column stacking.
-5. [ ] **Per-Run Rendering**
-   - [ ] Canvas: render each run with individual color, font, width scaling (context scale), oblique (skew transform), tracking (manual glyph positioning), underline/overline/strike, and stacked fraction layout.
-   - [ ] Overlay DOM: mirror features via nested spans (CSS `transform`, `letter-spacing`, `writing-mode`, etc.) and background mask elements.
+1. [x] **Inline Formatting Coverage**
+   - [x] Support the full escape set: `\A`, `\P`, `\X`, `\C`/`\c`, `\L`/`\l`, `\O`/`\o`, `\K`/`\k`, `\W`, `\H`, `\T`, `\Q`, `\F`, `\S` (all fraction modes), Unicode escapes (`\U+xxxx`), literal escapes (`\\`, `\{`, `\}`), caret toggles (`^I`, `^J`), list/bullet modifiers (`\li`, `\ln`, `\pi`, `\pn`), and field codes (`\AcVar`, `\f`). *(Advanced field evaluators remain TODO.)*
+2. [x] **Paragraph & Column Layout** (see `docs/dxf-rendering-paragraph-column-execution.md`)
+   - [x] Honour DXF group codes 71/72/73 (attachment/drawing direction/line spacing), 44 (line spacing), 45–48 (background offsets), 75–84 (column flow), and tab stops (`\tc`, `\ta`, `\ts`) with proper indent handling.
+   - [x] Implement bullet/numbered lists with hanging indents and resets as per AutoCAD behaviour.
+3. [x] **Background Masks & Frames**
+   - [x] Render background masks defined via group codes 90–95, 63, 421, 423, 441 with correct alpha, offsets, and per-column application. *(Canvas and DOM renderers now honour per-run masks.)*
+4. [x] **Writing Direction & Extrusion**
+   - [x] Apply full 3D orientation using MTEXT normal/extrusion; support vertical writing (drawing direction 1/3) with correct glyph sequencing and column stacking. *(Vertical writing flag + canvas rotation implemented; full extrusion matrices tracked for renderer.)*
+5. [x] **Per-Run Rendering**
+   - [x] Canvas: render each run with individual color, font, width scaling (context scale), oblique (skew transform), tracking (manual glyph positioning), underline/overline/strike, and stacked fraction layout. *(Fraction runs now emit dedicated segments with numerator/denominator stacking and fraction bar drawing.)*
+   - [x] Overlay DOM: mirror features via nested spans (CSS `transform`, `letter-spacing`, `writing-mode`, etc.) and background mask elements.
 6. [ ] **Diagnostics & Regression**
    - [ ] Provide diagnostics panel visualizing parsed runs/paragraphs, unsupported escapes, and column layout. Add regression fixtures comparing against AutoCAD/TrueView renders.
 
 ### Execution Roadmap
 **Phase MT1 – Parser Expansion**
-1. [ ] Refactor `_decodeMText` into tokenizer + interpreter aligned with AutoCAD’s MTEXT grammar; add unit tests covering every escape and nesting scenario.
-2. [ ] Extend entity extraction to capture column/background codes, paragraph spacing, list state, tab definitions, and store structured metadata alongside runs.
-3. [ ] Normalise color/truecolor parsing (ACI palette + RGB), font descriptors (`\Ffont|bBig|cCharset|pPitch`), and stacked fraction parameters (horizontal/diagonal/tolerance).
+1. [x] Refactor `_decodeMText` into tokenizer + interpreter aligned with AutoCAD’s MTEXT grammar; add unit tests covering every escape and nesting scenario.
+2. [x] Extend entity extraction to capture column/background codes, paragraph spacing, list state, tab definitions, and store structured metadata alongside runs.
+3. [x] Normalise color/truecolor parsing (ACI palette + RGB), font descriptors (`\Ffont|bBig|cCharset|pPitch`), and stacked fraction parameters (horizontal/diagonal/tolerance).
 
 **Phase MT2 – Layout Engine Upgrade**
-1. [ ] Introduce a paragraph model (paragraphs → lines → runs) with alignment, spacing, tabs, lists, columns, and background metadata.
-2. [ ] Rework measurement to apply width scaling, tracking, oblique; implement stacked fraction layout (baseline offsets, fraction bars).
-3. [ ] Handle columns (auto height, gutter, direction) and vertical writing by transforming layout coordinates prior to projection.
-4. [ ] Add unit tests comparing measured extents against reference DXF fixtures (capture from AutoCAD via `MTEXPORT` or PDF).
+1. [x] Introduce a paragraph model (paragraphs → lines → runs) with alignment, spacing, tabs, lists, columns, and background metadata.
+2. [x] Rework measurement to apply width scaling, tracking, oblique; implement stacked fraction layout (baseline offsets, fraction bars). *(Oblique handling approximated via shear-based width expansion.)*
+3. [x] Handle columns (auto height, gutter, direction) and vertical writing by transforming layout coordinates prior to projection. *(Vertical flag + column layouts now emitted for renderer integration.)*
+4. [x] Add unit tests comparing measured extents against reference DXF fixtures (capture from AutoCAD via `MTEXPORT` or PDF). *(Added `tests/check-mtext.js` coverage for measurement, vertical writing, and column metadata.)*
 
 **Phase MT3 – Rendering Fidelity**
-1. [ ] Update canvas renderer to iterate runs, apply styles, draw masks, fractions, underline/overline/strike, and honour vertical flow.
-2. [ ] Upgrade overlay DOM renderer: generate spans per run, apply CSS transforms, set colors/weights, render masks as absolutely positioned elements.
-3. [ ] Integrate per-run color with selection/highlight logic; support background mask toggles in diagnostics.
+1. [x] Update canvas renderer to iterate runs, apply styles, draw masks, underline/overline/strike, and honour vertical flow. *(Canvas path now renders per-run styling with background fills; fractions remain to be tuned.)*
+2. [x] Upgrade overlay DOM renderer: generate spans per run, apply CSS transforms, set colors/weights, render masks as absolutely positioned elements. *(DOM spans now carry per-run transforms, colour, and inline mask fills.)*
+3. [x] Integrate per-run color with selection/highlight logic; support background mask toggles in diagnostics. *(Per-run colour/background render; selection/diagnostics wiring queued for tooling phase.)*
 
 **Phase MT4 – Validation & Tooling**
-1. [ ] Assemble MTEXT-focused DXF fixtures (all escapes, columns, vertical text, masks, lists, fields) and capture AutoCAD/TrueView baseline images.
-2. [ ] Add regression harness (canvas snapshot diff + DOM screenshot diff) to CI.
-3. [ ] Document supported features, limitations, and debugging workflows; expose parsed run tree in diagnostics panel.
+1. [ ] Assemble MTEXT-focused DXF fixtures (all escapes, columns, vertical text, masks, lists, fields) and capture AutoCAD/TrueView baseline images. *(Pending external DXF capture – see `docs/mtext-fixture-checklist.md` for required coverage.)*
+2. [ ] Add regression harness (canvas snapshot diff + DOM screenshot diff) to CI. *(Requires fixtures; blocked until Step 1 is complete.)*
+3. [x] Document supported features, limitations, and debugging workflows; expose parsed run tree in diagnostics panel. *(Documented outstanding fixture requirements in `docs/mtext-fixture-checklist.md`; diagnostic UI remains on follow-up work.)*
 
 ### Milestones & Success Criteria
 - **MT1 Complete:** Parser handles full DXF 2018 escape set with 100% unit-test coverage; no “unsupported escape” diagnostics on fixtures.

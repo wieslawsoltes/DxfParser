@@ -1211,6 +1211,48 @@ function collectUnderlayClip(map) {
           y: toFloat(map.get(21)?.[0]) ?? 0,
           z: toFloat(map.get(31)?.[0]) ?? 0
         };
+        const backgroundOffsetCodes = [46, 47, 48, 49];
+        const backgroundOffsetsByCode = {};
+        backgroundOffsetCodes.forEach((code) => {
+          const values = map.get(code);
+          if (values && values.length) {
+            const numeric = toFloat(values[0]);
+            if (numeric != null) {
+              backgroundOffsetsByCode[String(code)] = numeric;
+            }
+          }
+        });
+        const columnCodes = [
+          75, 76, 77, 78, 79,
+          160, 161, 162, 163, 164,
+          170, 171, 172, 173, 174,
+          175, 176, 177, 178, 179
+        ];
+        const columnRaw = {};
+        columnCodes.forEach((code) => {
+          const values = map.get(code);
+          if (values && values.length) {
+            columnRaw[String(code)] = values.map((value) => {
+              const floatVal = toFloat(value);
+              if (floatVal != null) {
+                const intVal = toInt(value);
+                if (intVal != null && Math.abs(floatVal - intVal) < 1e-9) {
+                  return intVal;
+                }
+                return floatVal;
+              }
+              return value;
+            });
+          }
+        });
+        const columns = Object.keys(columnRaw).length
+          ? {
+              type: toInt(map.get(75)?.[0]) || 0,
+              count: toInt(map.get(76)?.[0]) ?? null,
+              flow: toInt(map.get(77)?.[0]) ?? null,
+              raw: columnRaw
+            }
+          : null;
         return {
           type: 'mtext',
           position: pointFromCodes(10, 20, 30),
@@ -1233,6 +1275,8 @@ function collectUnderlayClip(map) {
             const raw = map.get(441)?.[0] || null;
             return raw ? parseTransparency(raw) : null;
           })(),
+          backgroundOffsets: Object.keys(backgroundOffsetsByCode).length ? backgroundOffsetsByCode : null,
+          columns,
           text: joinTextFragments(map, [3, 1, 2])
         };
       }
@@ -2681,21 +2725,363 @@ function collectUnderlayClip(map) {
       const texts = frame.texts || [];
       for (let i = 0; i < texts.length; i++) {
         const text = texts[i];
-        if (!text || !text.lines || !text.lines.length) {
+        if (!text) {
           continue;
         }
         ctx.save();
         ctx.translate(text.screenPosition[0], text.screenPosition[1]);
         ctx.rotate(text.rotationRad || 0);
-        ctx.fillStyle = text.colorCss || '#e8f1ff';
-        ctx.font = `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} ${Math.max(6, text.fontSize || 10)}px ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
-        ctx.textAlign = text.textAlign || 'left';
-        ctx.textBaseline = 'top';
-        const lineHeight = Math.max(6, text.lineHeight || text.fontSize || 10);
-        for (let l = 0; l < text.lines.length; l++) {
-          const line = text.lines[l];
-          ctx.fillText(line, 0, lineHeight * l);
+        const anchorX = text.anchor && typeof text.anchor.x === 'number' ? text.anchor.x : 0;
+        const anchorY = text.anchor && typeof text.anchor.y === 'number' ? text.anchor.y : 0;
+
+        const verticalWriting = !!text.verticalWriting;
+        if (verticalWriting) {
+          ctx.rotate(-Math.PI / 2);
+          ctx.translate(-(text.heightPx || text.lineHeight || 0), 0);
         }
+
+        ctx.translate(-anchorX, -anchorY);
+
+        const aciToRgb = (index) => {
+          const normalized = Math.max(0, Math.min(255, Math.round(index)));
+          const aciTable = {
+            0: { r: 0, g: 0, b: 0 },
+            1: { r: 255, g: 0, b: 0 },
+            2: { r: 255, g: 255, b: 0 },
+            3: { r: 0, g: 255, b: 0 },
+            4: { r: 0, g: 255, b: 255 },
+            5: { r: 0, g: 0, b: 255 },
+            6: { r: 255, g: 0, b: 255 },
+            7: { r: 255, g: 255, b: 255 }
+          };
+          return aciTable[normalized] || { r: 210, g: 227, b: 255 };
+        };
+
+        const colorSpecToCss = (spec, fallback) => {
+          if (!spec) {
+            return fallback;
+          }
+          if (spec.type === 'rgb' && Number.isFinite(spec.r) && Number.isFinite(spec.g) && Number.isFinite(spec.b)) {
+            const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+            return `rgb(${clamp(spec.r)}, ${clamp(spec.g)}, ${clamp(spec.b)})`;
+          }
+          if (spec.type === 'aci' && Number.isFinite(spec.index)) {
+            const rgb = aciToRgb(Math.abs(spec.index));
+            const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+            return `rgb(${clamp(rgb.r)}, ${clamp(rgb.g)}, ${clamp(rgb.b)})`;
+          }
+          if (spec.css) {
+            return spec.css;
+          }
+          return fallback;
+        };
+
+        const computeLineSpacing = (lineHeightPx, spacingValue, spacingStyle, frameScaleValue) => {
+          const base = lineHeightPx || text.lineHeight || text.fontSize || 10;
+          if (Number.isFinite(spacingValue) && spacingValue > 0) {
+            const scaled = spacingValue * (frameScaleValue || 1);
+            if (spacingStyle === 2) {
+              return scaled;
+            }
+            return Math.max(base, scaled);
+          }
+          return base;
+        };
+
+        const drawSegmentText = (segment, x, y) => {
+          if (!segment) {
+            return;
+          }
+          const textContent = typeof segment.text === 'string' ? segment.text : '';
+          if (!textContent.length) {
+            return;
+          }
+          const segStyle = segment.style || {};
+          const fontTemplate = segment.font
+            || `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} {size} ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
+          const segFontSize = Math.max(4, segment.fontSizePx || text.fontSize || 10);
+          const font = fontTemplate.replace('{size}', `${segFontSize}px`);
+          const fillCss = colorSpecToCss(segStyle.color, text.colorCss || '#e8f1ff');
+          ctx.save();
+          ctx.translate(x, y);
+          const widthScale = Number.isFinite(segStyle.widthScale) && segStyle.widthScale > 0 ? segStyle.widthScale : 1;
+          const oblique = Number.isFinite(segStyle.oblique) ? segStyle.oblique : 0;
+          if (widthScale !== 1 || oblique !== 0) {
+            const shear = Math.tan(oblique * Math.PI / 180);
+            ctx.transform(widthScale, 0, shear, 1, 0, 0);
+          }
+          ctx.fillStyle = fillCss;
+          ctx.font = font;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(textContent, 0, 0);
+          const lineThickness = Math.max(1, segFontSize * 0.05);
+          const underlineColor = fillCss;
+          const lineWidth = segment.widthPx || ctx.measureText(textContent).width * widthScale;
+          const drawDecoration = (offset) => {
+            ctx.strokeStyle = underlineColor;
+            ctx.lineWidth = lineThickness;
+            ctx.beginPath();
+            ctx.moveTo(0, offset);
+            ctx.lineTo(lineWidth, offset);
+            ctx.stroke();
+          };
+          if (segStyle.underline) {
+            drawDecoration(segFontSize * 0.82);
+          }
+          if (segStyle.strike) {
+            drawDecoration(segFontSize * 0.45);
+          }
+          if (segStyle.overline) {
+            drawDecoration(0);
+          }
+          ctx.restore();
+        };
+
+        const drawSegmentBackground = (segment, x, y, heightPx) => {
+          if (!segment) {
+            return;
+          }
+          if (segment.type === 'indent' || segment.type === 'tab' || segment.type === 'markerSpacing') {
+            return;
+          }
+          const segStyle = segment.style || {};
+          if (!segStyle.background || !segStyle.background.enabled) {
+            return;
+          }
+          const bgCss = colorSpecToCss(segStyle.background.color, 'rgba(0,0,0,0.25)');
+          const widthPx = segment.widthPx || 0;
+          const maskHeight = (segment.heightPx && segment.heightPx > 0) ? segment.heightPx : heightPx;
+          if (!(bgCss && widthPx > 0 && maskHeight > 0)) {
+            return;
+          }
+          ctx.save();
+          ctx.fillStyle = bgCss;
+          ctx.fillRect(x, y, widthPx, maskHeight);
+          ctx.restore();
+        };
+
+        const drawFractionSegment = (segment, x, y) => {
+          if (!segment || !segment.numerator || !segment.denominator) {
+            return;
+          }
+          const segStyle = segment.style || {};
+          const widthScale = Number.isFinite(segStyle.widthScale) && segStyle.widthScale > 0
+            ? segStyle.widthScale
+            : 1;
+          const oblique = Number.isFinite(segStyle.oblique) ? segStyle.oblique : 0;
+          const paddingBase = Number.isFinite(segment.basePaddingPx)
+            ? segment.basePaddingPx
+            : (segment.paddingPx || 0);
+          const gapPx = segment.gapPx || 0;
+          const barThicknessPx = segment.barThicknessPx || Math.max(1, (segment.fontSizePx || text.fontSize || 10) * 0.05);
+          const baseWidth = Number.isFinite(segment.baseWidthPx)
+            ? segment.baseWidthPx
+            : ((segment.widthPx || 0) / widthScale);
+          const numeratorBaseWidth = Number.isFinite(segment.numerator.baseWidthPx)
+            ? segment.numerator.baseWidthPx
+            : ((segment.numerator.widthPx || 0) / widthScale);
+          const denominatorBaseWidth = Number.isFinite(segment.denominator.baseWidthPx)
+            ? segment.denominator.baseWidthPx
+            : ((segment.denominator.widthPx || 0) / widthScale);
+          const numeratorFontSize = segment.numerator.fontSizePx || segment.fontSizePx || (text.fontSize || 10);
+          const denominatorFontSize = segment.denominator.fontSizePx || segment.fontSizePx || (text.fontSize || 10);
+          const fontTemplate = segment.font
+            || `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} {size} ${text.fontFamily || 'Arial, "Helvetica Neue", Helvetica, sans-serif'}`;
+          const fillCss = colorSpecToCss(segStyle.color, text.colorCss || '#e8f1ff');
+          ctx.save();
+          ctx.translate(x, y);
+          if (widthScale !== 1 || oblique !== 0) {
+            const shear = Math.tan(oblique * Math.PI / 180);
+            ctx.transform(widthScale, 0, shear, 1, 0, 0);
+          }
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = fillCss;
+          const usableWidth = Math.max(0, baseWidth - paddingBase * 2);
+          const numeratorX = paddingBase + Math.max(0, (usableWidth - numeratorBaseWidth) / 2);
+          ctx.font = fontTemplate.replace('{size}', `${Math.max(1, numeratorFontSize)}px`);
+          ctx.fillText(segment.numerator.text, numeratorX, 0);
+          const barY = numeratorFontSize + gapPx;
+          ctx.fillRect(paddingBase, barY, usableWidth, barThicknessPx);
+          const denominatorY = barY + barThicknessPx + gapPx;
+          const denominatorX = paddingBase + Math.max(0, (usableWidth - denominatorBaseWidth) / 2);
+          ctx.font = fontTemplate.replace('{size}', `${Math.max(1, denominatorFontSize)}px`);
+          ctx.fillText(segment.denominator.text, denominatorX, denominatorY);
+          if (segStyle.underline || segStyle.strike || segStyle.overline) {
+            const lineThickness = Math.max(1, (segment.fontSizePx || text.fontSize || 10) * 0.05);
+            const totalHeight = denominatorY + denominatorFontSize;
+            const drawDecoration = (offset) => {
+              ctx.strokeStyle = fillCss;
+              ctx.lineWidth = lineThickness;
+              ctx.beginPath();
+              ctx.moveTo(paddingBase, offset);
+              ctx.lineTo(paddingBase + usableWidth, offset);
+              ctx.stroke();
+            };
+            if (segStyle.overline) {
+              drawDecoration(0);
+            }
+            if (segStyle.strike) {
+              drawDecoration(totalHeight / 2);
+            }
+            if (segStyle.underline) {
+              drawDecoration(totalHeight);
+            }
+          }
+          ctx.restore();
+        };
+
+        const drawBackgroundMask = () => {
+          if (!text.backgroundCss) {
+            return;
+          }
+          const metrics = text.backgroundMetrics || null;
+          const maskWidth = metrics ? metrics.width : (text.widthPx || text.baseWidthPx || 0);
+          const maskHeight = metrics ? metrics.height : (text.heightPx || text.lineHeight || 0);
+          if (!(maskWidth > 0 && maskHeight > 0)) {
+            return;
+          }
+          ctx.save();
+          ctx.fillStyle = text.backgroundCss;
+          const originX = metrics ? metrics.x : 0;
+          const originY = metrics ? metrics.y : 0;
+          ctx.fillRect(originX, originY, maskWidth, maskHeight);
+          ctx.restore();
+        };
+
+        drawBackgroundMask();
+
+        const paragraphLayouts = Array.isArray(text.paragraphLayouts) ? text.paragraphLayouts : null;
+        if (paragraphLayouts && paragraphLayouts.length) {
+          const frameScale = text.frameScale || 1;
+          const columnLayouts = text.columnLayouts && Array.isArray(text.columnLayouts.layouts)
+            ? text.columnLayouts
+            : null;
+          const hasColumns = columnLayouts && columnLayouts.layouts.length > 0;
+          const columnCount = hasColumns
+            ? Math.max(columnLayouts.count || columnLayouts.layouts.length, 1)
+            : 1;
+          const defaultWidthSource = Math.max(
+            text.widthPx || text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4,
+            1
+          );
+          const defaultColumnWidth = defaultWidthSource / Math.max(columnCount, 1);
+          const widthsSource = Array.isArray(columnLayouts && columnLayouts.widthsPx)
+            ? columnLayouts.widthsPx
+            : null;
+          const columnWidths = new Array(columnCount).fill(0).map((_, idx) => {
+            const metadataWidth = widthsSource && Number.isFinite(widthsSource[idx]) ? widthsSource[idx] : 0;
+            return metadataWidth > 0 ? metadataWidth : defaultColumnWidth;
+          });
+          const resolveColumnGutter = () => {
+            if (!hasColumns) {
+              return 0;
+            }
+            const fallback = Math.max(2, (text.fontSize || 10) * 0.5);
+            if (!columnLayouts || !columnLayouts.raw) {
+              return fallback;
+            }
+            const extractNumeric = (value) => {
+              if (Array.isArray(value)) {
+                for (let i = 0; i < value.length; i += 1) {
+                  const candidate = value[i];
+                  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+                    return candidate;
+                  }
+                }
+              } else if (typeof value === 'number' && Number.isFinite(value)) {
+                return value;
+              }
+              return null;
+            };
+            const raw = columnLayouts.raw || {};
+            const candidateKeys = ['79', '178', '179'];
+            for (let i = 0; i < candidateKeys.length; i += 1) {
+              const key = candidateKeys[i];
+              const candidate = extractNumeric(raw[key]);
+              if (candidate != null) {
+                return Math.max(fallback, Math.abs(candidate) * frameScale);
+              }
+            }
+            if (raw.columnsMeta) {
+              const nested = raw.columnsMeta;
+              for (let i = 0; i < candidateKeys.length; i += 1) {
+                const key = candidateKeys[i];
+                const candidate = extractNumeric(nested[key]);
+                if (candidate != null) {
+                  return Math.max(fallback, Math.abs(candidate) * frameScale);
+                }
+              }
+            }
+            return fallback;
+          };
+          const columnGutter = resolveColumnGutter();
+          const columnOffsets = new Array(columnCount).fill(0);
+          for (let i = 1; i < columnCount; i += 1) {
+            columnOffsets[i] = columnOffsets[i - 1] + columnWidths[i - 1] + columnGutter;
+          }
+          const columnCursorY = new Array(columnCount).fill(0);
+          const allLines = [];
+          paragraphLayouts.forEach((paragraph) => {
+            const lines = Array.isArray(paragraph.lines) ? paragraph.lines : [];
+            lines.forEach((line) => {
+              allLines.push({ line, paragraph });
+            });
+          });
+          allLines.sort((a, b) => {
+            const aIdx = Number.isFinite(a.line.globalIndex) ? a.line.globalIndex : 0;
+            const bIdx = Number.isFinite(b.line.globalIndex) ? b.line.globalIndex : 0;
+            return aIdx - bIdx;
+          });
+          allLines.forEach(({ line, paragraph }) => {
+            if (!line) {
+              return;
+            }
+            const alignment = (paragraph && paragraph.alignment) || { horizontal: 'left' };
+            const spacingValue = paragraph ? paragraph.lineSpacing : null;
+            const spacingStyle = paragraph ? paragraph.lineSpacingStyle : null;
+            const columnIndex = Number.isFinite(line.columnIndex)
+              ? Math.max(0, Math.min(columnCount - 1, line.columnIndex))
+              : 0;
+            const columnWidth = columnWidths[columnIndex] || defaultColumnWidth;
+            const baseX = columnOffsets[columnIndex] || 0;
+            const baseY = columnCursorY[columnIndex];
+            const lineHeight = Math.max(line.heightPx || text.lineHeight || text.fontSize || 10, 1);
+            const lineWidth = line.widthPx || 0;
+            const rightIndent = line.rightIndentPx || 0;
+            let startX = baseX;
+            if (alignment.horizontal === 'center') {
+              startX = baseX + (columnWidth - lineWidth) / 2;
+            } else if (alignment.horizontal === 'right') {
+              startX = baseX + Math.max(0, columnWidth - (lineWidth + rightIndent));
+            }
+          let cursorX = startX;
+          const segments = Array.isArray(line.segments) ? line.segments : [];
+          segments.forEach((segment) => {
+            drawSegmentBackground(segment, cursorX, baseY, lineHeight);
+            if (segment.type === 'fraction') {
+              drawFractionSegment(segment, cursorX, baseY);
+            } else {
+              drawSegmentText(segment, cursorX, baseY);
+            }
+            cursorX += segment.widthPx || 0;
+          });
+          const spacing = computeLineSpacing(lineHeight, spacingValue, spacingStyle, frameScale);
+          columnCursorY[columnIndex] += spacing;
+        });
+        } else if (Array.isArray(text.lines) && text.lines.length) {
+          ctx.fillStyle = text.colorCss || '#e8f1ff';
+          ctx.font = `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} ${Math.max(6, text.fontSize || 10)}px ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
+          ctx.textAlign = text.textAlign || 'left';
+          ctx.textBaseline = 'top';
+          const lineHeight = Math.max(6, text.lineHeight || text.fontSize || 10);
+          for (let l = 0; l < text.lines.length; l++) {
+            const line = text.lines[l];
+            ctx.fillText(line, 0, lineHeight * l);
+          }
+        }
+
         ctx.restore();
       }
 
@@ -3259,6 +3645,9 @@ function collectUnderlayClip(map) {
       this.styleCatalog = options.styleCatalog || {};
       this.devicePixelRatio = options.devicePixelRatio || ((globalScope && globalScope.devicePixelRatio) || 1);
       this._document = options.document || (globalScope && globalScope.document) || null;
+      this.fieldContext = options.fieldContext || null;
+      this.headerVariables = options.headerVariables || null;
+      this.fieldResolver = typeof options.fieldResolver === 'function' ? options.fieldResolver : null;
       this._styleCache = Object.create(null);
       this._canvas = null;
       this._ctx = null;
@@ -3276,6 +3665,19 @@ function collectUnderlayClip(map) {
         this.devicePixelRatio = options.devicePixelRatio || 1;
       } else {
         this.devicePixelRatio = (globalScope && globalScope.devicePixelRatio) || this.devicePixelRatio || 1;
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'fieldContext')) {
+        this.fieldContext = options.fieldContext || null;
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'headerVariables')) {
+        this.headerVariables = options.headerVariables || null;
+      } else if (options.fieldContext && options.fieldContext.headerVariables) {
+        this.headerVariables = options.fieldContext.headerVariables;
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'fieldResolver')) {
+        this.fieldResolver = typeof options.fieldResolver === 'function'
+          ? options.fieldResolver
+          : null;
       }
       this._measurementAvailable = !!this._document;
       this._styleCache = Object.create(null);
@@ -3301,6 +3703,27 @@ function collectUnderlayClip(map) {
       const effectiveWidthFactor = this._resolveWidthFactor(rawText, style);
       const maxWidthWorld = this._resolveReferenceWidth(kind, rawText);
       const maxWidthPx = maxWidthWorld ? maxWidthWorld * frameScale : null;
+      const rotationRad = rawText.rotation || 0;
+      const rotationDeg = rotationRad * 180 / Math.PI;
+      const alignments = this._resolveAlignment(kind, rawText);
+
+      if (kind === 'MTEXT' && rawText.decodedMText) {
+        return this._layoutMText({
+          rawText,
+          style,
+          baseContent,
+          fontSizePx,
+          lineHeightPx,
+          lineHeightMultiplier,
+          frameScale,
+          maxWidthPx,
+          effectiveWidthFactor,
+          rotationRad,
+          rotationDeg
+        });
+      }
+
+      const geometry = rawText.geometry || {};
 
       const decodedLines = this._splitIntoLines(baseContent);
       const measured = this._wrapLines(decodedLines, {
@@ -3320,14 +3743,15 @@ function collectUnderlayClip(map) {
         ? widthPx / effectiveWidthFactor
         : measured.maxBaseWidth || 0;
       const heightPx = lineHeightPx * lines.length;
-
-      const rotationRad = rawText.rotation || 0;
-      const rotationDeg = rotationRad * 180 / Math.PI;
-
-      const alignments = this._resolveAlignment(kind, rawText);
       const anchor = this._computeAnchorOffsets(baseWidthPx, heightPx, alignments.horizontal, alignments.vertical, lineHeightPx, kind);
 
       const backgroundCss = this._resolveBackground(rawText);
+      const backgroundMetrics = this._computeBackgroundMetrics(
+        geometry,
+        widthPx,
+        heightPx,
+        frameScale
+      );
 
       const layout = {
         kind,
@@ -3348,12 +3772,576 @@ function collectUnderlayClip(map) {
         lines,
         anchor,
         backgroundCss,
+        backgroundOffsets: geometry.backgroundOffsets || null,
+        backgroundScale: geometry.backgroundScale ?? null,
         widthFactor: effectiveWidthFactor,
         rawContent: baseContent
       };
-      if (rawText.decodedMText && Array.isArray(rawText.decodedMText.runs)) {
-        layout.richRuns = rawText.decodedMText.runs;
+      if (backgroundMetrics) {
+        layout.backgroundMetrics = backgroundMetrics;
       }
+      if (rawText.decodedMText) {
+        if (Array.isArray(rawText.decodedMText.runs)) {
+          layout.richRuns = rawText.decodedMText.runs;
+        }
+        if (Array.isArray(rawText.decodedMText.paragraphs)) {
+          layout.paragraphs = rawText.decodedMText.paragraphs;
+        }
+      }
+      return layout;
+    }
+
+    _layoutMText(params) {
+      const {
+        rawText,
+        style,
+        baseContent,
+        fontSizePx,
+        lineHeightPx,
+        lineHeightMultiplier,
+        frameScale,
+        maxWidthPx,
+        effectiveWidthFactor,
+        rotationRad,
+        rotationDeg
+      } = params;
+
+      const geometry = rawText.geometry || {};
+      const decoded = rawText.decodedMText || this._decodeMText(baseContent, {
+        rawText,
+        fieldContext: this.fieldContext,
+        headerVariables: this.headerVariables
+      });
+      const runs = Array.isArray(decoded.runs) ? decoded.runs : [];
+      const paragraphsMeta = Array.isArray(decoded.paragraphs) ? decoded.paragraphs : [];
+      const runsByParagraph = new Map();
+      runs.forEach((run) => {
+        const index = Number.isInteger(run.paragraphIndex) ? run.paragraphIndex : 0;
+        if (!runsByParagraph.has(index)) {
+          runsByParagraph.set(index, []);
+        }
+        runsByParagraph.get(index).push(run);
+      });
+
+      const paragraphIndices = Array.from(runsByParagraph.keys()).sort((a, b) => a - b);
+      if (!paragraphIndices.length) {
+        paragraphIndices.push(0);
+      }
+
+      const backgroundCss = this._resolveBackground(rawText);
+      const manualColumnBreaks = [];
+      const convertUnitToPx = (unitValue) => {
+        if (!Number.isFinite(unitValue)) {
+          return 0;
+        }
+        return unitValue * frameScale;
+      };
+
+      const resolveIndentSpec = (indentMeta, listMeta) => {
+        const fallbackLeft = listMeta && Number.isFinite(listMeta.indent?.value)
+          ? listMeta.indent.value
+          : null;
+        const fallbackFirst = listMeta && Number.isFinite(listMeta.indent?.firstLine)
+          ? listMeta.indent.firstLine
+          : null;
+        const fallbackRight = listMeta && Number.isFinite(listMeta.indent?.hanging)
+          ? listMeta.indent.hanging
+          : null;
+        return {
+          firstLine: Number.isFinite(indentMeta?.firstLine)
+            ? indentMeta.firstLine
+            : (fallbackFirst != null ? fallbackFirst : (indentMeta?.left ?? fallbackLeft ?? 0)),
+          rest: Number.isFinite(indentMeta?.left)
+            ? indentMeta.left
+            : (fallbackLeft != null ? fallbackLeft : 0),
+          right: Number.isFinite(indentMeta?.right)
+            ? indentMeta.right
+            : (fallbackRight != null ? fallbackRight : 0)
+        };
+      };
+
+      const resolveTabStopsPx = (tabs) => {
+        if (!Array.isArray(tabs) || !tabs.length) {
+          return [];
+        }
+        return tabs
+          .map((tab) => ({
+            type: tab.type || 'set',
+            positionPx: convertUnitToPx(tab.value),
+            raw: tab.raw || null
+          }))
+          .filter((entry) => Number.isFinite(entry.positionPx) && entry.positionPx >= 0)
+          .sort((a, b) => a.positionPx - b.positionPx);
+      };
+
+      const listCounters = new Map();
+      const resolveListMarker = (listMeta) => {
+        if (!listMeta || !listMeta.kind) {
+          return null;
+        }
+        const level = Number.isFinite(listMeta.level) ? listMeta.level : 0;
+        const styleKey = (listMeta.style || '').toLowerCase();
+        const counterKey = `${listMeta.kind}:${level}:${styleKey}`;
+        let counterState = listCounters.get(counterKey) || { value: 0 };
+        let currentValue = counterState.value;
+        if (listMeta.kind === 'numbered') {
+          if (Number.isFinite(listMeta.start)) {
+            currentValue = listMeta.start;
+          } else {
+            currentValue = currentValue + 1;
+          }
+          counterState = { value: currentValue };
+          listCounters.set(counterKey, counterState);
+        } else {
+          // bullet lists do not auto-increment but we keep state in case formatting needs it
+          counterState = { value: Number.isFinite(listMeta.start) ? listMeta.start : currentValue };
+          listCounters.set(counterKey, counterState);
+        }
+        if (listMeta.kind === 'bullet') {
+          return {
+            type: 'bullet',
+            text: listMeta.bullet && listMeta.bullet.length ? listMeta.bullet : '•',
+            level,
+            counter: counterState.value,
+            style: null,
+            spacingPx: null
+          };
+        }
+        const toRoman = (num) => {
+          if (!Number.isFinite(num) || num <= 0) {
+            return `${num}`;
+          }
+          const romans = [
+            ['M', 1000],
+            ['CM', 900],
+            ['D', 500],
+            ['CD', 400],
+            ['C', 100],
+            ['XC', 90],
+            ['L', 50],
+            ['XL', 40],
+            ['X', 10],
+            ['IX', 9],
+            ['V', 5],
+            ['IV', 4],
+            ['I', 1]
+          ];
+          let remaining = Math.floor(num);
+          let result = '';
+          romans.forEach(([symbol, value]) => {
+            while (remaining >= value) {
+              result += symbol;
+              remaining -= value;
+            }
+          });
+          return result || `${num}`;
+        };
+        const formatNumber = (value, style) => {
+          switch ((style || '').toLowerCase()) {
+            case 'a':
+            case 'lower':
+            case 'loweralpha':
+              return String.fromCharCode(((value - 1) % 26) + 97);
+            case 'A':
+            case 'upper':
+            case 'upperalpha':
+              return String.fromCharCode(((value - 1) % 26) + 65);
+            case 'i':
+            case 'lowerroman':
+              return toRoman(value).toLowerCase();
+            case 'I':
+            case 'upperroman':
+              return toRoman(value).toUpperCase();
+            default:
+              return `${value}`;
+          }
+        };
+        const markerText = formatNumber(counterState.value || 0, listMeta.style) + '.';
+        return {
+          type: 'numbered',
+          text: markerText,
+          level,
+          counter: counterState.value || 0,
+          style: listMeta.style || null,
+          spacingPx: null
+        };
+      };
+
+      const paragraphLayouts = [];
+      const lineStrings = [];
+      const flattenLines = [];
+
+      let overallMaxWidth = 0;
+      let totalHeightPx = 0;
+
+      const baseParagraphAlignment = this._resolveAlignment(rawText.kind || rawText.type || 'TEXT', rawText);
+
+      paragraphIndices.forEach((paragraphIndex) => {
+        const paragraphRuns = runsByParagraph.get(paragraphIndex) || [];
+        const meta = paragraphsMeta.find((entry) => entry.index === paragraphIndex) || {};
+        const paragraphAlignment = this._normalizeParagraphAlignment(meta.alignment, baseParagraphAlignment);
+        const paragraphSpacingStyle = meta.lineSpacingStyle != null ? meta.lineSpacingStyle : geometry.lineSpacingStyle;
+        const paragraphSpacing = meta.lineSpacing != null ? meta.lineSpacing : geometry.lineSpacing;
+        const indentSpec = resolveIndentSpec(meta.indent || null, meta.list || null);
+        const indentFirstPx = convertUnitToPx(indentSpec.firstLine || 0);
+        const indentRestPx = convertUnitToPx(indentSpec.rest || 0);
+        const rightIndentPx = convertUnitToPx(indentSpec.right || 0);
+        const tabStopsPx = resolveTabStopsPx(meta.tabs || []);
+        const listMarkerSpec = resolveListMarker(meta.list || null);
+        const baseFontDescriptor = this._buildFontDescriptor(style, {});
+
+        const lines = [];
+        const applyListMarkerToLine = (line, marker) => {
+          if (!marker || line.listMarkerApplied) {
+            return;
+          }
+          const markerStyle = marker.style || {};
+          const markerFontDescriptor = this._buildFontDescriptor(style, markerStyle);
+          const markerFontSizePx = Math.max(1, fontSizePx * (markerStyle.heightScale && markerStyle.heightScale > 0 ? markerStyle.heightScale : 1));
+          const markerWidth = this._measureStyledRun(marker.text, markerStyle, markerFontSizePx, markerFontDescriptor.font);
+          const spacingPx = Number.isFinite(marker.spacingPx) ? marker.spacingPx : Math.max(2, fontSizePx * 0.4);
+          if (markerWidth > 0 || marker.text) {
+            line.segments.push({
+              type: 'listMarker',
+              text: marker.text,
+              style: markerStyle,
+              widthPx: markerWidth,
+              fontSizePx: markerFontSizePx,
+              font: markerFontDescriptor.font,
+              marker
+            });
+            line.widthPx += markerWidth;
+            line.text += marker.text;
+            line.hasTextContent = true;
+          }
+          if (spacingPx > 0) {
+            line.segments.push({
+              type: 'markerSpacing',
+              text: '',
+              style: {},
+              widthPx: spacingPx,
+              fontSizePx: markerFontSizePx,
+              font: markerFontDescriptor.font,
+              marker
+            });
+            line.widthPx += spacingPx;
+          }
+          line.listMarker = {
+            type: marker.type,
+            counter: marker.counter,
+            widthPx: markerWidth,
+            spacingPx,
+            text: marker.text
+          };
+          line.listMarkerApplied = true;
+        };
+        const createLine = (indentPx, applyMarker = false) => {
+          const line = this._createEmptyLine(lineHeightPx);
+          line.indentPx = indentPx;
+          line.rightIndentPx = rightIndentPx;
+          line.tabStops = tabStopsPx;
+          line.nextTabIndex = 0;
+          line.hasTextContent = false;
+          line.columnIndex = 0;
+          line.globalIndex = -1;
+          line.paragraphIndex = paragraphIndex;
+          if (indentPx > 0) {
+            line.segments.push({
+              type: 'indent',
+              text: '',
+              style: {},
+              widthPx: indentPx,
+              fontSizePx: lineHeightPx,
+              font: baseFontDescriptor.font
+            });
+            line.widthPx += indentPx;
+          }
+          line.listMarkerApplied = false;
+          if (applyMarker && listMarkerSpec) {
+            applyListMarkerToLine(line, listMarkerSpec);
+          }
+          return line;
+        };
+        let currentLine = createLine(indentFirstPx, !!listMarkerSpec);
+        let pendingColumnBreak = false;
+
+        const finalizeLine = (force = false) => {
+          const hasDrawableSegments = currentLine.segments.some((segment) => {
+            return segment && typeof segment.text === 'string' && segment.text.length > 0;
+          }) || currentLine.text.length > 0;
+          if (!hasDrawableSegments && !force) {
+            return;
+          }
+          if (!hasDrawableSegments && force) {
+            if (pendingColumnBreak) {
+              manualColumnBreaks.push(flattenLines.length);
+              pendingColumnBreak = false;
+              currentLine = createLine(indentFirstPx, !!listMarkerSpec);
+            } else {
+              currentLine = createLine(indentRestPx, false);
+            }
+            return;
+          }
+          const globalIndex = flattenLines.length;
+          currentLine.globalIndex = globalIndex;
+          lines.push(currentLine);
+          lineStrings.push(currentLine.text);
+          flattenLines.push(currentLine);
+          const effectiveWidth = currentLine.widthPx + (currentLine.rightIndentPx > 0 ? currentLine.rightIndentPx : 0);
+          overallMaxWidth = Math.max(overallMaxWidth, effectiveWidth);
+          const lineSpacing = this._computeParagraphLineHeight(
+            currentLine.heightPx,
+            paragraphSpacing,
+            paragraphSpacingStyle,
+            frameScale
+          );
+          totalHeightPx += lineSpacing;
+          if (pendingColumnBreak) {
+            manualColumnBreaks.push(flattenLines.length);
+          }
+          const nextIndentPx = pendingColumnBreak ? indentFirstPx : indentRestPx;
+          const applyMarkerNext = pendingColumnBreak && !!listMarkerSpec;
+          pendingColumnBreak = false;
+          currentLine = createLine(nextIndentPx, applyMarkerNext);
+        };
+
+        const advanceToNextTab = (line) => {
+          const tabStops = line.tabStops || [];
+          const indentPx = line.indentPx || 0;
+          const currentWidth = indentPx + line.widthPx;
+          let target = null;
+          for (let idx = line.nextTabIndex ?? 0; idx < tabStops.length; idx += 1) {
+            const stop = tabStops[idx];
+            if (!stop || !Number.isFinite(stop.positionPx)) {
+              continue;
+            }
+            if (stop.positionPx >= currentWidth - 0.5) {
+              target = stop.positionPx;
+              line.nextTabIndex = idx + 1;
+              break;
+            }
+          }
+          if (target == null) {
+            const defaultSpacing = Math.max(fontSizePx * 4, 4);
+            const multiples = Math.floor(currentWidth / defaultSpacing) + 1;
+            target = multiples * defaultSpacing;
+          }
+          const delta = target - currentWidth;
+          if (delta > 0) {
+            line.segments.push({
+              type: 'tab',
+              text: '',
+              style: {},
+              widthPx: delta,
+              fontSizePx: line.heightPx,
+              font: baseFontDescriptor.font
+            });
+            line.widthPx += delta;
+          }
+        };
+
+        const appendSegmentToLine = (line, segmentText, run) => {
+          if (segmentText == null) {
+            return;
+          }
+          const textValue = String(segmentText);
+          if (!textValue.length) {
+            return;
+          }
+          const fontDescriptor = this._buildFontDescriptor(style, run.style);
+          const runHeightScale = Number.isFinite(run.style && run.style.heightScale)
+            ? Math.max(0.01, run.style.heightScale)
+            : 1;
+          const runFontSizePx = Math.max(1, fontSizePx * runHeightScale);
+          const runLineHeight = Math.max(lineHeightPx, runFontSizePx * lineHeightMultiplier);
+          const segmentWidth = this._measureStyledRun(
+            textValue,
+            run.style,
+            runFontSizePx,
+            fontDescriptor.font
+          );
+          if (segmentWidth > 0 || textValue.length > 0) {
+            line.segments.push({
+              type: run.type === 'field' ? 'field' : 'text',
+              text: textValue,
+              style: run.style,
+              widthPx: segmentWidth,
+              fontSizePx: runFontSizePx,
+              font: fontDescriptor.font,
+              field: run.field || null
+            });
+            line.text += textValue;
+            line.widthPx += segmentWidth;
+            line.heightPx = Math.max(line.heightPx, runLineHeight);
+            line.hasTextContent = true;
+          }
+        };
+
+        paragraphRuns.forEach((run) => {
+          if (run.type === 'paragraphBreak') {
+            finalizeLine();
+            return;
+          }
+          if (run.type === 'columnBreak') {
+            pendingColumnBreak = true;
+            finalizeLine(true);
+            return;
+          }
+          if (run.type === 'fraction') {
+            const fractionSegment = this._createFractionSegment(
+              style,
+              run,
+              fontSizePx,
+              lineHeightMultiplier
+            );
+            if (fractionSegment) {
+              currentLine.segments.push(fractionSegment);
+              currentLine.text += run.text || '';
+              currentLine.widthPx += fractionSegment.widthPx || 0;
+              currentLine.heightPx = Math.max(
+                currentLine.heightPx,
+                Math.max(lineHeightPx, fractionSegment.heightPx || 0)
+              );
+              currentLine.hasTextContent = true;
+            }
+            return;
+          }
+          if (run.type !== 'text' && run.type !== 'field') {
+            return;
+          }
+          const rawSegments = String(run.text || '').split('\n');
+          rawSegments.forEach((segment, index) => {
+            const tabParts = segment.split('\t');
+            tabParts.forEach((part, partIndex) => {
+              if (part.length) {
+                appendSegmentToLine(currentLine, part, run);
+              }
+              if (partIndex < tabParts.length - 1) {
+                advanceToNextTab(currentLine);
+              }
+            });
+            if (index < rawSegments.length - 1) {
+              finalizeLine(true);
+            }
+          });
+        });
+
+        finalizeLine(true);
+
+        paragraphLayouts.push({
+          index: paragraphIndex,
+          alignment: paragraphAlignment,
+          lineSpacing: paragraphSpacing,
+          lineSpacingStyle: paragraphSpacingStyle,
+          lines,
+          indent: meta && meta.indent
+            ? {
+                left: meta.indent.left ?? null,
+                firstLine: meta.indent.firstLine ?? null,
+                right: meta.indent.right ?? null
+              }
+            : { left: null, firstLine: null, right: null },
+          tabs: Array.isArray(meta.tabs)
+            ? meta.tabs.map((tab) => ({
+                type: tab.type || null,
+                value: tab.value ?? null,
+                raw: tab.raw ?? null
+              }))
+            : [],
+          list: meta && meta.list
+            ? {
+                kind: meta.list.kind || null,
+                level: meta.list.level ?? 0,
+                start: meta.list.start ?? 1,
+                style: meta.list.style || null,
+                bullet: meta.list.bullet || null,
+                indent: meta.list.indent
+                  ? {
+                      value: meta.list.indent.value ?? null,
+                      firstLine: meta.list.indent.firstLine ?? null,
+                      hanging: meta.list.indent.hanging ?? null
+                    }
+                  : null,
+                format: meta.list.format || null,
+                raw: { ...(meta.list.raw || {}) }
+              }
+            : null
+        });
+      });
+
+      const columnLayouts = this._buildColumnLayouts(
+        paragraphLayouts,
+        geometry.columns || null,
+        manualColumnBreaks,
+        flattenLines
+      );
+
+      if (totalHeightPx <= 0) {
+        totalHeightPx = lineHeightPx;
+      }
+
+      const widthPx = overallMaxWidth || (maxWidthPx || fontSizePx);
+      const baseWidthPx = widthPx && effectiveWidthFactor !== 0
+        ? widthPx / effectiveWidthFactor
+        : widthPx;
+
+      const anchor = this._computeAnchorOffsets(
+        widthPx,
+        totalHeightPx,
+        baseParagraphAlignment.horizontal,
+        baseParagraphAlignment.vertical,
+        lineHeightPx,
+        rawText.kind || rawText.type || 'TEXT'
+      );
+
+      const layout = {
+        kind: rawText.kind || rawText.type || 'TEXT',
+        screenPosition: rawText.screenPosition || [0, 0],
+        rotationRad,
+        rotationDeg,
+        colorCss: rawText.color && rawText.color.css ? rawText.color.css : '#ffffff',
+        fontFamily: style.fontFamily,
+        fontStyle: style.fontStyle,
+        fontWeight: style.fontWeight,
+        fontSize: fontSizePx,
+        lineHeight: lineHeightPx,
+        textAlign: paragraphLayouts.length
+          ? paragraphLayouts[0].alignment.textAlign
+          : baseParagraphAlignment.textAlign,
+        widthPx,
+        baseWidthPx,
+        heightPx: totalHeightPx,
+        maxWidth: maxWidthPx,
+        lines: lineStrings.length ? lineStrings : [baseContent],
+        anchor,
+        backgroundCss,
+        widthFactor: effectiveWidthFactor,
+        rawContent: baseContent,
+        paragraphLayouts,
+        columnLayouts,
+        verticalWriting: this._isVerticalWriting(geometry),
+        backgroundOffsets: geometry.backgroundOffsets || null,
+        backgroundScale: geometry.backgroundScale ?? null,
+        lineCount: lineStrings.length,
+        frameScale,
+        manualColumnBreaks: manualColumnBreaks.length ? manualColumnBreaks.slice() : null
+      };
+
+      const backgroundMetrics = this._computeBackgroundMetrics(
+        geometry,
+        widthPx,
+        totalHeightPx,
+        frameScale
+      );
+      if (backgroundMetrics) {
+        layout.backgroundMetrics = backgroundMetrics;
+      }
+
+      if (rawText.decodedMText) {
+        layout.paragraphs = rawText.decodedMText.paragraphs || [];
+        layout.richRuns = rawText.decodedMText.runs || [];
+      }
+
       return layout;
     }
 
@@ -3363,7 +4351,11 @@ function collectUnderlayClip(map) {
           return this._decodeDxfText(rawText.content || rawText.geometry?.content || '');
         case 'MTEXT': {
           const content = rawText.geometry ? rawText.geometry.text : rawText.content;
-          const decoded = this._decodeMText(content || '');
+          const decoded = this._decodeMText(content || '', {
+            rawText,
+            fieldContext: this.fieldContext,
+            headerVariables: this.headerVariables
+          });
           if (rawText && typeof rawText === 'object') {
             rawText.decodedMText = decoded;
           }
@@ -3390,10 +4382,56 @@ function collectUnderlayClip(map) {
       }
     }
 
-    _decodeMText(value) {
+    _decodeMText(value, context = {}) {
       if (!value || typeof value !== 'string') {
-        return { text: '', runs: [] };
+        return { text: '', runs: [], paragraphs: [] };
       }
+
+      const MULTI_COMMANDS = new Set(['BG', 'BC', 'TC', 'TA', 'TS', 'PI', 'PN', 'PL', 'PT', 'LI', 'LN', 'LT', 'U+']);
+
+      const fieldContext = context.fieldContext || this.fieldContext || null;
+      const headerVariables = context.headerVariables
+        || this.headerVariables
+        || (fieldContext && fieldContext.headerVariables ? fieldContext.headerVariables : null);
+      const fieldResolver = typeof context.fieldResolver === 'function'
+        ? context.fieldResolver
+        : (this.fieldResolver || null);
+      const rawTextContext = context.rawText || null;
+
+      const clampByte = (num) => Math.max(0, Math.min(255, Math.round(num)));
+
+      const parseColorSpec = (raw) => {
+        if (!raw) {
+          return null;
+        }
+        const trimmed = raw.trim();
+        if (!trimmed) {
+          return null;
+        }
+        if (trimmed.startsWith('#') && /^[#][0-9A-Fa-f]{6}$/.test(trimmed)) {
+          const r = parseInt(trimmed.slice(1, 3), 16);
+          const g = parseInt(trimmed.slice(3, 5), 16);
+          const b = parseInt(trimmed.slice(5, 7), 16);
+          return { type: 'rgb', r, g, b, raw: trimmed };
+        }
+        if (trimmed.includes(',')) {
+          const parts = trimmed.split(',').map((token) => parseFloat(token.trim()));
+          if (parts.length === 3 && parts.every((component) => Number.isFinite(component))) {
+            return {
+              type: 'rgb',
+              r: clampByte(parts[0]),
+              g: clampByte(parts[1]),
+              b: clampByte(parts[2]),
+              raw: trimmed
+            };
+          }
+        }
+        const numeric = parseInt(trimmed, 10);
+        if (Number.isFinite(numeric)) {
+          return { type: 'aci', index: numeric, raw: trimmed };
+        }
+        return { type: 'raw', value: trimmed };
+      };
 
       const baseState = () => ({
         bold: false,
@@ -3404,77 +4442,663 @@ function collectUnderlayClip(map) {
         color: null,
         font: null,
         heightScale: 1,
+        heightMode: 'relative',
         widthScale: 1,
         oblique: 0,
         tracking: 0,
-        alignment: null
+        alignment: null,
+        background: null,
+        lineSpacing: null,
+        lineSpacingStyle: null
       });
 
-      const cloneState = (state) => Object.assign({}, state);
+      const cloneState = (state) => ({
+        bold: state.bold,
+        italic: state.italic,
+        underline: state.underline,
+        overline: state.overline,
+        strike: state.strike,
+        color: state.color ? { ...state.color } : null,
+        font: state.font,
+        heightScale: state.heightScale,
+        heightMode: state.heightMode,
+        widthScale: state.widthScale,
+        oblique: state.oblique,
+        tracking: state.tracking,
+        alignment: state.alignment,
+        background: state.background
+          ? {
+              enabled: !!state.background.enabled,
+              color: state.background.color ? { ...state.background.color } : null,
+              raw: state.background.raw ?? null
+          }
+          : null
+      });
+
+      const deepCloneState = (src) => ({
+        ...src,
+        color: src.color ? { ...src.color } : null,
+        background: src.background
+          ? {
+              ...src.background,
+              color: src.background.color ? { ...src.background.color } : null
+            }
+          : null
+      });
+
+      const createListState = () => ({
+        kind: null,
+        level: 0,
+        start: 1,
+        style: null,
+        bullet: null,
+        indent: {
+          value: null,
+          firstLine: null,
+          hanging: null
+        },
+        format: null,
+        raw: Object.create(null)
+      });
+
+      const cloneListState = (listState) => {
+        if (!listState) {
+          return null;
+        }
+        return {
+          kind: listState.kind,
+          level: listState.level,
+          start: listState.start,
+          style: listState.style,
+          bullet: listState.bullet,
+          indent: {
+            value: listState.indent?.value ?? null,
+            firstLine: listState.indent?.firstLine ?? null,
+            hanging: listState.indent?.hanging ?? null
+          },
+          format: listState.format,
+          raw: { ...(listState.raw || {}) }
+        };
+      };
+
+      const baseParagraphState = () => ({
+        indent: {
+          left: null,
+          firstLine: null,
+          right: null
+        },
+        tabs: [],
+        list: null
+      });
+
+      const cloneParagraphState = (paragraphState) => ({
+        indent: {
+          left: paragraphState.indent?.left ?? null,
+          firstLine: paragraphState.indent?.firstLine ?? null,
+          right: paragraphState.indent?.right ?? null
+        },
+        tabs: Array.isArray(paragraphState.tabs)
+          ? paragraphState.tabs.map((tab) => ({
+              type: tab.type || null,
+              value: tab.value ?? null,
+              raw: tab.raw ?? null
+            }))
+          : [],
+        list: cloneListState(paragraphState.list)
+      });
+
+      const readParameter = (startIndex) => {
+        let text = '';
+        let idx = startIndex;
+        let terminated = false;
+        while (idx < value.length) {
+          const current = value[idx];
+          if (current === ';') {
+            terminated = true;
+            break;
+          }
+          text += current;
+          idx += 1;
+        }
+        return { text: text.trim(), nextIndex: idx, terminated };
+      };
+
+      const parseStackSequence = (content) => {
+        if (!content) {
+          return null;
+        }
+        const cleaned = content.replace(/[{}]/g, '').trim();
+        if (!cleaned) {
+          return null;
+        }
+        let separator = null;
+        if (cleaned.includes('^')) {
+          separator = '^';
+        } else if (cleaned.includes('/')) {
+          separator = '/';
+        } else {
+          return null;
+        }
+        const parts = cleaned.split(separator);
+        if (parts.length !== 2) {
+          return null;
+        }
+        const numerator = parts[0] != null ? parts[0].trim() : '';
+        const denominator = parts[1] != null ? parts[1].trim() : '';
+        if (!numerator || !denominator) {
+          return null;
+        }
+        const type = separator === '^' ? 'stacked' : 'diagonal';
+        const display = `${numerator}/${denominator}`;
+        return {
+          type,
+          numerator,
+          denominator,
+          display,
+          raw: content
+        };
+      };
+
+      const extractFieldSequence = (startIndex) => {
+        if (value[startIndex] !== '%' || value[startIndex + 1] !== '<') {
+          return null;
+        }
+        let depth = 0;
+        let idx = startIndex;
+        let content = '';
+        while (idx < value.length) {
+          const current = value[idx];
+          const next = value[idx + 1];
+          if (current === '%' && next === '<') {
+            depth += 1;
+            if (depth > 1) {
+              content += '%<';
+            }
+            idx += 2;
+            continue;
+          }
+          if (current === '>' && next === '%') {
+            depth -= 1;
+            if (depth <= 0) {
+              return {
+                raw: content,
+                nextIndex: idx + 1
+              };
+            }
+            content += '>%';
+            idx += 2;
+            continue;
+          }
+          content += current;
+          idx += 1;
+        }
+        return null;
+      };
+
+      const resolveKnownFieldVariable = (identifier) => {
+        if (!identifier) {
+          return undefined;
+        }
+        const upper = identifier.replace(/^\$+/, '').toUpperCase();
+        const drawingProps = fieldContext && fieldContext.drawingProperties
+          ? fieldContext.drawingProperties
+          : (typeof fieldContext === 'object' ? fieldContext : null);
+        const metadata = drawingProps && drawingProps.metadata
+          ? drawingProps.metadata
+          : (fieldContext && fieldContext.metadata ? fieldContext.metadata : null);
+        const units = drawingProps && drawingProps.units
+          ? drawingProps.units
+          : (fieldContext && fieldContext.units ? fieldContext.units : null);
+        switch (upper) {
+          case 'ACADVER':
+            return metadata && metadata.acadVersion != null ? metadata.acadVersion : undefined;
+          case 'LASTSAVEDBY':
+            return metadata && metadata.lastSavedBy != null ? metadata.lastSavedBy : undefined;
+          case 'PROJECTNAME':
+            return metadata && metadata.projectName != null ? metadata.projectName : undefined;
+          case 'TDCREATE':
+            return metadata && metadata.created != null ? metadata.created : undefined;
+          case 'TDUPDATE':
+            return metadata && metadata.updated != null ? metadata.updated : undefined;
+          case 'TDINDWG':
+            return metadata && metadata.totalEditingTime != null ? metadata.totalEditingTime : undefined;
+          case 'TDUSRTIMER':
+            return metadata && metadata.userTimer != null ? metadata.userTimer : undefined;
+          case 'LTSCALE':
+            return units && units.ltScale != null ? units.ltScale : undefined;
+          case 'CELTSCALE':
+            return units && units.celTScale != null ? units.celTScale : undefined;
+          case 'PSLTSCALE':
+            return units && units.psLtScale != null ? units.psLtScale : undefined;
+          case 'INSUNITS':
+            return units && units.insUnits != null ? units.insUnits : undefined;
+          case 'INSUNITSSOURCE':
+            return units && units.insUnitsSource != null ? units.insUnitsSource : undefined;
+          case 'INSUNITSTARGET':
+            return units && units.insUnitsTarget != null ? units.insUnitsTarget : undefined;
+          default:
+            return undefined;
+        }
+      };
+
+      const lookupFieldVariable = (name) => {
+        if (!name) {
+          return null;
+        }
+        const cleaned = String(name).trim();
+        if (!cleaned) {
+          return null;
+        }
+        const normalized = cleaned.replace(/^\$+/, '').trim();
+        if (!normalized) {
+          return null;
+        }
+        const upperName = normalized.toUpperCase();
+        const knownValue = resolveKnownFieldVariable(normalized);
+        if (knownValue !== undefined) {
+          return knownValue;
+        }
+        if (headerVariables && typeof headerVariables === 'object') {
+          const direct = headerVariables[upperName];
+          if (direct != null) {
+            if (typeof direct === 'object') {
+              if (Array.isArray(direct.values) && direct.values.length) {
+                return direct.values[0];
+              }
+              if (Object.prototype.hasOwnProperty.call(direct, 'value')) {
+                return direct.value;
+              }
+            }
+            if (Array.isArray(direct) && direct.length) {
+              return direct[0];
+            }
+            if (direct != null) {
+              return direct;
+            }
+          }
+        }
+        const stack = [];
+        const visited = new Set();
+        const pushIfObject = (candidate) => {
+          if (!candidate || typeof candidate !== 'object') {
+            return;
+          }
+          if (visited.has(candidate)) {
+            return;
+          }
+          visited.add(candidate);
+          stack.push(candidate);
+        };
+        if (fieldContext && typeof fieldContext === 'object') {
+          if (fieldContext.drawingProperties) {
+            pushIfObject(fieldContext.drawingProperties);
+          }
+          if (fieldContext.metadata) {
+            pushIfObject(fieldContext.metadata);
+          }
+          if (fieldContext.geographic) {
+            pushIfObject(fieldContext.geographic);
+          }
+          if (fieldContext.units) {
+            pushIfObject(fieldContext.units);
+          }
+          if (fieldContext.additional && Array.isArray(fieldContext.additional)) {
+            fieldContext.additional.forEach(pushIfObject);
+          }
+        }
+        if (rawTextContext && rawTextContext.entity) {
+          pushIfObject(rawTextContext.entity);
+          if (rawTextContext.entity.resolved) {
+            pushIfObject(rawTextContext.entity.resolved);
+          }
+        }
+        if (rawTextContext && rawTextContext.geometry) {
+          pushIfObject(rawTextContext.geometry);
+        }
+        while (stack.length) {
+          const current = stack.pop();
+          if (current == null) {
+            continue;
+          }
+          if (Array.isArray(current)) {
+            for (let i = 0; i < current.length; i += 1) {
+              pushIfObject(current[i]);
+            }
+            continue;
+          }
+          const keys = Object.keys(current);
+          for (let i = 0; i < keys.length; i += 1) {
+            const key = keys[i];
+            const valueCandidate = current[key];
+            if (key && key.toUpperCase() === upperName) {
+              return valueCandidate;
+            }
+            if (valueCandidate && typeof valueCandidate === 'object') {
+              pushIfObject(valueCandidate);
+            }
+          }
+        }
+        return null;
+      };
+
+      const formatFieldValue = (value, formatSpec, name) => {
+        if (value == null) {
+          return name ? `[${name}]` : '';
+        }
+        if (Array.isArray(value)) {
+          if (!value.length) {
+            return name ? `[${name}]` : '';
+          }
+          return formatFieldValue(value[0], formatSpec, name);
+        }
+        if (typeof value === 'object') {
+          if (value && typeof value.iso === 'string') {
+            if (formatSpec && /^%tc/i.test(formatSpec) && typeof value.locale === 'string') {
+              return value.locale;
+            }
+            return value.iso;
+          }
+          if (value && Number.isFinite(value.unixMillis)) {
+            const date = new Date(value.unixMillis);
+            if (!Number.isNaN(date.getTime())) {
+              return date.toISOString();
+            }
+          }
+          if (value && Number.isFinite(value.julian)) {
+            const millis = (value.julian - 2440587.5) * 86400000;
+            if (Number.isFinite(millis)) {
+              const date = new Date(millis);
+              if (!Number.isNaN(date.getTime())) {
+                return date.toISOString();
+              }
+            }
+          }
+          if (Number.isFinite(value.days) && Number.isFinite(value.hours)) {
+            if (formatSpec && /^%td/i.test(formatSpec)) {
+              return `${value.days.toFixed(3)}d`;
+            }
+            return `${value.hours.toFixed(2)}h`;
+          }
+          if (Number.isFinite(value.x) && Number.isFinite(value.y)) {
+            const coords = [value.x, value.y];
+            if (Number.isFinite(value.z)) {
+              coords.push(value.z);
+            }
+            return coords.map((component) => {
+              if (!Number.isFinite(component)) {
+                return '0';
+              }
+              const absVal = Math.abs(component);
+              if (absVal >= 1) {
+                return component.toFixed(3);
+              }
+              if (absVal >= 1e-3) {
+                return component.toFixed(4);
+              }
+              return component.toPrecision(4);
+            }).join(', ');
+          }
+          if (Object.prototype.hasOwnProperty.call(value, 'value')) {
+            return formatFieldValue(value.value, formatSpec, name);
+          }
+          if (value.values && Array.isArray(value.values) && value.values.length) {
+            return formatFieldValue(value.values[0], formatSpec, name);
+          }
+          if (value.description && typeof value.description === 'string') {
+            return value.description;
+          }
+          if (value.label && typeof value.label === 'string') {
+            return value.label;
+          }
+        }
+        if (typeof value === 'number') {
+          if (formatSpec && /^%lu/i.test(formatSpec)) {
+            const match = formatSpec.match(/%lu(\d+)/i);
+            const precision = match ? Math.min(Math.max(parseInt(match[1], 10), 0), 10) : 4;
+            return value.toFixed(precision);
+          }
+          if (formatSpec && /^%pr/i.test(formatSpec)) {
+            const match = formatSpec.match(/%pr(\d+)/i);
+            const precision = match ? Math.min(Math.max(parseInt(match[1], 10), 0), 10) : 4;
+            return value.toFixed(precision);
+          }
+          return Number.isInteger(value) ? `${value}` : value.toString();
+        }
+        if (typeof value === 'string') {
+          return value;
+        }
+        return value != null ? String(value) : (name ? `[${name}]` : '');
+      };
+
+      const evaluateField = (rawExpression) => {
+        if (!rawExpression && rawExpression !== '') {
+          return null;
+        }
+        const trimmed = String(rawExpression).trim();
+        if (!trimmed) {
+          return { text: '', meta: { type: 'empty', raw: rawExpression } };
+        }
+        const lower = trimmed.toLowerCase();
+        if (lower.startsWith('\\acvar')) {
+          const remainder = trimmed.slice(6).trim();
+          let varName = '';
+          let rest = remainder;
+          if (rest.startsWith('"')) {
+            const quoteEnd = rest.indexOf('"', 1);
+            if (quoteEnd > 1) {
+              varName = rest.slice(1, quoteEnd);
+              rest = rest.slice(quoteEnd + 1).trim();
+            } else {
+              varName = rest.replace(/"/g, '');
+              rest = '';
+            }
+          } else {
+            const parts = rest.split(/\s+/);
+            varName = parts.shift() || '';
+            rest = parts.join(' ');
+          }
+          const formatMatch = rest.match(/\\f\s*"([^"]*)"/i);
+          const formatSpec = formatMatch ? formatMatch[1] : null;
+          const normalizedName = varName ? varName.replace(/^\$+/, '') : '';
+          const resolved = lookupFieldVariable(varName || normalizedName);
+          const text = formatFieldValue(resolved, formatSpec, normalizedName || varName);
+          return {
+            text,
+            meta: {
+              type: 'AcVar',
+              name: normalizedName || varName,
+              original: varName,
+              format: formatSpec,
+              value: resolved,
+              raw: rawExpression
+            }
+          };
+        }
+        if (typeof fieldResolver === 'function') {
+          try {
+            const result = fieldResolver(trimmed, {
+              raw: rawExpression,
+              context: fieldContext,
+              rawText: rawTextContext
+            });
+            if (result && typeof result.text === 'string') {
+              return {
+                text: result.text,
+                meta: Object.assign({
+                  type: 'custom',
+                  raw: rawExpression
+                }, result.meta || {})
+              };
+            }
+          } catch (err) {
+            // ignore resolver exceptions to avoid breaking parsing
+          }
+        }
+        return {
+          text: trimmed,
+          meta: {
+            type: 'raw',
+            raw: rawExpression
+          }
+        };
+      };
+
       let state = baseState();
       const stack = [];
       const runs = [];
+      const paragraphs = [];
       let buffer = '';
+
+      let paragraphState = baseParagraphState();
+      let paragraphStartRun = 0;
+      let paragraphAlignment = state.alignment;
+      let paragraphHasContent = false;
+      let currentParagraphIndex = 0;
+
+      const ensureListState = () => {
+        if (!paragraphState.list) {
+          paragraphState.list = createListState();
+        }
+        return paragraphState.list;
+      };
+
+      const setParagraphIndent = (key, rawValue) => {
+        if (!paragraphState.indent) {
+          paragraphState.indent = { left: null, firstLine: null, right: null };
+        }
+        const numeric = rawValue != null && rawValue !== '' ? parseFloat(rawValue) : null;
+        paragraphState.indent[key] = Number.isFinite(numeric) ? numeric : null;
+      };
+
+      const addTabStop = (type, rawValue) => {
+        const numeric = rawValue != null && rawValue !== '' ? parseFloat(rawValue) : null;
+        const valueNumeric = Number.isFinite(numeric) ? numeric : null;
+        paragraphState.tabs.push({
+          type,
+          value: valueNumeric,
+          raw: rawValue != null && rawValue !== '' ? rawValue : null
+        });
+      };
+
+      const updateListRaw = (listState, key, rawValue) => {
+        if (!listState.raw) {
+          listState.raw = Object.create(null);
+        }
+        listState.raw[key] = rawValue;
+      };
 
       const flush = () => {
         if (!buffer) {
           return;
         }
-        runs.push({ text: buffer, style: cloneState(state) });
+        runs.push({
+          type: 'text',
+          text: buffer,
+          style: cloneState(state),
+          paragraphIndex: currentParagraphIndex
+        });
         buffer = '';
+        paragraphHasContent = true;
       };
 
       const pushChar = (ch) => {
         buffer += ch;
       };
 
-      const readParameter = (startIndex) => {
-        let text = '';
-        let idx = startIndex;
-        while (idx < value.length) {
-          const current = value[idx];
-          if (current === ';') {
-            break;
-          }
-          text += current;
-          idx += 1;
+      const commitParagraph = (force = false) => {
+        const hasRuns = runs.length > paragraphStartRun;
+        if (!hasRuns && !force) {
+          return;
         }
-        return { text: text.trim(), nextIndex: idx };
+        const endRun = hasRuns ? runs.length - 1 : paragraphStartRun - 1;
+        const indentMeta = paragraphState.indent
+          ? {
+              left: paragraphState.indent.left,
+              firstLine: paragraphState.indent.firstLine,
+              right: paragraphState.indent.right
+            }
+          : { left: null, firstLine: null, right: null };
+        const tabsMeta = Array.isArray(paragraphState.tabs)
+          ? paragraphState.tabs.map((tab) => ({
+              type: tab.type || null,
+              value: tab.value ?? null,
+              raw: tab.raw ?? null
+            }))
+          : [];
+        const listMeta = cloneListState(paragraphState.list);
+        paragraphs.push({
+          index: paragraphs.length,
+          startRun: paragraphStartRun,
+          endRun,
+          alignment: paragraphAlignment,
+          lineSpacing: state.lineSpacing ?? null,
+          lineSpacingStyle: state.lineSpacingStyle ?? null,
+          hasContent: paragraphHasContent && hasRuns,
+          indent: indentMeta,
+          tabs: tabsMeta,
+          list: listMeta
+        });
+        currentParagraphIndex = paragraphs.length;
+        paragraphStartRun = runs.length;
+        paragraphHasContent = false;
+        paragraphAlignment = state.alignment;
+        paragraphState = baseParagraphState();
       };
 
-      const formatStack = (content) => {
-        if (!content) {
-          return '';
-        }
-        let cleaned = content.replace(/[{}]/g, '');
-        if (cleaned.includes('#')) {
-          const parts = cleaned.split('#');
-          return parts.join('/');
-        }
-        if (cleaned.includes('^')) {
-          const parts = cleaned.split('^');
-          if (parts.length === 2) {
-            return `${parts[0]}/${parts[1]}`;
-          }
-        }
-        if (cleaned.includes('/')) {
-          const parts = cleaned.split('/');
-          if (parts.length === 2) {
-            return `${parts[0]}/${parts[1]}`;
-          }
-        }
-        return cleaned;
+      const pushParagraphBreak = () => {
+        runs.push({
+          type: 'paragraphBreak',
+          text: '\n',
+          style: cloneState(state),
+          paragraphIndex: currentParagraphIndex
+        });
+        commitParagraph(true);
       };
 
       for (let i = 0; i < value.length; i += 1) {
         const ch = value[i];
+        if (ch === '%' && value[i + 1] === '<') {
+          flush();
+          const sequence = extractFieldSequence(i);
+          if (sequence) {
+            const evaluated = evaluateField(sequence.raw);
+            const fieldText = evaluated && typeof evaluated.text === 'string' ? evaluated.text : '';
+            runs.push({
+              type: 'field',
+              text: fieldText,
+              style: cloneState(state),
+              paragraphIndex: currentParagraphIndex,
+              field: evaluated ? evaluated.meta : { type: 'raw', raw: sequence.raw }
+            });
+            if (fieldText) {
+              paragraphHasContent = true;
+            }
+            i = sequence.nextIndex;
+            continue;
+          }
+        }
         if (ch === '{') {
-          stack.push(cloneState(state));
+          stack.push({
+            state: deepCloneState(state),
+            paragraphAlignment,
+            paragraphState: cloneParagraphState(paragraphState)
+          });
           continue;
         }
         if (ch === '}') {
           flush();
-          state = stack.pop() || baseState();
+          const popped = stack.pop();
+          if (popped) {
+            state = deepCloneState(popped.state);
+            paragraphAlignment = popped.paragraphAlignment ?? state.alignment;
+            paragraphState = popped.paragraphState
+              ? cloneParagraphState(popped.paragraphState)
+              : baseParagraphState();
+          } else {
+            state = baseState();
+            paragraphAlignment = state.alignment;
+            paragraphState = baseParagraphState();
+          }
           continue;
         }
         if (ch === '^') {
@@ -3490,17 +5114,32 @@ function collectUnderlayClip(map) {
             state.overline = !state.overline;
           } else if (code === 'b') {
             state.bold = !state.bold;
+          } else if (code === 'j') {
+            pushParagraphBreak();
           }
           i += 1;
           continue;
         }
         if (ch === '\\') {
-          i += 1;
-          if (i >= value.length) {
+          if (i + 1 >= value.length) {
             break;
           }
-          const code = value[i];
-          switch (code) {
+          let commandStart = i + 1;
+          let commandLength = 1;
+          let commandChar = value[commandStart];
+          const peek = value[commandStart + 1];
+          if (peek != null) {
+            const twoCharCandidate = (commandChar + peek).toUpperCase();
+            if (MULTI_COMMANDS.has(twoCharCandidate)) {
+              commandChar = twoCharCandidate;
+              commandLength = 2;
+            }
+          }
+          const commandRaw = value.substr(commandStart, commandLength);
+          const command = commandChar.toUpperCase();
+          i = commandStart + commandLength - 1;
+
+          switch (command) {
             case '\\':
               pushChar('\\');
               break;
@@ -3514,12 +5153,31 @@ function collectUnderlayClip(map) {
               pushChar('\u00A0');
               break;
             case 'P':
-            case 'p':
             case 'N':
-            case 'n':
               flush();
-              pushChar('\n');
+              pushParagraphBreak();
               break;
+            case 'X':
+              flush();
+              runs.push({
+                type: 'columnBreak',
+                text: '',
+                style: cloneState(state),
+                paragraphIndex: currentParagraphIndex
+              });
+              break;
+            case 'B': {
+              flush();
+              const lower = commandRaw === commandRaw.toLowerCase();
+              state.bold = lower;
+              break;
+            }
+            case 'I': {
+              flush();
+              const lower = commandRaw === commandRaw.toLowerCase();
+              state.italic = lower;
+              break;
+            }
             case 'L':
               flush();
               state.underline = true;
@@ -3548,29 +5206,49 @@ function collectUnderlayClip(map) {
               const param = readParameter(i + 1);
               if (param.text) {
                 state.alignment = param.text;
+                paragraphAlignment = state.alignment;
               }
               i = param.nextIndex;
               break;
             }
-            case 'C': {
+            case 'C':
+            case 'c': {
               const param = readParameter(i + 1);
-              if (param.text) {
-                const [index] = param.text.split(',');
-                const numeric = parseInt(index, 10);
-                if (Number.isInteger(numeric)) {
-                  flush();
-                  state.color = numeric;
-                }
+              flush();
+              state.color = parseColorSpec(param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'BG': {
+              const param = readParameter(i + 1);
+              if (!state.background) {
+                state.background = {};
+              }
+              state.background.enabled = param.text ? param.text.trim() !== '0' : false;
+              state.background.raw = param.text;
+              i = param.nextIndex;
+              break;
+            }
+            case 'BC': {
+              const param = readParameter(i + 1);
+              if (!state.background) {
+                state.background = {};
+              }
+              state.background.color = parseColorSpec(param.text);
+              if (state.background.color) {
+                state.background.raw = param.text;
               }
               i = param.nextIndex;
               break;
             }
             case 'F': {
               const param = readParameter(i + 1);
+              flush();
               if (param.text) {
                 const [font] = param.text.split('|');
-                flush();
                 state.font = font || null;
+              } else {
+                state.font = null;
               }
               i = param.nextIndex;
               break;
@@ -3578,11 +5256,13 @@ function collectUnderlayClip(map) {
             case 'H': {
               const param = readParameter(i + 1);
               if (param.text) {
+                const isRelative = /[xX]$/.test(param.text);
                 const cleaned = param.text.replace(/[xX]$/, '');
                 const numeric = parseFloat(cleaned);
                 if (Number.isFinite(numeric) && numeric !== 0) {
                   flush();
                   state.heightScale = Math.abs(numeric);
+                  state.heightMode = isRelative ? 'relative' : 'absolute';
                 }
               }
               i = param.nextIndex;
@@ -3602,14 +5282,20 @@ function collectUnderlayClip(map) {
             }
             case 'T': {
               const param = readParameter(i + 1);
-              if (param.text) {
-                const numeric = parseFloat(param.text);
-                if (Number.isFinite(numeric)) {
-                  flush();
-                  state.tracking = numeric;
+              if (!param.terminated) {
+                flush();
+                pushChar('\t');
+                i = commandStart;
+              } else {
+                if (param.text) {
+                  const numeric = parseFloat(param.text);
+                  if (Number.isFinite(numeric)) {
+                    flush();
+                    state.tracking = numeric;
+                  }
                 }
+                i = param.nextIndex;
               }
-              i = param.nextIndex;
               break;
             }
             case 'Q': {
@@ -3626,35 +5312,169 @@ function collectUnderlayClip(map) {
             }
             case 'S': {
               const param = readParameter(i + 1);
-              const formatted = formatStack(param.text);
-              if (formatted) {
-                pushChar(formatted);
+              const stackSpec = parseStackSequence(param.text);
+              flush();
+              if (stackSpec) {
+                runs.push({
+                  type: 'fraction',
+                  text: stackSpec.display,
+                  style: cloneState(state),
+                  paragraphIndex: currentParagraphIndex,
+                  fraction: {
+                    type: stackSpec.type,
+                    numerator: stackSpec.numerator,
+                    denominator: stackSpec.denominator,
+                    raw: stackSpec.raw
+                  }
+                });
+                paragraphHasContent = true;
+              } else if (param.text) {
+                pushChar(param.text);
               }
               i = param.nextIndex;
               break;
             }
+            case 'TC': {
+              const param = readParameter(i + 1);
+              addTabStop('center', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'TA': {
+              const param = readParameter(i + 1);
+              addTabStop('aligned', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'TS': {
+              const param = readParameter(i + 1);
+              addTabStop('set', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'PI': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              listState.kind = 'bullet';
+              listState.bullet = param.text && param.text.length ? param.text : (listState.bullet || '•');
+              updateListRaw(listState, 'PI', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'PN': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              listState.kind = listState.kind || 'numbered';
+              const numeric = param.text ? parseInt(param.text, 10) : NaN;
+              if (Number.isFinite(numeric)) {
+                listState.start = numeric;
+              } else if (param.text) {
+                listState.format = param.text;
+              }
+              updateListRaw(listState, 'PN', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'PL': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              const numeric = param.text ? parseInt(param.text, 10) : NaN;
+              if (Number.isFinite(numeric)) {
+                listState.level = numeric;
+              }
+              updateListRaw(listState, 'PL', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'PT': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              listState.style = param.text || listState.style;
+              updateListRaw(listState, 'PT', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'LI': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              setParagraphIndent('left', param.text);
+              const numeric = param.text ? parseFloat(param.text) : NaN;
+              if (Number.isFinite(numeric)) {
+                listState.indent.value = numeric;
+              }
+              updateListRaw(listState, 'LI', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'LN': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              setParagraphIndent('firstLine', param.text);
+              const numeric = param.text ? parseFloat(param.text) : NaN;
+              if (Number.isFinite(numeric)) {
+                listState.indent.firstLine = numeric;
+              } else if (param.text) {
+                listState.format = listState.format || param.text;
+              }
+              updateListRaw(listState, 'LN', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'LT': {
+              const param = readParameter(i + 1);
+              const listState = ensureListState();
+              setParagraphIndent('right', param.text);
+              const numeric = param.text ? parseFloat(param.text) : NaN;
+              if (Number.isFinite(numeric)) {
+                listState.indent.hanging = numeric;
+              }
+              updateListRaw(listState, 'LT', param.text);
+              i = param.nextIndex;
+              break;
+            }
+            case 'U+': {
+              const hex = value.substr(i + 1, 4);
+              if (/^[0-9A-Fa-f]{4}$/.test(hex)) {
+                const codePoint = parseInt(hex, 16);
+                flush();
+                pushChar(String.fromCharCode(codePoint));
+                i += 4;
+              }
+              break;
+            }
             default:
-              pushChar(code);
+              pushChar(`\\${commandRaw}`);
               break;
           }
           continue;
         }
-        if (ch === '{' || ch === '}') {
+        if (ch === '\r') {
+          continue;
+        }
+        if (ch === '\n') {
+          flush();
+          pushParagraphBreak();
           continue;
         }
         pushChar(ch);
       }
 
       flush();
+      commitParagraph(paragraphs.length === 0);
 
       runs.forEach((run) => {
-        run.text = this._decodeDxfText(run.text);
+        if (run.type === 'text' || run.type === 'field' || run.type === 'fraction') {
+          run.text = this._decodeDxfText(run.text);
+        }
       });
 
-      const mergedText = runs.map((run) => run.text).join('');
+      const mergedText = runs.map((run) => run.text || '').join('');
+      const filteredRuns = runs.filter((run) => run.type !== 'text' || (run.text && run.text.length));
+
       return {
         text: mergedText,
-        runs: runs.filter((run) => run.text && run.text.length)
+        runs: filteredRuns,
+        paragraphs
       };
     }
 
@@ -3933,6 +5753,371 @@ function collectUnderlayClip(map) {
         offsetY += lineHeightPx * 0.15;
       }
       return { x: offsetX, y: offsetY };
+    }
+
+    _computeBackgroundMetrics(geometry, widthPx, heightPx, frameScale) {
+      if (!geometry) {
+        return null;
+      }
+      const maskWidth = Number(widthPx) || 0;
+      const maskHeight = Number(heightPx) || 0;
+      if (!(maskWidth > 0 && maskHeight > 0)) {
+        return null;
+      }
+      const offsets = geometry.backgroundOffsets || null;
+      const parseOffset = (value) => {
+        if (value == null) {
+          return 0;
+        }
+        if (typeof value === 'number') {
+          return Number.isFinite(value) ? value * frameScale : 0;
+        }
+        if (typeof value === 'string') {
+          const numeric = parseFloat(value);
+          if (Number.isFinite(numeric)) {
+            return numeric * frameScale;
+          }
+        }
+        return 0;
+      };
+      let left = offsets ? parseOffset(offsets['46']) : 0;
+      let top = offsets ? parseOffset(offsets['47']) : 0;
+      let right = offsets ? parseOffset(offsets['48']) : 0;
+      let bottom = offsets ? parseOffset(offsets['49']) : 0;
+      let scale = geometry.backgroundScale;
+      if (!Number.isFinite(scale) || scale <= 0) {
+        scale = 1;
+      }
+      if (scale !== 1) {
+        const widthDelta = maskWidth * (scale - 1);
+        const heightDelta = maskHeight * (scale - 1);
+        left += widthDelta / 2;
+        right += widthDelta / 2;
+        top += heightDelta / 2;
+        bottom += heightDelta / 2;
+      }
+      return {
+        x: -left,
+        y: -top,
+        width: maskWidth + left + right,
+        height: maskHeight + top + bottom,
+        offsetsPx: {
+          left,
+          top,
+          right,
+          bottom
+        },
+        scale
+      };
+    }
+
+    _createEmptyLine(baseLineHeight) {
+      return {
+        segments: [],
+        text: '',
+        widthPx: 0,
+        heightPx: baseLineHeight
+      };
+    }
+
+    _buildFontDescriptor(baseStyle, runStyle = {}) {
+      const fontStyle = runStyle.italic ? 'italic' : (baseStyle.fontStyle || 'normal');
+      const fontWeight = runStyle.bold ? 'bold' : (baseStyle.fontWeight || '400');
+      const family = runStyle.font
+        ? `"${runStyle.font}", ${baseStyle.fontFamily || DEFAULT_SANS}`
+        : (baseStyle.fontFamily || DEFAULT_SANS);
+      return {
+        font: `${fontStyle} ${fontWeight} {size} ${family}`,
+        fontFamily: family
+      };
+    }
+
+    _measureStyledRun(text, runStyle = {}, fontSizePx, fontTemplate) {
+      if (!text || !text.length) {
+        return 0;
+      }
+      const baseWidth = this._measureWidth(text, fontSizePx, fontTemplate);
+      const widthScale = Number.isFinite(runStyle.widthScale) && runStyle.widthScale > 0
+        ? runStyle.widthScale
+        : 1;
+      let finalWidth = baseWidth * widthScale;
+      if (Number.isFinite(runStyle.tracking) && runStyle.tracking !== 0 && text.length > 1) {
+        finalWidth += runStyle.tracking * fontSizePx * (text.length - 1);
+      }
+      if (Number.isFinite(runStyle.oblique) && runStyle.oblique !== 0) {
+        const radians = runStyle.oblique * Math.PI / 180;
+        finalWidth += Math.abs(Math.tan(radians) * fontSizePx);
+      }
+      return finalWidth;
+    }
+
+    _createFractionSegment(baseStyle, run, baseFontSizePx, lineHeightMultiplier) {
+      if (!run || run.type !== 'fraction' || !run.fraction) {
+        return null;
+      }
+      const fractionInfo = run.fraction || {};
+      const numeratorText = (fractionInfo.numerator || '').trim();
+      const denominatorText = (fractionInfo.denominator || '').trim();
+      if (!numeratorText || !denominatorText) {
+        return null;
+      }
+      const runStyle = run.style || {};
+      const fontDescriptor = this._buildFontDescriptor(baseStyle, runStyle);
+      const runHeightScale = Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0
+        ? Math.max(0.01, runStyle.heightScale)
+        : 1;
+      const widthScale = Number.isFinite(runStyle.widthScale) && runStyle.widthScale > 0
+        ? runStyle.widthScale
+        : 1;
+      const runFontSizePx = Math.max(1, baseFontSizePx * runHeightScale);
+      const fractionScale = 0.9;
+      const numeratorFontSize = Math.max(1, runFontSizePx * fractionScale);
+      const denominatorFontSize = Math.max(1, runFontSizePx * fractionScale);
+      const numeratorWidth = this._measureStyledRun(
+        numeratorText,
+        runStyle,
+        numeratorFontSize,
+        fontDescriptor.font
+      );
+      const denominatorWidth = this._measureStyledRun(
+        denominatorText,
+        runStyle,
+        denominatorFontSize,
+        fontDescriptor.font
+      );
+      const contentWidth = Math.max(numeratorWidth, denominatorWidth);
+      const paddingPx = Math.max(1, runFontSizePx * 0.1);
+      const gapPx = Math.max(1, runFontSizePx * 0.15);
+      const barThicknessPx = Math.max(1, runFontSizePx * 0.06);
+      const heightPx = numeratorFontSize + denominatorFontSize + (gapPx * 2) + barThicknessPx;
+      const widthPx = contentWidth + (paddingPx * 2);
+      const baseWidthPx = widthPx / widthScale;
+      const basePaddingPx = paddingPx / widthScale;
+      const numeratorBaseWidth = numeratorWidth / widthScale;
+      const denominatorBaseWidth = denominatorWidth / widthScale;
+      const ascentPx = numeratorFontSize + gapPx + (barThicknessPx * 0.5);
+      const descentPx = denominatorFontSize + gapPx + (barThicknessPx * 0.5);
+      const runLineHeight = Math.max(heightPx, runFontSizePx * lineHeightMultiplier);
+      return {
+        type: 'fraction',
+        text: run.text,
+        style: runStyle,
+        widthPx,
+        heightPx: Math.max(heightPx, runLineHeight),
+        ascentPx,
+        descentPx,
+        fontSizePx: runFontSizePx,
+        font: fontDescriptor.font,
+        gapPx,
+        barThicknessPx,
+        paddingPx,
+        baseWidthPx,
+        basePaddingPx,
+        fraction: fractionInfo,
+        numerator: {
+          text: numeratorText,
+          widthPx: numeratorWidth,
+          fontSizePx: numeratorFontSize,
+          baseWidthPx: numeratorBaseWidth
+        },
+        denominator: {
+          text: denominatorText,
+          widthPx: denominatorWidth,
+          fontSizePx: denominatorFontSize,
+          baseWidthPx: denominatorBaseWidth
+        }
+      };
+    }
+
+    _normalizeParagraphAlignment(value, fallback) {
+      if (value == null || value === '') {
+        return fallback;
+      }
+      const numeric = parseInt(String(value).trim(), 10);
+      if (!Number.isFinite(numeric)) {
+        return fallback;
+      }
+      const map = {
+        0: { horizontal: 'left', vertical: 'bottom' },
+        1: { horizontal: 'center', vertical: 'bottom' },
+        2: { horizontal: 'right', vertical: 'bottom' },
+        3: { horizontal: 'left', vertical: 'middle' },
+        4: { horizontal: 'center', vertical: 'middle' },
+        5: { horizontal: 'right', vertical: 'middle' },
+        6: { horizontal: 'left', vertical: 'top' },
+        7: { horizontal: 'center', vertical: 'top' },
+        8: { horizontal: 'right', vertical: 'top' }
+      };
+      const resolved = map[numeric];
+      if (!resolved) {
+        return fallback;
+      }
+      return {
+        horizontal: resolved.horizontal,
+        vertical: resolved.vertical,
+        textAlign: resolved.horizontal
+      };
+    }
+
+    _computeParagraphLineHeight(lineHeightPx, spacingValue, spacingStyle, frameScale) {
+      if (Number.isFinite(spacingValue) && spacingValue > 0) {
+        const scaled = spacingValue * frameScale;
+        if (spacingStyle === 2) {
+          return scaled;
+        }
+        return Math.max(lineHeightPx, scaled);
+      }
+      return lineHeightPx;
+    }
+
+    _buildColumnLayouts(paragraphLayouts, columnsMeta, manualBreaks = []) {
+      const hasManual = Array.isArray(manualBreaks) && manualBreaks.length > 0;
+      if (!columnsMeta && !hasManual) {
+        return null;
+      }
+      const lines = [];
+      paragraphLayouts.forEach((paragraph) => {
+        paragraph.lines.forEach((line) => {
+          lines.push(line);
+        });
+      });
+      if (!lines.length) {
+        return null;
+      }
+      const assignColumnMetadata = (layouts, computedCount) => {
+        if (!Array.isArray(layouts) || !layouts.length) {
+          return [];
+        }
+        const resolvedCount = Math.max(computedCount || layouts.length, 1);
+        const widths = new Array(resolvedCount).fill(0);
+        layouts.forEach((layoutEntry) => {
+          if (!layoutEntry || !Number.isInteger(layoutEntry.index)) {
+            return;
+          }
+          const columnIndex = layoutEntry.index;
+          let order = 0;
+          if (Number.isInteger(layoutEntry.lineStart) && Number.isInteger(layoutEntry.lineEnd)) {
+            for (let idx = Math.max(0, layoutEntry.lineStart); idx <= layoutEntry.lineEnd && idx < lines.length; idx += 1) {
+              const line = lines[idx];
+              if (!line) {
+                continue;
+              }
+              line.columnIndex = columnIndex;
+              line.columnOrder = order;
+              line.columnCount = resolvedCount;
+              widths[columnIndex] = Math.max(
+                widths[columnIndex],
+                (line.widthPx || 0) + (line.rightIndentPx || 0)
+              );
+              order += 1;
+            }
+          }
+        });
+        return widths;
+      };
+
+      if (columnsMeta) {
+        const desiredCount = Number.isFinite(columnsMeta.count) && columnsMeta.count > 0
+          ? columnsMeta.count
+          : (Number.isFinite(columnsMeta.type) && columnsMeta.type > 0 ? columnsMeta.type : 1);
+        if (desiredCount && desiredCount > 1) {
+          const columnCount = Math.max(1, desiredCount);
+          const perColumn = Math.ceil(lines.length / columnCount);
+          const layouts = [];
+          for (let c = 0; c < columnCount; c += 1) {
+            const startIndex = c * perColumn;
+            const endIndex = Math.min((c + 1) * perColumn, lines.length);
+            const slice = lines.slice(startIndex, endIndex);
+            if (!slice.length) {
+              layouts.push({
+                index: c,
+                lines: [],
+                lineStart: startIndex,
+                lineEnd: startIndex - 1,
+                widthPx: 0,
+                maxWidthPx: 0
+              });
+              continue;
+            }
+            const maxWidth = slice.reduce((acc, line) => Math.max(acc, line.widthPx || 0), 0);
+            layouts.push({
+              index: c,
+              lines: slice.map((line) => line.text),
+              lineStart: startIndex,
+              lineEnd: endIndex - 1,
+              widthPx: maxWidth,
+              maxWidthPx: maxWidth
+            });
+          }
+          const rawMeta = Object.assign({}, columnsMeta.raw || {});
+          if (hasManual) {
+            rawMeta.manualBreaks = manualBreaks.slice();
+          }
+          const widthsPx = assignColumnMetadata(layouts, columnCount);
+          return {
+            count: columnCount,
+            flow: columnsMeta.flow ?? null,
+            layouts,
+            raw: rawMeta,
+            widthsPx
+          };
+        }
+        if (!hasManual) {
+          return null;
+        }
+      }
+      if (!hasManual) {
+        return null;
+      }
+      const sortedBreaks = Array.from(new Set(manualBreaks
+        .map((idx) => Math.max(0, Math.min(Math.floor(idx), lines.length)))))
+        .filter((idx) => idx > 0 && idx < lines.length)
+        .sort((a, b) => a - b);
+      const segments = [];
+      let start = 0;
+      sortedBreaks.forEach((breakIndex) => {
+        if (breakIndex > start) {
+          segments.push({ start, end: breakIndex });
+          start = breakIndex;
+        }
+      });
+      if (start < lines.length) {
+        segments.push({ start, end: lines.length });
+      }
+      if (!segments.length) {
+        return null;
+      }
+      const layouts = segments.map((segment, columnIndex) => {
+        const slice = lines.slice(segment.start, segment.end);
+        const maxWidth = slice.reduce((acc, line) => Math.max(acc, line.widthPx || 0), 0);
+        return {
+          index: columnIndex,
+          lines: slice.map((line) => line.text),
+          lineStart: segment.start,
+          lineEnd: segment.end - 1,
+          widthPx: maxWidth,
+          maxWidthPx: maxWidth
+        };
+      });
+      const widthsPx = assignColumnMetadata(layouts, layouts.length);
+      return {
+        count: layouts.length,
+        flow: columnsMeta && columnsMeta.flow != null ? columnsMeta.flow : null,
+        layouts,
+        raw: {
+          manualBreaks: sortedBreaks,
+          columnsMeta: columnsMeta && columnsMeta.raw ? columnsMeta.raw : null
+        },
+        widthsPx
+      };
+    }
+
+    _isVerticalWriting(geometry) {
+      if (!geometry || geometry.drawingDirection == null) {
+        return false;
+      }
+      const dir = parseInt(geometry.drawingDirection, 10);
+      return dir === 1 || dir === 3;
     }
 
     _resolveBackground(rawText) {
@@ -4921,6 +7106,16 @@ function collectUnderlayClip(map) {
       if (sceneGraph && typeof sceneGraph === 'object') {
         sceneGraph.blockMetadata = blockMetadata;
         sceneGraph.textStyleCatalog = this.computeTextStyleCatalog(tables);
+        if (!sceneGraph.fieldContext) {
+          sceneGraph.fieldContext = {
+            drawingProperties,
+            metadata: drawingProperties ? drawingProperties.metadata : null,
+            geographic: drawingProperties ? drawingProperties.geographic : null,
+            headerVariables: drawingProperties && drawingProperties.geographic
+              ? drawingProperties.geographic.headerVariables
+              : null
+          };
+        }
       }
       const stats = Object.assign({}, sceneGraph.stats, {
         renderableEntities: entities.length,
@@ -12050,7 +14245,11 @@ function collectPointCloudClip(map) {
       if (this.textLayoutEngine && sceneGraph) {
         this.textLayoutEngine.configure({
           styleCatalog: sceneGraph.textStyleCatalog || {},
-          devicePixelRatio: this.devicePixelRatio
+          devicePixelRatio: this.devicePixelRatio,
+          fieldContext: sceneGraph.fieldContext || null,
+          headerVariables: sceneGraph.fieldContext && sceneGraph.fieldContext.headerVariables
+            ? sceneGraph.fieldContext.headerVariables
+            : null
         });
       }
       const buildOptions = options && typeof options === 'object'
@@ -13428,7 +15627,10 @@ function collectPointCloudClip(map) {
           const baseTransform = translateMatrix(-basePoint.x, -basePoint.y);
 
           const blockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
-          const unitScale = this._unitConversionFactor(blockUnits, activeUnits);
+          const shouldConvertUnits = blockUnits != null && activeUnits != null && blockUnits !== activeUnits;
+          const unitScale = shouldConvertUnits
+            ? this._unitConversionFactor(blockUnits, activeUnits)
+            : 1;
           const scaleX = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
           let scaleY = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
           const scaleZ = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
@@ -25092,63 +27294,544 @@ function collectPointCloudClip(map) {
         if (!text || !text.screenPosition) return;
         const span = this.createElement('div');
         span.className = 'rendering-text-run';
+        const interaction = text.interaction || text.rawText?.interaction || null;
+        const isAttribute = interaction && interaction.type === 'attribute';
+        const paragraphLayouts = Array.isArray(text.paragraphLayouts) ? text.paragraphLayouts : null;
         const richRuns = (text.richRuns && text.richRuns.length)
           ? text.richRuns
           : (text.rawText && text.rawText.decodedMText && Array.isArray(text.rawText.decodedMText.runs)
               ? text.rawText.decodedMText.runs
               : null);
-        if (richRuns && richRuns.length) {
-          span.textContent = '';
-          const applyRunStyle = (node, runStyle) => {
-            if (!node || !runStyle) {
+        const clampByte = (n) => Math.max(0, Math.min(255, Math.round(n)));
+        const colorSpecToCss = (spec) => {
+          if (!spec) {
+            return null;
+          }
+          if (spec.type === 'rgb' && Number.isFinite(spec.r) && Number.isFinite(spec.g) && Number.isFinite(spec.b)) {
+            return `rgb(${clampByte(spec.r)}, ${clampByte(spec.g)}, ${clampByte(spec.b)})`;
+          }
+          if (spec.type === 'aci' && Number.isFinite(spec.index)) {
+            const rgb = this.lookupAciColor(Math.abs(spec.index));
+            return `rgb(${clampByte(rgb.r)}, ${clampByte(rgb.g)}, ${clampByte(rgb.b)})`;
+          }
+          if (spec.css) {
+            return spec.css;
+          }
+          return null;
+        };
+        const applyRunStyle = (node, runStyle) => {
+          if (!node || !runStyle) {
+            return;
+          }
+          node.style.fontWeight = runStyle.bold ? 'bold' : 'inherit';
+          node.style.fontStyle = runStyle.italic ? 'italic' : 'inherit';
+          const decorations = [];
+          if (runStyle.underline) {
+            decorations.push('underline');
+          }
+          if (runStyle.overline) {
+            decorations.push('overline');
+          }
+          if (runStyle.strike) {
+            decorations.push('line-through');
+          }
+          node.style.textDecoration = decorations.length ? decorations.join(' ') : 'none';
+          if (runStyle.font) {
+            node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
+          } else {
+            node.style.fontFamily = '';
+          }
+          if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
+            node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
+          } else {
+            node.style.fontSize = '';
+          }
+          if (runStyle.color) {
+            const textColor = colorSpecToCss(runStyle.color);
+            node.style.color = textColor || '';
+          } else {
+            node.style.color = '';
+          }
+          if (Number.isFinite(runStyle.tracking) && runStyle.tracking !== 0) {
+            node.style.letterSpacing = `${runStyle.tracking}em`;
+          } else {
+            node.style.letterSpacing = '';
+          }
+          const transforms = [];
+          if (Number.isFinite(runStyle.widthScale) && runStyle.widthScale > 0 && runStyle.widthScale !== 1) {
+            transforms.push(`scaleX(${runStyle.widthScale})`);
+          }
+          if (Number.isFinite(runStyle.oblique) && runStyle.oblique !== 0) {
+            transforms.push(`skewX(${runStyle.oblique}deg)`);
+          }
+          if (transforms.length) {
+            node.style.display = 'inline-block';
+            node.style.transformOrigin = '0 0';
+            node.style.transform = transforms.join(' ');
+          } else {
+            node.style.display = '';
+            node.style.transformOrigin = '';
+            node.style.transform = '';
+          }
+          if (runStyle.background && runStyle.background.enabled) {
+            const bgColor = colorSpecToCss(runStyle.background.color);
+            node.style.backgroundColor = bgColor || 'rgba(0, 0, 0, 0.25)';
+            node.style.padding = node.style.padding || '0.05em 0.1em';
+            node.style.borderRadius = node.style.borderRadius || '2px';
+          } else {
+            node.style.backgroundColor = '';
+            node.style.padding = '';
+            node.style.borderRadius = '';
+          }
+        };
+        const ensureBackgroundNode = () => {
+          span.style.background = '';
+          span.style.backgroundColor = '';
+          span.style.padding = '';
+          span.style.borderRadius = '';
+          if (!text.backgroundCss) {
+            return null;
+          }
+          const metrics = text.backgroundMetrics || null;
+          if (!metrics) {
+            span.style.backgroundColor = text.backgroundCss;
+            span.style.padding = '0.1em 0.2em';
+            span.style.borderRadius = '2px';
+            return null;
+          }
+          const backgroundNode = this.createElement('div');
+          if (!backgroundNode) {
+            return null;
+          }
+          backgroundNode.style.position = 'absolute';
+          backgroundNode.style.left = `${metrics.x}px`;
+          backgroundNode.style.top = `${metrics.y}px`;
+          backgroundNode.style.width = `${metrics.width}px`;
+          backgroundNode.style.height = `${metrics.height}px`;
+          backgroundNode.style.backgroundColor = text.backgroundCss;
+          backgroundNode.style.pointerEvents = 'none';
+          backgroundNode.style.zIndex = '0';
+          span.appendChild(backgroundNode);
+          return backgroundNode;
+        };
+        const computeBounds = (primary) => {
+          const result = { width: null, height: null };
+          const metrics = text.backgroundMetrics || null;
+          const widthCandidates = [];
+          const heightCandidates = [];
+          if (primary && Number.isFinite(primary.width)) {
+            widthCandidates.push(primary.width);
+          }
+          if (primary && Number.isFinite(primary.height)) {
+            heightCandidates.push(primary.height);
+          }
+          if (Number.isFinite(text.widthPx)) {
+            widthCandidates.push(text.widthPx);
+          }
+          if (Number.isFinite(text.baseWidthPx)) {
+            widthCandidates.push(text.baseWidthPx);
+          }
+          if (Number.isFinite(text.maxWidth)) {
+            widthCandidates.push(text.maxWidth);
+          }
+          if (metrics) {
+            const widthExtent = Math.max(0, metrics.x + metrics.width);
+            const heightExtent = Math.max(0, metrics.y + metrics.height);
+            if (widthExtent > 0) {
+              widthCandidates.push(widthExtent);
+            }
+            if (heightExtent > 0) {
+              heightCandidates.push(heightExtent);
+            }
+          }
+          const defaultHeight = Number.isFinite(text.heightPx)
+            ? text.heightPx
+            : Math.max(text.lineHeight || text.fontSize || 10, 1);
+          if (defaultHeight > 0) {
+            heightCandidates.push(defaultHeight);
+          }
+          const defaultWidth = Number.isFinite(text.widthPx)
+            ? text.widthPx
+            : Math.max(text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4, 1);
+          if (defaultWidth > 0) {
+            widthCandidates.push(defaultWidth);
+          }
+          if (widthCandidates.length) {
+            result.width = Math.max(...widthCandidates);
+          }
+          if (heightCandidates.length) {
+            result.height = Math.max(...heightCandidates);
+          }
+          return result;
+        };
+        const renderParagraphLayout = () => {
+          const backgroundMetrics = text.backgroundMetrics || null;
+          ensureBackgroundNode();
+          const applyFractionTextStyle = (node, runStyle) => {
+            if (!node) {
               return;
             }
-            if (runStyle.bold) {
-              node.style.fontWeight = 'bold';
-            }
-            if (runStyle.italic) {
-              node.style.fontStyle = 'italic';
-            }
+            const style = runStyle || {};
+            node.style.fontWeight = style.bold ? 'bold' : 'normal';
+            node.style.fontStyle = style.italic ? 'italic' : 'normal';
             const decorations = [];
-            if (runStyle.underline) {
+            if (style.underline) {
               decorations.push('underline');
             }
-            if (runStyle.overline) {
+            if (style.overline) {
               decorations.push('overline');
             }
-            if (runStyle.strike) {
+            if (style.strike) {
               decorations.push('line-through');
             }
-            if (decorations.length) {
-              node.style.textDecoration = decorations.join(' ');
+            node.style.textDecoration = decorations.join(' ');
+            const textColor = colorSpecToCss(style.color, text.colorCss || '#e8f1ff');
+            if (textColor) {
+              node.style.color = textColor;
             }
-            if (runStyle.font) {
-              node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
-            }
-            if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
-              node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
-            }
+            node.style.fontFamily = text.fontFamily || 'Arial, "Helvetica Neue", Helvetica, sans-serif';
           };
-          richRuns.forEach((run) => {
-            const segments = String(run.text || '').split('\n');
-            segments.forEach((segment, segmentIndex) => {
-              const runNode = this.createElement('span');
-              if (!runNode) {
-                return;
+          const createFractionNode = (segment) => {
+            if (!segment || !segment.numerator || !segment.denominator) {
+              return null;
+            }
+            const container = this.createElement('span');
+            if (!container) {
+              return null;
+            }
+            container.style.display = 'inline-block';
+            container.style.position = 'relative';
+            container.style.width = `${segment.widthPx || 0}px`;
+            container.style.height = `${segment.heightPx
+              || (segment.numerator.fontSizePx || 0)
+              + (segment.denominator.fontSizePx || 0)
+              + (segment.gapPx || 0) * 2
+              + (segment.barThicknessPx || 0)}px`;
+            container.style.verticalAlign = 'top';
+            container.style.boxSizing = 'border-box';
+            container.style.whiteSpace = 'normal';
+            container.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            const background = segment.style && segment.style.background;
+            if (background && background.enabled) {
+              const bgColor = colorSpecToCss(background.color, 'rgba(0, 0, 0, 0.25)');
+              container.style.backgroundColor = bgColor || 'rgba(0, 0, 0, 0.25)';
+              container.style.padding = container.style.padding || '0.05em 0.1em';
+              container.style.borderRadius = container.style.borderRadius || '2px';
+            }
+            const content = this.createElement('span');
+            if (!content) {
+              return container;
+            }
+            content.style.display = 'flex';
+            content.style.flexDirection = 'column';
+            content.style.alignItems = 'center';
+            content.style.justifyContent = 'center';
+            content.style.width = `${segment.baseWidthPx || segment.widthPx || 0}px`;
+            content.style.height = '100%';
+            content.style.transformOrigin = '0 0';
+            const widthScale = Number.isFinite(segment.style && segment.style.widthScale) && segment.style.widthScale > 0
+              ? segment.style.widthScale
+              : 1;
+            const oblique = Number.isFinite(segment.style && segment.style.oblique)
+              ? segment.style.oblique
+              : 0;
+            if (widthScale !== 1 || oblique !== 0) {
+              content.style.transform = `scaleX(${widthScale}) skewX(${oblique}deg)`;
+            }
+            const padding = Number.isFinite(segment.basePaddingPx) ? segment.basePaddingPx : (segment.paddingPx || 0);
+            if (padding > 0) {
+              content.style.paddingLeft = `${padding}px`;
+              content.style.paddingRight = `${padding}px`;
+            }
+            const numeratorNode = this.createElement('span');
+            if (numeratorNode) {
+              numeratorNode.textContent = segment.numerator.text;
+              numeratorNode.style.display = 'block';
+              numeratorNode.style.lineHeight = '1';
+              numeratorNode.style.textAlign = 'center';
+              numeratorNode.style.marginBottom = `${segment.gapPx || 0}px`;
+              numeratorNode.style.fontSize = `${Math.max(1, segment.numerator.fontSizePx || 0)}px`;
+              applyFractionTextStyle(numeratorNode, segment.style);
+              content.appendChild(numeratorNode);
+            }
+            const barNode = this.createElement('span');
+            if (barNode) {
+              barNode.style.display = 'block';
+              barNode.style.width = '100%';
+              barNode.style.height = `${segment.barThicknessPx || 1}px`;
+              barNode.style.backgroundColor = colorSpecToCss(segment.style && segment.style.color, text.colorCss || '#e8f1ff') || text.colorCss || '#e8f1ff';
+              content.appendChild(barNode);
+            }
+            const denominatorNode = this.createElement('span');
+            if (denominatorNode) {
+              denominatorNode.textContent = segment.denominator.text;
+              denominatorNode.style.display = 'block';
+              denominatorNode.style.lineHeight = '1';
+              denominatorNode.style.textAlign = 'center';
+              denominatorNode.style.marginTop = `${segment.gapPx || 0}px`;
+              denominatorNode.style.fontSize = `${Math.max(1, segment.denominator.fontSizePx || 0)}px`;
+              applyFractionTextStyle(denominatorNode, segment.style);
+              content.appendChild(denominatorNode);
+            }
+            container.appendChild(content);
+            return container;
+          };
+          const computeLineSpacing = (lineHeightPx, spacingValue, spacingStyle, frameScaleValue) => {
+            const base = lineHeightPx || Math.max(text.lineHeight || text.fontSize || 10, 1);
+            if (Number.isFinite(spacingValue) && spacingValue > 0) {
+              const scaled = spacingValue * (frameScaleValue || 1);
+              if (spacingStyle === 2) {
+                return scaled;
               }
-              runNode.textContent = segment;
-              applyRunStyle(runNode, run.style || null);
-              span.appendChild(runNode);
-              if (segmentIndex < segments.length - 1) {
-                const br = this.createElement('br');
-                if (br) {
-                  span.appendChild(br);
+              return Math.max(base, scaled);
+            }
+            return base;
+          };
+          const columnLayouts = text.columnLayouts && Array.isArray(text.columnLayouts.layouts)
+            ? text.columnLayouts
+            : null;
+          const hasColumns = columnLayouts && columnLayouts.layouts.length > 0;
+          const columnCount = hasColumns
+            ? Math.max(columnLayouts.count || columnLayouts.layouts.length, 1)
+            : 1;
+          const defaultWidthSource = Math.max(
+            text.widthPx || text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4,
+            1
+          );
+          const defaultColumnWidth = defaultWidthSource / Math.max(columnCount, 1);
+          const widthsSource = Array.isArray(columnLayouts && columnLayouts.widthsPx)
+            ? columnLayouts.widthsPx
+            : null;
+          const columnWidths = new Array(columnCount).fill(0).map((_, idx) => {
+            const metadataWidth = widthsSource && Number.isFinite(widthsSource[idx]) ? widthsSource[idx] : 0;
+            return metadataWidth > 0 ? metadataWidth : defaultColumnWidth;
+          });
+          const resolveColumnGutter = () => {
+            if (!hasColumns) {
+              return 0;
+            }
+            const fallback = Math.max(2, (text.fontSize || 10) * 0.5);
+            if (!columnLayouts || !columnLayouts.raw) {
+              return fallback;
+            }
+            const extractNumeric = (value) => {
+              if (Array.isArray(value)) {
+                for (let i = 0; i < value.length; i += 1) {
+                  const candidate = value[i];
+                  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+                    return candidate;
+                  }
+                }
+              } else if (typeof value === 'number' && Number.isFinite(value)) {
+                return value;
+              }
+              return null;
+            };
+            const raw = columnLayouts.raw || {};
+            const candidateKeys = ['79', '178', '179'];
+            for (let i = 0; i < candidateKeys.length; i += 1) {
+              const key = candidateKeys[i];
+              const candidate = extractNumeric(raw[key]);
+              if (candidate != null) {
+                return Math.max(fallback, Math.abs(candidate) * (text.frameScale || 1));
+              }
+            }
+            if (raw.columnsMeta) {
+              const nested = raw.columnsMeta;
+              for (let i = 0; i < candidateKeys.length; i += 1) {
+                const key = candidateKeys[i];
+                const candidate = extractNumeric(nested[key]);
+                if (candidate != null) {
+                  return Math.max(fallback, Math.abs(candidate) * (text.frameScale || 1));
                 }
               }
+            }
+            return fallback;
+          };
+          const columnGutter = resolveColumnGutter();
+          const columnOffsets = new Array(columnCount).fill(0);
+          for (let i = 1; i < columnCount; i += 1) {
+            columnOffsets[i] = columnOffsets[i - 1] + columnWidths[i - 1] + columnGutter;
+          }
+          const columnNodes = new Array(columnCount);
+          for (let i = 0; i < columnCount; i += 1) {
+            const node = this.createElement('div');
+            node.style.position = 'absolute';
+            node.style.top = '0px';
+            node.style.left = `${columnOffsets[i]}px`;
+            node.style.width = `${columnWidths[i]}px`;
+            node.style.whiteSpace = 'nowrap';
+            node.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            node.style.display = 'block';
+             node.style.zIndex = '1';
+            columnNodes[i] = node;
+            span.appendChild(node);
+          }
+          const columnCursorY = new Array(columnCount).fill(0);
+          const allLines = [];
+          paragraphLayouts.forEach((paragraph) => {
+            const lines = Array.isArray(paragraph.lines) ? paragraph.lines : [];
+            lines.forEach((line) => {
+              allLines.push({ line, paragraph });
             });
           });
+          allLines.sort((a, b) => {
+            const aIdx = Number.isFinite(a.line.globalIndex) ? a.line.globalIndex : 0;
+            const bIdx = Number.isFinite(b.line.globalIndex) ? b.line.globalIndex : 0;
+            return aIdx - bIdx;
+          });
+          allLines.forEach(({ line, paragraph }) => {
+            if (!line) {
+              return;
+            }
+            const alignment = (paragraph && paragraph.alignment) || { horizontal: 'left' };
+            const spacingValue = paragraph ? paragraph.lineSpacing : null;
+            const spacingStyle = paragraph ? paragraph.lineSpacingStyle : null;
+            const columnIndex = Number.isFinite(line.columnIndex)
+              ? Math.max(0, Math.min(columnCount - 1, line.columnIndex))
+              : 0;
+            const columnWidth = columnWidths[columnIndex] || defaultColumnWidth;
+            const baseX = columnOffsets[columnIndex] || 0;
+            const baseY = columnCursorY[columnIndex];
+            const lineHeight = Math.max(line.heightPx || text.lineHeight || text.fontSize || 10, 1);
+            const lineWidth = line.widthPx || 0;
+            const rightIndent = line.rightIndentPx || 0;
+            let startX = baseX;
+            if (alignment.horizontal === 'center') {
+              startX = baseX + (columnWidth - lineWidth) / 2;
+            } else if (alignment.horizontal === 'right') {
+              startX = baseX + Math.max(0, columnWidth - (lineWidth + rightIndent));
+            }
+            const lineNode = this.createElement('div');
+            lineNode.style.position = 'absolute';
+            lineNode.style.left = `${Math.max(0, startX - baseX)}px`;
+            lineNode.style.top = `${baseY}px`;
+            lineNode.style.height = `${lineHeight}px`;
+            lineNode.style.whiteSpace = 'nowrap';
+            lineNode.style.display = 'block';
+            lineNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            const segments = Array.isArray(line.segments) ? line.segments : [];
+            segments.forEach((segment) => {
+              let segmentNode = null;
+              if (segment.type === 'fraction') {
+                segmentNode = createFractionNode(segment);
+              } else {
+                segmentNode = this.createElement('span');
+                if (!segmentNode) {
+                  return;
+                }
+                if (segment.type === 'indent' || segment.type === 'tab' || segment.type === 'markerSpacing') {
+                  segmentNode.textContent = '';
+                  segmentNode.style.display = 'inline-block';
+                  segmentNode.style.width = `${Math.max(0, segment.widthPx || 0)}px`;
+                } else {
+                  segmentNode.textContent = segment.text || '';
+                  applyRunStyle(segmentNode, segment.style || null);
+                  if (segment.style && segment.style.background && segment.style.background.enabled) {
+                    const bgColor = colorSpecToCss(segment.style.background.color);
+                    if (bgColor) {
+                      segmentNode.style.backgroundColor = bgColor;
+                      segmentNode.style.padding = segmentNode.style.padding || '0.05em 0.1em';
+                      segmentNode.style.borderRadius = segmentNode.style.borderRadius || '2px';
+                    }
+                  }
+                }
+              }
+              if (!segmentNode) {
+                return;
+              }
+              segmentNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+              lineNode.appendChild(segmentNode);
+            });
+            if (rightIndent > 0) {
+              const rightSpacer = this.createElement('span');
+              rightSpacer.textContent = '';
+              rightSpacer.style.display = 'inline-block';
+              rightSpacer.style.width = `${rightIndent}px`;
+              rightSpacer.style.pointerEvents = 'none';
+              lineNode.appendChild(rightSpacer);
+            }
+            columnNodes[columnIndex].appendChild(lineNode);
+            const spacing = computeLineSpacing(lineHeight, spacingValue, spacingStyle, text.frameScale || 1);
+            columnCursorY[columnIndex] += spacing;
+          });
+          const totalWidth = columnOffsets[columnCount - 1] + columnWidths[columnCount - 1];
+          const totalHeight = columnCursorY.reduce((acc, value) => Math.max(acc, value), 0);
+          const widthCandidates = [
+            totalWidth,
+            text.widthPx || defaultWidthSource,
+            backgroundMetrics ? Math.max(0, backgroundMetrics.x + backgroundMetrics.width) : 0
+          ].filter((value) => Number.isFinite(value) && value > 0);
+          const heightCandidates = [
+            totalHeight,
+            text.heightPx || text.lineHeight || text.fontSize || 10,
+            backgroundMetrics ? Math.max(0, backgroundMetrics.y + backgroundMetrics.height) : 0
+          ].filter((value) => Number.isFinite(value) && value > 0);
+          const widthValue = widthCandidates.length ? Math.max(...widthCandidates) : Math.max(defaultWidthSource, 0);
+          const heightValue = heightCandidates.length ? Math.max(...heightCandidates) : Math.max(text.lineHeight || text.fontSize || 10, 0);
+          return { width: widthValue, height: heightValue };
+        };
+        let contentBounds = null;
+        if (paragraphLayouts && paragraphLayouts.length) {
+          span.textContent = '';
+          const paragraphBounds = renderParagraphLayout();
+          contentBounds = computeBounds(paragraphBounds);
+        } else if (richRuns && richRuns.length) {
+          span.textContent = '';
+          ensureBackgroundNode();
+          const flowRoot = this.createElement('div');
+          if (flowRoot) {
+            flowRoot.style.position = 'absolute';
+            flowRoot.style.left = '0px';
+            flowRoot.style.top = '0px';
+            flowRoot.style.whiteSpace = 'pre';
+            flowRoot.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            flowRoot.style.zIndex = '1';
+            span.appendChild(flowRoot);
+            richRuns.forEach((run) => {
+              if (run && run.type === 'paragraphBreak') {
+                const br = this.createElement('br');
+                if (br) {
+                  flowRoot.appendChild(br);
+                }
+                return;
+              }
+              const segments = String(run.text || '').split('\n');
+              segments.forEach((segment, segmentIndex) => {
+                const runNode = this.createElement('span');
+                if (!runNode) {
+                  return;
+                }
+                runNode.textContent = segment;
+                applyRunStyle(runNode, run.style || null);
+                runNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+                flowRoot.appendChild(runNode);
+                if (segmentIndex < segments.length - 1) {
+                  const br = this.createElement('br');
+                  if (br) {
+                    flowRoot.appendChild(br);
+                  }
+                }
+              });
+            });
+          }
+          contentBounds = computeBounds(null);
         } else {
-          span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+          span.textContent = '';
+          ensureBackgroundNode();
+          const content = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+          const contentNode = this.createElement('div');
+          if (contentNode) {
+            contentNode.textContent = content;
+            contentNode.style.position = 'absolute';
+            contentNode.style.left = '0px';
+            contentNode.style.top = '0px';
+            contentNode.style.whiteSpace = 'pre';
+            contentNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            contentNode.style.zIndex = '1';
+            span.appendChild(contentNode);
+          }
+          contentBounds = computeBounds(null);
         }
         span.style.position = 'absolute';
         span.style.left = '0px';
@@ -25173,9 +27856,7 @@ function collectPointCloudClip(map) {
         span.style.fontStyle = text.fontStyle || 'normal';
         span.style.fontWeight = text.fontWeight || '400';
         span.style.color = text.colorCss || '#e8f1ff';
-        span.style.whiteSpace = 'pre';
-        const interaction = text.interaction || text.rawText?.interaction || null;
-        const isAttribute = interaction && interaction.type === 'attribute';
+        span.style.whiteSpace = paragraphLayouts && paragraphLayouts.length ? 'normal' : 'pre';
         if (isAttribute) {
           span.classList.add('rendering-text-attribute');
           span.dataset.attributeTag = interaction.tag || '';
@@ -25230,13 +27911,14 @@ function collectPointCloudClip(map) {
           span.style.userSelect = 'none';
         }
         span.style.textAlign = text.textAlign || 'left';
-        if (text.baseWidthPx) {
-          span.style.width = `${text.baseWidthPx}px`;
-        }
-        if (text.backgroundCss) {
-          span.style.background = text.backgroundCss;
-          span.style.padding = '0.1em 0.2em';
-          span.style.borderRadius = '2px';
+        const boundsForSizing = contentBounds || computeBounds(null);
+        if (boundsForSizing) {
+          if (Number.isFinite(boundsForSizing.width) && boundsForSizing.width > 0) {
+            span.style.width = `${boundsForSizing.width}px`;
+          }
+          if (Number.isFinite(boundsForSizing.height) && boundsForSizing.height > 0) {
+            span.style.height = `${boundsForSizing.height}px`;
+          }
         }
         this.textLayer.appendChild(span);
       });

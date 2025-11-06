@@ -1194,6 +1194,48 @@ function collectUnderlayClip(map) {
           y: toFloat(map.get(21)?.[0]) ?? 0,
           z: toFloat(map.get(31)?.[0]) ?? 0
         };
+        const backgroundOffsetCodes = [46, 47, 48, 49];
+        const backgroundOffsetsByCode = {};
+        backgroundOffsetCodes.forEach((code) => {
+          const values = map.get(code);
+          if (values && values.length) {
+            const numeric = toFloat(values[0]);
+            if (numeric != null) {
+              backgroundOffsetsByCode[String(code)] = numeric;
+            }
+          }
+        });
+        const columnCodes = [
+          75, 76, 77, 78, 79,
+          160, 161, 162, 163, 164,
+          170, 171, 172, 173, 174,
+          175, 176, 177, 178, 179
+        ];
+        const columnRaw = {};
+        columnCodes.forEach((code) => {
+          const values = map.get(code);
+          if (values && values.length) {
+            columnRaw[String(code)] = values.map((value) => {
+              const floatVal = toFloat(value);
+              if (floatVal != null) {
+                const intVal = toInt(value);
+                if (intVal != null && Math.abs(floatVal - intVal) < 1e-9) {
+                  return intVal;
+                }
+                return floatVal;
+              }
+              return value;
+            });
+          }
+        });
+        const columns = Object.keys(columnRaw).length
+          ? {
+              type: toInt(map.get(75)?.[0]) || 0,
+              count: toInt(map.get(76)?.[0]) ?? null,
+              flow: toInt(map.get(77)?.[0]) ?? null,
+              raw: columnRaw
+            }
+          : null;
         return {
           type: 'mtext',
           position: pointFromCodes(10, 20, 30),
@@ -1216,6 +1258,8 @@ function collectUnderlayClip(map) {
             const raw = map.get(441)?.[0] || null;
             return raw ? parseTransparency(raw) : null;
           })(),
+          backgroundOffsets: Object.keys(backgroundOffsetsByCode).length ? backgroundOffsetsByCode : null,
+          columns,
           text: joinTextFragments(map, [3, 1, 2])
         };
       }

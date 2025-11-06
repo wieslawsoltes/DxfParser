@@ -1052,7 +1052,11 @@
       if (this.textLayoutEngine && sceneGraph) {
         this.textLayoutEngine.configure({
           styleCatalog: sceneGraph.textStyleCatalog || {},
-          devicePixelRatio: this.devicePixelRatio
+          devicePixelRatio: this.devicePixelRatio,
+          fieldContext: sceneGraph.fieldContext || null,
+          headerVariables: sceneGraph.fieldContext && sceneGraph.fieldContext.headerVariables
+            ? sceneGraph.fieldContext.headerVariables
+            : null
         });
       }
       const buildOptions = options && typeof options === 'object'

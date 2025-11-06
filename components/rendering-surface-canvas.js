@@ -213,21 +213,363 @@
       const texts = frame.texts || [];
       for (let i = 0; i < texts.length; i++) {
         const text = texts[i];
-        if (!text || !text.lines || !text.lines.length) {
+        if (!text) {
           continue;
         }
         ctx.save();
         ctx.translate(text.screenPosition[0], text.screenPosition[1]);
         ctx.rotate(text.rotationRad || 0);
-        ctx.fillStyle = text.colorCss || '#e8f1ff';
-        ctx.font = `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} ${Math.max(6, text.fontSize || 10)}px ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
-        ctx.textAlign = text.textAlign || 'left';
-        ctx.textBaseline = 'top';
-        const lineHeight = Math.max(6, text.lineHeight || text.fontSize || 10);
-        for (let l = 0; l < text.lines.length; l++) {
-          const line = text.lines[l];
-          ctx.fillText(line, 0, lineHeight * l);
+        const anchorX = text.anchor && typeof text.anchor.x === 'number' ? text.anchor.x : 0;
+        const anchorY = text.anchor && typeof text.anchor.y === 'number' ? text.anchor.y : 0;
+
+        const verticalWriting = !!text.verticalWriting;
+        if (verticalWriting) {
+          ctx.rotate(-Math.PI / 2);
+          ctx.translate(-(text.heightPx || text.lineHeight || 0), 0);
         }
+
+        ctx.translate(-anchorX, -anchorY);
+
+        const aciToRgb = (index) => {
+          const normalized = Math.max(0, Math.min(255, Math.round(index)));
+          const aciTable = {
+            0: { r: 0, g: 0, b: 0 },
+            1: { r: 255, g: 0, b: 0 },
+            2: { r: 255, g: 255, b: 0 },
+            3: { r: 0, g: 255, b: 0 },
+            4: { r: 0, g: 255, b: 255 },
+            5: { r: 0, g: 0, b: 255 },
+            6: { r: 255, g: 0, b: 255 },
+            7: { r: 255, g: 255, b: 255 }
+          };
+          return aciTable[normalized] || { r: 210, g: 227, b: 255 };
+        };
+
+        const colorSpecToCss = (spec, fallback) => {
+          if (!spec) {
+            return fallback;
+          }
+          if (spec.type === 'rgb' && Number.isFinite(spec.r) && Number.isFinite(spec.g) && Number.isFinite(spec.b)) {
+            const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+            return `rgb(${clamp(spec.r)}, ${clamp(spec.g)}, ${clamp(spec.b)})`;
+          }
+          if (spec.type === 'aci' && Number.isFinite(spec.index)) {
+            const rgb = aciToRgb(Math.abs(spec.index));
+            const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+            return `rgb(${clamp(rgb.r)}, ${clamp(rgb.g)}, ${clamp(rgb.b)})`;
+          }
+          if (spec.css) {
+            return spec.css;
+          }
+          return fallback;
+        };
+
+        const computeLineSpacing = (lineHeightPx, spacingValue, spacingStyle, frameScaleValue) => {
+          const base = lineHeightPx || text.lineHeight || text.fontSize || 10;
+          if (Number.isFinite(spacingValue) && spacingValue > 0) {
+            const scaled = spacingValue * (frameScaleValue || 1);
+            if (spacingStyle === 2) {
+              return scaled;
+            }
+            return Math.max(base, scaled);
+          }
+          return base;
+        };
+
+        const drawSegmentText = (segment, x, y) => {
+          if (!segment) {
+            return;
+          }
+          const textContent = typeof segment.text === 'string' ? segment.text : '';
+          if (!textContent.length) {
+            return;
+          }
+          const segStyle = segment.style || {};
+          const fontTemplate = segment.font
+            || `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} {size} ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
+          const segFontSize = Math.max(4, segment.fontSizePx || text.fontSize || 10);
+          const font = fontTemplate.replace('{size}', `${segFontSize}px`);
+          const fillCss = colorSpecToCss(segStyle.color, text.colorCss || '#e8f1ff');
+          ctx.save();
+          ctx.translate(x, y);
+          const widthScale = Number.isFinite(segStyle.widthScale) && segStyle.widthScale > 0 ? segStyle.widthScale : 1;
+          const oblique = Number.isFinite(segStyle.oblique) ? segStyle.oblique : 0;
+          if (widthScale !== 1 || oblique !== 0) {
+            const shear = Math.tan(oblique * Math.PI / 180);
+            ctx.transform(widthScale, 0, shear, 1, 0, 0);
+          }
+          ctx.fillStyle = fillCss;
+          ctx.font = font;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(textContent, 0, 0);
+          const lineThickness = Math.max(1, segFontSize * 0.05);
+          const underlineColor = fillCss;
+          const lineWidth = segment.widthPx || ctx.measureText(textContent).width * widthScale;
+          const drawDecoration = (offset) => {
+            ctx.strokeStyle = underlineColor;
+            ctx.lineWidth = lineThickness;
+            ctx.beginPath();
+            ctx.moveTo(0, offset);
+            ctx.lineTo(lineWidth, offset);
+            ctx.stroke();
+          };
+          if (segStyle.underline) {
+            drawDecoration(segFontSize * 0.82);
+          }
+          if (segStyle.strike) {
+            drawDecoration(segFontSize * 0.45);
+          }
+          if (segStyle.overline) {
+            drawDecoration(0);
+          }
+          ctx.restore();
+        };
+
+        const drawSegmentBackground = (segment, x, y, heightPx) => {
+          if (!segment) {
+            return;
+          }
+          if (segment.type === 'indent' || segment.type === 'tab' || segment.type === 'markerSpacing') {
+            return;
+          }
+          const segStyle = segment.style || {};
+          if (!segStyle.background || !segStyle.background.enabled) {
+            return;
+          }
+          const bgCss = colorSpecToCss(segStyle.background.color, 'rgba(0,0,0,0.25)');
+          const widthPx = segment.widthPx || 0;
+          const maskHeight = (segment.heightPx && segment.heightPx > 0) ? segment.heightPx : heightPx;
+          if (!(bgCss && widthPx > 0 && maskHeight > 0)) {
+            return;
+          }
+          ctx.save();
+          ctx.fillStyle = bgCss;
+          ctx.fillRect(x, y, widthPx, maskHeight);
+          ctx.restore();
+        };
+
+        const drawFractionSegment = (segment, x, y) => {
+          if (!segment || !segment.numerator || !segment.denominator) {
+            return;
+          }
+          const segStyle = segment.style || {};
+          const widthScale = Number.isFinite(segStyle.widthScale) && segStyle.widthScale > 0
+            ? segStyle.widthScale
+            : 1;
+          const oblique = Number.isFinite(segStyle.oblique) ? segStyle.oblique : 0;
+          const paddingBase = Number.isFinite(segment.basePaddingPx)
+            ? segment.basePaddingPx
+            : (segment.paddingPx || 0);
+          const gapPx = segment.gapPx || 0;
+          const barThicknessPx = segment.barThicknessPx || Math.max(1, (segment.fontSizePx || text.fontSize || 10) * 0.05);
+          const baseWidth = Number.isFinite(segment.baseWidthPx)
+            ? segment.baseWidthPx
+            : ((segment.widthPx || 0) / widthScale);
+          const numeratorBaseWidth = Number.isFinite(segment.numerator.baseWidthPx)
+            ? segment.numerator.baseWidthPx
+            : ((segment.numerator.widthPx || 0) / widthScale);
+          const denominatorBaseWidth = Number.isFinite(segment.denominator.baseWidthPx)
+            ? segment.denominator.baseWidthPx
+            : ((segment.denominator.widthPx || 0) / widthScale);
+          const numeratorFontSize = segment.numerator.fontSizePx || segment.fontSizePx || (text.fontSize || 10);
+          const denominatorFontSize = segment.denominator.fontSizePx || segment.fontSizePx || (text.fontSize || 10);
+          const fontTemplate = segment.font
+            || `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} {size} ${text.fontFamily || 'Arial, "Helvetica Neue", Helvetica, sans-serif'}`;
+          const fillCss = colorSpecToCss(segStyle.color, text.colorCss || '#e8f1ff');
+          ctx.save();
+          ctx.translate(x, y);
+          if (widthScale !== 1 || oblique !== 0) {
+            const shear = Math.tan(oblique * Math.PI / 180);
+            ctx.transform(widthScale, 0, shear, 1, 0, 0);
+          }
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = fillCss;
+          const usableWidth = Math.max(0, baseWidth - paddingBase * 2);
+          const numeratorX = paddingBase + Math.max(0, (usableWidth - numeratorBaseWidth) / 2);
+          ctx.font = fontTemplate.replace('{size}', `${Math.max(1, numeratorFontSize)}px`);
+          ctx.fillText(segment.numerator.text, numeratorX, 0);
+          const barY = numeratorFontSize + gapPx;
+          ctx.fillRect(paddingBase, barY, usableWidth, barThicknessPx);
+          const denominatorY = barY + barThicknessPx + gapPx;
+          const denominatorX = paddingBase + Math.max(0, (usableWidth - denominatorBaseWidth) / 2);
+          ctx.font = fontTemplate.replace('{size}', `${Math.max(1, denominatorFontSize)}px`);
+          ctx.fillText(segment.denominator.text, denominatorX, denominatorY);
+          if (segStyle.underline || segStyle.strike || segStyle.overline) {
+            const lineThickness = Math.max(1, (segment.fontSizePx || text.fontSize || 10) * 0.05);
+            const totalHeight = denominatorY + denominatorFontSize;
+            const drawDecoration = (offset) => {
+              ctx.strokeStyle = fillCss;
+              ctx.lineWidth = lineThickness;
+              ctx.beginPath();
+              ctx.moveTo(paddingBase, offset);
+              ctx.lineTo(paddingBase + usableWidth, offset);
+              ctx.stroke();
+            };
+            if (segStyle.overline) {
+              drawDecoration(0);
+            }
+            if (segStyle.strike) {
+              drawDecoration(totalHeight / 2);
+            }
+            if (segStyle.underline) {
+              drawDecoration(totalHeight);
+            }
+          }
+          ctx.restore();
+        };
+
+        const drawBackgroundMask = () => {
+          if (!text.backgroundCss) {
+            return;
+          }
+          const metrics = text.backgroundMetrics || null;
+          const maskWidth = metrics ? metrics.width : (text.widthPx || text.baseWidthPx || 0);
+          const maskHeight = metrics ? metrics.height : (text.heightPx || text.lineHeight || 0);
+          if (!(maskWidth > 0 && maskHeight > 0)) {
+            return;
+          }
+          ctx.save();
+          ctx.fillStyle = text.backgroundCss;
+          const originX = metrics ? metrics.x : 0;
+          const originY = metrics ? metrics.y : 0;
+          ctx.fillRect(originX, originY, maskWidth, maskHeight);
+          ctx.restore();
+        };
+
+        drawBackgroundMask();
+
+        const paragraphLayouts = Array.isArray(text.paragraphLayouts) ? text.paragraphLayouts : null;
+        if (paragraphLayouts && paragraphLayouts.length) {
+          const frameScale = text.frameScale || 1;
+          const columnLayouts = text.columnLayouts && Array.isArray(text.columnLayouts.layouts)
+            ? text.columnLayouts
+            : null;
+          const hasColumns = columnLayouts && columnLayouts.layouts.length > 0;
+          const columnCount = hasColumns
+            ? Math.max(columnLayouts.count || columnLayouts.layouts.length, 1)
+            : 1;
+          const defaultWidthSource = Math.max(
+            text.widthPx || text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4,
+            1
+          );
+          const defaultColumnWidth = defaultWidthSource / Math.max(columnCount, 1);
+          const widthsSource = Array.isArray(columnLayouts && columnLayouts.widthsPx)
+            ? columnLayouts.widthsPx
+            : null;
+          const columnWidths = new Array(columnCount).fill(0).map((_, idx) => {
+            const metadataWidth = widthsSource && Number.isFinite(widthsSource[idx]) ? widthsSource[idx] : 0;
+            return metadataWidth > 0 ? metadataWidth : defaultColumnWidth;
+          });
+          const resolveColumnGutter = () => {
+            if (!hasColumns) {
+              return 0;
+            }
+            const fallback = Math.max(2, (text.fontSize || 10) * 0.5);
+            if (!columnLayouts || !columnLayouts.raw) {
+              return fallback;
+            }
+            const extractNumeric = (value) => {
+              if (Array.isArray(value)) {
+                for (let i = 0; i < value.length; i += 1) {
+                  const candidate = value[i];
+                  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+                    return candidate;
+                  }
+                }
+              } else if (typeof value === 'number' && Number.isFinite(value)) {
+                return value;
+              }
+              return null;
+            };
+            const raw = columnLayouts.raw || {};
+            const candidateKeys = ['79', '178', '179'];
+            for (let i = 0; i < candidateKeys.length; i += 1) {
+              const key = candidateKeys[i];
+              const candidate = extractNumeric(raw[key]);
+              if (candidate != null) {
+                return Math.max(fallback, Math.abs(candidate) * frameScale);
+              }
+            }
+            if (raw.columnsMeta) {
+              const nested = raw.columnsMeta;
+              for (let i = 0; i < candidateKeys.length; i += 1) {
+                const key = candidateKeys[i];
+                const candidate = extractNumeric(nested[key]);
+                if (candidate != null) {
+                  return Math.max(fallback, Math.abs(candidate) * frameScale);
+                }
+              }
+            }
+            return fallback;
+          };
+          const columnGutter = resolveColumnGutter();
+          const columnOffsets = new Array(columnCount).fill(0);
+          for (let i = 1; i < columnCount; i += 1) {
+            columnOffsets[i] = columnOffsets[i - 1] + columnWidths[i - 1] + columnGutter;
+          }
+          const columnCursorY = new Array(columnCount).fill(0);
+          const allLines = [];
+          paragraphLayouts.forEach((paragraph) => {
+            const lines = Array.isArray(paragraph.lines) ? paragraph.lines : [];
+            lines.forEach((line) => {
+              allLines.push({ line, paragraph });
+            });
+          });
+          allLines.sort((a, b) => {
+            const aIdx = Number.isFinite(a.line.globalIndex) ? a.line.globalIndex : 0;
+            const bIdx = Number.isFinite(b.line.globalIndex) ? b.line.globalIndex : 0;
+            return aIdx - bIdx;
+          });
+          allLines.forEach(({ line, paragraph }) => {
+            if (!line) {
+              return;
+            }
+            const alignment = (paragraph && paragraph.alignment) || { horizontal: 'left' };
+            const spacingValue = paragraph ? paragraph.lineSpacing : null;
+            const spacingStyle = paragraph ? paragraph.lineSpacingStyle : null;
+            const columnIndex = Number.isFinite(line.columnIndex)
+              ? Math.max(0, Math.min(columnCount - 1, line.columnIndex))
+              : 0;
+            const columnWidth = columnWidths[columnIndex] || defaultColumnWidth;
+            const baseX = columnOffsets[columnIndex] || 0;
+            const baseY = columnCursorY[columnIndex];
+            const lineHeight = Math.max(line.heightPx || text.lineHeight || text.fontSize || 10, 1);
+            const lineWidth = line.widthPx || 0;
+            const rightIndent = line.rightIndentPx || 0;
+            let startX = baseX;
+            if (alignment.horizontal === 'center') {
+              startX = baseX + (columnWidth - lineWidth) / 2;
+            } else if (alignment.horizontal === 'right') {
+              startX = baseX + Math.max(0, columnWidth - (lineWidth + rightIndent));
+            }
+          let cursorX = startX;
+          const segments = Array.isArray(line.segments) ? line.segments : [];
+          segments.forEach((segment) => {
+            drawSegmentBackground(segment, cursorX, baseY, lineHeight);
+            if (segment.type === 'fraction') {
+              drawFractionSegment(segment, cursorX, baseY);
+            } else {
+              drawSegmentText(segment, cursorX, baseY);
+            }
+            cursorX += segment.widthPx || 0;
+          });
+          const spacing = computeLineSpacing(lineHeight, spacingValue, spacingStyle, frameScale);
+          columnCursorY[columnIndex] += spacing;
+        });
+        } else if (Array.isArray(text.lines) && text.lines.length) {
+          ctx.fillStyle = text.colorCss || '#e8f1ff';
+          ctx.font = `${text.fontStyle || 'normal'} ${text.fontWeight || '400'} ${Math.max(6, text.fontSize || 10)}px ${text.fontFamily || 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'}`;
+          ctx.textAlign = text.textAlign || 'left';
+          ctx.textBaseline = 'top';
+          const lineHeight = Math.max(6, text.lineHeight || text.fontSize || 10);
+          for (let l = 0; l < text.lines.length; l++) {
+            const line = text.lines[l];
+            ctx.fillText(line, 0, lineHeight * l);
+          }
+        }
+
         ctx.restore();
       }
 

@@ -6351,63 +6351,544 @@
         if (!text || !text.screenPosition) return;
         const span = this.createElement('div');
         span.className = 'rendering-text-run';
+        const interaction = text.interaction || text.rawText?.interaction || null;
+        const isAttribute = interaction && interaction.type === 'attribute';
+        const paragraphLayouts = Array.isArray(text.paragraphLayouts) ? text.paragraphLayouts : null;
         const richRuns = (text.richRuns && text.richRuns.length)
           ? text.richRuns
           : (text.rawText && text.rawText.decodedMText && Array.isArray(text.rawText.decodedMText.runs)
               ? text.rawText.decodedMText.runs
               : null);
-        if (richRuns && richRuns.length) {
-          span.textContent = '';
-          const applyRunStyle = (node, runStyle) => {
-            if (!node || !runStyle) {
+        const clampByte = (n) => Math.max(0, Math.min(255, Math.round(n)));
+        const colorSpecToCss = (spec) => {
+          if (!spec) {
+            return null;
+          }
+          if (spec.type === 'rgb' && Number.isFinite(spec.r) && Number.isFinite(spec.g) && Number.isFinite(spec.b)) {
+            return `rgb(${clampByte(spec.r)}, ${clampByte(spec.g)}, ${clampByte(spec.b)})`;
+          }
+          if (spec.type === 'aci' && Number.isFinite(spec.index)) {
+            const rgb = this.lookupAciColor(Math.abs(spec.index));
+            return `rgb(${clampByte(rgb.r)}, ${clampByte(rgb.g)}, ${clampByte(rgb.b)})`;
+          }
+          if (spec.css) {
+            return spec.css;
+          }
+          return null;
+        };
+        const applyRunStyle = (node, runStyle) => {
+          if (!node || !runStyle) {
+            return;
+          }
+          node.style.fontWeight = runStyle.bold ? 'bold' : 'inherit';
+          node.style.fontStyle = runStyle.italic ? 'italic' : 'inherit';
+          const decorations = [];
+          if (runStyle.underline) {
+            decorations.push('underline');
+          }
+          if (runStyle.overline) {
+            decorations.push('overline');
+          }
+          if (runStyle.strike) {
+            decorations.push('line-through');
+          }
+          node.style.textDecoration = decorations.length ? decorations.join(' ') : 'none';
+          if (runStyle.font) {
+            node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
+          } else {
+            node.style.fontFamily = '';
+          }
+          if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
+            node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
+          } else {
+            node.style.fontSize = '';
+          }
+          if (runStyle.color) {
+            const textColor = colorSpecToCss(runStyle.color);
+            node.style.color = textColor || '';
+          } else {
+            node.style.color = '';
+          }
+          if (Number.isFinite(runStyle.tracking) && runStyle.tracking !== 0) {
+            node.style.letterSpacing = `${runStyle.tracking}em`;
+          } else {
+            node.style.letterSpacing = '';
+          }
+          const transforms = [];
+          if (Number.isFinite(runStyle.widthScale) && runStyle.widthScale > 0 && runStyle.widthScale !== 1) {
+            transforms.push(`scaleX(${runStyle.widthScale})`);
+          }
+          if (Number.isFinite(runStyle.oblique) && runStyle.oblique !== 0) {
+            transforms.push(`skewX(${runStyle.oblique}deg)`);
+          }
+          if (transforms.length) {
+            node.style.display = 'inline-block';
+            node.style.transformOrigin = '0 0';
+            node.style.transform = transforms.join(' ');
+          } else {
+            node.style.display = '';
+            node.style.transformOrigin = '';
+            node.style.transform = '';
+          }
+          if (runStyle.background && runStyle.background.enabled) {
+            const bgColor = colorSpecToCss(runStyle.background.color);
+            node.style.backgroundColor = bgColor || 'rgba(0, 0, 0, 0.25)';
+            node.style.padding = node.style.padding || '0.05em 0.1em';
+            node.style.borderRadius = node.style.borderRadius || '2px';
+          } else {
+            node.style.backgroundColor = '';
+            node.style.padding = '';
+            node.style.borderRadius = '';
+          }
+        };
+        const ensureBackgroundNode = () => {
+          span.style.background = '';
+          span.style.backgroundColor = '';
+          span.style.padding = '';
+          span.style.borderRadius = '';
+          if (!text.backgroundCss) {
+            return null;
+          }
+          const metrics = text.backgroundMetrics || null;
+          if (!metrics) {
+            span.style.backgroundColor = text.backgroundCss;
+            span.style.padding = '0.1em 0.2em';
+            span.style.borderRadius = '2px';
+            return null;
+          }
+          const backgroundNode = this.createElement('div');
+          if (!backgroundNode) {
+            return null;
+          }
+          backgroundNode.style.position = 'absolute';
+          backgroundNode.style.left = `${metrics.x}px`;
+          backgroundNode.style.top = `${metrics.y}px`;
+          backgroundNode.style.width = `${metrics.width}px`;
+          backgroundNode.style.height = `${metrics.height}px`;
+          backgroundNode.style.backgroundColor = text.backgroundCss;
+          backgroundNode.style.pointerEvents = 'none';
+          backgroundNode.style.zIndex = '0';
+          span.appendChild(backgroundNode);
+          return backgroundNode;
+        };
+        const computeBounds = (primary) => {
+          const result = { width: null, height: null };
+          const metrics = text.backgroundMetrics || null;
+          const widthCandidates = [];
+          const heightCandidates = [];
+          if (primary && Number.isFinite(primary.width)) {
+            widthCandidates.push(primary.width);
+          }
+          if (primary && Number.isFinite(primary.height)) {
+            heightCandidates.push(primary.height);
+          }
+          if (Number.isFinite(text.widthPx)) {
+            widthCandidates.push(text.widthPx);
+          }
+          if (Number.isFinite(text.baseWidthPx)) {
+            widthCandidates.push(text.baseWidthPx);
+          }
+          if (Number.isFinite(text.maxWidth)) {
+            widthCandidates.push(text.maxWidth);
+          }
+          if (metrics) {
+            const widthExtent = Math.max(0, metrics.x + metrics.width);
+            const heightExtent = Math.max(0, metrics.y + metrics.height);
+            if (widthExtent > 0) {
+              widthCandidates.push(widthExtent);
+            }
+            if (heightExtent > 0) {
+              heightCandidates.push(heightExtent);
+            }
+          }
+          const defaultHeight = Number.isFinite(text.heightPx)
+            ? text.heightPx
+            : Math.max(text.lineHeight || text.fontSize || 10, 1);
+          if (defaultHeight > 0) {
+            heightCandidates.push(defaultHeight);
+          }
+          const defaultWidth = Number.isFinite(text.widthPx)
+            ? text.widthPx
+            : Math.max(text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4, 1);
+          if (defaultWidth > 0) {
+            widthCandidates.push(defaultWidth);
+          }
+          if (widthCandidates.length) {
+            result.width = Math.max(...widthCandidates);
+          }
+          if (heightCandidates.length) {
+            result.height = Math.max(...heightCandidates);
+          }
+          return result;
+        };
+        const renderParagraphLayout = () => {
+          const backgroundMetrics = text.backgroundMetrics || null;
+          ensureBackgroundNode();
+          const applyFractionTextStyle = (node, runStyle) => {
+            if (!node) {
               return;
             }
-            if (runStyle.bold) {
-              node.style.fontWeight = 'bold';
-            }
-            if (runStyle.italic) {
-              node.style.fontStyle = 'italic';
-            }
+            const style = runStyle || {};
+            node.style.fontWeight = style.bold ? 'bold' : 'normal';
+            node.style.fontStyle = style.italic ? 'italic' : 'normal';
             const decorations = [];
-            if (runStyle.underline) {
+            if (style.underline) {
               decorations.push('underline');
             }
-            if (runStyle.overline) {
+            if (style.overline) {
               decorations.push('overline');
             }
-            if (runStyle.strike) {
+            if (style.strike) {
               decorations.push('line-through');
             }
-            if (decorations.length) {
-              node.style.textDecoration = decorations.join(' ');
+            node.style.textDecoration = decorations.join(' ');
+            const textColor = colorSpecToCss(style.color, text.colorCss || '#e8f1ff');
+            if (textColor) {
+              node.style.color = textColor;
             }
-            if (runStyle.font) {
-              node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
-            }
-            if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
-              node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
-            }
+            node.style.fontFamily = text.fontFamily || 'Arial, "Helvetica Neue", Helvetica, sans-serif';
           };
-          richRuns.forEach((run) => {
-            const segments = String(run.text || '').split('\n');
-            segments.forEach((segment, segmentIndex) => {
-              const runNode = this.createElement('span');
-              if (!runNode) {
-                return;
+          const createFractionNode = (segment) => {
+            if (!segment || !segment.numerator || !segment.denominator) {
+              return null;
+            }
+            const container = this.createElement('span');
+            if (!container) {
+              return null;
+            }
+            container.style.display = 'inline-block';
+            container.style.position = 'relative';
+            container.style.width = `${segment.widthPx || 0}px`;
+            container.style.height = `${segment.heightPx
+              || (segment.numerator.fontSizePx || 0)
+              + (segment.denominator.fontSizePx || 0)
+              + (segment.gapPx || 0) * 2
+              + (segment.barThicknessPx || 0)}px`;
+            container.style.verticalAlign = 'top';
+            container.style.boxSizing = 'border-box';
+            container.style.whiteSpace = 'normal';
+            container.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            const background = segment.style && segment.style.background;
+            if (background && background.enabled) {
+              const bgColor = colorSpecToCss(background.color, 'rgba(0, 0, 0, 0.25)');
+              container.style.backgroundColor = bgColor || 'rgba(0, 0, 0, 0.25)';
+              container.style.padding = container.style.padding || '0.05em 0.1em';
+              container.style.borderRadius = container.style.borderRadius || '2px';
+            }
+            const content = this.createElement('span');
+            if (!content) {
+              return container;
+            }
+            content.style.display = 'flex';
+            content.style.flexDirection = 'column';
+            content.style.alignItems = 'center';
+            content.style.justifyContent = 'center';
+            content.style.width = `${segment.baseWidthPx || segment.widthPx || 0}px`;
+            content.style.height = '100%';
+            content.style.transformOrigin = '0 0';
+            const widthScale = Number.isFinite(segment.style && segment.style.widthScale) && segment.style.widthScale > 0
+              ? segment.style.widthScale
+              : 1;
+            const oblique = Number.isFinite(segment.style && segment.style.oblique)
+              ? segment.style.oblique
+              : 0;
+            if (widthScale !== 1 || oblique !== 0) {
+              content.style.transform = `scaleX(${widthScale}) skewX(${oblique}deg)`;
+            }
+            const padding = Number.isFinite(segment.basePaddingPx) ? segment.basePaddingPx : (segment.paddingPx || 0);
+            if (padding > 0) {
+              content.style.paddingLeft = `${padding}px`;
+              content.style.paddingRight = `${padding}px`;
+            }
+            const numeratorNode = this.createElement('span');
+            if (numeratorNode) {
+              numeratorNode.textContent = segment.numerator.text;
+              numeratorNode.style.display = 'block';
+              numeratorNode.style.lineHeight = '1';
+              numeratorNode.style.textAlign = 'center';
+              numeratorNode.style.marginBottom = `${segment.gapPx || 0}px`;
+              numeratorNode.style.fontSize = `${Math.max(1, segment.numerator.fontSizePx || 0)}px`;
+              applyFractionTextStyle(numeratorNode, segment.style);
+              content.appendChild(numeratorNode);
+            }
+            const barNode = this.createElement('span');
+            if (barNode) {
+              barNode.style.display = 'block';
+              barNode.style.width = '100%';
+              barNode.style.height = `${segment.barThicknessPx || 1}px`;
+              barNode.style.backgroundColor = colorSpecToCss(segment.style && segment.style.color, text.colorCss || '#e8f1ff') || text.colorCss || '#e8f1ff';
+              content.appendChild(barNode);
+            }
+            const denominatorNode = this.createElement('span');
+            if (denominatorNode) {
+              denominatorNode.textContent = segment.denominator.text;
+              denominatorNode.style.display = 'block';
+              denominatorNode.style.lineHeight = '1';
+              denominatorNode.style.textAlign = 'center';
+              denominatorNode.style.marginTop = `${segment.gapPx || 0}px`;
+              denominatorNode.style.fontSize = `${Math.max(1, segment.denominator.fontSizePx || 0)}px`;
+              applyFractionTextStyle(denominatorNode, segment.style);
+              content.appendChild(denominatorNode);
+            }
+            container.appendChild(content);
+            return container;
+          };
+          const computeLineSpacing = (lineHeightPx, spacingValue, spacingStyle, frameScaleValue) => {
+            const base = lineHeightPx || Math.max(text.lineHeight || text.fontSize || 10, 1);
+            if (Number.isFinite(spacingValue) && spacingValue > 0) {
+              const scaled = spacingValue * (frameScaleValue || 1);
+              if (spacingStyle === 2) {
+                return scaled;
               }
-              runNode.textContent = segment;
-              applyRunStyle(runNode, run.style || null);
-              span.appendChild(runNode);
-              if (segmentIndex < segments.length - 1) {
-                const br = this.createElement('br');
-                if (br) {
-                  span.appendChild(br);
+              return Math.max(base, scaled);
+            }
+            return base;
+          };
+          const columnLayouts = text.columnLayouts && Array.isArray(text.columnLayouts.layouts)
+            ? text.columnLayouts
+            : null;
+          const hasColumns = columnLayouts && columnLayouts.layouts.length > 0;
+          const columnCount = hasColumns
+            ? Math.max(columnLayouts.count || columnLayouts.layouts.length, 1)
+            : 1;
+          const defaultWidthSource = Math.max(
+            text.widthPx || text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4,
+            1
+          );
+          const defaultColumnWidth = defaultWidthSource / Math.max(columnCount, 1);
+          const widthsSource = Array.isArray(columnLayouts && columnLayouts.widthsPx)
+            ? columnLayouts.widthsPx
+            : null;
+          const columnWidths = new Array(columnCount).fill(0).map((_, idx) => {
+            const metadataWidth = widthsSource && Number.isFinite(widthsSource[idx]) ? widthsSource[idx] : 0;
+            return metadataWidth > 0 ? metadataWidth : defaultColumnWidth;
+          });
+          const resolveColumnGutter = () => {
+            if (!hasColumns) {
+              return 0;
+            }
+            const fallback = Math.max(2, (text.fontSize || 10) * 0.5);
+            if (!columnLayouts || !columnLayouts.raw) {
+              return fallback;
+            }
+            const extractNumeric = (value) => {
+              if (Array.isArray(value)) {
+                for (let i = 0; i < value.length; i += 1) {
+                  const candidate = value[i];
+                  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+                    return candidate;
+                  }
+                }
+              } else if (typeof value === 'number' && Number.isFinite(value)) {
+                return value;
+              }
+              return null;
+            };
+            const raw = columnLayouts.raw || {};
+            const candidateKeys = ['79', '178', '179'];
+            for (let i = 0; i < candidateKeys.length; i += 1) {
+              const key = candidateKeys[i];
+              const candidate = extractNumeric(raw[key]);
+              if (candidate != null) {
+                return Math.max(fallback, Math.abs(candidate) * (text.frameScale || 1));
+              }
+            }
+            if (raw.columnsMeta) {
+              const nested = raw.columnsMeta;
+              for (let i = 0; i < candidateKeys.length; i += 1) {
+                const key = candidateKeys[i];
+                const candidate = extractNumeric(nested[key]);
+                if (candidate != null) {
+                  return Math.max(fallback, Math.abs(candidate) * (text.frameScale || 1));
                 }
               }
+            }
+            return fallback;
+          };
+          const columnGutter = resolveColumnGutter();
+          const columnOffsets = new Array(columnCount).fill(0);
+          for (let i = 1; i < columnCount; i += 1) {
+            columnOffsets[i] = columnOffsets[i - 1] + columnWidths[i - 1] + columnGutter;
+          }
+          const columnNodes = new Array(columnCount);
+          for (let i = 0; i < columnCount; i += 1) {
+            const node = this.createElement('div');
+            node.style.position = 'absolute';
+            node.style.top = '0px';
+            node.style.left = `${columnOffsets[i]}px`;
+            node.style.width = `${columnWidths[i]}px`;
+            node.style.whiteSpace = 'nowrap';
+            node.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            node.style.display = 'block';
+             node.style.zIndex = '1';
+            columnNodes[i] = node;
+            span.appendChild(node);
+          }
+          const columnCursorY = new Array(columnCount).fill(0);
+          const allLines = [];
+          paragraphLayouts.forEach((paragraph) => {
+            const lines = Array.isArray(paragraph.lines) ? paragraph.lines : [];
+            lines.forEach((line) => {
+              allLines.push({ line, paragraph });
             });
           });
+          allLines.sort((a, b) => {
+            const aIdx = Number.isFinite(a.line.globalIndex) ? a.line.globalIndex : 0;
+            const bIdx = Number.isFinite(b.line.globalIndex) ? b.line.globalIndex : 0;
+            return aIdx - bIdx;
+          });
+          allLines.forEach(({ line, paragraph }) => {
+            if (!line) {
+              return;
+            }
+            const alignment = (paragraph && paragraph.alignment) || { horizontal: 'left' };
+            const spacingValue = paragraph ? paragraph.lineSpacing : null;
+            const spacingStyle = paragraph ? paragraph.lineSpacingStyle : null;
+            const columnIndex = Number.isFinite(line.columnIndex)
+              ? Math.max(0, Math.min(columnCount - 1, line.columnIndex))
+              : 0;
+            const columnWidth = columnWidths[columnIndex] || defaultColumnWidth;
+            const baseX = columnOffsets[columnIndex] || 0;
+            const baseY = columnCursorY[columnIndex];
+            const lineHeight = Math.max(line.heightPx || text.lineHeight || text.fontSize || 10, 1);
+            const lineWidth = line.widthPx || 0;
+            const rightIndent = line.rightIndentPx || 0;
+            let startX = baseX;
+            if (alignment.horizontal === 'center') {
+              startX = baseX + (columnWidth - lineWidth) / 2;
+            } else if (alignment.horizontal === 'right') {
+              startX = baseX + Math.max(0, columnWidth - (lineWidth + rightIndent));
+            }
+            const lineNode = this.createElement('div');
+            lineNode.style.position = 'absolute';
+            lineNode.style.left = `${Math.max(0, startX - baseX)}px`;
+            lineNode.style.top = `${baseY}px`;
+            lineNode.style.height = `${lineHeight}px`;
+            lineNode.style.whiteSpace = 'nowrap';
+            lineNode.style.display = 'block';
+            lineNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            const segments = Array.isArray(line.segments) ? line.segments : [];
+            segments.forEach((segment) => {
+              let segmentNode = null;
+              if (segment.type === 'fraction') {
+                segmentNode = createFractionNode(segment);
+              } else {
+                segmentNode = this.createElement('span');
+                if (!segmentNode) {
+                  return;
+                }
+                if (segment.type === 'indent' || segment.type === 'tab' || segment.type === 'markerSpacing') {
+                  segmentNode.textContent = '';
+                  segmentNode.style.display = 'inline-block';
+                  segmentNode.style.width = `${Math.max(0, segment.widthPx || 0)}px`;
+                } else {
+                  segmentNode.textContent = segment.text || '';
+                  applyRunStyle(segmentNode, segment.style || null);
+                  if (segment.style && segment.style.background && segment.style.background.enabled) {
+                    const bgColor = colorSpecToCss(segment.style.background.color);
+                    if (bgColor) {
+                      segmentNode.style.backgroundColor = bgColor;
+                      segmentNode.style.padding = segmentNode.style.padding || '0.05em 0.1em';
+                      segmentNode.style.borderRadius = segmentNode.style.borderRadius || '2px';
+                    }
+                  }
+                }
+              }
+              if (!segmentNode) {
+                return;
+              }
+              segmentNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+              lineNode.appendChild(segmentNode);
+            });
+            if (rightIndent > 0) {
+              const rightSpacer = this.createElement('span');
+              rightSpacer.textContent = '';
+              rightSpacer.style.display = 'inline-block';
+              rightSpacer.style.width = `${rightIndent}px`;
+              rightSpacer.style.pointerEvents = 'none';
+              lineNode.appendChild(rightSpacer);
+            }
+            columnNodes[columnIndex].appendChild(lineNode);
+            const spacing = computeLineSpacing(lineHeight, spacingValue, spacingStyle, text.frameScale || 1);
+            columnCursorY[columnIndex] += spacing;
+          });
+          const totalWidth = columnOffsets[columnCount - 1] + columnWidths[columnCount - 1];
+          const totalHeight = columnCursorY.reduce((acc, value) => Math.max(acc, value), 0);
+          const widthCandidates = [
+            totalWidth,
+            text.widthPx || defaultWidthSource,
+            backgroundMetrics ? Math.max(0, backgroundMetrics.x + backgroundMetrics.width) : 0
+          ].filter((value) => Number.isFinite(value) && value > 0);
+          const heightCandidates = [
+            totalHeight,
+            text.heightPx || text.lineHeight || text.fontSize || 10,
+            backgroundMetrics ? Math.max(0, backgroundMetrics.y + backgroundMetrics.height) : 0
+          ].filter((value) => Number.isFinite(value) && value > 0);
+          const widthValue = widthCandidates.length ? Math.max(...widthCandidates) : Math.max(defaultWidthSource, 0);
+          const heightValue = heightCandidates.length ? Math.max(...heightCandidates) : Math.max(text.lineHeight || text.fontSize || 10, 0);
+          return { width: widthValue, height: heightValue };
+        };
+        let contentBounds = null;
+        if (paragraphLayouts && paragraphLayouts.length) {
+          span.textContent = '';
+          const paragraphBounds = renderParagraphLayout();
+          contentBounds = computeBounds(paragraphBounds);
+        } else if (richRuns && richRuns.length) {
+          span.textContent = '';
+          ensureBackgroundNode();
+          const flowRoot = this.createElement('div');
+          if (flowRoot) {
+            flowRoot.style.position = 'absolute';
+            flowRoot.style.left = '0px';
+            flowRoot.style.top = '0px';
+            flowRoot.style.whiteSpace = 'pre';
+            flowRoot.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            flowRoot.style.zIndex = '1';
+            span.appendChild(flowRoot);
+            richRuns.forEach((run) => {
+              if (run && run.type === 'paragraphBreak') {
+                const br = this.createElement('br');
+                if (br) {
+                  flowRoot.appendChild(br);
+                }
+                return;
+              }
+              const segments = String(run.text || '').split('\n');
+              segments.forEach((segment, segmentIndex) => {
+                const runNode = this.createElement('span');
+                if (!runNode) {
+                  return;
+                }
+                runNode.textContent = segment;
+                applyRunStyle(runNode, run.style || null);
+                runNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+                flowRoot.appendChild(runNode);
+                if (segmentIndex < segments.length - 1) {
+                  const br = this.createElement('br');
+                  if (br) {
+                    flowRoot.appendChild(br);
+                  }
+                }
+              });
+            });
+          }
+          contentBounds = computeBounds(null);
         } else {
-          span.textContent = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+          span.textContent = '';
+          ensureBackgroundNode();
+          const content = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
+          const contentNode = this.createElement('div');
+          if (contentNode) {
+            contentNode.textContent = content;
+            contentNode.style.position = 'absolute';
+            contentNode.style.left = '0px';
+            contentNode.style.top = '0px';
+            contentNode.style.whiteSpace = 'pre';
+            contentNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
+            contentNode.style.zIndex = '1';
+            span.appendChild(contentNode);
+          }
+          contentBounds = computeBounds(null);
         }
         span.style.position = 'absolute';
         span.style.left = '0px';
@@ -6432,9 +6913,7 @@
         span.style.fontStyle = text.fontStyle || 'normal';
         span.style.fontWeight = text.fontWeight || '400';
         span.style.color = text.colorCss || '#e8f1ff';
-        span.style.whiteSpace = 'pre';
-        const interaction = text.interaction || text.rawText?.interaction || null;
-        const isAttribute = interaction && interaction.type === 'attribute';
+        span.style.whiteSpace = paragraphLayouts && paragraphLayouts.length ? 'normal' : 'pre';
         if (isAttribute) {
           span.classList.add('rendering-text-attribute');
           span.dataset.attributeTag = interaction.tag || '';
@@ -6489,13 +6968,14 @@
           span.style.userSelect = 'none';
         }
         span.style.textAlign = text.textAlign || 'left';
-        if (text.baseWidthPx) {
-          span.style.width = `${text.baseWidthPx}px`;
-        }
-        if (text.backgroundCss) {
-          span.style.background = text.backgroundCss;
-          span.style.padding = '0.1em 0.2em';
-          span.style.borderRadius = '2px';
+        const boundsForSizing = contentBounds || computeBounds(null);
+        if (boundsForSizing) {
+          if (Number.isFinite(boundsForSizing.width) && boundsForSizing.width > 0) {
+            span.style.width = `${boundsForSizing.width}px`;
+          }
+          if (Number.isFinite(boundsForSizing.height) && boundsForSizing.height > 0) {
+            span.style.height = `${boundsForSizing.height}px`;
+          }
         }
         this.textLayer.appendChild(span);
       });

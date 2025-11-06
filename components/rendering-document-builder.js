@@ -911,6 +911,16 @@
       if (sceneGraph && typeof sceneGraph === 'object') {
         sceneGraph.blockMetadata = blockMetadata;
         sceneGraph.textStyleCatalog = this.computeTextStyleCatalog(tables);
+        if (!sceneGraph.fieldContext) {
+          sceneGraph.fieldContext = {
+            drawingProperties,
+            metadata: drawingProperties ? drawingProperties.metadata : null,
+            geographic: drawingProperties ? drawingProperties.geographic : null,
+            headerVariables: drawingProperties && drawingProperties.geographic
+              ? drawingProperties.geographic.headerVariables
+              : null
+          };
+        }
       }
       const stats = Object.assign({}, sceneGraph.stats, {
         renderableEntities: entities.length,
