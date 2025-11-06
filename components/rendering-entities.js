@@ -103,6 +103,222 @@
     return trimmed ? trimmed.toUpperCase() : null;
   }
 
+  function lookupHandleMap(map, handle) {
+    if (!map || !handle) {
+      return null;
+    }
+    const normalized = normalizeHandle(handle);
+    if (map instanceof Map) {
+      if (normalized && map.has(normalized)) {
+        return map.get(normalized);
+      }
+      if (map.has(handle)) {
+        return map.get(handle);
+      }
+      return null;
+    }
+    if (normalized && Object.prototype.hasOwnProperty.call(map, normalized)) {
+      return map[normalized];
+    }
+    if (Object.prototype.hasOwnProperty.call(map, handle)) {
+      return map[handle];
+    }
+    return null;
+  }
+
+  function extractHandlesFromRawTags(rawTags) {
+    if (!Array.isArray(rawTags) || !rawTags.length) {
+      return [];
+    }
+    const handles = [];
+    rawTags.forEach((tag) => {
+      if (!tag || tag.code == null) {
+        return;
+      }
+      const code = Number(tag.code);
+      if (!Number.isFinite(code)) {
+        return;
+      }
+      if (code >= 330 && code <= 369) {
+        const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+        if (rawHandle) {
+          handles.push(rawHandle);
+        }
+      }
+    });
+    return handles;
+  }
+
+  function collectSpatialFilters(handle, context, visitedDictionaries = new Set(), visitedFilters = new Set()) {
+    if (!handle || !context) {
+      return [];
+    }
+    const dictionaries = context.dictionaries || {};
+    const spatialFilters = context.spatialFilters || {};
+    const xrecords = context.xrecords || {};
+    const dictionary = lookupHandleMap(dictionaries, handle);
+    if (!dictionary) {
+      const filter = lookupHandleMap(spatialFilters, handle);
+      if (!filter) {
+        return [];
+      }
+      const filterKey = filter.handleUpper || normalizeHandle(filter.handle || handle);
+      if (filterKey && visitedFilters.has(filterKey)) {
+        return [];
+      }
+      if (filterKey) {
+        visitedFilters.add(filterKey);
+      }
+      return [filter];
+    }
+    const dictKey = dictionary.handleUpper || normalizeHandle(dictionary.handle || handle);
+    if (dictKey && visitedDictionaries.has(dictKey)) {
+      return [];
+    }
+    if (dictKey) {
+      visitedDictionaries.add(dictKey);
+    }
+    const results = [];
+    (dictionary.entries || []).forEach((entry) => {
+      if (!entry) {
+        return;
+      }
+      const entryHandle = entry.handleUpper || entry.handle;
+      if (!entryHandle) {
+        return;
+      }
+      const directFilter = lookupHandleMap(spatialFilters, entryHandle);
+      if (directFilter) {
+        const filterKey = directFilter.handleUpper || normalizeHandle(directFilter.handle || entryHandle);
+        if (!filterKey || visitedFilters.has(filterKey)) {
+          return;
+        }
+        visitedFilters.add(filterKey);
+        results.push(directFilter);
+        return;
+      }
+      const nestedDictionary = lookupHandleMap(dictionaries, entryHandle);
+      if (nestedDictionary) {
+        results.push(...collectSpatialFilters(entryHandle, context, visitedDictionaries, visitedFilters));
+        return;
+      }
+      const xrecord = lookupHandleMap(xrecords, entryHandle);
+      if (xrecord) {
+        const relatedHandles = extractHandlesFromRawTags(xrecord.rawTags || []);
+        relatedHandles.forEach((candidate) => {
+          const nestedFilter = lookupHandleMap(spatialFilters, candidate);
+          if (nestedFilter) {
+            const filterKey = nestedFilter.handleUpper || normalizeHandle(nestedFilter.handle || candidate);
+            if (filterKey && !visitedFilters.has(filterKey)) {
+              visitedFilters.add(filterKey);
+              results.push(nestedFilter);
+            }
+            return;
+          }
+          const extraDictionary = lookupHandleMap(dictionaries, candidate);
+          if (extraDictionary) {
+            results.push(...collectSpatialFilters(candidate, context, visitedDictionaries, visitedFilters));
+          }
+        });
+      }
+    });
+    return results;
+  }
+
+  function convertSpatialFilterRecord(record) {
+    if (!record || typeof record !== 'object') {
+      return null;
+    }
+    const ensureVector = (vector, fallback) => {
+      const result = {
+        x: fallback && Number.isFinite(fallback.x) ? fallback.x : 0,
+        y: fallback && Number.isFinite(fallback.y) ? fallback.y : 0,
+        z: fallback && Number.isFinite(fallback.z) ? fallback.z : 0
+      };
+      if (vector && typeof vector === 'object') {
+        if (Number.isFinite(vector.x)) result.x = vector.x;
+        if (Number.isFinite(vector.y)) result.y = vector.y;
+        if (Number.isFinite(vector.z)) result.z = vector.z;
+      }
+      return result;
+    };
+    const boundary = Array.isArray(record.boundary)
+      ? record.boundary.map((pt) => ({
+          x: Number.isFinite(pt && pt.x) ? pt.x : 0,
+          y: Number.isFinite(pt && pt.y) ? pt.y : 0
+        }))
+      : [];
+    const convertMatrixValues = (values) => {
+      if (!Array.isArray(values) || values.length < 12) {
+        return null;
+      }
+      const safe = (index) => {
+        const value = values[index];
+        return Number.isFinite(value) ? value : 0;
+      };
+      const array = new Float64Array(16);
+      array[0] = safe(0);
+      array[1] = safe(4);
+      array[2] = safe(8);
+      array[3] = safe(3);
+      array[4] = safe(1);
+      array[5] = safe(5);
+      array[6] = safe(9);
+      array[7] = safe(7);
+      array[8] = safe(2);
+      array[9] = safe(6);
+      array[10] = safe(10);
+      array[11] = safe(11);
+      array[12] = 0;
+      array[13] = 0;
+      array[14] = 0;
+      array[15] = 1;
+      return array;
+    };
+    return {
+      handle: record.handle || record.handleUpper || null,
+      boundary,
+      origin: ensureVector(record.origin, { x: 0, y: 0, z: 0 }),
+      extrusion: ensureVector(record.extrusion, { x: 0, y: 0, z: 1 }),
+      clippingEnabled: record.clippingEnabled != null ? !!record.clippingEnabled : true,
+      frontClip: {
+        enabled: !!(record.frontClip && record.frontClip.enabled),
+        distance: record.frontClip ? record.frontClip.distance : null
+      },
+      backClip: {
+        enabled: !!(record.backClip && record.backClip.enabled),
+        distance: record.backClip ? record.backClip.distance : null
+      },
+      inverseInsertMatrix: convertMatrixValues(record.inverseInsertMatrix),
+      clipBoundaryMatrix: convertMatrixValues(record.clipBoundaryMatrix)
+    };
+  }
+
+  function resolveInsertClipFilters(metadata, context) {
+    if (!metadata) {
+      return [];
+    }
+    const dictionaries = context && context.dictionaries;
+    const spatialFilters = context && context.spatialFilters;
+    if (!dictionaries || !spatialFilters) {
+      return [];
+    }
+    const dictionaryHandle = metadata.extensionDictionaryUpper
+      || metadata.extensionDictionary
+      || null;
+    if (!dictionaryHandle) {
+      return [];
+    }
+    const filters = collectSpatialFilters(dictionaryHandle, {
+      dictionaries,
+      spatialFilters,
+      xrecords: context && context.xrecords
+    });
+    return filters
+      .map((record) => convertSpatialFilterRecord(record))
+      .filter((value) => value != null);
+  }
+
   function extractExtrusion(tags) {
     const nx = toFloat(getFirstCodeValue(tags, 210));
     const ny = toFloat(getFirstCodeValue(tags, 220));
@@ -702,7 +918,13 @@
     if (trueColor) {
       color = { type: 'true', value: trueColor };
     } else if (Number.isInteger(colorNumber)) {
-      color = { type: 'aci', value: colorNumber };
+      if (colorNumber === 0) {
+        color = { type: 'byBlock', value: null };
+      } else if (colorNumber === 256) {
+        color = { type: 'byLayer', value: null };
+      } else {
+        color = { type: 'aci', value: colorNumber };
+      }
     } else {
       color = { type: 'byLayer', value: null };
     }
@@ -724,6 +946,63 @@
       colorName: colorBookColor || null,
       handle: colorBookHandle
     } : null;
+
+    let extensionDictionaryHandle = null;
+    const reactorHandlesRaw = [];
+    if (Array.isArray(tags)) {
+      const markerStack = [];
+      tags.forEach((tag) => {
+        if (!tag || tag.code == null) {
+          return;
+        }
+        const code = Number(tag.code);
+        if (!Number.isFinite(code)) {
+          return;
+        }
+        if (code === 102) {
+          const rawMarker = typeof tag.value === 'string'
+            ? tag.value.trim()
+            : (tag.value != null ? String(tag.value).trim() : '');
+          if (!rawMarker) {
+            return;
+          }
+          if (rawMarker === '}') {
+            markerStack.pop();
+            return;
+          }
+          if (rawMarker.startsWith('{')) {
+            const label = rawMarker.slice(1).trim().toUpperCase();
+            if (label) {
+              markerStack.push(label);
+            }
+          }
+          return;
+        }
+        if (!markerStack.length) {
+          return;
+        }
+        const activeMarker = markerStack[markerStack.length - 1];
+        if (activeMarker === 'ACAD_XDICTIONARY' && code === 360) {
+          const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+          if (rawHandle) {
+            extensionDictionaryHandle = rawHandle;
+          }
+          return;
+        }
+        if (activeMarker === 'ACAD_REACTORS' && code >= 330 && code <= 369) {
+          const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+          if (rawHandle) {
+            reactorHandlesRaw.push(rawHandle);
+          }
+        }
+      });
+    }
+    const normalizedExtensionDictionary = extensionDictionaryHandle
+      ? normalizeHandle(extensionDictionaryHandle)
+      : null;
+    const reactorHandles = reactorHandlesRaw
+      .map((value) => normalizeHandle(value))
+      .filter((value, index, array) => value && array.indexOf(value) === index);
 
     const metadata = {
       handle: handle || null,
@@ -747,7 +1026,10 @@
       visualStyle: visualStyle || null,
       shadowMode,
       spaceFlag,
-      colorBook
+      colorBook,
+      extensionDictionary: extensionDictionaryHandle || null,
+      extensionDictionaryUpper: normalizedExtensionDictionary,
+      reactors: reactorHandles
     };
 
     const defaults = context && context.entityDefaults ? context.entityDefaults : null;
@@ -1412,7 +1694,8 @@ function collectUnderlayClip(map) {
           rowCount: toInt(map.get(71)?.[0]) || 1,
           columnSpacing: toFloat(map.get(44)?.[0]) ?? 0,
           rowSpacing: toFloat(map.get(45)?.[0]) ?? 0,
-          hasAttributes: (toInt(map.get(66)?.[0]) || 0) === 1
+          hasAttributes: (toInt(map.get(66)?.[0]) || 0) === 1,
+          extrusion: extractExtrusion(tags)
         };
       }
       case 'DIMENSION': {
@@ -2415,6 +2698,13 @@ function collectUnderlayClip(map) {
         geometry.traceWidth = displaySettings.traceWidth;
       }
 
+      if (geometry && upperType === 'INSERT') {
+        const clipFilters = resolveInsertClipFilters(metadata, context);
+        if (clipFilters.length) {
+          geometry.clipFilters = clipFilters;
+        }
+      }
+
       return {
         id: entityId,
         type: upperType,
@@ -2431,6 +2721,9 @@ function collectUnderlayClip(map) {
         thickness: metadata.thickness,
         elevation: metadata.elevation,
         extrusion: metadata.extrusion,
+        extensionDictionary: metadata.extensionDictionary || null,
+        extensionDictionaryUpper: metadata.extensionDictionaryUpper || null,
+        reactors: Array.isArray(metadata.reactors) ? metadata.reactors.slice() : [],
         flags: metadata.flags,
         owner: metadata.owner,
         handle: metadata.handle,

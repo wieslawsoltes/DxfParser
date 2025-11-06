@@ -802,6 +802,15 @@
       const lightListsByHandle = auxiliaryObjects.lightLists && auxiliaryObjects.lightLists.byHandle
         ? auxiliaryObjects.lightLists.byHandle
         : Object.create(null);
+      const dictionariesByHandle = auxiliaryObjects.dictionaries && auxiliaryObjects.dictionaries.byHandle
+        ? auxiliaryObjects.dictionaries.byHandle
+        : Object.create(null);
+      const xrecordsByHandle = auxiliaryObjects.xrecords && auxiliaryObjects.xrecords.byHandle
+        ? auxiliaryObjects.xrecords.byHandle
+        : Object.create(null);
+      const spatialFiltersByHandle = auxiliaryObjects.spatialFilters && auxiliaryObjects.spatialFilters.byHandle
+        ? auxiliaryObjects.spatialFilters.byHandle
+        : Object.create(null);
       const { entities, blocks } = this.extractEntities(
         tables,
         materialCatalog,
@@ -901,7 +910,10 @@
         proxyObjects: proxyObjectsByHandle,
         datalinks: datalinksByHandle,
         dictionaryVariables: dictionaryVariablesByName,
-        lightLists: lightListsByHandle
+        lightLists: lightListsByHandle,
+        dictionaries: dictionariesByHandle,
+        xrecords: xrecordsByHandle,
+        spatialFilters: spatialFiltersByHandle
       });
 
       entities.forEach((entity) => sceneGraphBuilder.ingestEntity(entity));
@@ -955,7 +967,10 @@
         proxyObjects: auxiliaryObjects.proxyObjects,
         datalinks: auxiliaryObjects.datalinks,
         dictionaryVariables: auxiliaryObjects.dictionaryVariables,
-        lightLists: auxiliaryObjects.lightLists
+        lightLists: auxiliaryObjects.lightLists,
+        dictionaries: auxiliaryObjects.dictionaries,
+        xrecords: auxiliaryObjects.xrecords,
+        spatialFilters: auxiliaryObjects.spatialFilters
       };
     }
 
@@ -1769,6 +1784,133 @@
         return { byName: {}, ordered: [], count: 0 };
       }
 
+      const normalizeUnitsCode = (code) => {
+        if (code == null) {
+          return null;
+        }
+        const numeric = Number(code);
+        if (!Number.isFinite(numeric)) {
+          return null;
+        }
+        const coerced = Math.trunc(numeric);
+        return Number.isFinite(coerced) ? coerced : null;
+      };
+
+      const unitNameLookup = {
+        0: 'unitless',
+        1: 'inches',
+        2: 'feet',
+        3: 'miles',
+        4: 'millimeters',
+        5: 'centimeters',
+        6: 'meters',
+        7: 'kilometers',
+        8: 'micro-inches',
+        9: 'mils',
+        10: 'yards',
+        11: 'angstroms',
+        12: 'nanometers',
+        13: 'micrometers',
+        14: 'decimeters',
+        15: 'decameters',
+        16: 'hectometers',
+        17: 'gigameters',
+        18: 'astronomical units',
+        19: 'light years',
+        20: 'parsecs',
+        21: 'us survey feet'
+      };
+
+      const formatUnitShort = (code) => {
+        if (code === 'unitless') {
+          return 'unitless';
+        }
+        const normalized = normalizeUnitsCode(code);
+        if (normalized == null) {
+          return 'unspecified';
+        }
+        return unitNameLookup[normalized] || `code ${normalized}`;
+      };
+
+      const formatNumber = (value) => {
+        if (!Number.isFinite(value)) {
+          return 'NaN';
+        }
+        const abs = Math.abs(value);
+        if (abs === 0) {
+          return '0';
+        }
+        if (abs >= 10000 || abs < 1e-4) {
+          return value.toExponential(3).replace(/e\+?0*/, 'e');
+        }
+        return value.toFixed(6).replace(/\.?0+$/, '');
+      };
+
+      const formatVector = (vector) => {
+        if (!vector || typeof vector !== 'object') {
+          return '0/0/0';
+        }
+        const safe = (value) => {
+          if (!Number.isFinite(value)) {
+            return 'NaN';
+          }
+          return formatNumber(value);
+        };
+        return `${safe(vector.x ?? 0)}/${safe(vector.y ?? 0)}/${safe(vector.z ?? 0)}`;
+      };
+
+      const unitFactorFromCode = (code) => {
+        const normalized = normalizeUnitsCode(code);
+        if (normalized == null) {
+          return 1;
+        }
+        if (Object.prototype.hasOwnProperty.call(unitNameLookup, normalized)) {
+          switch (normalized) {
+            case 0: return 1;
+            case 1: return 0.0254;
+            case 2: return 0.3048;
+            case 3: return 1609.344;
+            case 4: return 0.001;
+            case 5: return 0.01;
+            case 6: return 1;
+            case 7: return 1000;
+            case 8: return 2.54e-7;
+            case 9: return 2.54e-5;
+            case 10: return 0.9144;
+            case 11: return 1e-10;
+            case 12: return 1e-9;
+            case 13: return 1e-6;
+            case 14: return 0.1;
+            case 15: return 10;
+            case 16: return 100;
+            case 17: return 1e9;
+            case 18: return 1.495978707e11;
+            case 19: return 9.460730472e15;
+            case 20: return 3.085677582e16;
+            case 21: return 0.3048006096012192;
+            default: break;
+          }
+        }
+        return 1;
+      };
+
+      const unitConversionFactor = (source, target) => {
+        const sourceFactor = unitFactorFromCode(source);
+        const targetFactor = unitFactorFromCode(target);
+        if (!Number.isFinite(sourceFactor) || !Number.isFinite(targetFactor) || targetFactor === 0) {
+          return 1;
+        }
+        return sourceFactor / targetFactor;
+      };
+
+      const unitsContext = sceneGraph.units || {};
+      const normalizedPrimaryUnits = normalizeUnitsCode(unitsContext.insUnits);
+      const normalizedDefaultSourceUnits = normalizeUnitsCode(unitsContext.insUnitsSource);
+      const normalizedDefaultTargetUnits = normalizeUnitsCode(unitsContext.insUnitsTarget);
+      const defaultInsertScaleFactor = Number.isFinite(unitsContext.scaleFactor) && unitsContext.scaleFactor !== 0
+        ? Math.abs(unitsContext.scaleFactor)
+        : 1;
+
       const blocks = sceneGraph.blocks || {};
       const metadataMap = new Map();
 
@@ -1796,10 +1938,194 @@
             layoutUsage: new Map(),
             ownerUsage: new Map(),
             parentBlocks: new Set(),
-            instancesWithAttributes: 0
+            instancesWithAttributes: 0,
+            constraints: {
+              allowExploding: null,
+              scaleUniformly: null
+            },
+            diagnostics: [],
+            counters: {
+              nonUniformScaling: 0,
+              unitConversions: 0,
+              unitMismatches: 0,
+              unitWarnings: 0,
+              nestedOverlayReferences: 0,
+              suppressedDimensionText: 0,
+              suppressedDimensionLines: 0
+            },
+            flagsInfo: null
           });
         }
         return metadataMap.get(name);
+      };
+
+      const createUnitDiagnostics = (options = {}) => {
+        const geometryScale = options.geometryScale || { x: 1, y: 1, z: 1 };
+        const normalizedGeometry = {
+          x: Number.isFinite(geometryScale.x) ? geometryScale.x : 1,
+          y: Number.isFinite(geometryScale.y) ? geometryScale.y : 1,
+          z: Number.isFinite(geometryScale.z) ? geometryScale.z : 1
+        };
+
+        const normalizedBlockUnits = normalizeUnitsCode(options.blockUnits);
+        const normalizedActiveUnits = normalizeUnitsCode(options.activeUnits);
+        const targetUnits = normalizedActiveUnits != null
+          ? normalizedActiveUnits
+          : (normalizedDefaultTargetUnits != null ? normalizedDefaultTargetUnits : null);
+        let sourceUnits = null;
+        let sourceKind = 'unspecified';
+        let fallbackReason = null;
+        let unitScale = 1;
+        let defaultScaleApplied = false;
+
+        const applyDefaultScale = () => {
+          if (Number.isFinite(defaultInsertScaleFactor) && defaultInsertScaleFactor !== 1) {
+            unitScale *= defaultInsertScaleFactor;
+            defaultScaleApplied = true;
+          }
+        };
+
+        if (normalizedBlockUnits != null) {
+          if (normalizedBlockUnits === 0) {
+            sourceUnits = normalizedDefaultSourceUnits != null ? normalizedDefaultSourceUnits : targetUnits;
+            sourceKind = normalizedDefaultSourceUnits != null ? 'defaultSource' : 'context';
+            fallbackReason = 'unitless-block';
+            if (sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits) {
+              unitScale *= unitConversionFactor(sourceUnits, targetUnits);
+            }
+            applyDefaultScale();
+          } else {
+            sourceUnits = normalizedBlockUnits;
+            sourceKind = 'block';
+            if (targetUnits != null && sourceUnits !== targetUnits) {
+              unitScale *= unitConversionFactor(sourceUnits, targetUnits);
+            }
+          }
+        } else {
+          sourceUnits = normalizedDefaultSourceUnits != null ? normalizedDefaultSourceUnits : targetUnits;
+          if (normalizedDefaultSourceUnits != null) {
+            sourceKind = 'defaultSource';
+          } else if (targetUnits != null) {
+            sourceKind = 'context';
+          } else {
+            sourceKind = 'unspecified';
+          }
+          fallbackReason = 'missing-block-units';
+          if (sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits) {
+            unitScale *= unitConversionFactor(sourceUnits, targetUnits);
+          }
+          applyDefaultScale();
+        }
+
+        if (!Number.isFinite(unitScale) || unitScale === 0) {
+          unitScale = 1;
+        }
+
+        const effectiveScale = {
+          x: normalizedGeometry.x * unitScale,
+          y: normalizedGeometry.y * unitScale,
+          z: normalizedGeometry.z * unitScale
+        };
+
+        const unitsDiffer = sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits;
+        const missingUnits = sourceUnits == null || targetUnits == null;
+        const scaleChanged = Math.abs(unitScale - 1) > 1e-6;
+        const severity = (missingUnits || fallbackReason || defaultScaleApplied || scaleChanged) ? 'warning' : 'info';
+        const targetKind = normalizedActiveUnits != null ? 'context'
+          : (targetUnits != null ? 'defaultTarget' : 'unspecified');
+
+        const sourceSummary = (() => {
+          if (normalizedBlockUnits != null) {
+            if (normalizedBlockUnits === 0) {
+              if (sourceUnits != null) {
+                const qualifier = sourceKind === 'defaultSource' ? 'default' : 'context';
+                return `block unitless (${qualifier} ${formatUnitShort(sourceUnits)})`;
+              }
+              return 'block unitless';
+            }
+            return `block ${formatUnitShort(normalizedBlockUnits)}`;
+          }
+          if (sourceUnits != null) {
+            if (sourceKind === 'defaultSource') {
+              return `default ${formatUnitShort(sourceUnits)}`;
+            }
+            if (sourceKind === 'context') {
+              return `context ${formatUnitShort(sourceUnits)}`;
+            }
+            return formatUnitShort(sourceUnits);
+          }
+          return 'source unspecified';
+        })();
+
+        const targetSummary = (() => {
+          if (targetUnits == null) {
+            return 'target unspecified';
+          }
+          if (targetKind === 'context') {
+            return `context ${formatUnitShort(targetUnits)}`;
+          }
+          if (targetKind === 'defaultTarget') {
+            return `default target ${formatUnitShort(targetUnits)}`;
+          }
+          return formatUnitShort(targetUnits);
+        })();
+
+        const sourceShort = (() => {
+          if (normalizedBlockUnits === 0) {
+            return 'unitless';
+          }
+          if (sourceUnits != null) {
+            return formatUnitShort(sourceUnits);
+          }
+          if (normalizedBlockUnits != null) {
+            return formatUnitShort(normalizedBlockUnits);
+          }
+          return 'unspecified';
+        })();
+
+        const targetShort = targetUnits != null ? formatUnitShort(targetUnits) : 'unspecified';
+
+        const detailParts = [];
+        if (fallbackReason === 'missing-block-units') {
+          detailParts.push('block units missing');
+        } else if (fallbackReason === 'unitless-block') {
+          detailParts.push('unitless block');
+        }
+        if (defaultScaleApplied) {
+          detailParts.push(`INSUNITSFAC ${formatNumber(defaultInsertScaleFactor)}`);
+        }
+        if (unitsDiffer || scaleChanged) {
+          detailParts.push('conversion applied');
+        }
+        const detailStr = detailParts.length ? ` [${detailParts.join(', ')}]` : '';
+
+        const message = `Units: ${sourceSummary} \u2192 ${targetSummary} (factor ${formatNumber(unitScale)})${detailStr}; geometry scale ${formatVector(normalizedGeometry)}; effective scale ${formatVector(effectiveScale)}.`;
+
+        return {
+          blockUnits: normalizedBlockUnits,
+          sourceUnits,
+          sourceKind,
+          targetUnits,
+          targetKind,
+          fallbackReason,
+          unitsDiffer,
+          missingUnits,
+          conversionFactor: unitScale,
+          defaultScaleApplied,
+          defaultScaleFactor: defaultInsertScaleFactor,
+          geometryScale: normalizedGeometry,
+          effectiveScale,
+          geometryScaleDisplay: formatVector(normalizedGeometry),
+          effectiveScaleDisplay: formatVector(effectiveScale),
+          conversionFactorDisplay: formatNumber(unitScale),
+          sourceSummary,
+          targetSummary,
+          summary: `${sourceSummary} \u2192 ${targetSummary}`,
+          summaryShort: `${sourceShort}\u2192${targetShort}`,
+          detail: detailParts,
+          message,
+          severity
+        };
       };
 
       const registerAttributeDefinition = (blockName, entity) => {
@@ -1873,6 +2199,22 @@
         const layoutName = context.layout || entity.layout || null;
         const ownerBlock = context.ownerBlock || entity.blockName || null;
 
+        const scale = entity.geometry.scale || null;
+        const rawScaleX = scale && Number.isFinite(scale.x) ? scale.x : 1;
+        let rawScaleY = scale && Number.isFinite(scale.y) ? scale.y : null;
+        const rawScaleZ = scale && Number.isFinite(scale.z) ? scale.z : 1;
+        if (rawScaleY == null || rawScaleY === 0) {
+          rawScaleY = rawScaleZ !== 0 ? rawScaleZ : 1;
+        }
+        const safeScaleX = rawScaleX !== 0 ? rawScaleX : 1;
+        const safeScaleY = rawScaleY !== 0 ? rawScaleY : 1;
+        const safeScaleZ = rawScaleZ !== 0 ? rawScaleZ : 1;
+        const instanceScale = {
+          x: safeScaleX,
+          y: safeScaleY,
+          z: safeScaleZ
+        };
+
         const instance = {
           handle: entity.handle || entity.id || null,
           ownerHandle: entity.owner || null,
@@ -1882,7 +2224,8 @@
           ownerBlock,
           hasAttributes: !!(entity.geometry && entity.geometry.hasAttributes),
           rows: entity.geometry.rowCount || 1,
-          columns: entity.geometry.columnCount || 1
+          columns: entity.geometry.columnCount || 1,
+          scale: instanceScale
         };
         entry.instances.push(instance);
 
@@ -1908,6 +2251,92 @@
         if (instance.hasAttributes) {
           entry.instancesWithAttributes += 1;
         }
+
+        const requiresUniformScale = entry.constraints && entry.constraints.scaleUniformly === true;
+        if (requiresUniformScale) {
+          const tolerance = 1e-6;
+          const compare = (a, b) => Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+          const uniformXY = compare(instanceScale.x, instanceScale.y);
+          const uniformXZ = compare(instanceScale.x, instanceScale.z);
+          if (!uniformXY || !uniformXZ) {
+            entry.counters.nonUniformScaling += 1;
+            entry.diagnostics.push({
+              severity: 'warning',
+              category: 'uniform-scaling',
+              code: 'block.nonUniformScaling',
+              message: `INSERT ${instance.handle || '(no handle)'} applies non-uniform scale (${instanceScale.x}, ${instanceScale.y}, ${instanceScale.z}) to block "${blockName}" requiring uniform scaling.`,
+              block: blockName,
+              instanceHandle: instance.handle || null,
+              ownerBlock,
+              space: instanceSpace,
+              layout: instance.layout,
+              scale: instanceScale
+            });
+          }
+        }
+
+        if (entry.flagsInfo && entry.flagsInfo.isOverlay && instanceSpace === 'block') {
+          entry.counters.nestedOverlayReferences += 1;
+          const overlayOwner = ownerBlock || '(unknown parent)';
+          entry.diagnostics.push({
+            severity: 'info',
+            category: 'overlay',
+            code: 'block.overlayNested',
+            message: `Overlay block "${blockName}" referenced inside parent block "${overlayOwner}" will be suppressed when nested.`,
+            block: blockName,
+            instanceHandle: instance.handle || null,
+            ownerBlock,
+            space: instanceSpace,
+            layout: instance.layout,
+            scale: instanceScale
+          });
+        }
+
+        const unitDiagnostics = createUnitDiagnostics({
+          blockUnits: entry.units,
+          activeUnits: context.units,
+          geometryScale: instanceScale
+        });
+        instance.unitDiagnostics = unitDiagnostics;
+        entry.counters.unitConversions += 1;
+        if (unitDiagnostics.unitsDiffer || unitDiagnostics.defaultScaleApplied || unitDiagnostics.fallbackReason || unitDiagnostics.missingUnits) {
+          entry.counters.unitMismatches += 1;
+        }
+        if (unitDiagnostics.severity === 'warning') {
+          entry.counters.unitWarnings += 1;
+        }
+        entry.diagnostics.push({
+          severity: unitDiagnostics.severity,
+          category: 'unit-conversion',
+          code: 'block.unitConversion',
+          message: unitDiagnostics.message,
+          block: blockName,
+          instanceHandle: instance.handle || null,
+          ownerBlock,
+          space: instanceSpace,
+          layout: instance.layout,
+          scale: instanceScale,
+          effectiveScale: unitDiagnostics.effectiveScale,
+          unitConversion: {
+            summary: unitDiagnostics.summary,
+            summaryShort: unitDiagnostics.summaryShort,
+            sourceSummary: unitDiagnostics.sourceSummary,
+            targetSummary: unitDiagnostics.targetSummary,
+            sourceUnits: unitDiagnostics.sourceUnits,
+            targetUnits: unitDiagnostics.targetUnits,
+            blockUnits: unitDiagnostics.blockUnits,
+            conversionFactor: unitDiagnostics.conversionFactor,
+            conversionFactorDisplay: unitDiagnostics.conversionFactorDisplay,
+            defaultScaleApplied: unitDiagnostics.defaultScaleApplied,
+            defaultScaleFactor: unitDiagnostics.defaultScaleFactor,
+            fallbackReason: unitDiagnostics.fallbackReason,
+            detail: unitDiagnostics.detail,
+            geometryScale: unitDiagnostics.geometryScale,
+            geometryScaleDisplay: unitDiagnostics.geometryScaleDisplay,
+            effectiveScale: unitDiagnostics.effectiveScale,
+            effectiveScaleDisplay: unitDiagnostics.effectiveScaleDisplay
+          }
+        });
       };
 
       Object.keys(blocks).forEach((blockName) => {
@@ -1927,6 +2356,7 @@
                 z: header.basePoint.z ?? 0
               }
             : entry.basePoint;
+          entry.flagsInfo = parseBlockFlags(header.flags);
         }
         if (Array.isArray(block.entities)) {
           block.entities.forEach((entity) => {
@@ -1940,6 +2370,39 @@
             }
             if (type === 'ATTRIB') {
               registerAttributePreview(blockName, entity);
+              return;
+            }
+            if (type === 'DIMENSION') {
+              const geom = entity.geometry || {};
+              const dimFlags = Number.isFinite(geom.dimensionFlags) ? geom.dimensionFlags : 0;
+              const suppressText = (dimFlags & 0x80) === 0x80 || geom.textSuppress === true || geom.textSuppressed === true;
+              const suppressLine = (dimFlags & 0x40) === 0x40 || geom.dimensionLineSuppressed === true;
+              if (suppressText) {
+                entry.counters.suppressedDimensionText += 1;
+                entry.diagnostics.push({
+                  severity: 'info',
+                  category: 'dimension',
+                  code: 'dimension.suppressText',
+                  message: `Dimension ${entity.handle || entity.id || ''} suppresses its dimension text.`,
+                  block: blockName,
+                  instanceHandle: null,
+                  ownerBlock: blockName,
+                  space: 'block'
+                });
+              }
+              if (suppressLine) {
+                entry.counters.suppressedDimensionLines += 1;
+                entry.diagnostics.push({
+                  severity: 'info',
+                  category: 'dimension',
+                  code: 'dimension.suppressLine',
+                  message: `Dimension ${entity.handle || entity.id || ''} suppresses its dimension line.`,
+                  block: blockName,
+                  instanceHandle: null,
+                  ownerBlock: blockName,
+                  space: 'block'
+                });
+              }
             }
           });
         }
@@ -1964,6 +2427,15 @@
           if (Number.isFinite(record.units)) {
             entry.units = record.units;
           }
+          if (record.flags != null && entry.flagsInfo == null) {
+            entry.flagsInfo = parseBlockFlags(record.flags);
+          }
+          if (record.allowExploding != null) {
+            entry.constraints.allowExploding = !!record.allowExploding;
+          }
+          if (record.scaleUniformly != null) {
+            entry.constraints.scaleUniformly = !!record.scaleUniformly;
+          }
         });
       }
 
@@ -1979,16 +2451,35 @@
         });
       };
 
-      gatherInserts(sceneGraph.modelSpace, { space: 'model' });
+      const modelContextUnits = normalizedPrimaryUnits != null
+        ? normalizedPrimaryUnits
+        : (normalizedDefaultTargetUnits != null ? normalizedDefaultTargetUnits : null);
+      const paperContextUnits = normalizedDefaultTargetUnits != null
+        ? normalizedDefaultTargetUnits
+        : (normalizedPrimaryUnits != null ? normalizedPrimaryUnits : null);
+
+      gatherInserts(sceneGraph.modelSpace, { space: 'model', units: modelContextUnits });
 
       const paperSpaces = sceneGraph.paperSpaces || {};
       Object.keys(paperSpaces).forEach((layoutName) => {
-        gatherInserts(paperSpaces[layoutName], { space: 'paper', layout: layoutName });
+        gatherInserts(paperSpaces[layoutName], {
+          space: 'paper',
+          layout: layoutName,
+          units: paperContextUnits
+        });
       });
 
       Object.keys(blocks).forEach((blockName) => {
         const block = blocks[blockName] || {};
-        gatherInserts(block.entities, { space: 'block', ownerBlock: blockName });
+        const ownerEntry = ensureEntry(blockName);
+        const blockContextUnits = ownerEntry && ownerEntry.units != null
+          ? normalizeUnitsCode(ownerEntry.units)
+          : null;
+        gatherInserts(block.entities, {
+          space: 'block',
+          ownerBlock: blockName,
+          units: blockContextUnits
+        });
       });
 
       const byName = {};
@@ -2011,6 +2502,57 @@
           .map(([owner, count]) => ({ owner, count }))
           .sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner));
         const parentBlocks = Array.from(entry.parentBlocks);
+        const constraints = {
+          allowExploding: entry.constraints ? entry.constraints.allowExploding : null,
+          scaleUniformly: entry.constraints ? entry.constraints.scaleUniformly : null
+        };
+        const diagnostics = Array.isArray(entry.diagnostics) ? entry.diagnostics.slice() : [];
+        const flagsInfo = entry.flagsInfo ? Object.assign({}, entry.flagsInfo) : null;
+        if (constraints && constraints.allowExploding === false &&
+          !diagnostics.some((diag) => diag && diag.code === 'block.notExplodable')) {
+          diagnostics.push({
+            severity: 'info',
+            category: 'explodability',
+            code: 'block.notExplodable',
+            message: `Block "${blockName}" is marked as not explodable.`,
+            block: blockName
+          });
+        }
+        if (flagsInfo && flagsInfo.isExternallyDependent && !flagsInfo.isResolved &&
+          !diagnostics.some((diag) => diag && diag.code === 'block.xrefUnresolved')) {
+          diagnostics.push({
+            severity: 'warning',
+            category: 'overlay',
+            code: 'block.xrefUnresolved',
+            message: `Block "${blockName}" references an unresolved external dependency.`,
+            block: blockName
+          });
+        }
+        const counters = entry.counters
+          ? Object.assign({
+            nonUniformScaling: 0,
+            unitConversions: 0,
+            unitMismatches: 0,
+            unitWarnings: 0,
+            nestedOverlayReferences: 0,
+            suppressedDimensionText: 0,
+            suppressedDimensionLines: 0
+          }, entry.counters)
+          : {
+            nonUniformScaling: 0,
+            unitConversions: 0,
+            unitMismatches: 0,
+            unitWarnings: 0,
+            nestedOverlayReferences: 0,
+            suppressedDimensionText: 0,
+            suppressedDimensionLines: 0
+          };
+        const visibility = {
+          isOverlay: flagsInfo ? !!flagsInfo.isOverlay : false,
+          isXref: flagsInfo ? !!flagsInfo.isXref : false,
+          isExternallyDependent: flagsInfo ? !!flagsInfo.isExternallyDependent : false,
+          isResolved: flagsInfo ? !!flagsInfo.isResolved : false
+        };
 
         const plainEntry = {
           name: blockName,
@@ -2029,7 +2571,18 @@
           ownerUsage,
           parentBlocks,
           hasParentBlocks: parentBlocks.length > 0,
-          hasAttributes: attributeTags.length > 0 || entry.instancesWithAttributes > 0
+          hasAttributes: attributeTags.length > 0 || entry.instancesWithAttributes > 0,
+          constraints,
+          diagnostics,
+          diagnosticCount: diagnostics.length,
+          counters,
+          flags: flagsInfo,
+          visibility,
+          hasUniformScaleViolations: counters.nonUniformScaling > 0,
+          hasUnitDiagnostics: counters.unitConversions > 0,
+          hasUnitMismatches: counters.unitMismatches > 0,
+          hasOverlayIssues: counters.nestedOverlayReferences > 0,
+          hasDimensionSuppression: counters.suppressedDimensionText > 0 || counters.suppressedDimensionLines > 0
         };
 
         byName[blockName] = plainEntry;
@@ -2923,6 +3476,9 @@
       const datalinks = { byHandle: Object.create(null), list: [] };
       const dictionaryVariables = { byName: Object.create(null), list: [] };
       const lightLists = { byHandle: Object.create(null), list: [] };
+      const dictionaries = { byHandle: Object.create(null), list: [] };
+      const xrecords = { byHandle: Object.create(null), list: [] };
+      const spatialFilters = { byHandle: Object.create(null), list: [] };
 
       let section = null;
       let i = 0;
@@ -2963,6 +3519,55 @@
           }
 
           if (section === 'OBJECTS') {
+            if (upperValue === 'DICTIONARY' || upperValue === 'ACDBDICTIONARYWDFLT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const dictionary = parseDictionaryObject(objectTags);
+              dictionary.type = upperValue;
+              if (dictionary) {
+                if (dictionary.handleUpper) {
+                  dictionaries.byHandle[dictionary.handleUpper] = dictionary;
+                }
+                if (dictionary.handle && !dictionaries.byHandle[dictionary.handle]) {
+                  dictionaries.byHandle[dictionary.handle] = dictionary;
+                }
+                dictionaries.list.push(dictionary);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'XRECORD') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const xrecord = this.parseXRecord(objectTags);
+              if (xrecord) {
+                if (xrecord.handleUpper) {
+                  xrecords.byHandle[xrecord.handleUpper] = xrecord;
+                }
+                if (xrecord.handle && !xrecords.byHandle[xrecord.handle]) {
+                  xrecords.byHandle[xrecord.handle] = xrecord;
+                }
+                xrecords.list.push(xrecord);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SPATIAL_FILTER') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const filter = this.parseSpatialFilter(objectTags);
+              if (filter) {
+                if (filter.handleUpper) {
+                  spatialFilters.byHandle[filter.handleUpper] = filter;
+                }
+                if (filter.handle && !spatialFilters.byHandle[filter.handle]) {
+                  spatialFilters.byHandle[filter.handle] = filter;
+                }
+                spatialFilters.list.push(filter);
+              }
+              i = nextIndex;
+              continue;
+            }
+
             if (upperValue === 'IMAGEDEF') {
               const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
               const descriptor = this.parseImageDefinition(objectTags);
@@ -3202,7 +3807,10 @@
         proxyObjects,
         datalinks,
         dictionaryVariables,
-        lightLists
+        lightLists,
+        dictionaries,
+        xrecords,
+        spatialFilters
       };
     }
 
@@ -3545,6 +4153,155 @@
       };
     }
 
+    parseXRecord(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'XRECORD',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseSpatialFilter(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const safeFloat = (value, fallback = 0) => {
+        const numeric = utils.toFloat ? utils.toFloat(value) : parseFloat(value);
+        return Number.isFinite(numeric) ? numeric : fallback;
+      };
+      const safeInt = (value, fallback = 0) => {
+        const numeric = utils.toInt ? utils.toInt(value) : parseInt(value, 10);
+        return Number.isFinite(numeric) ? numeric : fallback;
+      };
+      const boundary = [];
+      let pointCount = null;
+      const extrusion = { x: 0, y: 0, z: 1 };
+      const origin = { x: 0, y: 0, z: 0 };
+      let clippingEnabled = null;
+      let frontClipEnabled = null;
+      let backClipEnabled = null;
+      let frontClipDistance = null;
+      let backClipDistance = null;
+      const matrixValues = [];
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        const raw = tag.value;
+        switch (code) {
+          case 70:
+            pointCount = safeInt(raw, null);
+            break;
+          case 10:
+            boundary.push({
+              x: safeFloat(raw, 0),
+              y: 0
+            });
+            break;
+          case 20:
+            if (boundary.length) {
+              boundary[boundary.length - 1].y = safeFloat(raw, 0);
+            }
+            break;
+          case 210:
+            extrusion.x = safeFloat(raw, extrusion.x);
+            break;
+          case 220:
+            extrusion.y = safeFloat(raw, extrusion.y);
+            break;
+          case 230:
+            extrusion.z = safeFloat(raw, extrusion.z);
+            break;
+          case 11:
+            origin.x = safeFloat(raw, origin.x);
+            break;
+          case 21:
+            origin.y = safeFloat(raw, origin.y);
+            break;
+          case 31:
+            origin.z = safeFloat(raw, origin.z);
+            break;
+          case 71:
+            clippingEnabled = safeInt(raw, 0) !== 0;
+            break;
+          case 72:
+            frontClipEnabled = safeInt(raw, 0) !== 0;
+            break;
+          case 73:
+            backClipEnabled = safeInt(raw, 0) !== 0;
+            break;
+          case 40: {
+            const numeric = safeFloat(raw, 0);
+            if (frontClipEnabled && frontClipDistance == null) {
+              frontClipDistance = numeric;
+            } else {
+              matrixValues.push(numeric);
+            }
+            break;
+          }
+          case 41: {
+            const numeric = safeFloat(raw, 0);
+            if (backClipEnabled && backClipDistance == null) {
+              backClipDistance = numeric;
+            } else {
+              matrixValues.push(numeric);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      });
+      if (pointCount != null && boundary.length > pointCount) {
+        boundary.length = pointCount;
+      }
+      const toMatrixValues = (values) => {
+        if (!Array.isArray(values) || values.length < 12) {
+          return null;
+        }
+        return values.slice(0, 12).map((value) => (Number.isFinite(value) ? value : 0));
+      };
+      let inverseInsertMatrix = null;
+      let clipBoundaryMatrix = null;
+      if (matrixValues.length >= 24) {
+        const trimmed = matrixValues.slice(-24);
+        inverseInsertMatrix = toMatrixValues(trimmed.slice(0, 12));
+        clipBoundaryMatrix = toMatrixValues(trimmed.slice(12));
+      }
+      return {
+        type: 'SPATIAL_FILTER',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        pointCount,
+        boundary,
+        extrusion,
+        origin,
+        clippingEnabled,
+        frontClip: {
+          enabled: frontClipEnabled === true,
+          distance: frontClipDistance
+        },
+        backClip: {
+          enabled: backClipEnabled === true,
+          distance: backClipDistance
+        },
+        inverseInsertMatrix,
+        clipBoundaryMatrix,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
     parseSectionObject(tags) {
       if (!Array.isArray(tags) || !tags.length) {
         return null;
@@ -3881,14 +4638,41 @@
       }
 
       if (upperTable === 'BLOCK_RECORD' && recordType === 'BLOCK_RECORD') {
-        const units = utils.toInt(utils.getFirstCodeValue(recordTags, 280));
+        let flags = null;
+        let units = null;
+        let allowExploding = null;
+        let scaleUniformly = null;
+        for (let idx = 0; idx < recordTags.length; idx += 1) {
+          const tag = recordTags[idx];
+          const code = Number(tag.code);
+          const parsed = utils.toInt(tag.value);
+          if (code === 70) {
+            if (Number.isFinite(parsed)) {
+              flags = parsed;
+            }
+          } else if (code === 280) {
+            if (parsed != null) {
+              if (parsed === 0 || parsed === 1) {
+                allowExploding = parsed !== 0;
+              } else if (!Number.isFinite(units) && Number.isFinite(parsed)) {
+                units = parsed;
+              }
+            }
+          } else if (code === 281) {
+            if (parsed != null) {
+              scaleUniformly = parsed !== 0;
+            }
+          }
+        }
         collections[upperTable].set(name, {
           name,
           handle: utils.getFirstCodeValue(recordTags, 5) || null,
           layoutHandle: utils.getFirstCodeValue(recordTags, 340) || null,
           designCenterPath: utils.getFirstCodeValue(recordTags, 402) || null,
-          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
-          units: Number.isFinite(units) ? units : null
+          flags: Number.isFinite(flags) ? flags : 0,
+          units: Number.isFinite(units) ? units : null,
+          allowExploding: allowExploding,
+          scaleUniformly: scaleUniformly
         });
         return;
       }
@@ -5095,6 +5879,15 @@
       const pointCloudExRecordsByHandle = pointCloudResources.exRecords && pointCloudResources.exRecords.byHandle
         ? pointCloudResources.exRecords.byHandle
         : {};
+      const dictionariesByHandle = auxiliaryObjects.dictionaries && auxiliaryObjects.dictionaries.byHandle
+        ? auxiliaryObjects.dictionaries.byHandle
+        : {};
+      const xrecordsByHandle = auxiliaryObjects.xrecords && auxiliaryObjects.xrecords.byHandle
+        ? auxiliaryObjects.xrecords.byHandle
+        : {};
+      const spatialFiltersByHandle = auxiliaryObjects.spatialFilters && auxiliaryObjects.spatialFilters.byHandle
+        ? auxiliaryObjects.spatialFilters.byHandle
+        : {};
       const imageDefinitionsByHandle = auxiliaryObjects.imageDefinitions && auxiliaryObjects.imageDefinitions.byHandle
         ? auxiliaryObjects.imageDefinitions.byHandle
         : {};
@@ -5236,6 +6029,9 @@
               datalinks: datalinksByHandle,
               dictionaryVariables: dictionaryVariablesByName,
               lightLists: lightListsByHandle,
+              dictionaries: dictionariesByHandle,
+              xrecords: xrecordsByHandle,
+              spatialFilters: spatialFiltersByHandle,
               rasterVariables: auxiliaryObjects.rasterVariables || null,
               createEntityId: (entType) => this.nextEntityId(entType),
               entityDefaults: resolvedEntityDefaults,
@@ -5309,6 +6105,9 @@
             datalinks: datalinksByHandle,
             dictionaryVariables: dictionaryVariablesByName,
             lightLists: lightListsByHandle,
+            dictionaries: dictionariesByHandle,
+            xrecords: xrecordsByHandle,
+            spatialFilters: spatialFiltersByHandle,
             rasterVariables: auxiliaryObjects.rasterVariables || null,
             createEntityId: (entType) => this.nextEntityId(entType),
             entityDefaults: resolvedEntityDefaults,
@@ -5826,3 +6625,16 @@ function collectPointCloudClip(map) {
   }
   return coefficients.length ? coefficients : null;
 }
+      const parseBlockFlags = (flags) => {
+        const value = Number(flags) || 0;
+        return {
+          raw: value,
+          isAnonymous: (value & 1) === 1,
+          hasNonConstantAttributes: (value & 2) === 2,
+          isXref: (value & 4) === 4,
+          isOverlay: (value & 8) === 8,
+          isExternallyDependent: (value & 16) === 16,
+          isResolved: (value & 32) === 32,
+          isReferenced: (value & 64) === 64
+        };
+      };

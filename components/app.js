@@ -5467,6 +5467,20 @@ EOF`;
             return formatted.join(", ");
           };
 
+          const formatNumber = (value) => {
+            if (!Number.isFinite(value)) {
+              return "NaN";
+            }
+            const abs = Math.abs(value);
+            if (abs === 0) {
+              return "0";
+            }
+            if (abs >= 10000 || abs < 1e-4) {
+              return value.toExponential(2).replace(/e\+?0*/, "e");
+            }
+            return value.toFixed(4).replace(/\.?0+$/, "");
+          };
+
           metadata.ordered.forEach((block) => {
             const card = document.createElement("div");
             card.className = "block-card";
@@ -5507,6 +5521,150 @@ EOF`;
             basePointLine.className = "block-card-line";
             basePointLine.textContent = `Base point: ${formatPoint(block.basePoint)}`;
             card.appendChild(basePointLine);
+
+            const constraintParts = [];
+            if (block.constraints) {
+              if (block.constraints.scaleUniformly === true) {
+                constraintParts.push("Uniform scaling required");
+              } else if (block.constraints.scaleUniformly === false) {
+                constraintParts.push("Uniform scaling optional");
+              }
+            if (block.constraints.allowExploding === true) {
+              constraintParts.push("Explodable");
+            } else if (block.constraints.allowExploding === false) {
+              constraintParts.push("Not explodable");
+            }
+            if (block.flags && block.flags.isOverlay) {
+              constraintParts.push("Overlay");
+            }
+          }
+          if (constraintParts.length) {
+            const constraintLine = document.createElement("div");
+            constraintLine.className = "block-card-line";
+            constraintLine.textContent = `Constraints: ${constraintParts.join(" | ")}`;
+            card.appendChild(constraintLine);
+          }
+
+          const blockTypeParts = [];
+          if (block.flags) {
+            if (block.flags.isXref) {
+              blockTypeParts.push(block.flags.isOverlay ? "Xref overlay" : "Xref");
+            } else if (block.flags.isOverlay) {
+              blockTypeParts.push("Overlay");
+            }
+            if (block.flags.isExternallyDependent && !block.flags.isResolved) {
+              blockTypeParts.push("Unresolved external dependency");
+            }
+            if (block.flags.isAnonymous) {
+              blockTypeParts.push("Anonymous");
+            }
+          }
+          if (blockTypeParts.length) {
+            const blockTypeLine = document.createElement("div");
+            blockTypeLine.className = "block-card-line";
+            blockTypeLine.textContent = `Block type: ${blockTypeParts.join(" · ")}`;
+            card.appendChild(blockTypeLine);
+          }
+
+          if (block.counters && block.counters.unitConversions) {
+            const unitSummaryLine = document.createElement("div");
+            unitSummaryLine.className = "block-card-line";
+            const parts = [`Unit diagnostics: ${block.counters.unitConversions}`];
+            if (block.counters.unitMismatches) {
+              parts.push(`${block.counters.unitMismatches} mismatches`);
+            }
+            if (block.counters.unitWarnings) {
+              parts.push(`${block.counters.unitWarnings} warnings`);
+            }
+            unitSummaryLine.textContent = parts.join(" · ");
+            card.appendChild(unitSummaryLine);
+          }
+
+          if (block.counters && block.counters.unitWarnings) {
+            card.classList.add("block-card-has-warning");
+            const unitWarningLine = document.createElement("div");
+            unitWarningLine.className = "block-card-warning";
+            const mismatchInfo = block.counters.unitMismatches && block.counters.unitMismatches !== block.counters.unitWarnings
+              ? ` (mismatches ${block.counters.unitMismatches})`
+              : "";
+            unitWarningLine.textContent = `⚠ Unit issues: ${block.counters.unitWarnings}${mismatchInfo}`;
+            card.appendChild(unitWarningLine);
+          }
+          if (block.counters && (block.counters.suppressedDimensionText || block.counters.suppressedDimensionLines)) {
+            const dimLine = document.createElement("div");
+            dimLine.className = "block-card-line";
+            const parts = [];
+            if (block.counters.suppressedDimensionText) {
+              parts.push(`Text suppressed ${block.counters.suppressedDimensionText}`);
+            }
+            if (block.counters.suppressedDimensionLines) {
+              parts.push(`Dim line suppressed ${block.counters.suppressedDimensionLines}`);
+            }
+            dimLine.textContent = `Dimension suppression: ${parts.join(" · ")}`;
+            card.appendChild(dimLine);
+            card.classList.add("block-card-has-warning");
+          }
+          if (block.counters && block.counters.nestedOverlayReferences) {
+            card.classList.add("block-card-has-warning");
+            const overlayWarningLine = document.createElement("div");
+            overlayWarningLine.className = "block-card-warning";
+            overlayWarningLine.textContent = `⚠ Nested overlay references: ${block.counters.nestedOverlayReferences}`;
+            card.appendChild(overlayWarningLine);
+          }
+
+          if (block.counters && block.counters.nonUniformScaling) {
+            card.classList.add("block-card-has-warning");
+            const warningLine = document.createElement("div");
+            warningLine.className = "block-card-warning";
+              warningLine.textContent = `⚠ Non-uniform inserts: ${block.counters.nonUniformScaling}`;
+              card.appendChild(warningLine);
+            }
+
+            if (block.diagnostics && block.diagnostics.length) {
+              const diagDetails = document.createElement("details");
+              diagDetails.className = "block-card-diagnostics";
+              const diagSummary = document.createElement("summary");
+              const issueLabel = block.diagnostics.length === 1
+                ? "1 issue"
+                : `${block.diagnostics.length} issues`;
+              diagSummary.textContent = `Diagnostics (${issueLabel})`;
+              diagDetails.appendChild(diagSummary);
+              const diagList = document.createElement("ul");
+              diagList.className = "block-diagnostics-list";
+              const maxDiagnosticsToShow = 8;
+              block.diagnostics.slice(0, maxDiagnosticsToShow).forEach((diag) => {
+                const item = document.createElement("li");
+                const severity = diag.severity ? diag.severity.toUpperCase() : "INFO";
+                const fragments = [];
+                fragments.push(`${severity}: ${diag.message || "Issue reported."}`);
+                const contextParts = [];
+                if (diag.instanceHandle) {
+                  contextParts.push(`insert ${diag.instanceHandle}`);
+                }
+                if (diag.space) {
+                  contextParts.push(diag.space);
+                }
+                if (diag.layout) {
+                  contextParts.push(`layout ${diag.layout}`);
+                }
+                if (diag.scale && Number.isFinite(diag.scale.x) && Number.isFinite(diag.scale.y) && Number.isFinite(diag.scale.z)) {
+                  contextParts.push(`scale ${diag.scale.x}/${diag.scale.y}/${diag.scale.z}`);
+                }
+                if (contextParts.length) {
+                  fragments.push(`[${contextParts.join(" | ")}]`);
+                }
+                item.textContent = fragments.join(" ");
+                diagList.appendChild(item);
+              });
+              diagDetails.appendChild(diagList);
+              if (block.diagnostics.length > maxDiagnosticsToShow) {
+                const more = document.createElement("div");
+                more.className = "block-diagnostics-more";
+                more.textContent = `... plus ${block.diagnostics.length - maxDiagnosticsToShow} more`;
+                diagDetails.appendChild(more);
+              }
+              card.appendChild(diagDetails);
+            }
 
             if (block.description) {
               const descriptionLine = document.createElement("div");
@@ -5671,13 +5829,25 @@ EOF`;
                 fragments.push(instance.handle || "(no handle)");
                 fragments.push(instance.space === "paper" ? `paper:${instance.layout || "unnamed"}` : instance.space || "model");
                 if (instance.layer) {
-                fragments.push(`layer ${instance.layer}`);
+                  fragments.push(`layer ${instance.layer}`);
                 }
                 if (instance.ownerBlock) {
                   fragments.push(`parent ${instance.ownerBlock}`);
                 }
                 if (instance.hasAttributes) {
                   fragments.push("attributes");
+                }
+                if (block.flags && block.flags.isOverlay && instance.space === "block") {
+                  fragments.push("overlay suppressed");
+                }
+                if (instance.unitDiagnostics) {
+                  const unitDiag = instance.unitDiagnostics;
+                  const unitSummary = unitDiag.summaryShort || unitDiag.summary || "";
+                  if (unitSummary) {
+                    const factorDisplay = unitDiag.conversionFactorDisplay || formatNumber(unitDiag.conversionFactor);
+                    const prefix = unitDiag.severity === "warning" ? "⚠ " : "";
+                    fragments.push(`${prefix}units ${unitSummary} ×${factorDisplay}`);
+                  }
                 }
                 item.textContent = fragments.join(" | ");
                 if (instance.handle) {

@@ -2078,11 +2078,30 @@
     }
 
     _resolveReferenceWidth(kind, rawText) {
+      const geometry = rawText.geometry || {};
+      const scale = rawText.scaleMagnitude || 1;
+      if (Number.isFinite(rawText.referenceWidth) && rawText.referenceWidth > 0) {
+        return rawText.referenceWidth * scale;
+      }
       if (kind === 'MTEXT') {
-        const geometry = rawText.geometry || {};
         if (geometry.referenceWidth && geometry.referenceWidth > 0) {
-          const scale = rawText.scaleMagnitude || 1;
           return geometry.referenceWidth * scale;
+        }
+        return null;
+      }
+      if (geometry.referenceWidth && geometry.referenceWidth > 0) {
+        return geometry.referenceWidth * scale;
+      }
+      if (Number.isFinite(geometry.fieldLength) && geometry.fieldLength > 0) {
+        const widthFactor = Number.isFinite(geometry.widthFactor) && geometry.widthFactor > 0
+          ? geometry.widthFactor
+          : 1;
+        const baseHeight = rawText.baseHeight || geometry.height || 0;
+        if (baseHeight > 0) {
+          const estimatedWidth = geometry.fieldLength * baseHeight * widthFactor;
+          if (estimatedWidth > 0) {
+            return estimatedWidth * scale;
+          }
         }
       }
       return null;

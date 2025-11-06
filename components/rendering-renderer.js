@@ -37,6 +37,7 @@
     a: 1,
     css: 'rgba(11,24,40,1)'
   };
+  const SINGLE_LINE_TEXT_CHAR_WIDTH_FACTOR = 0.6;
   const SELECTION_COLOR = {
     r: 135 / 255,
     g: 209 / 255,
@@ -45,46 +46,159 @@
     css: 'rgba(135,209,255,1)'
   };
 
-  function identityMatrix() {
-    return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+  function basePointTransform(point) {
+    if (!point || typeof point !== 'object') {
+      return null;
+    }
+    const x = Number.isFinite(point.x) ? point.x : 0;
+    const y = Number.isFinite(point.y) ? point.y : 0;
+    const z = Number.isFinite(point.z) ? point.z : 0;
+    if (Math.abs(x) < 1e-9 && Math.abs(y) < 1e-9 && Math.abs(z) < 1e-9) {
+      return null;
+    }
+    return translateMatrix(-x, -y, -z);
   }
 
-  function translateMatrix(x, y) {
-    return { a: 1, b: 0, c: 0, d: 1, tx: x, ty: y };
-  }
-
-  function scaleMatrix(sx, sy) {
-    return { a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0 };
-  }
-
-  function rotateMatrix(rad) {
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    return { a: cos, b: sin, c: -sin, d: cos, tx: 0, ty: 0 };
-  }
-
-  function multiplyMatrix(m1, m2) {
+  function createMatrixFromArray(array) {
     return {
-      a: m1.a * m2.a + m1.c * m2.b,
-      b: m1.b * m2.a + m1.d * m2.b,
-      c: m1.a * m2.c + m1.c * m2.d,
-      d: m1.b * m2.c + m1.d * m2.d,
-      tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-      ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
+      a: array[0],
+      b: array[4],
+      c: array[1],
+      d: array[5],
+      tx: array[3],
+      ty: array[7],
+      m3d: array
     };
   }
 
+  function ensureMatrix3d(matrix) {
+    if (matrix && matrix.m3d) {
+      return matrix.m3d;
+    }
+    const array = new Float64Array(16);
+    array[0] = typeof (matrix && matrix.a) === 'number' ? matrix.a : 1;
+    array[1] = typeof (matrix && matrix.c) === 'number' ? matrix.c : 0;
+    array[2] = 0;
+    array[3] = typeof (matrix && matrix.tx) === 'number' ? matrix.tx : 0;
+    array[4] = typeof (matrix && matrix.b) === 'number' ? matrix.b : 0;
+    array[5] = typeof (matrix && matrix.d) === 'number' ? matrix.d : 1;
+    array[6] = 0;
+    array[7] = typeof (matrix && matrix.ty) === 'number' ? matrix.ty : 0;
+    array[8] = 0;
+    array[9] = 0;
+    array[10] = 1;
+    array[11] = 0;
+    array[12] = 0;
+    array[13] = 0;
+    array[14] = 0;
+    array[15] = 1;
+    if (matrix) {
+      matrix.m3d = array;
+    }
+    return array;
+  }
+
+  function identityMatrix() {
+    const array = new Float64Array(16);
+    array[0] = 1;
+    array[5] = 1;
+    array[10] = 1;
+    array[15] = 1;
+    return createMatrixFromArray(array);
+  }
+
+  function translateMatrix(x, y, z = 0) {
+    const array = new Float64Array(16);
+    array[0] = 1;
+    array[5] = 1;
+    array[10] = 1;
+    array[15] = 1;
+    array[3] = Number.isFinite(x) ? x : 0;
+    array[7] = Number.isFinite(y) ? y : 0;
+    array[11] = Number.isFinite(z) ? z : 0;
+    return createMatrixFromArray(array);
+  }
+
+  function scaleMatrix(sx, sy, sz = 1) {
+    const array = new Float64Array(16);
+    array[0] = Number.isFinite(sx) ? sx : 1;
+    array[5] = Number.isFinite(sy) ? sy : 1;
+    array[10] = Number.isFinite(sz) ? sz : 1;
+    array[15] = 1;
+    return createMatrixFromArray(array);
+  }
+
+  function rotateMatrix(rad, axis = 'z') {
+    const angle = Number.isFinite(rad) ? rad : 0;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const array = new Float64Array(16);
+    array[15] = 1;
+    switch ((axis || 'z').toLowerCase()) {
+      case 'x':
+        array[0] = 1;
+        array[5] = cos;
+        array[6] = -sin;
+        array[9] = sin;
+        array[10] = cos;
+        break;
+      case 'y':
+        array[0] = cos;
+        array[2] = sin;
+        array[5] = 1;
+        array[8] = -sin;
+        array[10] = cos;
+        break;
+      case 'z':
+      default:
+        array[0] = cos;
+        array[1] = -sin;
+        array[4] = sin;
+        array[5] = cos;
+        array[10] = 1;
+        break;
+    }
+    return createMatrixFromArray(array);
+  }
+
+  function multiplyMatrix(m1, m2) {
+    const a1 = ensureMatrix3d(m1);
+    const a2 = ensureMatrix3d(m2);
+    const out = new Float64Array(16);
+    for (let row = 0; row < 4; row++) {
+      const rOffset = row * 4;
+      for (let col = 0; col < 4; col++) {
+        out[rOffset + col] =
+          a1[rOffset + 0] * a2[0 * 4 + col] +
+          a1[rOffset + 1] * a2[1 * 4 + col] +
+          a1[rOffset + 2] * a2[2 * 4 + col] +
+          a1[rOffset + 3] * a2[3 * 4 + col];
+      }
+    }
+    return createMatrixFromArray(out);
+  }
+
   function applyMatrix(matrix, point) {
+    const array = ensureMatrix3d(matrix);
+    const px = Number.isFinite(point && point.x) ? point.x : 0;
+    const py = Number.isFinite(point && point.y) ? point.y : 0;
+    const pz = Number.isFinite(point && point.z) ? point.z : 0;
     return {
-      x: matrix.a * point.x + matrix.c * point.y + matrix.tx,
-      y: matrix.b * point.x + matrix.d * point.y + matrix.ty
+      x: array[0] * px + array[1] * py + array[2] * pz + array[3],
+      y: array[4] * px + array[5] * py + array[6] * pz + array[7],
+      z: array[8] * px + array[9] * py + array[10] * pz + array[11]
     };
   }
 
   function applyMatrixToVector(matrix, vector) {
+    const array = ensureMatrix3d(matrix);
+    const vx = Number.isFinite(vector && vector.x) ? vector.x : 0;
+    const vy = Number.isFinite(vector && vector.y) ? vector.y : 0;
+    const vz = Number.isFinite(vector && vector.z) ? vector.z : 0;
     return {
-      x: matrix.a * vector.x + matrix.c * vector.y,
-      y: matrix.b * vector.x + matrix.d * vector.y
+      x: array[0] * vx + array[1] * vy + array[2] * vz,
+      y: array[4] * vx + array[5] * vy + array[6] * vz,
+      z: array[8] * vx + array[9] * vy + array[10] * vz
     };
   }
 
@@ -505,7 +619,11 @@
           if (!basis) {
             return;
           }
-          const matrix = this._matrixFromBasis(basis);
+          let matrix = this._matrixFromBasis(basis);
+          const layoutInsertTransform = basePointTransform(layout.insertBase || null);
+          if (layoutInsertTransform) {
+            matrix = multiplyMatrix(matrix, layoutInsertTransform);
+          }
           if (!fallbackMatrix) {
             fallbackMatrix = matrix;
           }
@@ -813,18 +931,92 @@
       const origin = effectiveBasis.origin || { x: 0, y: 0, z: 0 };
       const xAxis = normalizeVector(effectiveBasis.xAxis, { x: 1, y: 0, z: 0 });
       let yAxis = normalizeVector(effectiveBasis.yAxis, { x: 0, y: 1, z: 0 });
-      const zAxis = normalizeVector(effectiveBasis.zAxis, { x: 0, y: 0, z: 1 });
+      let zAxis = normalizeVector(effectiveBasis.zAxis, { x: 0, y: 0, z: 1 });
       if (vectorLength(yAxis) < 1e-6) {
         yAxis = normalizeVector(crossProduct(zAxis, xAxis), { x: 0, y: 1, z: 0 });
       }
-      return {
-        a: xAxis.x,
-        b: xAxis.y,
-        c: yAxis.x,
-        d: yAxis.y,
-        tx: -(xAxis.x * origin.x + yAxis.x * origin.y),
-        ty: -(xAxis.y * origin.x + yAxis.y * origin.y)
-      };
+      if (vectorLength(zAxis) < 1e-6) {
+        zAxis = normalizeVector(crossProduct(xAxis, yAxis), { x: 0, y: 0, z: 1 });
+      }
+      const array = new Float64Array(16);
+      array[0] = xAxis.x;
+      array[1] = yAxis.x;
+      array[2] = zAxis.x;
+      array[3] = -(xAxis.x * origin.x + yAxis.x * origin.y + zAxis.x * origin.z);
+      array[4] = xAxis.y;
+      array[5] = yAxis.y;
+      array[6] = zAxis.y;
+      array[7] = -(xAxis.y * origin.x + yAxis.y * origin.y + zAxis.y * origin.z);
+      array[8] = xAxis.z;
+      array[9] = yAxis.z;
+      array[10] = zAxis.z;
+      array[11] = -(xAxis.z * origin.x + yAxis.z * origin.y + zAxis.z * origin.z);
+      array[12] = 0;
+      array[13] = 0;
+      array[14] = 0;
+      array[15] = 1;
+      return createMatrixFromArray(array);
+    }
+
+    _isDefaultExtrusion(extrusion) {
+      if (!extrusion || typeof extrusion !== 'object') {
+        return true;
+      }
+      const nx = Number.isFinite(extrusion.x) ? extrusion.x : 0;
+      const ny = Number.isFinite(extrusion.y) ? extrusion.y : 0;
+      const nz = Number.isFinite(extrusion.z) ? extrusion.z : 1;
+      return Math.abs(nx) < 1e-9 && Math.abs(ny) < 1e-9 && Math.abs(nz - 1) < 1e-9;
+    }
+
+    _matrixFromExtrusionVector(extrusion) {
+      if (this._isDefaultExtrusion(extrusion)) {
+        return null;
+      }
+      const fallbackNormal = { x: 0, y: 0, z: 1 };
+      const normalized = normalizeVector(extrusion, fallbackNormal);
+      const reference =
+        Math.abs(normalized.x) < 1 / 64 && Math.abs(normalized.y) < 1 / 64
+          ? { x: 0, y: 1, z: 0 }
+          : { x: 0, y: 0, z: 1 };
+      let xAxis = crossProduct(reference, normalized);
+      if (vectorLength(xAxis) < 1e-9) {
+        xAxis = crossProduct(fallbackNormal, normalized);
+      }
+      xAxis = normalizeVector(xAxis, { x: 1, y: 0, z: 0 });
+      let yAxis = crossProduct(normalized, xAxis);
+      if (vectorLength(yAxis) < 1e-9) {
+        yAxis = crossProduct(normalized, reference);
+      }
+      yAxis = normalizeVector(yAxis, { x: 0, y: 1, z: 0 });
+      const array = new Float64Array(16);
+      array[0] = xAxis.x;
+      array[1] = yAxis.x;
+      array[2] = normalized.x;
+      array[3] = 0;
+      array[4] = xAxis.y;
+      array[5] = yAxis.y;
+      array[6] = normalized.y;
+      array[7] = 0;
+      array[8] = xAxis.z;
+      array[9] = yAxis.z;
+      array[10] = normalized.z;
+      array[11] = 0;
+      array[12] = 0;
+      array[13] = 0;
+      array[14] = 0;
+      array[15] = 1;
+      return createMatrixFromArray(array);
+    }
+
+    _resolveExtrusionMatrix(entity, geometry) {
+      const extrusionCandidate =
+        (geometry && geometry.extrusion) ||
+        (entity && entity.extrusion) ||
+        null;
+      if (!extrusionCandidate || this._isDefaultExtrusion(extrusionCandidate)) {
+        return null;
+      }
+      return this._matrixFromExtrusionVector(extrusionCandidate);
     }
 
     getModelMatrix() {
@@ -1438,6 +1630,11 @@
       const tables = sceneGraph.tables || {};
       const units = sceneGraph.units || {};
       const primaryUnits = this._normalizeUnitsCode(units.insUnits);
+      const defaultSourceUnits = this._normalizeUnitsCode(units.insUnitsSource);
+      const defaultTargetUnits = this._normalizeUnitsCode(units.insUnitsTarget);
+      const defaultInsertScaleFactor = Number.isFinite(units.scaleFactor) && units.scaleFactor !== 0
+        ? Math.abs(units.scaleFactor)
+        : 1;
       const blockUnitsLookup = this._buildBlockUnitsLookup(
         tables.blockRecords || {},
         sceneGraph.blockMetadata || {}
@@ -1468,12 +1665,165 @@
         traceWidth: displaySettings.traceWidth
       };
 
+      const drawingBaseTransform = basePointTransform(units.basePoint || null);
+      const applyDrawingBaseTransform = (matrix) => {
+        if (!drawingBaseTransform) {
+          return matrix;
+        }
+        return multiplyMatrix(matrix || identityMatrix(), drawingBaseTransform);
+      };
+
       const coordinateResolver = namespace.CoordinateSystemResolver
         ? new namespace.CoordinateSystemResolver(sceneGraph)
         : null;
-      const defaultBaseMatrix = identityMatrix();
+      const blockRecordsTable = tables.blockRecords || {};
+      const blockRecordsByUpperName = new Map();
+      Object.keys(blockRecordsTable).forEach((key) => {
+        const record = blockRecordsTable[key];
+        if (!record) {
+          return;
+        }
+        const recordName = record.name || key;
+        if (!recordName) {
+          return;
+        }
+        const normalized = String(recordName).trim().toUpperCase();
+        if (normalized) {
+          blockRecordsByUpperName.set(normalized, record);
+        }
+      });
+      const rawBlockMetadata = (() => {
+        const metadata = sceneGraph.blockMetadata;
+        if (!metadata || typeof metadata !== 'object') {
+          return {};
+        }
+        if (metadata.byName && typeof metadata.byName === 'object') {
+          return metadata.byName;
+        }
+        if (Array.isArray(metadata.ordered) || metadata.count != null) {
+          return {};
+        }
+        return metadata;
+      })();
+      const blockMetadataByUpperName = new Map();
+      if (rawBlockMetadata && typeof rawBlockMetadata === 'object') {
+        Object.keys(rawBlockMetadata).forEach((key) => {
+          if (!key) {
+            return;
+          }
+          const entry = rawBlockMetadata[key];
+          if (!entry) {
+            return;
+          }
+          const normalized = String(key).trim().toUpperCase();
+          if (!normalized) {
+            return;
+          }
+          blockMetadataByUpperName.set(normalized, entry);
+        });
+      }
+      const getBlockRecord = (blockName) => {
+        if (!blockName) {
+          return null;
+        }
+        const normalized = String(blockName).trim().toUpperCase();
+        if (!normalized) {
+          return null;
+        }
+        return blockRecordsByUpperName.get(normalized) || null;
+      };
+      const getBlockMetadata = (blockName) => {
+        if (!blockName) {
+          return null;
+        }
+        const normalized = String(blockName).trim().toUpperCase();
+        if (!normalized) {
+          return null;
+        }
+        return blockMetadataByUpperName.get(normalized) || null;
+      };
+      const blockRequiresUniformScaling = (blockName) => {
+        const record = getBlockRecord(blockName);
+        if (record && record.scaleUniformly != null) {
+          return !!record.scaleUniformly;
+        }
+        const metadata = getBlockMetadata(blockName);
+        if (metadata && metadata.constraints && metadata.constraints.scaleUniformly != null) {
+          return !!metadata.constraints.scaleUniformly;
+        }
+        return false;
+      };
+      const blockLayoutMatrixCache = new Map();
+      const resolveBlockLayoutMatrix = (blockName) => {
+        if (!coordinateResolver || !blockName) {
+          return null;
+        }
+        const rawKey = String(blockName).trim();
+        if (!rawKey) {
+          return null;
+        }
+        const cacheKey = rawKey.toUpperCase();
+        if (blockLayoutMatrixCache.has(cacheKey)) {
+          return blockLayoutMatrixCache.get(cacheKey);
+        }
+        const candidateList = [];
+        const seen = new Set();
+        const enqueue = (value) => {
+          if (value == null) {
+            return;
+          }
+          const str = String(value).trim();
+          if (!str) {
+            return;
+          }
+          const normalized = str.toUpperCase();
+          if (seen.has(normalized)) {
+            return;
+          }
+          candidateList.push(str);
+          seen.add(normalized);
+        };
+        const blockDefinition = blocks[rawKey] || blocks[cacheKey];
+        if (blockDefinition && blockDefinition.header) {
+          const header = blockDefinition.header;
+          enqueue(header.layoutHandle);
+          if (header.layoutHandleUpper) {
+            enqueue(header.layoutHandleUpper);
+          }
+        }
+        const record = blockRecordsByUpperName.get(cacheKey);
+        if (record) {
+          enqueue(record.layoutHandle);
+          if (record.layoutHandleUpper) {
+            enqueue(record.layoutHandleUpper);
+          }
+          enqueue(record.name);
+        }
+        enqueue(rawKey);
+        const paperMatrices = coordinateResolver.paperMatrices instanceof Map
+          ? coordinateResolver.paperMatrices
+          : null;
+        let resolvedMatrix = null;
+        if (paperMatrices && candidateList.length) {
+          for (let idx = 0; idx < candidateList.length; idx++) {
+            const candidate = candidateList[idx];
+            const normalized = candidate.trim().toUpperCase();
+            if (!normalized) {
+              continue;
+            }
+            if (paperMatrices.has(normalized)) {
+              const baseMatrix = paperMatrices.get(normalized);
+              resolvedMatrix = applyDrawingBaseTransform(baseMatrix);
+              break;
+            }
+          }
+        }
+        blockLayoutMatrixCache.set(cacheKey, resolvedMatrix);
+        return resolvedMatrix;
+      };
+      const defaultBaseMatrix = applyDrawingBaseTransform(identityMatrix());
       const modelBaseMatrix = coordinateResolver
-        ? coordinateResolver.getModelMatrix()
+        ? applyDrawingBaseTransform(coordinateResolver.getModelMatrix())
         : defaultBaseMatrix;
       const paperMatrixCache = new Map();
       const environmentDescriptor = this._resolveEnvironment(sceneGraph, coordinateResolver, buildOptions);
@@ -1494,7 +1844,8 @@
         if ((entity.space || '').toLowerCase() === 'paper') {
           const layoutKey = String(entity.layout || 'PAPERSPACE').trim().toUpperCase();
           if (!paperMatrixCache.has(layoutKey)) {
-            paperMatrixCache.set(layoutKey, coordinateResolver.getPaperMatrix(entity.layout || null));
+            const rawPaperMatrix = coordinateResolver.getPaperMatrix(entity.layout || null);
+            paperMatrixCache.set(layoutKey, applyDrawingBaseTransform(rawPaperMatrix));
           }
           return paperMatrixCache.get(layoutKey);
         }
@@ -1583,17 +1934,28 @@
 
       let renderBlockContent = () => {};
 
-      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive, contextUnits) => {
+      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive, contextUnits, styleState, clipStack) => {
         if (!entity || depth > MAX_BLOCK_DEPTH) {
           return;
         }
+        styleState = styleState || null;
         const type = (entity.type || '').toUpperCase();
         const geometry = entity.geometry || {};
+        const extrusionMatrix = typeof this._resolveExtrusionMatrix === 'function'
+          ? this._resolveExtrusionMatrix(entity, geometry)
+          : null;
+        if (extrusionMatrix) {
+          transform = multiplyMatrix(transform, extrusionMatrix);
+        }
         blockStack = blockStack || [];
         highlightActive = !!highlightActive;
-        const activeUnits = this._normalizeUnitsCode(
+        clipStack = clipStack || null;
+        let activeUnits = this._normalizeUnitsCode(
           contextUnits != null ? contextUnits : primaryUnits
         );
+        if (activeUnits == null && defaultTargetUnits != null) {
+          activeUnits = defaultTargetUnits;
+        }
         const handle = this._normalizeHandle(entity.handle || entity.id || null);
         const isolationActive = this.entityIsolation && this.entityIsolation.size > 0;
         const isContainerEntity = type === 'INSERT';
@@ -1609,7 +1971,8 @@
           }
         }
 
-        const baseColor = cloneColor(this._resolveColor(entity));
+        const resolvedColor = this._resolveColor(entity, styleState);
+        const baseColor = cloneColor(resolvedColor);
         if (layerState && typeof layerState.transparencyAlpha === 'number') {
           const alpha = Math.max(0, Math.min(1, layerState.transparencyAlpha));
           const currentAlpha = Number.isFinite(baseColor.a) ? baseColor.a : 1;
@@ -1618,6 +1981,40 @@
           baseColor.css = `rgba(${Math.round(baseColor.r * 255)}, ${Math.round(baseColor.g * 255)}, ${Math.round(baseColor.b * 255)}, ${appliedAlpha.toFixed(3)})`;
         }
         const color = this._getEffectiveColor(baseColor, highlightActive, isSelected);
+        const resolvedLineweight = this._resolveLineweight(entity, styleState);
+        const resolvedLinetype = this._resolveLinetype(entity, tables, styleState);
+        const effectiveLinetypeName = (() => {
+          if (resolvedLinetype && resolvedLinetype.name) {
+            return resolvedLinetype.name;
+          }
+          const directNameRaw = entity.linetype ? String(entity.linetype).trim() : '';
+          const directUpper = directNameRaw.toUpperCase();
+          if (directNameRaw && directUpper !== 'BYBLOCK' && directUpper !== 'BYLAYER') {
+            return directNameRaw;
+          }
+          if (styleState && styleState.linetypeName) {
+            return styleState.linetypeName;
+          }
+          if (entity.resolved && entity.resolved.layer && entity.resolved.layer.linetype) {
+            const layerName = String(entity.resolved.layer.linetype || '').trim();
+            if (layerName) {
+              return layerName;
+            }
+          }
+          return null;
+        })();
+        const renderBlockWithCurrentStyle = (blockName, matrix, depthValue, visitedBlocksValue, blockStackValue, highlightValue, parentUnitsValue, nestedClipStack) =>
+          renderBlockContent(
+            blockName,
+            matrix,
+            depthValue,
+            visitedBlocksValue,
+            blockStackValue,
+            highlightValue,
+            parentUnitsValue,
+            styleState || null,
+            nestedClipStack != null ? nestedClipStack : clipStack
+          );
         const material =
           (entity && entity.resolved && entity.resolved.material)
             ? entity.resolved.material
@@ -1641,12 +2038,16 @@
           case 'LINE': {
             if (!geometry.start || !geometry.end) return;
             const transformed = transformPoints([geometry.start, geometry.end], transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed: false })
             });
@@ -1655,16 +2056,24 @@
           case 'LWPOLYLINE': {
             if (!geometry.points || geometry.points.length < 2) return;
             const transformed = transformPoints(geometry.points, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed && transformed.length > 2;
             if (isClosed) {
-              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              transformed.push({
+                x: transformed[0].x,
+                y: transformed[0].y,
+                z: transformed[0].z != null ? transformed[0].z : 0
+              });
             }
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -1674,20 +2083,33 @@
             if (!geometry.vertices || geometry.vertices.length < 2) return;
             const verts = geometry.vertices
               .filter((v) => !v.isFaceRecord && v.position)
-              .map((v) => ({ x: v.position.x, y: v.position.y }));
+              .map((v) => ({
+                x: Number.isFinite(v.position.x) ? v.position.x : 0,
+                y: Number.isFinite(v.position.y) ? v.position.y : 0,
+                z: Number.isFinite(v.position.z) ? v.position.z : 0
+              }));
             if (verts.length < 2) return;
             const transformed = transformPoints(verts, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed && transformed.length > 2;
             if (isClosed && (transformed[0].x !== transformed[transformed.length - 1].x ||
-              transformed[0].y !== transformed[transformed.length - 1].y)) {
-              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              transformed[0].y !== transformed[transformed.length - 1].y ||
+              (transformed[0].z ?? 0) !== (transformed[transformed.length - 1].z ?? 0))) {
+              transformed.push({
+                x: transformed[0].x,
+                y: transformed[0].y,
+                z: transformed[0].z != null ? transformed[0].z : 0
+              });
             }
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -1697,19 +2119,24 @@
             if (!geometry.vertices || geometry.vertices.length < 2) return;
             const verts = geometry.vertices.map((pt) => ({
               x: Number.isFinite(pt.x) ? pt.x : 0,
-              y: Number.isFinite(pt.y) ? pt.y : 0
+              y: Number.isFinite(pt.y) ? pt.y : 0,
+              z: Number.isFinite(pt.z) ? pt.z : 0
             }));
             const transformed = transformPoints(verts, transform);
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed && transformed.length > 2;
             if (isClosed && !this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
-              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              transformed.push({
+                x: transformed[0].x,
+                y: transformed[0].y,
+                z: transformed[0].z != null ? transformed[0].z : 0
+              });
             }
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed, family: 'mline', style: geometry.style || null })
             });
@@ -1725,12 +2152,16 @@
               false
             );
             const transformed = transformPoints(arcPoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed: false })
             });
@@ -1740,12 +2171,16 @@
             if (!geometry.center || !Number.isFinite(geometry.radius)) return;
             const arcPoints = this._sampleArc(geometry.center, geometry.radius, 0, 360, true);
             const transformed = transformPoints(arcPoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed: true })
             });
@@ -1755,6 +2190,10 @@
             const ellipsePoints = this._sampleEllipse(geometry);
             if (!ellipsePoints) return;
             const transformed = transformPoints(ellipsePoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const start = geometry.startAngle != null ? geometry.startAngle : 0;
             const end = geometry.endAngle != null ? geometry.endAngle : Math.PI * 2;
@@ -1770,8 +2209,8 @@
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -1783,6 +2222,10 @@
               : geometry.controlPoints;
             if (!splinePoints || splinePoints.length < 2) return;
             const transformed = transformPoints(splinePoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed ||
               (transformed.length >= 2 && this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1]));
@@ -1792,8 +2235,8 @@
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -1807,6 +2250,10 @@
             if (!geometry.position) return;
             const config = this._resolvePointDisplayConfig(geometry, transform);
             const worldPoint = applyMatrix(transform, geometry.position);
+            const pointBounds = { minX: worldPoint.x, minY: worldPoint.y, maxX: worldPoint.x, maxY: worldPoint.y };
+            if (this._shouldCullWithClip(pointBounds, clipStack)) {
+              return;
+            }
             updateBounds(worldPoint.x, worldPoint.y);
             if (!config) {
               rawPoints.push({
@@ -1835,7 +2282,7 @@
               updateBounds,
               polylineCollector: rawPolylines,
               color,
-              lineweight: this._resolveLineweight(entity),
+              lineweight: resolvedLineweight,
               makeMeta,
               config,
               family: 'point'
@@ -1879,7 +2326,7 @@
                 updateBounds,
                 polylineCollector: rawPolylines,
                 color,
-                lineweight: this._resolveLineweight(entity),
+                lineweight: resolvedLineweight,
                 makeMeta,
                 config,
                 family: 'mpoint'
@@ -1988,7 +2435,7 @@
                 updateBounds,
                 polylineCollector: rawPolylines,
                 color,
-                lineweight: this._resolveLineweight(entity),
+                lineweight: resolvedLineweight,
                 makeMeta
               });
               break;
@@ -2023,8 +2470,8 @@
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables)
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype
             });
             break;
           }
@@ -2047,12 +2494,12 @@
             polylineCollector: rawPolylines,
             textCollector: rawTexts,
             color,
-            lineweight: entity.lineweight,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : entity.lineweight,
             styleEntry: null,
             multiLeaderStylesByHandle,
             multiLeaderStyles,
             textStylesByHandle,
-            renderBlockContent,
+            renderBlockContent: renderBlockWithCurrentStyle,
             getBlockNameByHandle,
             depth,
             visitedBlocks,
@@ -2072,11 +2519,11 @@
             polylineCollector: rawPolylines,
             textCollector: rawTexts,
             color,
-            lineweight: entity.lineweight,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : entity.lineweight,
             multiLeaderStylesByHandle,
             multiLeaderStyles,
             textStylesByHandle,
-            renderBlockContent,
+            renderBlockContent: renderBlockWithCurrentStyle,
             getBlockNameByHandle,
             depth,
             visitedBlocks,
@@ -2096,8 +2543,8 @@
             fillCollector: rawFills,
             textCollector: rawTexts,
             baseColor: color,
-            lineweight: entity.lineweight,
-            renderBlockContent,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : entity.lineweight,
+            renderBlockContent: renderBlockWithCurrentStyle,
             getBlockNameByHandle,
             textStylesByHandle,
             depth,
@@ -2417,6 +2864,15 @@
           if (!block || !Array.isArray(block.entities)) {
             return;
           }
+          const blockMetadataEntry = getBlockMetadata(blockName);
+          const blockFlagsInfo = blockMetadataEntry && blockMetadataEntry.flags ? blockMetadataEntry.flags : null;
+          if (blockFlagsInfo && blockFlagsInfo.isOverlay && blockStack && blockStack.length) {
+            return;
+          }
+          if (blockFlagsInfo && blockFlagsInfo.isExternallyDependent && !blockFlagsInfo.isResolved &&
+            (!block.entities || !block.entities.length)) {
+            return;
+          }
           if (visitedBlocks.includes(blockName)) {
             return;
           }
@@ -2430,27 +2886,130 @@
 
           const basePoint = block.header && block.header.basePoint
             ? block.header.basePoint
-            : { x: 0, y: 0 };
-          const baseTransform = translateMatrix(-basePoint.x, -basePoint.y);
+            : { x: 0, y: 0, z: 0 };
+          const baseTransform = translateMatrix(
+            -(Number.isFinite(basePoint.x) ? basePoint.x : 0),
+            -(Number.isFinite(basePoint.y) ? basePoint.y : 0),
+            -(Number.isFinite(basePoint.z) ? basePoint.z : 0)
+          );
+          const blockLayoutMatrix = resolveBlockLayoutMatrix(blockName);
+          const definitionTransform = blockLayoutMatrix
+            ? multiplyMatrix(blockLayoutMatrix, baseTransform)
+            : baseTransform;
 
-          const blockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
-          const shouldConvertUnits = blockUnits != null && activeUnits != null && blockUnits !== activeUnits;
-          const unitScale = shouldConvertUnits
-            ? this._unitConversionFactor(blockUnits, activeUnits)
-            : 1;
-          const scaleX = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
-          let scaleY = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
-          const scaleZ = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
-          if (scaleY == null || scaleY === 0) {
-            scaleY = scaleZ !== 0 ? scaleZ : 1;
+          const clipFilters = Array.isArray(geometry.clipFilters) ? geometry.clipFilters : null;
+          const blockClipPolygons = clipFilters
+            ? clipFilters
+                .filter((filter) => filter && filter.clippingEnabled !== false &&
+                  Array.isArray(filter.boundary) && filter.boundary.length >= 2)
+                .map((filter) => {
+                  const matrixArray = filter.inverseInsertMatrix || filter.clipBoundaryMatrix || null;
+                  const baseMatrix = matrixArray ? createMatrixFromArray(matrixArray) : identityMatrix();
+                  let blockPoints = filter.boundary.map((pt) => {
+                    const applied = applyMatrix(baseMatrix, { x: pt.x, y: pt.y, z: 0 });
+                    return { x: applied.x, y: applied.y };
+                  });
+                  if (blockPoints.length === 2) {
+                    const p0 = blockPoints[0];
+                    const p1 = blockPoints[1];
+                    blockPoints = [
+                      { x: p0.x, y: p0.y },
+                      { x: p1.x, y: p0.y },
+                      { x: p1.x, y: p1.y },
+                      { x: p0.x, y: p1.y }
+                    ];
+                  }
+                  const bounds = this._computeBoundsFromPoints(blockPoints);
+                  if (!bounds) {
+                    return null;
+                  }
+                  return {
+                    points: blockPoints,
+                    bounds
+                  };
+                })
+                .filter((entry) => entry && entry.points && entry.points.length >= 3)
+            : [];
+
+          const rawBlockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
+          const normalizedBlockUnits = this._normalizeUnitsCode(rawBlockUnits);
+          const normalizedActiveUnits = activeUnits;
+          let unitScale = 1;
+          const applyDefaultScale = () => {
+            if (defaultInsertScaleFactor && defaultInsertScaleFactor !== 1) {
+              unitScale *= defaultInsertScaleFactor;
+            }
+          };
+          if (normalizedBlockUnits != null) {
+            if (normalizedBlockUnits === 0) {
+              const sourceUnits = defaultSourceUnits != null ? defaultSourceUnits : normalizedActiveUnits;
+              if (sourceUnits != null && normalizedActiveUnits != null && sourceUnits !== normalizedActiveUnits) {
+                unitScale *= this._unitConversionFactor(sourceUnits, normalizedActiveUnits);
+              }
+              applyDefaultScale();
+            } else if (normalizedActiveUnits != null && normalizedBlockUnits !== normalizedActiveUnits) {
+              unitScale *= this._unitConversionFactor(normalizedBlockUnits, normalizedActiveUnits);
+            }
+          } else {
+            const sourceUnits = defaultSourceUnits != null ? defaultSourceUnits : normalizedActiveUnits;
+            if (sourceUnits != null && normalizedActiveUnits != null && sourceUnits !== normalizedActiveUnits) {
+              unitScale *= this._unitConversionFactor(sourceUnits, normalizedActiveUnits);
+            }
+            applyDefaultScale();
           }
-          const effectiveScaleX = (scaleX !== 0 ? scaleX : 1) * unitScale;
-          const effectiveScaleY = (scaleY !== 0 ? scaleY : 1) * unitScale;
-          const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY);
+
+          const scaleXRaw = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
+          let scaleYRaw = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
+          const scaleZRaw = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
+          if (scaleYRaw == null || scaleYRaw === 0) {
+            scaleYRaw = scaleZRaw !== 0 ? scaleZRaw : 1;
+          }
+          let resolvedScaleX = scaleXRaw !== 0 ? scaleXRaw : 1;
+          let resolvedScaleY = scaleYRaw !== 0 ? scaleYRaw : 1;
+          let resolvedScaleZ = scaleZRaw !== 0 ? scaleZRaw : 1;
+          if (blockRequiresUniformScaling(blockName)) {
+            const tolerance = 1e-6;
+            const compare = (a, b) => Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+            const uniformXY = compare(resolvedScaleX, resolvedScaleY);
+            const uniformXZ = compare(resolvedScaleX, resolvedScaleZ);
+            if (!uniformXY || !uniformXZ) {
+              const candidateSource = geometry.scale || {};
+              const candidates = [];
+              if (Number.isFinite(candidateSource.x) && candidateSource.x !== 0) {
+                candidates.push(candidateSource.x);
+              }
+              if (Number.isFinite(candidateSource.y) && candidateSource.y !== 0) {
+                candidates.push(candidateSource.y);
+              }
+              if (Number.isFinite(candidateSource.z) && candidateSource.z !== 0) {
+                candidates.push(candidateSource.z);
+              }
+              if (!candidates.length) {
+                candidates.push(resolvedScaleX, resolvedScaleY, resolvedScaleZ);
+              }
+              let base = candidates[0];
+              for (let idx = 1; idx < candidates.length; idx += 1) {
+                if (Math.abs(candidates[idx]) > Math.abs(base)) {
+                  base = candidates[idx];
+                }
+              }
+              if (!Number.isFinite(base) || Math.abs(base) < 1e-9) {
+                base = 1;
+              }
+              resolvedScaleX = base;
+              resolvedScaleY = base;
+              resolvedScaleZ = base;
+            }
+          }
+          const effectiveScaleX = resolvedScaleX * unitScale;
+          const effectiveScaleY = resolvedScaleY * unitScale;
+          const effectiveScaleZ = resolvedScaleZ * unitScale;
+          const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY, effectiveScaleZ);
           const rotation = rotateMatrix((geometry.rotation || 0) * Math.PI / 180);
           const translate = translateMatrix(
-            geometry.position ? geometry.position.x : 0,
-            geometry.position ? geometry.position.y : 0
+            geometry.position ? (Number.isFinite(geometry.position.x) ? geometry.position.x : 0) : 0,
+            geometry.position ? (Number.isFinite(geometry.position.y) ? geometry.position.y : 0) : 0,
+            geometry.position ? (Number.isFinite(geometry.position.z) ? geometry.position.z : 0) : 0
           );
 
           const insertTransform = multiplyMatrix(transform, multiplyMatrix(translate, multiplyMatrix(rotation, localScale)));
@@ -2459,12 +3018,38 @@
           const rowCount = geometry.rowCount || 1;
           const columnSpacing = geometry.columnSpacing || 0;
           const rowSpacing = geometry.rowSpacing || 0;
-          const childContextUnits = blockUnits != null ? blockUnits : activeUnits;
+          const childContextUnits = normalizedBlockUnits != null
+            ? (normalizedBlockUnits === 0 && defaultSourceUnits != null ? defaultSourceUnits : normalizedBlockUnits)
+            : normalizedActiveUnits;
+          const childStyleOverrides = {
+            color: resolvedColor ? cloneColor(resolvedColor) : null,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : (styleState ? styleState.lineweight : null),
+            linetypeName: effectiveLinetypeName || (styleState ? styleState.linetypeName : null),
+            linetypeEntry: resolvedLinetype || (styleState ? styleState.linetypeEntry : null)
+          };
 
           for (let row = 0; row < rowCount; row++) {
             for (let col = 0; col < columnCount; col++) {
-              const offset = translateMatrix(col * columnSpacing, row * rowSpacing);
-              const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, baseTransform));
+              const offset = translateMatrix(col * columnSpacing, row * rowSpacing, 0);
+              const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, definitionTransform));
+              let instanceClipStack = clipStack;
+              if (blockClipPolygons.length) {
+                const worldClips = [];
+                for (let idx = 0; idx < blockClipPolygons.length; idx += 1) {
+                  const entry = blockClipPolygons[idx];
+                  const worldPoints = entry.points.map((pt) => {
+                    const applied = applyMatrix(composedTransform, { x: pt.x, y: pt.y, z: 0 });
+                    return { x: applied.x, y: applied.y };
+                  });
+                  const worldBounds = this._computeBoundsFromPoints(worldPoints);
+                  if (worldBounds) {
+                    worldClips.push({ points: worldPoints, bounds: worldBounds });
+                  }
+                }
+                if (worldClips.length) {
+                  instanceClipStack = (clipStack || []).concat(worldClips);
+                }
+              }
               block.entities.forEach((child) => processEntity(
                 child,
                 composedTransform,
@@ -2472,7 +3057,9 @@
                 visitedStack,
                 (blockStack || []).concat(blockName),
                 nextHighlight,
-                childContextUnits
+                childContextUnits,
+                childStyleOverrides,
+                instanceClipStack
               ));
             }
           }
@@ -2490,7 +3077,7 @@
             makeMeta,
             contextUnits,
             {
-              renderBlockContent,
+              renderBlockContent: renderBlockWithCurrentStyle,
               getBlockNameByHandle,
               depth,
               visitedBlocks,
@@ -2523,7 +3110,9 @@
             color,
             material: materialDescriptor,
             makeMeta,
-            tables
+            tables,
+            lineweight: resolvedLineweight,
+            linetype: resolvedLinetype
           });
           break;
         }
@@ -2539,8 +3128,8 @@
           rawPolylines.push({
             points: transformed,
             color,
-            lineweight: this._resolveLineweight(entity),
-            linetype: this._resolveLinetype(entity, tables),
+            lineweight: resolvedLineweight,
+            linetype: resolvedLinetype,
             worldBounds: this._computeBoundsFromPoints(transformed),
             meta: makeMeta({ geometryKind: 'polyline', isClosed: true, family: geometry.frameType ? geometry.frameType.toLowerCase() : 'frame' })
           });
@@ -2550,7 +3139,7 @@
           if (geometry.position) {
             const projected = applyMatrix(transform, geometry.position);
             updateBounds(projected.x, projected.y);
-            const size = Math.max(6, this._resolveLineweight(entity) || 6);
+            const size = Math.max(6, resolvedLineweight || 6);
             rawPoints.push({
               position: [projected.x, projected.y],
               color,
@@ -2567,7 +3156,7 @@
       }
       };
 
-      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue, parentUnits) => {
+      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue, parentUnits, styleOverrides, clipStackValue) => {
         const resolvedName = blockName || null;
         if (!resolvedName) {
           return;
@@ -2585,23 +3174,43 @@
         const normalizedParentUnits = this._normalizeUnitsCode(
           parentUnits != null ? parentUnits : primaryUnits
         );
-        const blockUnits = this._lookupBlockUnits(resolvedName, blockUnitsLookup);
-        const childUnits = blockUnits != null ? blockUnits : normalizedParentUnits;
+        const rawChildBlockUnits = this._lookupBlockUnits(resolvedName, blockUnitsLookup);
+        const normalizedChildBlockUnits = this._normalizeUnitsCode(rawChildBlockUnits);
+        const childUnits = normalizedChildBlockUnits != null
+          ? (normalizedChildBlockUnits === 0 && defaultSourceUnits != null ? defaultSourceUnits : normalizedChildBlockUnits)
+          : normalizedParentUnits;
+        const header = blockRef.header || {};
+        const basePoint = header.basePoint
+          ? {
+              x: Number.isFinite(header.basePoint.x) ? header.basePoint.x : 0,
+              y: Number.isFinite(header.basePoint.y) ? header.basePoint.y : 0,
+              z: Number.isFinite(header.basePoint.z) ? header.basePoint.z : 0
+            }
+          : { x: 0, y: 0, z: 0 };
+        const baseTransform = translateMatrix(-basePoint.x, -basePoint.y, -basePoint.z);
+        const blockLayoutMatrix = resolveBlockLayoutMatrix(resolvedName);
+        const definitionTransform = blockLayoutMatrix
+          ? multiplyMatrix(blockLayoutMatrix, baseTransform)
+          : baseTransform;
+        const initialMatrix = matrix ? matrix : identityMatrix();
+        const composedMatrix = multiplyMatrix(initialMatrix, definitionTransform);
         blockRef.entities.forEach((child) => processEntity(
           child,
-          matrix,
+          composedMatrix,
           nextDepth,
           nextVisited,
           nextStack,
           highlightValue || false,
-          childUnits
+          childUnits,
+          styleOverrides || null,
+          clipStackValue || null
         ));
       };
 
       const processModelSpace = sceneGraph.modelSpace || [];
       processModelSpace.forEach((entity) => {
         const baseMatrix = resolveBaseMatrixForEntity(entity);
-        processEntity(entity, baseMatrix, 0, [], [], false, primaryUnits);
+        processEntity(entity, baseMatrix, 0, [], [], false, primaryUnits, null, null);
       });
 
       if (bounds.minX === Infinity) {
@@ -3111,9 +3720,10 @@
       return frame;
     }
 
-    _resolveColor(entity) {
+    _resolveColor(entity, styleState = null) {
       const defaultColor = { r: 0.82, g: 0.89, b: 1.0, a: 1.0, css: 'rgba(210, 227, 255, 1)' };
       if (!entity) return defaultColor;
+      const overrideColor = styleState && styleState.color ? styleState.color : null;
 
       const toColorObject = (rgb, alpha = 1) => {
         const clamped = {
@@ -3177,6 +3787,12 @@
         return toColorObject({ r, g, b }, alpha);
       }
 
+      if (entity.color && entity.color.type === 'byBlock') {
+        if (overrideColor) {
+          return cloneColor(overrideColor);
+        }
+      }
+
       if (entity.color && entity.color.type === 'aci') {
         const rgb = this._aciToRgb(entity.color.value);
         const alpha = entity.transparency ? entity.transparency.alpha ?? 1 : 1;
@@ -3214,13 +3830,19 @@
       return defaultColor;
     }
 
-    _resolveLineweight(entity) {
+    _resolveLineweight(entity, styleState = null) {
       if (!entity) {
         return null;
       }
       const explicit = Number(entity.lineweight);
+      const overrideLineweight = styleState && Number.isFinite(styleState.lineweight)
+        ? styleState.lineweight
+        : null;
       if (Number.isFinite(explicit) && explicit > 0) {
         return explicit;
+      }
+      if (explicit === -2 && Number.isFinite(overrideLineweight) && overrideLineweight > 0) {
+        return overrideLineweight;
       }
       if (explicit === -1 && entity.resolved && entity.resolved.layer && Number.isFinite(entity.resolved.layer.lineweight) && entity.resolved.layer.lineweight > 0) {
         return entity.resolved.layer.lineweight;
@@ -3236,7 +3858,7 @@
       return Math.max(0.4, lineweight / 100);
     }
 
-    _resolveLinetype(entity, tables) {
+    _resolveLinetype(entity, tables, styleState = null) {
       if (!entity || !tables || !tables.linetypes) {
         return null;
       }
@@ -3255,11 +3877,29 @@
         return catalog[key] || catalog[key.toUpperCase()] || null;
       };
 
+      const resolveOverrideEntry = () => {
+        if (!styleState) {
+          return null;
+        }
+        if (styleState.linetypeEntry) {
+          return styleState.linetypeEntry;
+        }
+        if (styleState.linetypeName) {
+          return lookupEntry(styleState.linetypeName);
+        }
+        return null;
+      };
+
       let entry = null;
       if (!isByLayer && !isByBlock) {
         entry = entity.resolved && entity.resolved.linetype
           ? entity.resolved.linetype
           : lookupEntry(directName);
+      } else if (isByBlock) {
+        const override = resolveOverrideEntry();
+        if (override) {
+          entry = override;
+        }
       }
       if (!entry && entity.resolved && entity.resolved.layer && entity.resolved.layer.linetype) {
         entry = lookupEntry(entity.resolved.layer.linetype);
@@ -4599,9 +5239,9 @@
       const scaleFactor = Number.isFinite(size) && size !== 0 ? size : length;
       const localScale = scaleMatrix(scaleFactor, scaleFactor);
       const localRotation = rotateMatrix(rotation);
-      const localTranslation = translateMatrix(tip.x, tip.y);
+      const localTranslation = translateMatrix(tip.x, tip.y, tip.z || 0);
       const composed = multiplyMatrix(transform, multiplyMatrix(localTranslation, multiplyMatrix(localRotation, localScale)));
-      renderBlockContent(blockName, composed, depth + 1, visitedBlocks, blockStack, highlight, contextUnits);
+      renderBlockContent(blockName, composed, depth + 1, visitedBlocks, blockStack, highlight, contextUnits, null, null);
       return true;
     }
 
@@ -4862,7 +5502,14 @@
                   x: left + width / 2,
                   y: top + height / 2
                 };
-                const blockTransform = multiplyMatrix(baseTransform, translateMatrix(localBlockOrigin.x, localBlockOrigin.y));
+                const blockTransform = multiplyMatrix(
+                  baseTransform,
+                  translateMatrix(
+                    localBlockOrigin.x,
+                    localBlockOrigin.y,
+                    localBlockOrigin.z || 0
+                  )
+                );
                 renderBlockContent(
                   blockName,
                   blockTransform,
@@ -4870,7 +5517,9 @@
                   visitedBlocks || [],
                   blockStack || [],
                   !!highlightActive,
-                  contextUnits
+                  contextUnits,
+                  null,
+                  null
                 );
               }
             }
@@ -5038,8 +5687,11 @@
       if (contentType === 2 && blockHandle && typeof renderBlockContent === 'function' && typeof getBlockNameByHandle === 'function') {
         const blockName = getBlockNameByHandle(blockHandle);
         if (blockName) {
-          const contentTransform = multiplyMatrix(transform, translateMatrix(anchorPoint.x, anchorPoint.y));
-          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive, contextUnits);
+          const contentTransform = multiplyMatrix(
+            transform,
+            translateMatrix(anchorPoint.x, anchorPoint.y, anchorPoint.z || 0)
+          );
+          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive, contextUnits, null, null);
         }
       }
     }
@@ -5937,6 +6589,18 @@
       if (geometry.visibility) {
         textEntry.attributeVisibility = geometry.visibility;
       }
+      if (geometry.lockPosition) {
+        textEntry.lockPosition = true;
+      }
+      if (Number.isFinite(geometry.fieldLength) && geometry.fieldLength > 0) {
+        const widthFactorOverride = Number.isFinite(geometry.widthFactor) && geometry.widthFactor > 0
+          ? geometry.widthFactor
+          : 1;
+        const referenceWidth = geometry.fieldLength * baseHeight * widthFactorOverride;
+        if (referenceWidth > 0) {
+          textEntry.referenceWidth = referenceWidth;
+        }
+      }
       options.rawTexts.push(textEntry);
       return true;
     }
@@ -6073,6 +6737,35 @@
         return null;
       }
       return { minX, minY, maxX, maxY };
+    }
+
+    _boundsIntersect(a, b) {
+      if (!a || !b) {
+        return true;
+      }
+      if (a.maxX < b.minX || a.minX > b.maxX) {
+        return false;
+      }
+      if (a.maxY < b.minY || a.minY > b.maxY) {
+        return false;
+      }
+      return true;
+    }
+
+    _shouldCullWithClip(bounds, clipStack) {
+      if (!bounds || !Array.isArray(clipStack) || !clipStack.length) {
+        return false;
+      }
+      for (let i = 0; i < clipStack.length; i += 1) {
+        const clip = clipStack[i];
+        if (!clip || !clip.bounds) {
+          continue;
+        }
+        if (!this._boundsIntersect(bounds, clip.bounds)) {
+          return true;
+        }
+      }
+      return false;
     }
 
     _computeTextScreenBounds(layout) {
@@ -7160,7 +7853,11 @@
       if (!a || !b) {
         return false;
       }
-      return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon;
+      const az = Number.isFinite(a.z) ? a.z : 0;
+      const bz = Number.isFinite(b.z) ? b.z : 0;
+      return Math.abs(a.x - b.x) <= epsilon &&
+        Math.abs(a.y - b.y) <= epsilon &&
+        Math.abs(az - bz) <= epsilon;
     }
 
     _polygonArea(points) {
@@ -7874,9 +8571,23 @@
         ? geometry.dimensionTextOverrides
         : (styleInfo && styleInfo.text ? styleInfo.text : null);
       const dimStyleMetrics = this._resolveDimensionStyleMetrics(entity);
-      const dimensionFlags = geometry.dimensionFlags || 0;
+      const dimensionFlags = Number.isFinite(geometry.dimensionFlags) ? geometry.dimensionFlags : 0;
       const isBaselineDimension = (dimensionFlags & 16) === 16;
       const isContinuedDimension = (dimensionFlags & 32) === 32;
+      let suppressDimensionLine = (dimensionFlags & 64) === 64;
+      if (geometry && geometry.dimensionLineSuppressed === true) {
+        suppressDimensionLine = true;
+      }
+      if (styleToggles && styleToggles.suppressDimensionLine === true) {
+        suppressDimensionLine = true;
+      }
+      let suppressDimensionText = (dimensionFlags & 128) === 128;
+      if (geometry && (geometry.textSuppress === true || geometry.textSuppressed === true)) {
+        suppressDimensionText = true;
+      }
+      if (styleToggles && styleToggles.suppressText === true) {
+        suppressDimensionText = true;
+      }
       const dimensionScale = Number.isFinite(geometry.dimensionScaleFactor) ? geometry.dimensionScaleFactor : 1;
       const obliqueAngleRad = Number.isFinite(geometry.obliqueAngle) ? geometry.obliqueAngle * Math.PI / 180 : 0;
       const hasOblique = Math.abs(obliqueAngleRad) > 1e-6;
@@ -8124,12 +8835,20 @@
             if (isBaselineDimension && Number.isFinite(dimensionLineIncrementValue) && dimensionLineIncrementValue !== 0) {
               dimensionSegment = applyPerpendicularOffset(dimensionSegment, dimensionLineIncrementValue);
             }
-            addLine(dimensionSegment.start, dimensionSegment.end, weight, 'dimensionLine');
-          } else if (definitionPoint && dimensionLinePoint) {
-            addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
           }
-          const dimensionLineStart = dimensionSegment ? dimensionSegment.start : (definitionPoint || dimensionLinePoint);
-          const dimensionLineEnd = dimensionSegment ? dimensionSegment.end : (dimensionLinePoint || definitionPoint);
+          if (!suppressDimensionLine) {
+            if (dimensionSegment) {
+              addLine(dimensionSegment.start, dimensionSegment.end, weight, 'dimensionLine');
+            } else if (definitionPoint && dimensionLinePoint) {
+              addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
+            }
+          }
+          const dimensionLineStart = dimensionSegment
+            ? dimensionSegment.start
+            : (definitionPoint || dimensionLinePoint);
+          const dimensionLineEnd = dimensionSegment
+            ? dimensionSegment.end
+            : (dimensionLinePoint || definitionPoint);
           const extensionTarget1 = dimensionLineStart || definitionPoint;
           const extensionTarget2 = dimensionLineEnd || dimensionLinePoint;
           if (dimensionSegment) {
@@ -8150,16 +8869,18 @@
           }
           if (!skipExtension2 && extension2 && extensionTarget2) {
             let extensionSegment2 = adjustExtensionSegment(extension2, extensionTarget2);
-            extensionSegment2 = rotateSegment(extensionSegment2, extension2);
+            extensionSegment2 = rotateSegment(extensionSegment2, extensionTarget2);
             addLine(extensionSegment2.start, extensionSegment2.end, weight * 0.8, 'extensionLine2');
           }
-          if (arrow1 && dimensionLineStart) {
-            drawArrowHead(arrow1, dimensionLineStart, 0);
+          const arrowBase1 = dimensionLineStart || extensionTarget1;
+          const arrowBase2 = dimensionLineEnd || extensionTarget2;
+          if (arrow1 && arrowBase1) {
+            drawArrowHead(arrow1, arrowBase1, 0);
           }
-          if (arrow2 && dimensionLineEnd) {
-            drawArrowHead(arrow2, dimensionLineEnd, 1);
+          if (arrow2 && arrowBase2) {
+            drawArrowHead(arrow2, arrowBase2, 1);
           }
-          break;
+         break;
         }
         case 2: // angular
         case 5: { // angular 3pt
@@ -8196,7 +8917,7 @@
             }
           }
 
-          if (arcPoints && arcPoints.length >= 2) {
+          if (!suppressDimensionLine && arcPoints && arcPoints.length >= 2) {
             addPolyline(arcPoints, weight, 'dimensionArc');
           }
 
@@ -8209,9 +8930,9 @@
           break;
         }
         case 3: { // diameter
-          if (arrow1 && arrow2) {
+          if (!suppressDimensionLine && arrow1 && arrow2) {
             addLine(arrow1, arrow2, weight, 'diameter');
-          } else if (definitionPoint && dimensionLinePoint) {
+          } else if (!suppressDimensionLine && definitionPoint && dimensionLinePoint) {
             let diameterSegment = adjustDimensionLineSegment(definitionPoint, dimensionLinePoint);
             diameterSegment = rotateSegment(diameterSegment, definitionPoint);
             if (diameterSegment) {
@@ -8222,11 +8943,15 @@
           }
           const diameterCenter = center || definitionPoint || dimensionLinePoint;
           if (diameterCenter && arrow1) {
-            addLine(diameterCenter, arrow1, weight * 0.8, 'radius');
+            if (!suppressDimensionLine) {
+              addLine(diameterCenter, arrow1, weight * 0.8, 'radius');
+            }
             drawArrowHead(arrow1, diameterCenter, 0);
           }
           if (diameterCenter && arrow2) {
-            addLine(diameterCenter, arrow2, weight * 0.8, 'radius');
+            if (!suppressDimensionLine) {
+              addLine(diameterCenter, arrow2, weight * 0.8, 'radius');
+            }
             drawArrowHead(arrow2, diameterCenter, 1);
           }
           if (diameterCenter && Number.isFinite(centerMarkSize) && centerMarkSize > 0) {
@@ -8238,7 +8963,9 @@
           const tip = arrow1 || arrow2 || dimensionLinePoint;
           const origin = definitionPoint || dimensionLinePoint;
           if (origin && tip) {
-            addLine(origin, tip, weight, 'radius');
+            if (!suppressDimensionLine) {
+              addLine(origin, tip, weight, 'radius');
+            }
             const arrowIndex = arrow1 ? 0 : 1;
             drawArrowHead(tip, origin, arrowIndex);
           }
@@ -8273,7 +9000,7 @@
       }
 
       const textAnchor = textPoint || dimensionLinePoint || definitionPoint || center;
-      if (label && textAnchor) {
+      if (!suppressDimensionText && label && textAnchor) {
         const textMovementMode = measurementSettings && measurementSettings.textMovement != null
           ? measurementSettings.textMovement
           : null;
@@ -8534,8 +9261,11 @@
       const sectionStyle = this._resolveSectionStyle(entity, sectionColor);
       const showHatch = sectionStyle.cutHatchEnabled !== false;
       const showBendLines = sectionStyle.bendLinesEnabled !== false;
-      const lineweight = this._resolveLineweight(entity);
-      const linetype = this._resolveLinetype(entity, tables);
+      const resolvedLineweight = Number.isFinite(lineweight) ? lineweight : this._resolveLineweight(entity);
+      const resolvedLinetype = linetype || this._resolveLinetype(entity, tables);
+      const resolvedLineweightPx = this._lineweightToPx(
+        resolvedLineweight != null ? resolvedLineweight : entity.lineweight
+      );
       const boundary3d = Array.isArray(geometry.boundary) ? geometry.boundary : null;
       const boundary2d = boundary3d
         ? boundary3d.map((pt) => ({
@@ -8654,8 +9384,8 @@
           polylineCollector.push({
             points: transformedBoundary,
             color: sectionColor,
-            lineweight,
-            linetype,
+            lineweight: resolvedLineweight,
+            linetype: resolvedLinetype,
             worldBounds: boundaryBounds ? Object.assign({}, boundaryBounds) : null,
             meta: makeMeta
               ? makeMeta({
@@ -8744,7 +9474,7 @@
           polylineCollector.push({
             points: transformedSegment,
             color: hatchStrokeColor,
-            lineweight: Math.max(0.4, this._lineweightToPx(entity.lineweight) * 0.4),
+            lineweight: Math.max(0.4, resolvedLineweightPx * 0.4),
             worldBounds: this._computeBoundsFromPoints(transformedSegment),
             meta: makeMeta
               ? makeMeta({
@@ -8792,8 +9522,8 @@
         polylineCollector.push({
           points: transformedDepth,
           color: bendColor,
-          lineweight,
-          linetype,
+          lineweight: resolvedLineweight,
+          linetype: resolvedLinetype,
           worldBounds: this._computeBoundsFromPoints(transformedDepth),
           meta: makeMeta
             ? makeMeta({
@@ -8812,7 +9542,7 @@
           polylineCollector.push({
             points: connector,
             color: this._adjustColorAlpha(bendColor, 0.85, 0.45),
-            lineweight: Math.max(0.4, this._lineweightToPx(entity.lineweight) * 0.5),
+            lineweight: Math.max(0.4, resolvedLineweightPx * 0.5),
             worldBounds: this._computeBoundsFromPoints(connector),
             meta: makeMeta
               ? makeMeta({
@@ -8832,7 +9562,7 @@
         polylineCollector.push({
           points: axisPoints,
           color: sectionStyle.hatchColor || this._adjustColorAlpha(sectionColor, 0.85, 0.45),
-          lineweight: Math.max(0.6, this._lineweightToPx(entity.lineweight) * 0.75),
+          lineweight: Math.max(0.6, resolvedLineweightPx * 0.75),
           worldBounds: this._computeBoundsFromPoints(axisPoints),
           meta: makeMeta
             ? makeMeta({

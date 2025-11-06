@@ -48,6 +48,9 @@
       this.datalinks = options.datalinks || {};
       this.dictionaryVariables = options.dictionaryVariables || {};
       this.lightLists = options.lightLists || {};
+      this.dictionaries = options.dictionaries || {};
+      this.xrecords = options.xrecords || {};
+      this.spatialFilters = options.spatialFilters || {};
       this.modelSpace = [];
       this.paperSpaces = new Map();
       this.blockDefinitions = new Map();
@@ -140,6 +143,9 @@
         datalinks: this.datalinks,
         dictionaryVariables: this.dictionaryVariables,
         lightLists: this.lightLists,
+        dictionaries: this.dictionaries,
+        xrecords: this.xrecords,
+        spatialFilters: this.spatialFilters,
         entityDefaults: this.entityDefaults,
         displaySettings: this.displaySettings,
         coordinateDefaults: this.coordinateDefaults,

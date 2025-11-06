@@ -120,6 +120,222 @@
     return trimmed ? trimmed.toUpperCase() : null;
   }
 
+  function lookupHandleMap(map, handle) {
+    if (!map || !handle) {
+      return null;
+    }
+    const normalized = normalizeHandle(handle);
+    if (map instanceof Map) {
+      if (normalized && map.has(normalized)) {
+        return map.get(normalized);
+      }
+      if (map.has(handle)) {
+        return map.get(handle);
+      }
+      return null;
+    }
+    if (normalized && Object.prototype.hasOwnProperty.call(map, normalized)) {
+      return map[normalized];
+    }
+    if (Object.prototype.hasOwnProperty.call(map, handle)) {
+      return map[handle];
+    }
+    return null;
+  }
+
+  function extractHandlesFromRawTags(rawTags) {
+    if (!Array.isArray(rawTags) || !rawTags.length) {
+      return [];
+    }
+    const handles = [];
+    rawTags.forEach((tag) => {
+      if (!tag || tag.code == null) {
+        return;
+      }
+      const code = Number(tag.code);
+      if (!Number.isFinite(code)) {
+        return;
+      }
+      if (code >= 330 && code <= 369) {
+        const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+        if (rawHandle) {
+          handles.push(rawHandle);
+        }
+      }
+    });
+    return handles;
+  }
+
+  function collectSpatialFilters(handle, context, visitedDictionaries = new Set(), visitedFilters = new Set()) {
+    if (!handle || !context) {
+      return [];
+    }
+    const dictionaries = context.dictionaries || {};
+    const spatialFilters = context.spatialFilters || {};
+    const xrecords = context.xrecords || {};
+    const dictionary = lookupHandleMap(dictionaries, handle);
+    if (!dictionary) {
+      const filter = lookupHandleMap(spatialFilters, handle);
+      if (!filter) {
+        return [];
+      }
+      const filterKey = filter.handleUpper || normalizeHandle(filter.handle || handle);
+      if (filterKey && visitedFilters.has(filterKey)) {
+        return [];
+      }
+      if (filterKey) {
+        visitedFilters.add(filterKey);
+      }
+      return [filter];
+    }
+    const dictKey = dictionary.handleUpper || normalizeHandle(dictionary.handle || handle);
+    if (dictKey && visitedDictionaries.has(dictKey)) {
+      return [];
+    }
+    if (dictKey) {
+      visitedDictionaries.add(dictKey);
+    }
+    const results = [];
+    (dictionary.entries || []).forEach((entry) => {
+      if (!entry) {
+        return;
+      }
+      const entryHandle = entry.handleUpper || entry.handle;
+      if (!entryHandle) {
+        return;
+      }
+      const directFilter = lookupHandleMap(spatialFilters, entryHandle);
+      if (directFilter) {
+        const filterKey = directFilter.handleUpper || normalizeHandle(directFilter.handle || entryHandle);
+        if (!filterKey || visitedFilters.has(filterKey)) {
+          return;
+        }
+        visitedFilters.add(filterKey);
+        results.push(directFilter);
+        return;
+      }
+      const nestedDictionary = lookupHandleMap(dictionaries, entryHandle);
+      if (nestedDictionary) {
+        results.push(...collectSpatialFilters(entryHandle, context, visitedDictionaries, visitedFilters));
+        return;
+      }
+      const xrecord = lookupHandleMap(xrecords, entryHandle);
+      if (xrecord) {
+        const relatedHandles = extractHandlesFromRawTags(xrecord.rawTags || []);
+        relatedHandles.forEach((candidate) => {
+          const nestedFilter = lookupHandleMap(spatialFilters, candidate);
+          if (nestedFilter) {
+            const filterKey = nestedFilter.handleUpper || normalizeHandle(nestedFilter.handle || candidate);
+            if (filterKey && !visitedFilters.has(filterKey)) {
+              visitedFilters.add(filterKey);
+              results.push(nestedFilter);
+            }
+            return;
+          }
+          const extraDictionary = lookupHandleMap(dictionaries, candidate);
+          if (extraDictionary) {
+            results.push(...collectSpatialFilters(candidate, context, visitedDictionaries, visitedFilters));
+          }
+        });
+      }
+    });
+    return results;
+  }
+
+  function convertSpatialFilterRecord(record) {
+    if (!record || typeof record !== 'object') {
+      return null;
+    }
+    const ensureVector = (vector, fallback) => {
+      const result = {
+        x: fallback && Number.isFinite(fallback.x) ? fallback.x : 0,
+        y: fallback && Number.isFinite(fallback.y) ? fallback.y : 0,
+        z: fallback && Number.isFinite(fallback.z) ? fallback.z : 0
+      };
+      if (vector && typeof vector === 'object') {
+        if (Number.isFinite(vector.x)) result.x = vector.x;
+        if (Number.isFinite(vector.y)) result.y = vector.y;
+        if (Number.isFinite(vector.z)) result.z = vector.z;
+      }
+      return result;
+    };
+    const boundary = Array.isArray(record.boundary)
+      ? record.boundary.map((pt) => ({
+          x: Number.isFinite(pt && pt.x) ? pt.x : 0,
+          y: Number.isFinite(pt && pt.y) ? pt.y : 0
+        }))
+      : [];
+    const convertMatrixValues = (values) => {
+      if (!Array.isArray(values) || values.length < 12) {
+        return null;
+      }
+      const safe = (index) => {
+        const value = values[index];
+        return Number.isFinite(value) ? value : 0;
+      };
+      const array = new Float64Array(16);
+      array[0] = safe(0);
+      array[1] = safe(4);
+      array[2] = safe(8);
+      array[3] = safe(3);
+      array[4] = safe(1);
+      array[5] = safe(5);
+      array[6] = safe(9);
+      array[7] = safe(7);
+      array[8] = safe(2);
+      array[9] = safe(6);
+      array[10] = safe(10);
+      array[11] = safe(11);
+      array[12] = 0;
+      array[13] = 0;
+      array[14] = 0;
+      array[15] = 1;
+      return array;
+    };
+    return {
+      handle: record.handle || record.handleUpper || null,
+      boundary,
+      origin: ensureVector(record.origin, { x: 0, y: 0, z: 0 }),
+      extrusion: ensureVector(record.extrusion, { x: 0, y: 0, z: 1 }),
+      clippingEnabled: record.clippingEnabled != null ? !!record.clippingEnabled : true,
+      frontClip: {
+        enabled: !!(record.frontClip && record.frontClip.enabled),
+        distance: record.frontClip ? record.frontClip.distance : null
+      },
+      backClip: {
+        enabled: !!(record.backClip && record.backClip.enabled),
+        distance: record.backClip ? record.backClip.distance : null
+      },
+      inverseInsertMatrix: convertMatrixValues(record.inverseInsertMatrix),
+      clipBoundaryMatrix: convertMatrixValues(record.clipBoundaryMatrix)
+    };
+  }
+
+  function resolveInsertClipFilters(metadata, context) {
+    if (!metadata) {
+      return [];
+    }
+    const dictionaries = context && context.dictionaries;
+    const spatialFilters = context && context.spatialFilters;
+    if (!dictionaries || !spatialFilters) {
+      return [];
+    }
+    const dictionaryHandle = metadata.extensionDictionaryUpper
+      || metadata.extensionDictionary
+      || null;
+    if (!dictionaryHandle) {
+      return [];
+    }
+    const filters = collectSpatialFilters(dictionaryHandle, {
+      dictionaries,
+      spatialFilters,
+      xrecords: context && context.xrecords
+    });
+    return filters
+      .map((record) => convertSpatialFilterRecord(record))
+      .filter((value) => value != null);
+  }
+
   function extractExtrusion(tags) {
     const nx = toFloat(getFirstCodeValue(tags, 210));
     const ny = toFloat(getFirstCodeValue(tags, 220));
@@ -719,7 +935,13 @@
     if (trueColor) {
       color = { type: 'true', value: trueColor };
     } else if (Number.isInteger(colorNumber)) {
-      color = { type: 'aci', value: colorNumber };
+      if (colorNumber === 0) {
+        color = { type: 'byBlock', value: null };
+      } else if (colorNumber === 256) {
+        color = { type: 'byLayer', value: null };
+      } else {
+        color = { type: 'aci', value: colorNumber };
+      }
     } else {
       color = { type: 'byLayer', value: null };
     }
@@ -741,6 +963,63 @@
       colorName: colorBookColor || null,
       handle: colorBookHandle
     } : null;
+
+    let extensionDictionaryHandle = null;
+    const reactorHandlesRaw = [];
+    if (Array.isArray(tags)) {
+      const markerStack = [];
+      tags.forEach((tag) => {
+        if (!tag || tag.code == null) {
+          return;
+        }
+        const code = Number(tag.code);
+        if (!Number.isFinite(code)) {
+          return;
+        }
+        if (code === 102) {
+          const rawMarker = typeof tag.value === 'string'
+            ? tag.value.trim()
+            : (tag.value != null ? String(tag.value).trim() : '');
+          if (!rawMarker) {
+            return;
+          }
+          if (rawMarker === '}') {
+            markerStack.pop();
+            return;
+          }
+          if (rawMarker.startsWith('{')) {
+            const label = rawMarker.slice(1).trim().toUpperCase();
+            if (label) {
+              markerStack.push(label);
+            }
+          }
+          return;
+        }
+        if (!markerStack.length) {
+          return;
+        }
+        const activeMarker = markerStack[markerStack.length - 1];
+        if (activeMarker === 'ACAD_XDICTIONARY' && code === 360) {
+          const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+          if (rawHandle) {
+            extensionDictionaryHandle = rawHandle;
+          }
+          return;
+        }
+        if (activeMarker === 'ACAD_REACTORS' && code >= 330 && code <= 369) {
+          const rawHandle = tag.value != null ? String(tag.value).trim() : '';
+          if (rawHandle) {
+            reactorHandlesRaw.push(rawHandle);
+          }
+        }
+      });
+    }
+    const normalizedExtensionDictionary = extensionDictionaryHandle
+      ? normalizeHandle(extensionDictionaryHandle)
+      : null;
+    const reactorHandles = reactorHandlesRaw
+      .map((value) => normalizeHandle(value))
+      .filter((value, index, array) => value && array.indexOf(value) === index);
 
     const metadata = {
       handle: handle || null,
@@ -764,7 +1043,10 @@
       visualStyle: visualStyle || null,
       shadowMode,
       spaceFlag,
-      colorBook
+      colorBook,
+      extensionDictionary: extensionDictionaryHandle || null,
+      extensionDictionaryUpper: normalizedExtensionDictionary,
+      reactors: reactorHandles
     };
 
     const defaults = context && context.entityDefaults ? context.entityDefaults : null;
@@ -1429,7 +1711,8 @@ function collectUnderlayClip(map) {
           rowCount: toInt(map.get(71)?.[0]) || 1,
           columnSpacing: toFloat(map.get(44)?.[0]) ?? 0,
           rowSpacing: toFloat(map.get(45)?.[0]) ?? 0,
-          hasAttributes: (toInt(map.get(66)?.[0]) || 0) === 1
+          hasAttributes: (toInt(map.get(66)?.[0]) || 0) === 1,
+          extrusion: extractExtrusion(tags)
         };
       }
       case 'DIMENSION': {
@@ -2432,6 +2715,13 @@ function collectUnderlayClip(map) {
         geometry.traceWidth = displaySettings.traceWidth;
       }
 
+      if (geometry && upperType === 'INSERT') {
+        const clipFilters = resolveInsertClipFilters(metadata, context);
+        if (clipFilters.length) {
+          geometry.clipFilters = clipFilters;
+        }
+      }
+
       return {
         id: entityId,
         type: upperType,
@@ -2448,6 +2738,9 @@ function collectUnderlayClip(map) {
         thickness: metadata.thickness,
         elevation: metadata.elevation,
         extrusion: metadata.extrusion,
+        extensionDictionary: metadata.extensionDictionary || null,
+        extensionDictionaryUpper: metadata.extensionDictionaryUpper || null,
+        reactors: Array.isArray(metadata.reactors) ? metadata.reactors.slice() : [],
         flags: metadata.flags,
         owner: metadata.owner,
         handle: metadata.handle,
@@ -5846,11 +6139,30 @@ function collectUnderlayClip(map) {
     }
 
     _resolveReferenceWidth(kind, rawText) {
+      const geometry = rawText.geometry || {};
+      const scale = rawText.scaleMagnitude || 1;
+      if (Number.isFinite(rawText.referenceWidth) && rawText.referenceWidth > 0) {
+        return rawText.referenceWidth * scale;
+      }
       if (kind === 'MTEXT') {
-        const geometry = rawText.geometry || {};
         if (geometry.referenceWidth && geometry.referenceWidth > 0) {
-          const scale = rawText.scaleMagnitude || 1;
           return geometry.referenceWidth * scale;
+        }
+        return null;
+      }
+      if (geometry.referenceWidth && geometry.referenceWidth > 0) {
+        return geometry.referenceWidth * scale;
+      }
+      if (Number.isFinite(geometry.fieldLength) && geometry.fieldLength > 0) {
+        const widthFactor = Number.isFinite(geometry.widthFactor) && geometry.widthFactor > 0
+          ? geometry.widthFactor
+          : 1;
+        const baseHeight = rawText.baseHeight || geometry.height || 0;
+        if (baseHeight > 0) {
+          const estimatedWidth = geometry.fieldLength * baseHeight * widthFactor;
+          if (estimatedWidth > 0) {
+            return estimatedWidth * scale;
+          }
         }
       }
       return null;
@@ -7165,6 +7477,15 @@ function collectUnderlayClip(map) {
       const lightListsByHandle = auxiliaryObjects.lightLists && auxiliaryObjects.lightLists.byHandle
         ? auxiliaryObjects.lightLists.byHandle
         : Object.create(null);
+      const dictionariesByHandle = auxiliaryObjects.dictionaries && auxiliaryObjects.dictionaries.byHandle
+        ? auxiliaryObjects.dictionaries.byHandle
+        : Object.create(null);
+      const xrecordsByHandle = auxiliaryObjects.xrecords && auxiliaryObjects.xrecords.byHandle
+        ? auxiliaryObjects.xrecords.byHandle
+        : Object.create(null);
+      const spatialFiltersByHandle = auxiliaryObjects.spatialFilters && auxiliaryObjects.spatialFilters.byHandle
+        ? auxiliaryObjects.spatialFilters.byHandle
+        : Object.create(null);
       const { entities, blocks } = this.extractEntities(
         tables,
         materialCatalog,
@@ -7264,7 +7585,10 @@ function collectUnderlayClip(map) {
         proxyObjects: proxyObjectsByHandle,
         datalinks: datalinksByHandle,
         dictionaryVariables: dictionaryVariablesByName,
-        lightLists: lightListsByHandle
+        lightLists: lightListsByHandle,
+        dictionaries: dictionariesByHandle,
+        xrecords: xrecordsByHandle,
+        spatialFilters: spatialFiltersByHandle
       });
 
       entities.forEach((entity) => sceneGraphBuilder.ingestEntity(entity));
@@ -7318,7 +7642,10 @@ function collectUnderlayClip(map) {
         proxyObjects: auxiliaryObjects.proxyObjects,
         datalinks: auxiliaryObjects.datalinks,
         dictionaryVariables: auxiliaryObjects.dictionaryVariables,
-        lightLists: auxiliaryObjects.lightLists
+        lightLists: auxiliaryObjects.lightLists,
+        dictionaries: auxiliaryObjects.dictionaries,
+        xrecords: auxiliaryObjects.xrecords,
+        spatialFilters: auxiliaryObjects.spatialFilters
       };
     }
 
@@ -8132,6 +8459,133 @@ function collectUnderlayClip(map) {
         return { byName: {}, ordered: [], count: 0 };
       }
 
+      const normalizeUnitsCode = (code) => {
+        if (code == null) {
+          return null;
+        }
+        const numeric = Number(code);
+        if (!Number.isFinite(numeric)) {
+          return null;
+        }
+        const coerced = Math.trunc(numeric);
+        return Number.isFinite(coerced) ? coerced : null;
+      };
+
+      const unitNameLookup = {
+        0: 'unitless',
+        1: 'inches',
+        2: 'feet',
+        3: 'miles',
+        4: 'millimeters',
+        5: 'centimeters',
+        6: 'meters',
+        7: 'kilometers',
+        8: 'micro-inches',
+        9: 'mils',
+        10: 'yards',
+        11: 'angstroms',
+        12: 'nanometers',
+        13: 'micrometers',
+        14: 'decimeters',
+        15: 'decameters',
+        16: 'hectometers',
+        17: 'gigameters',
+        18: 'astronomical units',
+        19: 'light years',
+        20: 'parsecs',
+        21: 'us survey feet'
+      };
+
+      const formatUnitShort = (code) => {
+        if (code === 'unitless') {
+          return 'unitless';
+        }
+        const normalized = normalizeUnitsCode(code);
+        if (normalized == null) {
+          return 'unspecified';
+        }
+        return unitNameLookup[normalized] || `code ${normalized}`;
+      };
+
+      const formatNumber = (value) => {
+        if (!Number.isFinite(value)) {
+          return 'NaN';
+        }
+        const abs = Math.abs(value);
+        if (abs === 0) {
+          return '0';
+        }
+        if (abs >= 10000 || abs < 1e-4) {
+          return value.toExponential(3).replace(/e\+?0*/, 'e');
+        }
+        return value.toFixed(6).replace(/\.?0+$/, '');
+      };
+
+      const formatVector = (vector) => {
+        if (!vector || typeof vector !== 'object') {
+          return '0/0/0';
+        }
+        const safe = (value) => {
+          if (!Number.isFinite(value)) {
+            return 'NaN';
+          }
+          return formatNumber(value);
+        };
+        return `${safe(vector.x ?? 0)}/${safe(vector.y ?? 0)}/${safe(vector.z ?? 0)}`;
+      };
+
+      const unitFactorFromCode = (code) => {
+        const normalized = normalizeUnitsCode(code);
+        if (normalized == null) {
+          return 1;
+        }
+        if (Object.prototype.hasOwnProperty.call(unitNameLookup, normalized)) {
+          switch (normalized) {
+            case 0: return 1;
+            case 1: return 0.0254;
+            case 2: return 0.3048;
+            case 3: return 1609.344;
+            case 4: return 0.001;
+            case 5: return 0.01;
+            case 6: return 1;
+            case 7: return 1000;
+            case 8: return 2.54e-7;
+            case 9: return 2.54e-5;
+            case 10: return 0.9144;
+            case 11: return 1e-10;
+            case 12: return 1e-9;
+            case 13: return 1e-6;
+            case 14: return 0.1;
+            case 15: return 10;
+            case 16: return 100;
+            case 17: return 1e9;
+            case 18: return 1.495978707e11;
+            case 19: return 9.460730472e15;
+            case 20: return 3.085677582e16;
+            case 21: return 0.3048006096012192;
+            default: break;
+          }
+        }
+        return 1;
+      };
+
+      const unitConversionFactor = (source, target) => {
+        const sourceFactor = unitFactorFromCode(source);
+        const targetFactor = unitFactorFromCode(target);
+        if (!Number.isFinite(sourceFactor) || !Number.isFinite(targetFactor) || targetFactor === 0) {
+          return 1;
+        }
+        return sourceFactor / targetFactor;
+      };
+
+      const unitsContext = sceneGraph.units || {};
+      const normalizedPrimaryUnits = normalizeUnitsCode(unitsContext.insUnits);
+      const normalizedDefaultSourceUnits = normalizeUnitsCode(unitsContext.insUnitsSource);
+      const normalizedDefaultTargetUnits = normalizeUnitsCode(unitsContext.insUnitsTarget);
+      const defaultInsertScaleFactor = Number.isFinite(unitsContext.scaleFactor) && unitsContext.scaleFactor !== 0
+        ? Math.abs(unitsContext.scaleFactor)
+        : 1;
+
       const blocks = sceneGraph.blocks || {};
       const metadataMap = new Map();
 
@@ -8159,10 +8613,194 @@ function collectUnderlayClip(map) {
             layoutUsage: new Map(),
             ownerUsage: new Map(),
             parentBlocks: new Set(),
-            instancesWithAttributes: 0
+            instancesWithAttributes: 0,
+            constraints: {
+              allowExploding: null,
+              scaleUniformly: null
+            },
+            diagnostics: [],
+            counters: {
+              nonUniformScaling: 0,
+              unitConversions: 0,
+              unitMismatches: 0,
+              unitWarnings: 0,
+              nestedOverlayReferences: 0,
+              suppressedDimensionText: 0,
+              suppressedDimensionLines: 0
+            },
+            flagsInfo: null
           });
         }
         return metadataMap.get(name);
+      };
+
+      const createUnitDiagnostics = (options = {}) => {
+        const geometryScale = options.geometryScale || { x: 1, y: 1, z: 1 };
+        const normalizedGeometry = {
+          x: Number.isFinite(geometryScale.x) ? geometryScale.x : 1,
+          y: Number.isFinite(geometryScale.y) ? geometryScale.y : 1,
+          z: Number.isFinite(geometryScale.z) ? geometryScale.z : 1
+        };
+
+        const normalizedBlockUnits = normalizeUnitsCode(options.blockUnits);
+        const normalizedActiveUnits = normalizeUnitsCode(options.activeUnits);
+        const targetUnits = normalizedActiveUnits != null
+          ? normalizedActiveUnits
+          : (normalizedDefaultTargetUnits != null ? normalizedDefaultTargetUnits : null);
+        let sourceUnits = null;
+        let sourceKind = 'unspecified';
+        let fallbackReason = null;
+        let unitScale = 1;
+        let defaultScaleApplied = false;
+
+        const applyDefaultScale = () => {
+          if (Number.isFinite(defaultInsertScaleFactor) && defaultInsertScaleFactor !== 1) {
+            unitScale *= defaultInsertScaleFactor;
+            defaultScaleApplied = true;
+          }
+        };
+
+        if (normalizedBlockUnits != null) {
+          if (normalizedBlockUnits === 0) {
+            sourceUnits = normalizedDefaultSourceUnits != null ? normalizedDefaultSourceUnits : targetUnits;
+            sourceKind = normalizedDefaultSourceUnits != null ? 'defaultSource' : 'context';
+            fallbackReason = 'unitless-block';
+            if (sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits) {
+              unitScale *= unitConversionFactor(sourceUnits, targetUnits);
+            }
+            applyDefaultScale();
+          } else {
+            sourceUnits = normalizedBlockUnits;
+            sourceKind = 'block';
+            if (targetUnits != null && sourceUnits !== targetUnits) {
+              unitScale *= unitConversionFactor(sourceUnits, targetUnits);
+            }
+          }
+        } else {
+          sourceUnits = normalizedDefaultSourceUnits != null ? normalizedDefaultSourceUnits : targetUnits;
+          if (normalizedDefaultSourceUnits != null) {
+            sourceKind = 'defaultSource';
+          } else if (targetUnits != null) {
+            sourceKind = 'context';
+          } else {
+            sourceKind = 'unspecified';
+          }
+          fallbackReason = 'missing-block-units';
+          if (sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits) {
+            unitScale *= unitConversionFactor(sourceUnits, targetUnits);
+          }
+          applyDefaultScale();
+        }
+
+        if (!Number.isFinite(unitScale) || unitScale === 0) {
+          unitScale = 1;
+        }
+
+        const effectiveScale = {
+          x: normalizedGeometry.x * unitScale,
+          y: normalizedGeometry.y * unitScale,
+          z: normalizedGeometry.z * unitScale
+        };
+
+        const unitsDiffer = sourceUnits != null && targetUnits != null && sourceUnits !== targetUnits;
+        const missingUnits = sourceUnits == null || targetUnits == null;
+        const scaleChanged = Math.abs(unitScale - 1) > 1e-6;
+        const severity = (missingUnits || fallbackReason || defaultScaleApplied || scaleChanged) ? 'warning' : 'info';
+        const targetKind = normalizedActiveUnits != null ? 'context'
+          : (targetUnits != null ? 'defaultTarget' : 'unspecified');
+
+        const sourceSummary = (() => {
+          if (normalizedBlockUnits != null) {
+            if (normalizedBlockUnits === 0) {
+              if (sourceUnits != null) {
+                const qualifier = sourceKind === 'defaultSource' ? 'default' : 'context';
+                return `block unitless (${qualifier} ${formatUnitShort(sourceUnits)})`;
+              }
+              return 'block unitless';
+            }
+            return `block ${formatUnitShort(normalizedBlockUnits)}`;
+          }
+          if (sourceUnits != null) {
+            if (sourceKind === 'defaultSource') {
+              return `default ${formatUnitShort(sourceUnits)}`;
+            }
+            if (sourceKind === 'context') {
+              return `context ${formatUnitShort(sourceUnits)}`;
+            }
+            return formatUnitShort(sourceUnits);
+          }
+          return 'source unspecified';
+        })();
+
+        const targetSummary = (() => {
+          if (targetUnits == null) {
+            return 'target unspecified';
+          }
+          if (targetKind === 'context') {
+            return `context ${formatUnitShort(targetUnits)}`;
+          }
+          if (targetKind === 'defaultTarget') {
+            return `default target ${formatUnitShort(targetUnits)}`;
+          }
+          return formatUnitShort(targetUnits);
+        })();
+
+        const sourceShort = (() => {
+          if (normalizedBlockUnits === 0) {
+            return 'unitless';
+          }
+          if (sourceUnits != null) {
+            return formatUnitShort(sourceUnits);
+          }
+          if (normalizedBlockUnits != null) {
+            return formatUnitShort(normalizedBlockUnits);
+          }
+          return 'unspecified';
+        })();
+
+        const targetShort = targetUnits != null ? formatUnitShort(targetUnits) : 'unspecified';
+
+        const detailParts = [];
+        if (fallbackReason === 'missing-block-units') {
+          detailParts.push('block units missing');
+        } else if (fallbackReason === 'unitless-block') {
+          detailParts.push('unitless block');
+        }
+        if (defaultScaleApplied) {
+          detailParts.push(`INSUNITSFAC ${formatNumber(defaultInsertScaleFactor)}`);
+        }
+        if (unitsDiffer || scaleChanged) {
+          detailParts.push('conversion applied');
+        }
+        const detailStr = detailParts.length ? ` [${detailParts.join(', ')}]` : '';
+
+        const message = `Units: ${sourceSummary} \u2192 ${targetSummary} (factor ${formatNumber(unitScale)})${detailStr}; geometry scale ${formatVector(normalizedGeometry)}; effective scale ${formatVector(effectiveScale)}.`;
+
+        return {
+          blockUnits: normalizedBlockUnits,
+          sourceUnits,
+          sourceKind,
+          targetUnits,
+          targetKind,
+          fallbackReason,
+          unitsDiffer,
+          missingUnits,
+          conversionFactor: unitScale,
+          defaultScaleApplied,
+          defaultScaleFactor: defaultInsertScaleFactor,
+          geometryScale: normalizedGeometry,
+          effectiveScale,
+          geometryScaleDisplay: formatVector(normalizedGeometry),
+          effectiveScaleDisplay: formatVector(effectiveScale),
+          conversionFactorDisplay: formatNumber(unitScale),
+          sourceSummary,
+          targetSummary,
+          summary: `${sourceSummary} \u2192 ${targetSummary}`,
+          summaryShort: `${sourceShort}\u2192${targetShort}`,
+          detail: detailParts,
+          message,
+          severity
+        };
       };
 
       const registerAttributeDefinition = (blockName, entity) => {
@@ -8236,6 +8874,22 @@ function collectUnderlayClip(map) {
         const layoutName = context.layout || entity.layout || null;
         const ownerBlock = context.ownerBlock || entity.blockName || null;
 
+        const scale = entity.geometry.scale || null;
+        const rawScaleX = scale && Number.isFinite(scale.x) ? scale.x : 1;
+        let rawScaleY = scale && Number.isFinite(scale.y) ? scale.y : null;
+        const rawScaleZ = scale && Number.isFinite(scale.z) ? scale.z : 1;
+        if (rawScaleY == null || rawScaleY === 0) {
+          rawScaleY = rawScaleZ !== 0 ? rawScaleZ : 1;
+        }
+        const safeScaleX = rawScaleX !== 0 ? rawScaleX : 1;
+        const safeScaleY = rawScaleY !== 0 ? rawScaleY : 1;
+        const safeScaleZ = rawScaleZ !== 0 ? rawScaleZ : 1;
+        const instanceScale = {
+          x: safeScaleX,
+          y: safeScaleY,
+          z: safeScaleZ
+        };
+
         const instance = {
           handle: entity.handle || entity.id || null,
           ownerHandle: entity.owner || null,
@@ -8245,7 +8899,8 @@ function collectUnderlayClip(map) {
           ownerBlock,
           hasAttributes: !!(entity.geometry && entity.geometry.hasAttributes),
           rows: entity.geometry.rowCount || 1,
-          columns: entity.geometry.columnCount || 1
+          columns: entity.geometry.columnCount || 1,
+          scale: instanceScale
         };
         entry.instances.push(instance);
 
@@ -8271,6 +8926,92 @@ function collectUnderlayClip(map) {
         if (instance.hasAttributes) {
           entry.instancesWithAttributes += 1;
         }
+
+        const requiresUniformScale = entry.constraints && entry.constraints.scaleUniformly === true;
+        if (requiresUniformScale) {
+          const tolerance = 1e-6;
+          const compare = (a, b) => Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+          const uniformXY = compare(instanceScale.x, instanceScale.y);
+          const uniformXZ = compare(instanceScale.x, instanceScale.z);
+          if (!uniformXY || !uniformXZ) {
+            entry.counters.nonUniformScaling += 1;
+            entry.diagnostics.push({
+              severity: 'warning',
+              category: 'uniform-scaling',
+              code: 'block.nonUniformScaling',
+              message: `INSERT ${instance.handle || '(no handle)'} applies non-uniform scale (${instanceScale.x}, ${instanceScale.y}, ${instanceScale.z}) to block "${blockName}" requiring uniform scaling.`,
+              block: blockName,
+              instanceHandle: instance.handle || null,
+              ownerBlock,
+              space: instanceSpace,
+              layout: instance.layout,
+              scale: instanceScale
+            });
+          }
+        }
+
+        if (entry.flagsInfo && entry.flagsInfo.isOverlay && instanceSpace === 'block') {
+          entry.counters.nestedOverlayReferences += 1;
+          const overlayOwner = ownerBlock || '(unknown parent)';
+          entry.diagnostics.push({
+            severity: 'info',
+            category: 'overlay',
+            code: 'block.overlayNested',
+            message: `Overlay block "${blockName}" referenced inside parent block "${overlayOwner}" will be suppressed when nested.`,
+            block: blockName,
+            instanceHandle: instance.handle || null,
+            ownerBlock,
+            space: instanceSpace,
+            layout: instance.layout,
+            scale: instanceScale
+          });
+        }
+
+        const unitDiagnostics = createUnitDiagnostics({
+          blockUnits: entry.units,
+          activeUnits: context.units,
+          geometryScale: instanceScale
+        });
+        instance.unitDiagnostics = unitDiagnostics;
+        entry.counters.unitConversions += 1;
+        if (unitDiagnostics.unitsDiffer || unitDiagnostics.defaultScaleApplied || unitDiagnostics.fallbackReason || unitDiagnostics.missingUnits) {
+          entry.counters.unitMismatches += 1;
+        }
+        if (unitDiagnostics.severity === 'warning') {
+          entry.counters.unitWarnings += 1;
+        }
+        entry.diagnostics.push({
+          severity: unitDiagnostics.severity,
+          category: 'unit-conversion',
+          code: 'block.unitConversion',
+          message: unitDiagnostics.message,
+          block: blockName,
+          instanceHandle: instance.handle || null,
+          ownerBlock,
+          space: instanceSpace,
+          layout: instance.layout,
+          scale: instanceScale,
+          effectiveScale: unitDiagnostics.effectiveScale,
+          unitConversion: {
+            summary: unitDiagnostics.summary,
+            summaryShort: unitDiagnostics.summaryShort,
+            sourceSummary: unitDiagnostics.sourceSummary,
+            targetSummary: unitDiagnostics.targetSummary,
+            sourceUnits: unitDiagnostics.sourceUnits,
+            targetUnits: unitDiagnostics.targetUnits,
+            blockUnits: unitDiagnostics.blockUnits,
+            conversionFactor: unitDiagnostics.conversionFactor,
+            conversionFactorDisplay: unitDiagnostics.conversionFactorDisplay,
+            defaultScaleApplied: unitDiagnostics.defaultScaleApplied,
+            defaultScaleFactor: unitDiagnostics.defaultScaleFactor,
+            fallbackReason: unitDiagnostics.fallbackReason,
+            detail: unitDiagnostics.detail,
+            geometryScale: unitDiagnostics.geometryScale,
+            geometryScaleDisplay: unitDiagnostics.geometryScaleDisplay,
+            effectiveScale: unitDiagnostics.effectiveScale,
+            effectiveScaleDisplay: unitDiagnostics.effectiveScaleDisplay
+          }
+        });
       };
 
       Object.keys(blocks).forEach((blockName) => {
@@ -8290,6 +9031,7 @@ function collectUnderlayClip(map) {
                 z: header.basePoint.z ?? 0
               }
             : entry.basePoint;
+          entry.flagsInfo = parseBlockFlags(header.flags);
         }
         if (Array.isArray(block.entities)) {
           block.entities.forEach((entity) => {
@@ -8303,6 +9045,39 @@ function collectUnderlayClip(map) {
             }
             if (type === 'ATTRIB') {
               registerAttributePreview(blockName, entity);
+              return;
+            }
+            if (type === 'DIMENSION') {
+              const geom = entity.geometry || {};
+              const dimFlags = Number.isFinite(geom.dimensionFlags) ? geom.dimensionFlags : 0;
+              const suppressText = (dimFlags & 0x80) === 0x80 || geom.textSuppress === true || geom.textSuppressed === true;
+              const suppressLine = (dimFlags & 0x40) === 0x40 || geom.dimensionLineSuppressed === true;
+              if (suppressText) {
+                entry.counters.suppressedDimensionText += 1;
+                entry.diagnostics.push({
+                  severity: 'info',
+                  category: 'dimension',
+                  code: 'dimension.suppressText',
+                  message: `Dimension ${entity.handle || entity.id || ''} suppresses its dimension text.`,
+                  block: blockName,
+                  instanceHandle: null,
+                  ownerBlock: blockName,
+                  space: 'block'
+                });
+              }
+              if (suppressLine) {
+                entry.counters.suppressedDimensionLines += 1;
+                entry.diagnostics.push({
+                  severity: 'info',
+                  category: 'dimension',
+                  code: 'dimension.suppressLine',
+                  message: `Dimension ${entity.handle || entity.id || ''} suppresses its dimension line.`,
+                  block: blockName,
+                  instanceHandle: null,
+                  ownerBlock: blockName,
+                  space: 'block'
+                });
+              }
             }
           });
         }
@@ -8327,6 +9102,15 @@ function collectUnderlayClip(map) {
           if (Number.isFinite(record.units)) {
             entry.units = record.units;
           }
+          if (record.flags != null && entry.flagsInfo == null) {
+            entry.flagsInfo = parseBlockFlags(record.flags);
+          }
+          if (record.allowExploding != null) {
+            entry.constraints.allowExploding = !!record.allowExploding;
+          }
+          if (record.scaleUniformly != null) {
+            entry.constraints.scaleUniformly = !!record.scaleUniformly;
+          }
         });
       }
 
@@ -8342,16 +9126,35 @@ function collectUnderlayClip(map) {
         });
       };
 
-      gatherInserts(sceneGraph.modelSpace, { space: 'model' });
+      const modelContextUnits = normalizedPrimaryUnits != null
+        ? normalizedPrimaryUnits
+        : (normalizedDefaultTargetUnits != null ? normalizedDefaultTargetUnits : null);
+      const paperContextUnits = normalizedDefaultTargetUnits != null
+        ? normalizedDefaultTargetUnits
+        : (normalizedPrimaryUnits != null ? normalizedPrimaryUnits : null);
+
+      gatherInserts(sceneGraph.modelSpace, { space: 'model', units: modelContextUnits });
 
       const paperSpaces = sceneGraph.paperSpaces || {};
       Object.keys(paperSpaces).forEach((layoutName) => {
-        gatherInserts(paperSpaces[layoutName], { space: 'paper', layout: layoutName });
+        gatherInserts(paperSpaces[layoutName], {
+          space: 'paper',
+          layout: layoutName,
+          units: paperContextUnits
+        });
       });
 
       Object.keys(blocks).forEach((blockName) => {
         const block = blocks[blockName] || {};
-        gatherInserts(block.entities, { space: 'block', ownerBlock: blockName });
+        const ownerEntry = ensureEntry(blockName);
+        const blockContextUnits = ownerEntry && ownerEntry.units != null
+          ? normalizeUnitsCode(ownerEntry.units)
+          : null;
+        gatherInserts(block.entities, {
+          space: 'block',
+          ownerBlock: blockName,
+          units: blockContextUnits
+        });
       });
 
       const byName = {};
@@ -8374,6 +9177,57 @@ function collectUnderlayClip(map) {
           .map(([owner, count]) => ({ owner, count }))
           .sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner));
         const parentBlocks = Array.from(entry.parentBlocks);
+        const constraints = {
+          allowExploding: entry.constraints ? entry.constraints.allowExploding : null,
+          scaleUniformly: entry.constraints ? entry.constraints.scaleUniformly : null
+        };
+        const diagnostics = Array.isArray(entry.diagnostics) ? entry.diagnostics.slice() : [];
+        const flagsInfo = entry.flagsInfo ? Object.assign({}, entry.flagsInfo) : null;
+        if (constraints && constraints.allowExploding === false &&
+          !diagnostics.some((diag) => diag && diag.code === 'block.notExplodable')) {
+          diagnostics.push({
+            severity: 'info',
+            category: 'explodability',
+            code: 'block.notExplodable',
+            message: `Block "${blockName}" is marked as not explodable.`,
+            block: blockName
+          });
+        }
+        if (flagsInfo && flagsInfo.isExternallyDependent && !flagsInfo.isResolved &&
+          !diagnostics.some((diag) => diag && diag.code === 'block.xrefUnresolved')) {
+          diagnostics.push({
+            severity: 'warning',
+            category: 'overlay',
+            code: 'block.xrefUnresolved',
+            message: `Block "${blockName}" references an unresolved external dependency.`,
+            block: blockName
+          });
+        }
+        const counters = entry.counters
+          ? Object.assign({
+            nonUniformScaling: 0,
+            unitConversions: 0,
+            unitMismatches: 0,
+            unitWarnings: 0,
+            nestedOverlayReferences: 0,
+            suppressedDimensionText: 0,
+            suppressedDimensionLines: 0
+          }, entry.counters)
+          : {
+            nonUniformScaling: 0,
+            unitConversions: 0,
+            unitMismatches: 0,
+            unitWarnings: 0,
+            nestedOverlayReferences: 0,
+            suppressedDimensionText: 0,
+            suppressedDimensionLines: 0
+          };
+        const visibility = {
+          isOverlay: flagsInfo ? !!flagsInfo.isOverlay : false,
+          isXref: flagsInfo ? !!flagsInfo.isXref : false,
+          isExternallyDependent: flagsInfo ? !!flagsInfo.isExternallyDependent : false,
+          isResolved: flagsInfo ? !!flagsInfo.isResolved : false
+        };
 
         const plainEntry = {
           name: blockName,
@@ -8392,7 +9246,18 @@ function collectUnderlayClip(map) {
           ownerUsage,
           parentBlocks,
           hasParentBlocks: parentBlocks.length > 0,
-          hasAttributes: attributeTags.length > 0 || entry.instancesWithAttributes > 0
+          hasAttributes: attributeTags.length > 0 || entry.instancesWithAttributes > 0,
+          constraints,
+          diagnostics,
+          diagnosticCount: diagnostics.length,
+          counters,
+          flags: flagsInfo,
+          visibility,
+          hasUniformScaleViolations: counters.nonUniformScaling > 0,
+          hasUnitDiagnostics: counters.unitConversions > 0,
+          hasUnitMismatches: counters.unitMismatches > 0,
+          hasOverlayIssues: counters.nestedOverlayReferences > 0,
+          hasDimensionSuppression: counters.suppressedDimensionText > 0 || counters.suppressedDimensionLines > 0
         };
 
         byName[blockName] = plainEntry;
@@ -9286,6 +10151,9 @@ function collectUnderlayClip(map) {
       const datalinks = { byHandle: Object.create(null), list: [] };
       const dictionaryVariables = { byName: Object.create(null), list: [] };
       const lightLists = { byHandle: Object.create(null), list: [] };
+      const dictionaries = { byHandle: Object.create(null), list: [] };
+      const xrecords = { byHandle: Object.create(null), list: [] };
+      const spatialFilters = { byHandle: Object.create(null), list: [] };
 
       let section = null;
       let i = 0;
@@ -9326,6 +10194,55 @@ function collectUnderlayClip(map) {
           }
 
           if (section === 'OBJECTS') {
+            if (upperValue === 'DICTIONARY' || upperValue === 'ACDBDICTIONARYWDFLT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const dictionary = parseDictionaryObject(objectTags);
+              dictionary.type = upperValue;
+              if (dictionary) {
+                if (dictionary.handleUpper) {
+                  dictionaries.byHandle[dictionary.handleUpper] = dictionary;
+                }
+                if (dictionary.handle && !dictionaries.byHandle[dictionary.handle]) {
+                  dictionaries.byHandle[dictionary.handle] = dictionary;
+                }
+                dictionaries.list.push(dictionary);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'XRECORD') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const xrecord = this.parseXRecord(objectTags);
+              if (xrecord) {
+                if (xrecord.handleUpper) {
+                  xrecords.byHandle[xrecord.handleUpper] = xrecord;
+                }
+                if (xrecord.handle && !xrecords.byHandle[xrecord.handle]) {
+                  xrecords.byHandle[xrecord.handle] = xrecord;
+                }
+                xrecords.list.push(xrecord);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'SPATIAL_FILTER') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const filter = this.parseSpatialFilter(objectTags);
+              if (filter) {
+                if (filter.handleUpper) {
+                  spatialFilters.byHandle[filter.handleUpper] = filter;
+                }
+                if (filter.handle && !spatialFilters.byHandle[filter.handle]) {
+                  spatialFilters.byHandle[filter.handle] = filter;
+                }
+                spatialFilters.list.push(filter);
+              }
+              i = nextIndex;
+              continue;
+            }
+
             if (upperValue === 'IMAGEDEF') {
               const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
               const descriptor = this.parseImageDefinition(objectTags);
@@ -9565,7 +10482,10 @@ function collectUnderlayClip(map) {
         proxyObjects,
         datalinks,
         dictionaryVariables,
-        lightLists
+        lightLists,
+        dictionaries,
+        xrecords,
+        spatialFilters
       };
     }
 
@@ -9908,6 +10828,155 @@ function collectUnderlayClip(map) {
       };
     }
 
+    parseXRecord(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      return {
+        type: 'XRECORD',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        codeValues: this._buildCodeLookup(tags),
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseSpatialFilter(tags) {
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const safeFloat = (value, fallback = 0) => {
+        const numeric = utils.toFloat ? utils.toFloat(value) : parseFloat(value);
+        return Number.isFinite(numeric) ? numeric : fallback;
+      };
+      const safeInt = (value, fallback = 0) => {
+        const numeric = utils.toInt ? utils.toInt(value) : parseInt(value, 10);
+        return Number.isFinite(numeric) ? numeric : fallback;
+      };
+      const boundary = [];
+      let pointCount = null;
+      const extrusion = { x: 0, y: 0, z: 1 };
+      const origin = { x: 0, y: 0, z: 0 };
+      let clippingEnabled = null;
+      let frontClipEnabled = null;
+      let backClipEnabled = null;
+      let frontClipDistance = null;
+      let backClipDistance = null;
+      const matrixValues = [];
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        const raw = tag.value;
+        switch (code) {
+          case 70:
+            pointCount = safeInt(raw, null);
+            break;
+          case 10:
+            boundary.push({
+              x: safeFloat(raw, 0),
+              y: 0
+            });
+            break;
+          case 20:
+            if (boundary.length) {
+              boundary[boundary.length - 1].y = safeFloat(raw, 0);
+            }
+            break;
+          case 210:
+            extrusion.x = safeFloat(raw, extrusion.x);
+            break;
+          case 220:
+            extrusion.y = safeFloat(raw, extrusion.y);
+            break;
+          case 230:
+            extrusion.z = safeFloat(raw, extrusion.z);
+            break;
+          case 11:
+            origin.x = safeFloat(raw, origin.x);
+            break;
+          case 21:
+            origin.y = safeFloat(raw, origin.y);
+            break;
+          case 31:
+            origin.z = safeFloat(raw, origin.z);
+            break;
+          case 71:
+            clippingEnabled = safeInt(raw, 0) !== 0;
+            break;
+          case 72:
+            frontClipEnabled = safeInt(raw, 0) !== 0;
+            break;
+          case 73:
+            backClipEnabled = safeInt(raw, 0) !== 0;
+            break;
+          case 40: {
+            const numeric = safeFloat(raw, 0);
+            if (frontClipEnabled && frontClipDistance == null) {
+              frontClipDistance = numeric;
+            } else {
+              matrixValues.push(numeric);
+            }
+            break;
+          }
+          case 41: {
+            const numeric = safeFloat(raw, 0);
+            if (backClipEnabled && backClipDistance == null) {
+              backClipDistance = numeric;
+            } else {
+              matrixValues.push(numeric);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      });
+      if (pointCount != null && boundary.length > pointCount) {
+        boundary.length = pointCount;
+      }
+      const toMatrixValues = (values) => {
+        if (!Array.isArray(values) || values.length < 12) {
+          return null;
+        }
+        return values.slice(0, 12).map((value) => (Number.isFinite(value) ? value : 0));
+      };
+      let inverseInsertMatrix = null;
+      let clipBoundaryMatrix = null;
+      if (matrixValues.length >= 24) {
+        const trimmed = matrixValues.slice(-24);
+        inverseInsertMatrix = toMatrixValues(trimmed.slice(0, 12));
+        clipBoundaryMatrix = toMatrixValues(trimmed.slice(12));
+      }
+      return {
+        type: 'SPATIAL_FILTER',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        pointCount,
+        boundary,
+        extrusion,
+        origin,
+        clippingEnabled,
+        frontClip: {
+          enabled: frontClipEnabled === true,
+          distance: frontClipDistance
+        },
+        backClip: {
+          enabled: backClipEnabled === true,
+          distance: backClipDistance
+        },
+        inverseInsertMatrix,
+        clipBoundaryMatrix,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
     parseSectionObject(tags) {
       if (!Array.isArray(tags) || !tags.length) {
         return null;
@@ -10244,14 +11313,41 @@ function collectUnderlayClip(map) {
       }
 
       if (upperTable === 'BLOCK_RECORD' && recordType === 'BLOCK_RECORD') {
-        const units = utils.toInt(utils.getFirstCodeValue(recordTags, 280));
+        let flags = null;
+        let units = null;
+        let allowExploding = null;
+        let scaleUniformly = null;
+        for (let idx = 0; idx < recordTags.length; idx += 1) {
+          const tag = recordTags[idx];
+          const code = Number(tag.code);
+          const parsed = utils.toInt(tag.value);
+          if (code === 70) {
+            if (Number.isFinite(parsed)) {
+              flags = parsed;
+            }
+          } else if (code === 280) {
+            if (parsed != null) {
+              if (parsed === 0 || parsed === 1) {
+                allowExploding = parsed !== 0;
+              } else if (!Number.isFinite(units) && Number.isFinite(parsed)) {
+                units = parsed;
+              }
+            }
+          } else if (code === 281) {
+            if (parsed != null) {
+              scaleUniformly = parsed !== 0;
+            }
+          }
+        }
         collections[upperTable].set(name, {
           name,
           handle: utils.getFirstCodeValue(recordTags, 5) || null,
           layoutHandle: utils.getFirstCodeValue(recordTags, 340) || null,
           designCenterPath: utils.getFirstCodeValue(recordTags, 402) || null,
-          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
-          units: Number.isFinite(units) ? units : null
+          flags: Number.isFinite(flags) ? flags : 0,
+          units: Number.isFinite(units) ? units : null,
+          allowExploding: allowExploding,
+          scaleUniformly: scaleUniformly
         });
         return;
       }
@@ -11458,6 +12554,15 @@ function collectUnderlayClip(map) {
       const pointCloudExRecordsByHandle = pointCloudResources.exRecords && pointCloudResources.exRecords.byHandle
         ? pointCloudResources.exRecords.byHandle
         : {};
+      const dictionariesByHandle = auxiliaryObjects.dictionaries && auxiliaryObjects.dictionaries.byHandle
+        ? auxiliaryObjects.dictionaries.byHandle
+        : {};
+      const xrecordsByHandle = auxiliaryObjects.xrecords && auxiliaryObjects.xrecords.byHandle
+        ? auxiliaryObjects.xrecords.byHandle
+        : {};
+      const spatialFiltersByHandle = auxiliaryObjects.spatialFilters && auxiliaryObjects.spatialFilters.byHandle
+        ? auxiliaryObjects.spatialFilters.byHandle
+        : {};
       const imageDefinitionsByHandle = auxiliaryObjects.imageDefinitions && auxiliaryObjects.imageDefinitions.byHandle
         ? auxiliaryObjects.imageDefinitions.byHandle
         : {};
@@ -11599,6 +12704,9 @@ function collectUnderlayClip(map) {
               datalinks: datalinksByHandle,
               dictionaryVariables: dictionaryVariablesByName,
               lightLists: lightListsByHandle,
+              dictionaries: dictionariesByHandle,
+              xrecords: xrecordsByHandle,
+              spatialFilters: spatialFiltersByHandle,
               rasterVariables: auxiliaryObjects.rasterVariables || null,
               createEntityId: (entType) => this.nextEntityId(entType),
               entityDefaults: resolvedEntityDefaults,
@@ -11672,6 +12780,9 @@ function collectUnderlayClip(map) {
             datalinks: datalinksByHandle,
             dictionaryVariables: dictionaryVariablesByName,
             lightLists: lightListsByHandle,
+            dictionaries: dictionariesByHandle,
+            xrecords: xrecordsByHandle,
+            spatialFilters: spatialFiltersByHandle,
             rasterVariables: auxiliaryObjects.rasterVariables || null,
             createEntityId: (entType) => this.nextEntityId(entType),
             entityDefaults: resolvedEntityDefaults,
@@ -12189,6 +13300,19 @@ function collectPointCloudClip(map) {
   }
   return coefficients.length ? coefficients : null;
 }
+      const parseBlockFlags = (flags) => {
+        const value = Number(flags) || 0;
+        return {
+          raw: value,
+          isAnonymous: (value & 1) === 1,
+          hasNonConstantAttributes: (value & 2) === 2,
+          isXref: (value & 4) === 4,
+          isOverlay: (value & 8) === 8,
+          isExternallyDependent: (value & 16) === 16,
+          isResolved: (value & 32) === 32,
+          isReferenced: (value & 64) === 64
+        };
+      };
 
 // ---- End: components/rendering-document-builder.js ----
 
@@ -12243,6 +13367,9 @@ function collectPointCloudClip(map) {
       this.datalinks = options.datalinks || {};
       this.dictionaryVariables = options.dictionaryVariables || {};
       this.lightLists = options.lightLists || {};
+      this.dictionaries = options.dictionaries || {};
+      this.xrecords = options.xrecords || {};
+      this.spatialFilters = options.spatialFilters || {};
       this.modelSpace = [];
       this.paperSpaces = new Map();
       this.blockDefinitions = new Map();
@@ -12335,6 +13462,9 @@ function collectPointCloudClip(map) {
         datalinks: this.datalinks,
         dictionaryVariables: this.dictionaryVariables,
         lightLists: this.lightLists,
+        dictionaries: this.dictionaries,
+        xrecords: this.xrecords,
+        spatialFilters: this.spatialFilters,
         entityDefaults: this.entityDefaults,
         displaySettings: this.displaySettings,
         coordinateDefaults: this.coordinateDefaults,
@@ -13617,6 +14747,7 @@ function collectPointCloudClip(map) {
     a: 1,
     css: 'rgba(11,24,40,1)'
   };
+  const SINGLE_LINE_TEXT_CHAR_WIDTH_FACTOR = 0.6;
   const SELECTION_COLOR = {
     r: 135 / 255,
     g: 209 / 255,
@@ -13625,46 +14756,159 @@ function collectPointCloudClip(map) {
     css: 'rgba(135,209,255,1)'
   };
 
-  function identityMatrix() {
-    return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+  function basePointTransform(point) {
+    if (!point || typeof point !== 'object') {
+      return null;
+    }
+    const x = Number.isFinite(point.x) ? point.x : 0;
+    const y = Number.isFinite(point.y) ? point.y : 0;
+    const z = Number.isFinite(point.z) ? point.z : 0;
+    if (Math.abs(x) < 1e-9 && Math.abs(y) < 1e-9 && Math.abs(z) < 1e-9) {
+      return null;
+    }
+    return translateMatrix(-x, -y, -z);
   }
 
-  function translateMatrix(x, y) {
-    return { a: 1, b: 0, c: 0, d: 1, tx: x, ty: y };
-  }
-
-  function scaleMatrix(sx, sy) {
-    return { a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0 };
-  }
-
-  function rotateMatrix(rad) {
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    return { a: cos, b: sin, c: -sin, d: cos, tx: 0, ty: 0 };
-  }
-
-  function multiplyMatrix(m1, m2) {
+  function createMatrixFromArray(array) {
     return {
-      a: m1.a * m2.a + m1.c * m2.b,
-      b: m1.b * m2.a + m1.d * m2.b,
-      c: m1.a * m2.c + m1.c * m2.d,
-      d: m1.b * m2.c + m1.d * m2.d,
-      tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-      ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
+      a: array[0],
+      b: array[4],
+      c: array[1],
+      d: array[5],
+      tx: array[3],
+      ty: array[7],
+      m3d: array
     };
   }
 
+  function ensureMatrix3d(matrix) {
+    if (matrix && matrix.m3d) {
+      return matrix.m3d;
+    }
+    const array = new Float64Array(16);
+    array[0] = typeof (matrix && matrix.a) === 'number' ? matrix.a : 1;
+    array[1] = typeof (matrix && matrix.c) === 'number' ? matrix.c : 0;
+    array[2] = 0;
+    array[3] = typeof (matrix && matrix.tx) === 'number' ? matrix.tx : 0;
+    array[4] = typeof (matrix && matrix.b) === 'number' ? matrix.b : 0;
+    array[5] = typeof (matrix && matrix.d) === 'number' ? matrix.d : 1;
+    array[6] = 0;
+    array[7] = typeof (matrix && matrix.ty) === 'number' ? matrix.ty : 0;
+    array[8] = 0;
+    array[9] = 0;
+    array[10] = 1;
+    array[11] = 0;
+    array[12] = 0;
+    array[13] = 0;
+    array[14] = 0;
+    array[15] = 1;
+    if (matrix) {
+      matrix.m3d = array;
+    }
+    return array;
+  }
+
+  function identityMatrix() {
+    const array = new Float64Array(16);
+    array[0] = 1;
+    array[5] = 1;
+    array[10] = 1;
+    array[15] = 1;
+    return createMatrixFromArray(array);
+  }
+
+  function translateMatrix(x, y, z = 0) {
+    const array = new Float64Array(16);
+    array[0] = 1;
+    array[5] = 1;
+    array[10] = 1;
+    array[15] = 1;
+    array[3] = Number.isFinite(x) ? x : 0;
+    array[7] = Number.isFinite(y) ? y : 0;
+    array[11] = Number.isFinite(z) ? z : 0;
+    return createMatrixFromArray(array);
+  }
+
+  function scaleMatrix(sx, sy, sz = 1) {
+    const array = new Float64Array(16);
+    array[0] = Number.isFinite(sx) ? sx : 1;
+    array[5] = Number.isFinite(sy) ? sy : 1;
+    array[10] = Number.isFinite(sz) ? sz : 1;
+    array[15] = 1;
+    return createMatrixFromArray(array);
+  }
+
+  function rotateMatrix(rad, axis = 'z') {
+    const angle = Number.isFinite(rad) ? rad : 0;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const array = new Float64Array(16);
+    array[15] = 1;
+    switch ((axis || 'z').toLowerCase()) {
+      case 'x':
+        array[0] = 1;
+        array[5] = cos;
+        array[6] = -sin;
+        array[9] = sin;
+        array[10] = cos;
+        break;
+      case 'y':
+        array[0] = cos;
+        array[2] = sin;
+        array[5] = 1;
+        array[8] = -sin;
+        array[10] = cos;
+        break;
+      case 'z':
+      default:
+        array[0] = cos;
+        array[1] = -sin;
+        array[4] = sin;
+        array[5] = cos;
+        array[10] = 1;
+        break;
+    }
+    return createMatrixFromArray(array);
+  }
+
+  function multiplyMatrix(m1, m2) {
+    const a1 = ensureMatrix3d(m1);
+    const a2 = ensureMatrix3d(m2);
+    const out = new Float64Array(16);
+    for (let row = 0; row < 4; row++) {
+      const rOffset = row * 4;
+      for (let col = 0; col < 4; col++) {
+        out[rOffset + col] =
+          a1[rOffset + 0] * a2[0 * 4 + col] +
+          a1[rOffset + 1] * a2[1 * 4 + col] +
+          a1[rOffset + 2] * a2[2 * 4 + col] +
+          a1[rOffset + 3] * a2[3 * 4 + col];
+      }
+    }
+    return createMatrixFromArray(out);
+  }
+
   function applyMatrix(matrix, point) {
+    const array = ensureMatrix3d(matrix);
+    const px = Number.isFinite(point && point.x) ? point.x : 0;
+    const py = Number.isFinite(point && point.y) ? point.y : 0;
+    const pz = Number.isFinite(point && point.z) ? point.z : 0;
     return {
-      x: matrix.a * point.x + matrix.c * point.y + matrix.tx,
-      y: matrix.b * point.x + matrix.d * point.y + matrix.ty
+      x: array[0] * px + array[1] * py + array[2] * pz + array[3],
+      y: array[4] * px + array[5] * py + array[6] * pz + array[7],
+      z: array[8] * px + array[9] * py + array[10] * pz + array[11]
     };
   }
 
   function applyMatrixToVector(matrix, vector) {
+    const array = ensureMatrix3d(matrix);
+    const vx = Number.isFinite(vector && vector.x) ? vector.x : 0;
+    const vy = Number.isFinite(vector && vector.y) ? vector.y : 0;
+    const vz = Number.isFinite(vector && vector.z) ? vector.z : 0;
     return {
-      x: matrix.a * vector.x + matrix.c * vector.y,
-      y: matrix.b * vector.x + matrix.d * vector.y
+      x: array[0] * vx + array[1] * vy + array[2] * vz,
+      y: array[4] * vx + array[5] * vy + array[6] * vz,
+      z: array[8] * vx + array[9] * vy + array[10] * vz
     };
   }
 
@@ -14085,7 +15329,11 @@ function collectPointCloudClip(map) {
           if (!basis) {
             return;
           }
-          const matrix = this._matrixFromBasis(basis);
+          let matrix = this._matrixFromBasis(basis);
+          const layoutInsertTransform = basePointTransform(layout.insertBase || null);
+          if (layoutInsertTransform) {
+            matrix = multiplyMatrix(matrix, layoutInsertTransform);
+          }
           if (!fallbackMatrix) {
             fallbackMatrix = matrix;
           }
@@ -14393,18 +15641,92 @@ function collectPointCloudClip(map) {
       const origin = effectiveBasis.origin || { x: 0, y: 0, z: 0 };
       const xAxis = normalizeVector(effectiveBasis.xAxis, { x: 1, y: 0, z: 0 });
       let yAxis = normalizeVector(effectiveBasis.yAxis, { x: 0, y: 1, z: 0 });
-      const zAxis = normalizeVector(effectiveBasis.zAxis, { x: 0, y: 0, z: 1 });
+      let zAxis = normalizeVector(effectiveBasis.zAxis, { x: 0, y: 0, z: 1 });
       if (vectorLength(yAxis) < 1e-6) {
         yAxis = normalizeVector(crossProduct(zAxis, xAxis), { x: 0, y: 1, z: 0 });
       }
-      return {
-        a: xAxis.x,
-        b: xAxis.y,
-        c: yAxis.x,
-        d: yAxis.y,
-        tx: -(xAxis.x * origin.x + yAxis.x * origin.y),
-        ty: -(xAxis.y * origin.x + yAxis.y * origin.y)
-      };
+      if (vectorLength(zAxis) < 1e-6) {
+        zAxis = normalizeVector(crossProduct(xAxis, yAxis), { x: 0, y: 0, z: 1 });
+      }
+      const array = new Float64Array(16);
+      array[0] = xAxis.x;
+      array[1] = yAxis.x;
+      array[2] = zAxis.x;
+      array[3] = -(xAxis.x * origin.x + yAxis.x * origin.y + zAxis.x * origin.z);
+      array[4] = xAxis.y;
+      array[5] = yAxis.y;
+      array[6] = zAxis.y;
+      array[7] = -(xAxis.y * origin.x + yAxis.y * origin.y + zAxis.y * origin.z);
+      array[8] = xAxis.z;
+      array[9] = yAxis.z;
+      array[10] = zAxis.z;
+      array[11] = -(xAxis.z * origin.x + yAxis.z * origin.y + zAxis.z * origin.z);
+      array[12] = 0;
+      array[13] = 0;
+      array[14] = 0;
+      array[15] = 1;
+      return createMatrixFromArray(array);
+    }
+
+    _isDefaultExtrusion(extrusion) {
+      if (!extrusion || typeof extrusion !== 'object') {
+        return true;
+      }
+      const nx = Number.isFinite(extrusion.x) ? extrusion.x : 0;
+      const ny = Number.isFinite(extrusion.y) ? extrusion.y : 0;
+      const nz = Number.isFinite(extrusion.z) ? extrusion.z : 1;
+      return Math.abs(nx) < 1e-9 && Math.abs(ny) < 1e-9 && Math.abs(nz - 1) < 1e-9;
+    }
+
+    _matrixFromExtrusionVector(extrusion) {
+      if (this._isDefaultExtrusion(extrusion)) {
+        return null;
+      }
+      const fallbackNormal = { x: 0, y: 0, z: 1 };
+      const normalized = normalizeVector(extrusion, fallbackNormal);
+      const reference =
+        Math.abs(normalized.x) < 1 / 64 && Math.abs(normalized.y) < 1 / 64
+          ? { x: 0, y: 1, z: 0 }
+          : { x: 0, y: 0, z: 1 };
+      let xAxis = crossProduct(reference, normalized);
+      if (vectorLength(xAxis) < 1e-9) {
+        xAxis = crossProduct(fallbackNormal, normalized);
+      }
+      xAxis = normalizeVector(xAxis, { x: 1, y: 0, z: 0 });
+      let yAxis = crossProduct(normalized, xAxis);
+      if (vectorLength(yAxis) < 1e-9) {
+        yAxis = crossProduct(normalized, reference);
+      }
+      yAxis = normalizeVector(yAxis, { x: 0, y: 1, z: 0 });
+      const array = new Float64Array(16);
+      array[0] = xAxis.x;
+      array[1] = yAxis.x;
+      array[2] = normalized.x;
+      array[3] = 0;
+      array[4] = xAxis.y;
+      array[5] = yAxis.y;
+      array[6] = normalized.y;
+      array[7] = 0;
+      array[8] = xAxis.z;
+      array[9] = yAxis.z;
+      array[10] = normalized.z;
+      array[11] = 0;
+      array[12] = 0;
+      array[13] = 0;
+      array[14] = 0;
+      array[15] = 1;
+      return createMatrixFromArray(array);
+    }
+
+    _resolveExtrusionMatrix(entity, geometry) {
+      const extrusionCandidate =
+        (geometry && geometry.extrusion) ||
+        (entity && entity.extrusion) ||
+        null;
+      if (!extrusionCandidate || this._isDefaultExtrusion(extrusionCandidate)) {
+        return null;
+      }
+      return this._matrixFromExtrusionVector(extrusionCandidate);
     }
 
     getModelMatrix() {
@@ -15018,6 +16340,11 @@ function collectPointCloudClip(map) {
       const tables = sceneGraph.tables || {};
       const units = sceneGraph.units || {};
       const primaryUnits = this._normalizeUnitsCode(units.insUnits);
+      const defaultSourceUnits = this._normalizeUnitsCode(units.insUnitsSource);
+      const defaultTargetUnits = this._normalizeUnitsCode(units.insUnitsTarget);
+      const defaultInsertScaleFactor = Number.isFinite(units.scaleFactor) && units.scaleFactor !== 0
+        ? Math.abs(units.scaleFactor)
+        : 1;
       const blockUnitsLookup = this._buildBlockUnitsLookup(
         tables.blockRecords || {},
         sceneGraph.blockMetadata || {}
@@ -15048,12 +16375,165 @@ function collectPointCloudClip(map) {
         traceWidth: displaySettings.traceWidth
       };
 
+      const drawingBaseTransform = basePointTransform(units.basePoint || null);
+      const applyDrawingBaseTransform = (matrix) => {
+        if (!drawingBaseTransform) {
+          return matrix;
+        }
+        return multiplyMatrix(matrix || identityMatrix(), drawingBaseTransform);
+      };
+
       const coordinateResolver = namespace.CoordinateSystemResolver
         ? new namespace.CoordinateSystemResolver(sceneGraph)
         : null;
-      const defaultBaseMatrix = identityMatrix();
+      const blockRecordsTable = tables.blockRecords || {};
+      const blockRecordsByUpperName = new Map();
+      Object.keys(blockRecordsTable).forEach((key) => {
+        const record = blockRecordsTable[key];
+        if (!record) {
+          return;
+        }
+        const recordName = record.name || key;
+        if (!recordName) {
+          return;
+        }
+        const normalized = String(recordName).trim().toUpperCase();
+        if (normalized) {
+          blockRecordsByUpperName.set(normalized, record);
+        }
+      });
+      const rawBlockMetadata = (() => {
+        const metadata = sceneGraph.blockMetadata;
+        if (!metadata || typeof metadata !== 'object') {
+          return {};
+        }
+        if (metadata.byName && typeof metadata.byName === 'object') {
+          return metadata.byName;
+        }
+        if (Array.isArray(metadata.ordered) || metadata.count != null) {
+          return {};
+        }
+        return metadata;
+      })();
+      const blockMetadataByUpperName = new Map();
+      if (rawBlockMetadata && typeof rawBlockMetadata === 'object') {
+        Object.keys(rawBlockMetadata).forEach((key) => {
+          if (!key) {
+            return;
+          }
+          const entry = rawBlockMetadata[key];
+          if (!entry) {
+            return;
+          }
+          const normalized = String(key).trim().toUpperCase();
+          if (!normalized) {
+            return;
+          }
+          blockMetadataByUpperName.set(normalized, entry);
+        });
+      }
+      const getBlockRecord = (blockName) => {
+        if (!blockName) {
+          return null;
+        }
+        const normalized = String(blockName).trim().toUpperCase();
+        if (!normalized) {
+          return null;
+        }
+        return blockRecordsByUpperName.get(normalized) || null;
+      };
+      const getBlockMetadata = (blockName) => {
+        if (!blockName) {
+          return null;
+        }
+        const normalized = String(blockName).trim().toUpperCase();
+        if (!normalized) {
+          return null;
+        }
+        return blockMetadataByUpperName.get(normalized) || null;
+      };
+      const blockRequiresUniformScaling = (blockName) => {
+        const record = getBlockRecord(blockName);
+        if (record && record.scaleUniformly != null) {
+          return !!record.scaleUniformly;
+        }
+        const metadata = getBlockMetadata(blockName);
+        if (metadata && metadata.constraints && metadata.constraints.scaleUniformly != null) {
+          return !!metadata.constraints.scaleUniformly;
+        }
+        return false;
+      };
+      const blockLayoutMatrixCache = new Map();
+      const resolveBlockLayoutMatrix = (blockName) => {
+        if (!coordinateResolver || !blockName) {
+          return null;
+        }
+        const rawKey = String(blockName).trim();
+        if (!rawKey) {
+          return null;
+        }
+        const cacheKey = rawKey.toUpperCase();
+        if (blockLayoutMatrixCache.has(cacheKey)) {
+          return blockLayoutMatrixCache.get(cacheKey);
+        }
+        const candidateList = [];
+        const seen = new Set();
+        const enqueue = (value) => {
+          if (value == null) {
+            return;
+          }
+          const str = String(value).trim();
+          if (!str) {
+            return;
+          }
+          const normalized = str.toUpperCase();
+          if (seen.has(normalized)) {
+            return;
+          }
+          candidateList.push(str);
+          seen.add(normalized);
+        };
+        const blockDefinition = blocks[rawKey] || blocks[cacheKey];
+        if (blockDefinition && blockDefinition.header) {
+          const header = blockDefinition.header;
+          enqueue(header.layoutHandle);
+          if (header.layoutHandleUpper) {
+            enqueue(header.layoutHandleUpper);
+          }
+        }
+        const record = blockRecordsByUpperName.get(cacheKey);
+        if (record) {
+          enqueue(record.layoutHandle);
+          if (record.layoutHandleUpper) {
+            enqueue(record.layoutHandleUpper);
+          }
+          enqueue(record.name);
+        }
+        enqueue(rawKey);
+        const paperMatrices = coordinateResolver.paperMatrices instanceof Map
+          ? coordinateResolver.paperMatrices
+          : null;
+        let resolvedMatrix = null;
+        if (paperMatrices && candidateList.length) {
+          for (let idx = 0; idx < candidateList.length; idx++) {
+            const candidate = candidateList[idx];
+            const normalized = candidate.trim().toUpperCase();
+            if (!normalized) {
+              continue;
+            }
+            if (paperMatrices.has(normalized)) {
+              const baseMatrix = paperMatrices.get(normalized);
+              resolvedMatrix = applyDrawingBaseTransform(baseMatrix);
+              break;
+            }
+          }
+        }
+        blockLayoutMatrixCache.set(cacheKey, resolvedMatrix);
+        return resolvedMatrix;
+      };
+      const defaultBaseMatrix = applyDrawingBaseTransform(identityMatrix());
       const modelBaseMatrix = coordinateResolver
-        ? coordinateResolver.getModelMatrix()
+        ? applyDrawingBaseTransform(coordinateResolver.getModelMatrix())
         : defaultBaseMatrix;
       const paperMatrixCache = new Map();
       const environmentDescriptor = this._resolveEnvironment(sceneGraph, coordinateResolver, buildOptions);
@@ -15074,7 +16554,8 @@ function collectPointCloudClip(map) {
         if ((entity.space || '').toLowerCase() === 'paper') {
           const layoutKey = String(entity.layout || 'PAPERSPACE').trim().toUpperCase();
           if (!paperMatrixCache.has(layoutKey)) {
-            paperMatrixCache.set(layoutKey, coordinateResolver.getPaperMatrix(entity.layout || null));
+            const rawPaperMatrix = coordinateResolver.getPaperMatrix(entity.layout || null);
+            paperMatrixCache.set(layoutKey, applyDrawingBaseTransform(rawPaperMatrix));
           }
           return paperMatrixCache.get(layoutKey);
         }
@@ -15163,17 +16644,28 @@ function collectPointCloudClip(map) {
 
       let renderBlockContent = () => {};
 
-      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive, contextUnits) => {
+      const processEntity = (entity, transform, depth, visitedBlocks, blockStack, highlightActive, contextUnits, styleState, clipStack) => {
         if (!entity || depth > MAX_BLOCK_DEPTH) {
           return;
         }
+        styleState = styleState || null;
         const type = (entity.type || '').toUpperCase();
         const geometry = entity.geometry || {};
+        const extrusionMatrix = typeof this._resolveExtrusionMatrix === 'function'
+          ? this._resolveExtrusionMatrix(entity, geometry)
+          : null;
+        if (extrusionMatrix) {
+          transform = multiplyMatrix(transform, extrusionMatrix);
+        }
         blockStack = blockStack || [];
         highlightActive = !!highlightActive;
-        const activeUnits = this._normalizeUnitsCode(
+        clipStack = clipStack || null;
+        let activeUnits = this._normalizeUnitsCode(
           contextUnits != null ? contextUnits : primaryUnits
         );
+        if (activeUnits == null && defaultTargetUnits != null) {
+          activeUnits = defaultTargetUnits;
+        }
         const handle = this._normalizeHandle(entity.handle || entity.id || null);
         const isolationActive = this.entityIsolation && this.entityIsolation.size > 0;
         const isContainerEntity = type === 'INSERT';
@@ -15189,7 +16681,8 @@ function collectPointCloudClip(map) {
           }
         }
 
-        const baseColor = cloneColor(this._resolveColor(entity));
+        const resolvedColor = this._resolveColor(entity, styleState);
+        const baseColor = cloneColor(resolvedColor);
         if (layerState && typeof layerState.transparencyAlpha === 'number') {
           const alpha = Math.max(0, Math.min(1, layerState.transparencyAlpha));
           const currentAlpha = Number.isFinite(baseColor.a) ? baseColor.a : 1;
@@ -15198,6 +16691,40 @@ function collectPointCloudClip(map) {
           baseColor.css = `rgba(${Math.round(baseColor.r * 255)}, ${Math.round(baseColor.g * 255)}, ${Math.round(baseColor.b * 255)}, ${appliedAlpha.toFixed(3)})`;
         }
         const color = this._getEffectiveColor(baseColor, highlightActive, isSelected);
+        const resolvedLineweight = this._resolveLineweight(entity, styleState);
+        const resolvedLinetype = this._resolveLinetype(entity, tables, styleState);
+        const effectiveLinetypeName = (() => {
+          if (resolvedLinetype && resolvedLinetype.name) {
+            return resolvedLinetype.name;
+          }
+          const directNameRaw = entity.linetype ? String(entity.linetype).trim() : '';
+          const directUpper = directNameRaw.toUpperCase();
+          if (directNameRaw && directUpper !== 'BYBLOCK' && directUpper !== 'BYLAYER') {
+            return directNameRaw;
+          }
+          if (styleState && styleState.linetypeName) {
+            return styleState.linetypeName;
+          }
+          if (entity.resolved && entity.resolved.layer && entity.resolved.layer.linetype) {
+            const layerName = String(entity.resolved.layer.linetype || '').trim();
+            if (layerName) {
+              return layerName;
+            }
+          }
+          return null;
+        })();
+        const renderBlockWithCurrentStyle = (blockName, matrix, depthValue, visitedBlocksValue, blockStackValue, highlightValue, parentUnitsValue, nestedClipStack) =>
+          renderBlockContent(
+            blockName,
+            matrix,
+            depthValue,
+            visitedBlocksValue,
+            blockStackValue,
+            highlightValue,
+            parentUnitsValue,
+            styleState || null,
+            nestedClipStack != null ? nestedClipStack : clipStack
+          );
         const material =
           (entity && entity.resolved && entity.resolved.material)
             ? entity.resolved.material
@@ -15221,12 +16748,16 @@ function collectPointCloudClip(map) {
           case 'LINE': {
             if (!geometry.start || !geometry.end) return;
             const transformed = transformPoints([geometry.start, geometry.end], transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed: false })
             });
@@ -15235,16 +16766,24 @@ function collectPointCloudClip(map) {
           case 'LWPOLYLINE': {
             if (!geometry.points || geometry.points.length < 2) return;
             const transformed = transformPoints(geometry.points, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed && transformed.length > 2;
             if (isClosed) {
-              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              transformed.push({
+                x: transformed[0].x,
+                y: transformed[0].y,
+                z: transformed[0].z != null ? transformed[0].z : 0
+              });
             }
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -15254,20 +16793,33 @@ function collectPointCloudClip(map) {
             if (!geometry.vertices || geometry.vertices.length < 2) return;
             const verts = geometry.vertices
               .filter((v) => !v.isFaceRecord && v.position)
-              .map((v) => ({ x: v.position.x, y: v.position.y }));
+              .map((v) => ({
+                x: Number.isFinite(v.position.x) ? v.position.x : 0,
+                y: Number.isFinite(v.position.y) ? v.position.y : 0,
+                z: Number.isFinite(v.position.z) ? v.position.z : 0
+              }));
             if (verts.length < 2) return;
             const transformed = transformPoints(verts, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed && transformed.length > 2;
             if (isClosed && (transformed[0].x !== transformed[transformed.length - 1].x ||
-              transformed[0].y !== transformed[transformed.length - 1].y)) {
-              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              transformed[0].y !== transformed[transformed.length - 1].y ||
+              (transformed[0].z ?? 0) !== (transformed[transformed.length - 1].z ?? 0))) {
+              transformed.push({
+                x: transformed[0].x,
+                y: transformed[0].y,
+                z: transformed[0].z != null ? transformed[0].z : 0
+              });
             }
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -15277,19 +16829,24 @@ function collectPointCloudClip(map) {
             if (!geometry.vertices || geometry.vertices.length < 2) return;
             const verts = geometry.vertices.map((pt) => ({
               x: Number.isFinite(pt.x) ? pt.x : 0,
-              y: Number.isFinite(pt.y) ? pt.y : 0
+              y: Number.isFinite(pt.y) ? pt.y : 0,
+              z: Number.isFinite(pt.z) ? pt.z : 0
             }));
             const transformed = transformPoints(verts, transform);
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed && transformed.length > 2;
             if (isClosed && !this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
-              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              transformed.push({
+                x: transformed[0].x,
+                y: transformed[0].y,
+                z: transformed[0].z != null ? transformed[0].z : 0
+              });
             }
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed, family: 'mline', style: geometry.style || null })
             });
@@ -15305,12 +16862,16 @@ function collectPointCloudClip(map) {
               false
             );
             const transformed = transformPoints(arcPoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed: false })
             });
@@ -15320,12 +16881,16 @@ function collectPointCloudClip(map) {
             if (!geometry.center || !Number.isFinite(geometry.radius)) return;
             const arcPoints = this._sampleArc(geometry.center, geometry.radius, 0, 360, true);
             const transformed = transformPoints(arcPoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed: true })
             });
@@ -15335,6 +16900,10 @@ function collectPointCloudClip(map) {
             const ellipsePoints = this._sampleEllipse(geometry);
             if (!ellipsePoints) return;
             const transformed = transformPoints(ellipsePoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const start = geometry.startAngle != null ? geometry.startAngle : 0;
             const end = geometry.endAngle != null ? geometry.endAngle : Math.PI * 2;
@@ -15350,8 +16919,8 @@ function collectPointCloudClip(map) {
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -15363,6 +16932,10 @@ function collectPointCloudClip(map) {
               : geometry.controlPoints;
             if (!splinePoints || splinePoints.length < 2) return;
             const transformed = transformPoints(splinePoints, transform);
+            const clipBounds = this._computeBoundsFromPoints(transformed);
+            if (this._shouldCullWithClip(clipBounds, clipStack)) {
+              return;
+            }
             transformed.forEach((pt) => updateBounds(pt.x, pt.y));
             const isClosed = !!geometry.isClosed ||
               (transformed.length >= 2 && this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1]));
@@ -15372,8 +16945,8 @@ function collectPointCloudClip(map) {
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables),
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
               meta: makeMeta({ geometryKind: 'polyline', isClosed })
             });
@@ -15387,6 +16960,10 @@ function collectPointCloudClip(map) {
             if (!geometry.position) return;
             const config = this._resolvePointDisplayConfig(geometry, transform);
             const worldPoint = applyMatrix(transform, geometry.position);
+            const pointBounds = { minX: worldPoint.x, minY: worldPoint.y, maxX: worldPoint.x, maxY: worldPoint.y };
+            if (this._shouldCullWithClip(pointBounds, clipStack)) {
+              return;
+            }
             updateBounds(worldPoint.x, worldPoint.y);
             if (!config) {
               rawPoints.push({
@@ -15415,7 +16992,7 @@ function collectPointCloudClip(map) {
               updateBounds,
               polylineCollector: rawPolylines,
               color,
-              lineweight: this._resolveLineweight(entity),
+              lineweight: resolvedLineweight,
               makeMeta,
               config,
               family: 'point'
@@ -15459,7 +17036,7 @@ function collectPointCloudClip(map) {
                 updateBounds,
                 polylineCollector: rawPolylines,
                 color,
-                lineweight: this._resolveLineweight(entity),
+                lineweight: resolvedLineweight,
                 makeMeta,
                 config,
                 family: 'mpoint'
@@ -15568,7 +17145,7 @@ function collectPointCloudClip(map) {
                 updateBounds,
                 polylineCollector: rawPolylines,
                 color,
-                lineweight: this._resolveLineweight(entity),
+                lineweight: resolvedLineweight,
                 makeMeta
               });
               break;
@@ -15603,8 +17180,8 @@ function collectPointCloudClip(map) {
             rawPolylines.push({
               points: transformed,
               color,
-              lineweight: this._resolveLineweight(entity),
-              linetype: this._resolveLinetype(entity, tables)
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype
             });
             break;
           }
@@ -15627,12 +17204,12 @@ function collectPointCloudClip(map) {
             polylineCollector: rawPolylines,
             textCollector: rawTexts,
             color,
-            lineweight: entity.lineweight,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : entity.lineweight,
             styleEntry: null,
             multiLeaderStylesByHandle,
             multiLeaderStyles,
             textStylesByHandle,
-            renderBlockContent,
+            renderBlockContent: renderBlockWithCurrentStyle,
             getBlockNameByHandle,
             depth,
             visitedBlocks,
@@ -15652,11 +17229,11 @@ function collectPointCloudClip(map) {
             polylineCollector: rawPolylines,
             textCollector: rawTexts,
             color,
-            lineweight: entity.lineweight,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : entity.lineweight,
             multiLeaderStylesByHandle,
             multiLeaderStyles,
             textStylesByHandle,
-            renderBlockContent,
+            renderBlockContent: renderBlockWithCurrentStyle,
             getBlockNameByHandle,
             depth,
             visitedBlocks,
@@ -15676,8 +17253,8 @@ function collectPointCloudClip(map) {
             fillCollector: rawFills,
             textCollector: rawTexts,
             baseColor: color,
-            lineweight: entity.lineweight,
-            renderBlockContent,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : entity.lineweight,
+            renderBlockContent: renderBlockWithCurrentStyle,
             getBlockNameByHandle,
             textStylesByHandle,
             depth,
@@ -15997,6 +17574,15 @@ function collectPointCloudClip(map) {
           if (!block || !Array.isArray(block.entities)) {
             return;
           }
+          const blockMetadataEntry = getBlockMetadata(blockName);
+          const blockFlagsInfo = blockMetadataEntry && blockMetadataEntry.flags ? blockMetadataEntry.flags : null;
+          if (blockFlagsInfo && blockFlagsInfo.isOverlay && blockStack && blockStack.length) {
+            return;
+          }
+          if (blockFlagsInfo && blockFlagsInfo.isExternallyDependent && !blockFlagsInfo.isResolved &&
+            (!block.entities || !block.entities.length)) {
+            return;
+          }
           if (visitedBlocks.includes(blockName)) {
             return;
           }
@@ -16010,27 +17596,130 @@ function collectPointCloudClip(map) {
 
           const basePoint = block.header && block.header.basePoint
             ? block.header.basePoint
-            : { x: 0, y: 0 };
-          const baseTransform = translateMatrix(-basePoint.x, -basePoint.y);
+            : { x: 0, y: 0, z: 0 };
+          const baseTransform = translateMatrix(
+            -(Number.isFinite(basePoint.x) ? basePoint.x : 0),
+            -(Number.isFinite(basePoint.y) ? basePoint.y : 0),
+            -(Number.isFinite(basePoint.z) ? basePoint.z : 0)
+          );
+          const blockLayoutMatrix = resolveBlockLayoutMatrix(blockName);
+          const definitionTransform = blockLayoutMatrix
+            ? multiplyMatrix(blockLayoutMatrix, baseTransform)
+            : baseTransform;
 
-          const blockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
-          const shouldConvertUnits = blockUnits != null && activeUnits != null && blockUnits !== activeUnits;
-          const unitScale = shouldConvertUnits
-            ? this._unitConversionFactor(blockUnits, activeUnits)
-            : 1;
-          const scaleX = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
-          let scaleY = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
-          const scaleZ = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
-          if (scaleY == null || scaleY === 0) {
-            scaleY = scaleZ !== 0 ? scaleZ : 1;
+          const clipFilters = Array.isArray(geometry.clipFilters) ? geometry.clipFilters : null;
+          const blockClipPolygons = clipFilters
+            ? clipFilters
+                .filter((filter) => filter && filter.clippingEnabled !== false &&
+                  Array.isArray(filter.boundary) && filter.boundary.length >= 2)
+                .map((filter) => {
+                  const matrixArray = filter.inverseInsertMatrix || filter.clipBoundaryMatrix || null;
+                  const baseMatrix = matrixArray ? createMatrixFromArray(matrixArray) : identityMatrix();
+                  let blockPoints = filter.boundary.map((pt) => {
+                    const applied = applyMatrix(baseMatrix, { x: pt.x, y: pt.y, z: 0 });
+                    return { x: applied.x, y: applied.y };
+                  });
+                  if (blockPoints.length === 2) {
+                    const p0 = blockPoints[0];
+                    const p1 = blockPoints[1];
+                    blockPoints = [
+                      { x: p0.x, y: p0.y },
+                      { x: p1.x, y: p0.y },
+                      { x: p1.x, y: p1.y },
+                      { x: p0.x, y: p1.y }
+                    ];
+                  }
+                  const bounds = this._computeBoundsFromPoints(blockPoints);
+                  if (!bounds) {
+                    return null;
+                  }
+                  return {
+                    points: blockPoints,
+                    bounds
+                  };
+                })
+                .filter((entry) => entry && entry.points && entry.points.length >= 3)
+            : [];
+
+          const rawBlockUnits = this._lookupBlockUnits(blockName, blockUnitsLookup);
+          const normalizedBlockUnits = this._normalizeUnitsCode(rawBlockUnits);
+          const normalizedActiveUnits = activeUnits;
+          let unitScale = 1;
+          const applyDefaultScale = () => {
+            if (defaultInsertScaleFactor && defaultInsertScaleFactor !== 1) {
+              unitScale *= defaultInsertScaleFactor;
+            }
+          };
+          if (normalizedBlockUnits != null) {
+            if (normalizedBlockUnits === 0) {
+              const sourceUnits = defaultSourceUnits != null ? defaultSourceUnits : normalizedActiveUnits;
+              if (sourceUnits != null && normalizedActiveUnits != null && sourceUnits !== normalizedActiveUnits) {
+                unitScale *= this._unitConversionFactor(sourceUnits, normalizedActiveUnits);
+              }
+              applyDefaultScale();
+            } else if (normalizedActiveUnits != null && normalizedBlockUnits !== normalizedActiveUnits) {
+              unitScale *= this._unitConversionFactor(normalizedBlockUnits, normalizedActiveUnits);
+            }
+          } else {
+            const sourceUnits = defaultSourceUnits != null ? defaultSourceUnits : normalizedActiveUnits;
+            if (sourceUnits != null && normalizedActiveUnits != null && sourceUnits !== normalizedActiveUnits) {
+              unitScale *= this._unitConversionFactor(sourceUnits, normalizedActiveUnits);
+            }
+            applyDefaultScale();
           }
-          const effectiveScaleX = (scaleX !== 0 ? scaleX : 1) * unitScale;
-          const effectiveScaleY = (scaleY !== 0 ? scaleY : 1) * unitScale;
-          const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY);
+
+          const scaleXRaw = geometry.scale && Number.isFinite(geometry.scale.x) ? geometry.scale.x : 1;
+          let scaleYRaw = geometry.scale && Number.isFinite(geometry.scale.y) ? geometry.scale.y : null;
+          const scaleZRaw = geometry.scale && Number.isFinite(geometry.scale.z) ? geometry.scale.z : 1;
+          if (scaleYRaw == null || scaleYRaw === 0) {
+            scaleYRaw = scaleZRaw !== 0 ? scaleZRaw : 1;
+          }
+          let resolvedScaleX = scaleXRaw !== 0 ? scaleXRaw : 1;
+          let resolvedScaleY = scaleYRaw !== 0 ? scaleYRaw : 1;
+          let resolvedScaleZ = scaleZRaw !== 0 ? scaleZRaw : 1;
+          if (blockRequiresUniformScaling(blockName)) {
+            const tolerance = 1e-6;
+            const compare = (a, b) => Math.abs(a - b) <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+            const uniformXY = compare(resolvedScaleX, resolvedScaleY);
+            const uniformXZ = compare(resolvedScaleX, resolvedScaleZ);
+            if (!uniformXY || !uniformXZ) {
+              const candidateSource = geometry.scale || {};
+              const candidates = [];
+              if (Number.isFinite(candidateSource.x) && candidateSource.x !== 0) {
+                candidates.push(candidateSource.x);
+              }
+              if (Number.isFinite(candidateSource.y) && candidateSource.y !== 0) {
+                candidates.push(candidateSource.y);
+              }
+              if (Number.isFinite(candidateSource.z) && candidateSource.z !== 0) {
+                candidates.push(candidateSource.z);
+              }
+              if (!candidates.length) {
+                candidates.push(resolvedScaleX, resolvedScaleY, resolvedScaleZ);
+              }
+              let base = candidates[0];
+              for (let idx = 1; idx < candidates.length; idx += 1) {
+                if (Math.abs(candidates[idx]) > Math.abs(base)) {
+                  base = candidates[idx];
+                }
+              }
+              if (!Number.isFinite(base) || Math.abs(base) < 1e-9) {
+                base = 1;
+              }
+              resolvedScaleX = base;
+              resolvedScaleY = base;
+              resolvedScaleZ = base;
+            }
+          }
+          const effectiveScaleX = resolvedScaleX * unitScale;
+          const effectiveScaleY = resolvedScaleY * unitScale;
+          const effectiveScaleZ = resolvedScaleZ * unitScale;
+          const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY, effectiveScaleZ);
           const rotation = rotateMatrix((geometry.rotation || 0) * Math.PI / 180);
           const translate = translateMatrix(
-            geometry.position ? geometry.position.x : 0,
-            geometry.position ? geometry.position.y : 0
+            geometry.position ? (Number.isFinite(geometry.position.x) ? geometry.position.x : 0) : 0,
+            geometry.position ? (Number.isFinite(geometry.position.y) ? geometry.position.y : 0) : 0,
+            geometry.position ? (Number.isFinite(geometry.position.z) ? geometry.position.z : 0) : 0
           );
 
           const insertTransform = multiplyMatrix(transform, multiplyMatrix(translate, multiplyMatrix(rotation, localScale)));
@@ -16039,12 +17728,38 @@ function collectPointCloudClip(map) {
           const rowCount = geometry.rowCount || 1;
           const columnSpacing = geometry.columnSpacing || 0;
           const rowSpacing = geometry.rowSpacing || 0;
-          const childContextUnits = blockUnits != null ? blockUnits : activeUnits;
+          const childContextUnits = normalizedBlockUnits != null
+            ? (normalizedBlockUnits === 0 && defaultSourceUnits != null ? defaultSourceUnits : normalizedBlockUnits)
+            : normalizedActiveUnits;
+          const childStyleOverrides = {
+            color: resolvedColor ? cloneColor(resolvedColor) : null,
+            lineweight: resolvedLineweight != null ? resolvedLineweight : (styleState ? styleState.lineweight : null),
+            linetypeName: effectiveLinetypeName || (styleState ? styleState.linetypeName : null),
+            linetypeEntry: resolvedLinetype || (styleState ? styleState.linetypeEntry : null)
+          };
 
           for (let row = 0; row < rowCount; row++) {
             for (let col = 0; col < columnCount; col++) {
-              const offset = translateMatrix(col * columnSpacing, row * rowSpacing);
-              const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, baseTransform));
+              const offset = translateMatrix(col * columnSpacing, row * rowSpacing, 0);
+              const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, definitionTransform));
+              let instanceClipStack = clipStack;
+              if (blockClipPolygons.length) {
+                const worldClips = [];
+                for (let idx = 0; idx < blockClipPolygons.length; idx += 1) {
+                  const entry = blockClipPolygons[idx];
+                  const worldPoints = entry.points.map((pt) => {
+                    const applied = applyMatrix(composedTransform, { x: pt.x, y: pt.y, z: 0 });
+                    return { x: applied.x, y: applied.y };
+                  });
+                  const worldBounds = this._computeBoundsFromPoints(worldPoints);
+                  if (worldBounds) {
+                    worldClips.push({ points: worldPoints, bounds: worldBounds });
+                  }
+                }
+                if (worldClips.length) {
+                  instanceClipStack = (clipStack || []).concat(worldClips);
+                }
+              }
               block.entities.forEach((child) => processEntity(
                 child,
                 composedTransform,
@@ -16052,7 +17767,9 @@ function collectPointCloudClip(map) {
                 visitedStack,
                 (blockStack || []).concat(blockName),
                 nextHighlight,
-                childContextUnits
+                childContextUnits,
+                childStyleOverrides,
+                instanceClipStack
               ));
             }
           }
@@ -16070,7 +17787,7 @@ function collectPointCloudClip(map) {
             makeMeta,
             contextUnits,
             {
-              renderBlockContent,
+              renderBlockContent: renderBlockWithCurrentStyle,
               getBlockNameByHandle,
               depth,
               visitedBlocks,
@@ -16103,7 +17820,9 @@ function collectPointCloudClip(map) {
             color,
             material: materialDescriptor,
             makeMeta,
-            tables
+            tables,
+            lineweight: resolvedLineweight,
+            linetype: resolvedLinetype
           });
           break;
         }
@@ -16119,8 +17838,8 @@ function collectPointCloudClip(map) {
           rawPolylines.push({
             points: transformed,
             color,
-            lineweight: this._resolveLineweight(entity),
-            linetype: this._resolveLinetype(entity, tables),
+            lineweight: resolvedLineweight,
+            linetype: resolvedLinetype,
             worldBounds: this._computeBoundsFromPoints(transformed),
             meta: makeMeta({ geometryKind: 'polyline', isClosed: true, family: geometry.frameType ? geometry.frameType.toLowerCase() : 'frame' })
           });
@@ -16130,7 +17849,7 @@ function collectPointCloudClip(map) {
           if (geometry.position) {
             const projected = applyMatrix(transform, geometry.position);
             updateBounds(projected.x, projected.y);
-            const size = Math.max(6, this._resolveLineweight(entity) || 6);
+            const size = Math.max(6, resolvedLineweight || 6);
             rawPoints.push({
               position: [projected.x, projected.y],
               color,
@@ -16147,7 +17866,7 @@ function collectPointCloudClip(map) {
       }
       };
 
-      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue, parentUnits) => {
+      renderBlockContent = (blockName, matrix, depthValue, visitedStackValue, blockStackValue, highlightValue, parentUnits, styleOverrides, clipStackValue) => {
         const resolvedName = blockName || null;
         if (!resolvedName) {
           return;
@@ -16165,23 +17884,43 @@ function collectPointCloudClip(map) {
         const normalizedParentUnits = this._normalizeUnitsCode(
           parentUnits != null ? parentUnits : primaryUnits
         );
-        const blockUnits = this._lookupBlockUnits(resolvedName, blockUnitsLookup);
-        const childUnits = blockUnits != null ? blockUnits : normalizedParentUnits;
+        const rawChildBlockUnits = this._lookupBlockUnits(resolvedName, blockUnitsLookup);
+        const normalizedChildBlockUnits = this._normalizeUnitsCode(rawChildBlockUnits);
+        const childUnits = normalizedChildBlockUnits != null
+          ? (normalizedChildBlockUnits === 0 && defaultSourceUnits != null ? defaultSourceUnits : normalizedChildBlockUnits)
+          : normalizedParentUnits;
+        const header = blockRef.header || {};
+        const basePoint = header.basePoint
+          ? {
+              x: Number.isFinite(header.basePoint.x) ? header.basePoint.x : 0,
+              y: Number.isFinite(header.basePoint.y) ? header.basePoint.y : 0,
+              z: Number.isFinite(header.basePoint.z) ? header.basePoint.z : 0
+            }
+          : { x: 0, y: 0, z: 0 };
+        const baseTransform = translateMatrix(-basePoint.x, -basePoint.y, -basePoint.z);
+        const blockLayoutMatrix = resolveBlockLayoutMatrix(resolvedName);
+        const definitionTransform = blockLayoutMatrix
+          ? multiplyMatrix(blockLayoutMatrix, baseTransform)
+          : baseTransform;
+        const initialMatrix = matrix ? matrix : identityMatrix();
+        const composedMatrix = multiplyMatrix(initialMatrix, definitionTransform);
         blockRef.entities.forEach((child) => processEntity(
           child,
-          matrix,
+          composedMatrix,
           nextDepth,
           nextVisited,
           nextStack,
           highlightValue || false,
-          childUnits
+          childUnits,
+          styleOverrides || null,
+          clipStackValue || null
         ));
       };
 
       const processModelSpace = sceneGraph.modelSpace || [];
       processModelSpace.forEach((entity) => {
         const baseMatrix = resolveBaseMatrixForEntity(entity);
-        processEntity(entity, baseMatrix, 0, [], [], false, primaryUnits);
+        processEntity(entity, baseMatrix, 0, [], [], false, primaryUnits, null, null);
       });
 
       if (bounds.minX === Infinity) {
@@ -16691,9 +18430,10 @@ function collectPointCloudClip(map) {
       return frame;
     }
 
-    _resolveColor(entity) {
+    _resolveColor(entity, styleState = null) {
       const defaultColor = { r: 0.82, g: 0.89, b: 1.0, a: 1.0, css: 'rgba(210, 227, 255, 1)' };
       if (!entity) return defaultColor;
+      const overrideColor = styleState && styleState.color ? styleState.color : null;
 
       const toColorObject = (rgb, alpha = 1) => {
         const clamped = {
@@ -16757,6 +18497,12 @@ function collectPointCloudClip(map) {
         return toColorObject({ r, g, b }, alpha);
       }
 
+      if (entity.color && entity.color.type === 'byBlock') {
+        if (overrideColor) {
+          return cloneColor(overrideColor);
+        }
+      }
+
       if (entity.color && entity.color.type === 'aci') {
         const rgb = this._aciToRgb(entity.color.value);
         const alpha = entity.transparency ? entity.transparency.alpha ?? 1 : 1;
@@ -16794,13 +18540,19 @@ function collectPointCloudClip(map) {
       return defaultColor;
     }
 
-    _resolveLineweight(entity) {
+    _resolveLineweight(entity, styleState = null) {
       if (!entity) {
         return null;
       }
       const explicit = Number(entity.lineweight);
+      const overrideLineweight = styleState && Number.isFinite(styleState.lineweight)
+        ? styleState.lineweight
+        : null;
       if (Number.isFinite(explicit) && explicit > 0) {
         return explicit;
+      }
+      if (explicit === -2 && Number.isFinite(overrideLineweight) && overrideLineweight > 0) {
+        return overrideLineweight;
       }
       if (explicit === -1 && entity.resolved && entity.resolved.layer && Number.isFinite(entity.resolved.layer.lineweight) && entity.resolved.layer.lineweight > 0) {
         return entity.resolved.layer.lineweight;
@@ -16816,7 +18568,7 @@ function collectPointCloudClip(map) {
       return Math.max(0.4, lineweight / 100);
     }
 
-    _resolveLinetype(entity, tables) {
+    _resolveLinetype(entity, tables, styleState = null) {
       if (!entity || !tables || !tables.linetypes) {
         return null;
       }
@@ -16835,11 +18587,29 @@ function collectPointCloudClip(map) {
         return catalog[key] || catalog[key.toUpperCase()] || null;
       };
 
+      const resolveOverrideEntry = () => {
+        if (!styleState) {
+          return null;
+        }
+        if (styleState.linetypeEntry) {
+          return styleState.linetypeEntry;
+        }
+        if (styleState.linetypeName) {
+          return lookupEntry(styleState.linetypeName);
+        }
+        return null;
+      };
+
       let entry = null;
       if (!isByLayer && !isByBlock) {
         entry = entity.resolved && entity.resolved.linetype
           ? entity.resolved.linetype
           : lookupEntry(directName);
+      } else if (isByBlock) {
+        const override = resolveOverrideEntry();
+        if (override) {
+          entry = override;
+        }
       }
       if (!entry && entity.resolved && entity.resolved.layer && entity.resolved.layer.linetype) {
         entry = lookupEntry(entity.resolved.layer.linetype);
@@ -18179,9 +19949,9 @@ function collectPointCloudClip(map) {
       const scaleFactor = Number.isFinite(size) && size !== 0 ? size : length;
       const localScale = scaleMatrix(scaleFactor, scaleFactor);
       const localRotation = rotateMatrix(rotation);
-      const localTranslation = translateMatrix(tip.x, tip.y);
+      const localTranslation = translateMatrix(tip.x, tip.y, tip.z || 0);
       const composed = multiplyMatrix(transform, multiplyMatrix(localTranslation, multiplyMatrix(localRotation, localScale)));
-      renderBlockContent(blockName, composed, depth + 1, visitedBlocks, blockStack, highlight, contextUnits);
+      renderBlockContent(blockName, composed, depth + 1, visitedBlocks, blockStack, highlight, contextUnits, null, null);
       return true;
     }
 
@@ -18442,7 +20212,14 @@ function collectPointCloudClip(map) {
                   x: left + width / 2,
                   y: top + height / 2
                 };
-                const blockTransform = multiplyMatrix(baseTransform, translateMatrix(localBlockOrigin.x, localBlockOrigin.y));
+                const blockTransform = multiplyMatrix(
+                  baseTransform,
+                  translateMatrix(
+                    localBlockOrigin.x,
+                    localBlockOrigin.y,
+                    localBlockOrigin.z || 0
+                  )
+                );
                 renderBlockContent(
                   blockName,
                   blockTransform,
@@ -18450,7 +20227,9 @@ function collectPointCloudClip(map) {
                   visitedBlocks || [],
                   blockStack || [],
                   !!highlightActive,
-                  contextUnits
+                  contextUnits,
+                  null,
+                  null
                 );
               }
             }
@@ -18618,8 +20397,11 @@ function collectPointCloudClip(map) {
       if (contentType === 2 && blockHandle && typeof renderBlockContent === 'function' && typeof getBlockNameByHandle === 'function') {
         const blockName = getBlockNameByHandle(blockHandle);
         if (blockName) {
-          const contentTransform = multiplyMatrix(transform, translateMatrix(anchorPoint.x, anchorPoint.y));
-          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive, contextUnits);
+          const contentTransform = multiplyMatrix(
+            transform,
+            translateMatrix(anchorPoint.x, anchorPoint.y, anchorPoint.z || 0)
+          );
+          renderBlockContent(blockName, contentTransform, depth, visitedBlocks, blockStack, highlightActive, contextUnits, null, null);
         }
       }
     }
@@ -19517,6 +21299,18 @@ function collectPointCloudClip(map) {
       if (geometry.visibility) {
         textEntry.attributeVisibility = geometry.visibility;
       }
+      if (geometry.lockPosition) {
+        textEntry.lockPosition = true;
+      }
+      if (Number.isFinite(geometry.fieldLength) && geometry.fieldLength > 0) {
+        const widthFactorOverride = Number.isFinite(geometry.widthFactor) && geometry.widthFactor > 0
+          ? geometry.widthFactor
+          : 1;
+        const referenceWidth = geometry.fieldLength * baseHeight * widthFactorOverride;
+        if (referenceWidth > 0) {
+          textEntry.referenceWidth = referenceWidth;
+        }
+      }
       options.rawTexts.push(textEntry);
       return true;
     }
@@ -19653,6 +21447,35 @@ function collectPointCloudClip(map) {
         return null;
       }
       return { minX, minY, maxX, maxY };
+    }
+
+    _boundsIntersect(a, b) {
+      if (!a || !b) {
+        return true;
+      }
+      if (a.maxX < b.minX || a.minX > b.maxX) {
+        return false;
+      }
+      if (a.maxY < b.minY || a.minY > b.maxY) {
+        return false;
+      }
+      return true;
+    }
+
+    _shouldCullWithClip(bounds, clipStack) {
+      if (!bounds || !Array.isArray(clipStack) || !clipStack.length) {
+        return false;
+      }
+      for (let i = 0; i < clipStack.length; i += 1) {
+        const clip = clipStack[i];
+        if (!clip || !clip.bounds) {
+          continue;
+        }
+        if (!this._boundsIntersect(bounds, clip.bounds)) {
+          return true;
+        }
+      }
+      return false;
     }
 
     _computeTextScreenBounds(layout) {
@@ -20740,7 +22563,11 @@ function collectPointCloudClip(map) {
       if (!a || !b) {
         return false;
       }
-      return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon;
+      const az = Number.isFinite(a.z) ? a.z : 0;
+      const bz = Number.isFinite(b.z) ? b.z : 0;
+      return Math.abs(a.x - b.x) <= epsilon &&
+        Math.abs(a.y - b.y) <= epsilon &&
+        Math.abs(az - bz) <= epsilon;
     }
 
     _polygonArea(points) {
@@ -21454,9 +23281,23 @@ function collectPointCloudClip(map) {
         ? geometry.dimensionTextOverrides
         : (styleInfo && styleInfo.text ? styleInfo.text : null);
       const dimStyleMetrics = this._resolveDimensionStyleMetrics(entity);
-      const dimensionFlags = geometry.dimensionFlags || 0;
+      const dimensionFlags = Number.isFinite(geometry.dimensionFlags) ? geometry.dimensionFlags : 0;
       const isBaselineDimension = (dimensionFlags & 16) === 16;
       const isContinuedDimension = (dimensionFlags & 32) === 32;
+      let suppressDimensionLine = (dimensionFlags & 64) === 64;
+      if (geometry && geometry.dimensionLineSuppressed === true) {
+        suppressDimensionLine = true;
+      }
+      if (styleToggles && styleToggles.suppressDimensionLine === true) {
+        suppressDimensionLine = true;
+      }
+      let suppressDimensionText = (dimensionFlags & 128) === 128;
+      if (geometry && (geometry.textSuppress === true || geometry.textSuppressed === true)) {
+        suppressDimensionText = true;
+      }
+      if (styleToggles && styleToggles.suppressText === true) {
+        suppressDimensionText = true;
+      }
       const dimensionScale = Number.isFinite(geometry.dimensionScaleFactor) ? geometry.dimensionScaleFactor : 1;
       const obliqueAngleRad = Number.isFinite(geometry.obliqueAngle) ? geometry.obliqueAngle * Math.PI / 180 : 0;
       const hasOblique = Math.abs(obliqueAngleRad) > 1e-6;
@@ -21704,12 +23545,20 @@ function collectPointCloudClip(map) {
             if (isBaselineDimension && Number.isFinite(dimensionLineIncrementValue) && dimensionLineIncrementValue !== 0) {
               dimensionSegment = applyPerpendicularOffset(dimensionSegment, dimensionLineIncrementValue);
             }
-            addLine(dimensionSegment.start, dimensionSegment.end, weight, 'dimensionLine');
-          } else if (definitionPoint && dimensionLinePoint) {
-            addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
           }
-          const dimensionLineStart = dimensionSegment ? dimensionSegment.start : (definitionPoint || dimensionLinePoint);
-          const dimensionLineEnd = dimensionSegment ? dimensionSegment.end : (dimensionLinePoint || definitionPoint);
+          if (!suppressDimensionLine) {
+            if (dimensionSegment) {
+              addLine(dimensionSegment.start, dimensionSegment.end, weight, 'dimensionLine');
+            } else if (definitionPoint && dimensionLinePoint) {
+              addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
+            }
+          }
+          const dimensionLineStart = dimensionSegment
+            ? dimensionSegment.start
+            : (definitionPoint || dimensionLinePoint);
+          const dimensionLineEnd = dimensionSegment
+            ? dimensionSegment.end
+            : (dimensionLinePoint || definitionPoint);
           const extensionTarget1 = dimensionLineStart || definitionPoint;
           const extensionTarget2 = dimensionLineEnd || dimensionLinePoint;
           if (dimensionSegment) {
@@ -21730,16 +23579,18 @@ function collectPointCloudClip(map) {
           }
           if (!skipExtension2 && extension2 && extensionTarget2) {
             let extensionSegment2 = adjustExtensionSegment(extension2, extensionTarget2);
-            extensionSegment2 = rotateSegment(extensionSegment2, extension2);
+            extensionSegment2 = rotateSegment(extensionSegment2, extensionTarget2);
             addLine(extensionSegment2.start, extensionSegment2.end, weight * 0.8, 'extensionLine2');
           }
-          if (arrow1 && dimensionLineStart) {
-            drawArrowHead(arrow1, dimensionLineStart, 0);
+          const arrowBase1 = dimensionLineStart || extensionTarget1;
+          const arrowBase2 = dimensionLineEnd || extensionTarget2;
+          if (arrow1 && arrowBase1) {
+            drawArrowHead(arrow1, arrowBase1, 0);
           }
-          if (arrow2 && dimensionLineEnd) {
-            drawArrowHead(arrow2, dimensionLineEnd, 1);
+          if (arrow2 && arrowBase2) {
+            drawArrowHead(arrow2, arrowBase2, 1);
           }
-          break;
+         break;
         }
         case 2: // angular
         case 5: { // angular 3pt
@@ -21776,7 +23627,7 @@ function collectPointCloudClip(map) {
             }
           }
 
-          if (arcPoints && arcPoints.length >= 2) {
+          if (!suppressDimensionLine && arcPoints && arcPoints.length >= 2) {
             addPolyline(arcPoints, weight, 'dimensionArc');
           }
 
@@ -21789,9 +23640,9 @@ function collectPointCloudClip(map) {
           break;
         }
         case 3: { // diameter
-          if (arrow1 && arrow2) {
+          if (!suppressDimensionLine && arrow1 && arrow2) {
             addLine(arrow1, arrow2, weight, 'diameter');
-          } else if (definitionPoint && dimensionLinePoint) {
+          } else if (!suppressDimensionLine && definitionPoint && dimensionLinePoint) {
             let diameterSegment = adjustDimensionLineSegment(definitionPoint, dimensionLinePoint);
             diameterSegment = rotateSegment(diameterSegment, definitionPoint);
             if (diameterSegment) {
@@ -21802,11 +23653,15 @@ function collectPointCloudClip(map) {
           }
           const diameterCenter = center || definitionPoint || dimensionLinePoint;
           if (diameterCenter && arrow1) {
-            addLine(diameterCenter, arrow1, weight * 0.8, 'radius');
+            if (!suppressDimensionLine) {
+              addLine(diameterCenter, arrow1, weight * 0.8, 'radius');
+            }
             drawArrowHead(arrow1, diameterCenter, 0);
           }
           if (diameterCenter && arrow2) {
-            addLine(diameterCenter, arrow2, weight * 0.8, 'radius');
+            if (!suppressDimensionLine) {
+              addLine(diameterCenter, arrow2, weight * 0.8, 'radius');
+            }
             drawArrowHead(arrow2, diameterCenter, 1);
           }
           if (diameterCenter && Number.isFinite(centerMarkSize) && centerMarkSize > 0) {
@@ -21818,7 +23673,9 @@ function collectPointCloudClip(map) {
           const tip = arrow1 || arrow2 || dimensionLinePoint;
           const origin = definitionPoint || dimensionLinePoint;
           if (origin && tip) {
-            addLine(origin, tip, weight, 'radius');
+            if (!suppressDimensionLine) {
+              addLine(origin, tip, weight, 'radius');
+            }
             const arrowIndex = arrow1 ? 0 : 1;
             drawArrowHead(tip, origin, arrowIndex);
           }
@@ -21853,7 +23710,7 @@ function collectPointCloudClip(map) {
       }
 
       const textAnchor = textPoint || dimensionLinePoint || definitionPoint || center;
-      if (label && textAnchor) {
+      if (!suppressDimensionText && label && textAnchor) {
         const textMovementMode = measurementSettings && measurementSettings.textMovement != null
           ? measurementSettings.textMovement
           : null;
@@ -22114,8 +23971,11 @@ function collectPointCloudClip(map) {
       const sectionStyle = this._resolveSectionStyle(entity, sectionColor);
       const showHatch = sectionStyle.cutHatchEnabled !== false;
       const showBendLines = sectionStyle.bendLinesEnabled !== false;
-      const lineweight = this._resolveLineweight(entity);
-      const linetype = this._resolveLinetype(entity, tables);
+      const resolvedLineweight = Number.isFinite(lineweight) ? lineweight : this._resolveLineweight(entity);
+      const resolvedLinetype = linetype || this._resolveLinetype(entity, tables);
+      const resolvedLineweightPx = this._lineweightToPx(
+        resolvedLineweight != null ? resolvedLineweight : entity.lineweight
+      );
       const boundary3d = Array.isArray(geometry.boundary) ? geometry.boundary : null;
       const boundary2d = boundary3d
         ? boundary3d.map((pt) => ({
@@ -22234,8 +24094,8 @@ function collectPointCloudClip(map) {
           polylineCollector.push({
             points: transformedBoundary,
             color: sectionColor,
-            lineweight,
-            linetype,
+            lineweight: resolvedLineweight,
+            linetype: resolvedLinetype,
             worldBounds: boundaryBounds ? Object.assign({}, boundaryBounds) : null,
             meta: makeMeta
               ? makeMeta({
@@ -22324,7 +24184,7 @@ function collectPointCloudClip(map) {
           polylineCollector.push({
             points: transformedSegment,
             color: hatchStrokeColor,
-            lineweight: Math.max(0.4, this._lineweightToPx(entity.lineweight) * 0.4),
+            lineweight: Math.max(0.4, resolvedLineweightPx * 0.4),
             worldBounds: this._computeBoundsFromPoints(transformedSegment),
             meta: makeMeta
               ? makeMeta({
@@ -22372,8 +24232,8 @@ function collectPointCloudClip(map) {
         polylineCollector.push({
           points: transformedDepth,
           color: bendColor,
-          lineweight,
-          linetype,
+          lineweight: resolvedLineweight,
+          linetype: resolvedLinetype,
           worldBounds: this._computeBoundsFromPoints(transformedDepth),
           meta: makeMeta
             ? makeMeta({
@@ -22392,7 +24252,7 @@ function collectPointCloudClip(map) {
           polylineCollector.push({
             points: connector,
             color: this._adjustColorAlpha(bendColor, 0.85, 0.45),
-            lineweight: Math.max(0.4, this._lineweightToPx(entity.lineweight) * 0.5),
+            lineweight: Math.max(0.4, resolvedLineweightPx * 0.5),
             worldBounds: this._computeBoundsFromPoints(connector),
             meta: makeMeta
               ? makeMeta({
@@ -22412,7 +24272,7 @@ function collectPointCloudClip(map) {
         polylineCollector.push({
           points: axisPoints,
           color: sectionStyle.hatchColor || this._adjustColorAlpha(sectionColor, 0.85, 0.45),
-          lineweight: Math.max(0.6, this._lineweightToPx(entity.lineweight) * 0.75),
+          lineweight: Math.max(0.6, resolvedLineweightPx * 0.75),
           worldBounds: this._computeBoundsFromPoints(axisPoints),
           meta: makeMeta
             ? makeMeta({

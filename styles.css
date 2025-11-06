@@ -1966,6 +1966,48 @@ body.tooltip-enhanced .has-tooltip::before {
   color: #9abaff;
 }
 
+.block-card-has-warning {
+  border-color: rgba(255, 173, 92, 0.45) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 173, 92, 0.35);
+}
+
+.block-card-warning {
+  margin-top: 6px;
+  font-weight: 600;
+  color: #ffbe75;
+}
+
+.block-card-diagnostics {
+  margin-top: 8px;
+  border: 1px solid rgba(255, 173, 92, 0.35);
+  border-radius: 4px;
+  background: rgba(40, 24, 10, 0.45);
+  padding: 4px 8px;
+}
+
+.block-card-diagnostics > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #ffd6a1;
+}
+
+.block-diagnostics-list {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85em;
+  color: #ffd6a1;
+}
+
+.block-diagnostics-more {
+  margin-top: 4px;
+  font-size: 0.8em;
+  color: #ffbe75;
+}
+
 .rendering-summary-section {
   margin-bottom: 12px;
 }
