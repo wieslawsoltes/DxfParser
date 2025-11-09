@@ -11,6 +11,7 @@ const componentsDir = path.join(projectRoot, 'components');
 const context = {
   console,
   window: {},
+  DxfRendering: {},
   performance: { now: () => Date.now() }
 };
 context.global = context;
@@ -31,9 +32,12 @@ componentsToLoad.forEach((file) => {
   const fullPath = path.join(componentsDir, file);
   const source = fs.readFileSync(fullPath, 'utf8');
   vm.runInContext(source, context, { filename: fullPath });
+  if (context.window && context.window.DxfRendering) {
+    context.DxfRendering = context.window.DxfRendering;
+  }
 });
 
-const namespace = context.window.DxfRendering;
+const namespace = context.DxfRendering;
 assert(namespace, 'DxfRendering namespace not initialised');
 
 const Builder = namespace.RenderingDocumentBuilder;
