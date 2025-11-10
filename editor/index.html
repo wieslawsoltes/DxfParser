@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DXF Editor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js" defer></script>
+  <script src="../components/utils.js" defer></script>
+  <script src="../components/dxf-parser.js" defer></script>
+  <script src="../components/rendering-entities.js" defer></script>
+  <script src="../components/rendering-scene-graph.js" defer></script>
+  <script src="../components/rendering-document-builder.js" defer></script>
+  <script src="../components/rendering-data-controller.js" defer></script>
+  <script src="../components/rendering-surface-canvas.js" defer></script>
+  <script src="../components/rendering-surface-webgl.js" defer></script>
+  <script src="../components/rendering-text-layout.js" defer></script>
+  <script src="../components/rendering-renderer.js" defer></script>
+  <script src="../components/rendering-property-grid.js" defer></script>
+  <script src="../components/rendering-overlay.js" defer></script>
+  <script src="../scripts/dxf-app-bootstrap.js" defer></script>
+  <link rel="stylesheet" href="styles.css">
+  <script src="main.js" defer></script>
+  <script src="editing-adapter.js" defer></script>
+</head>
+<body>
+  <div class="editor-app" id="editorAppRoot">
+    <header class="editor-ribbon" id="editorRibbon">
+      <div class="ribbon-top-bar">
+        <div class="ribbon-quick-access" role="toolbar" aria-label="Quick access">
+          <button class="quick-access-button" type="button" data-command="new-drawing" title="New Drawing (Ctrl+N)" aria-label="New drawing">
+            <span aria-hidden="true">🆕</span>
+          </button>
+          <button class="quick-access-button" type="button" data-command="open-drawing" title="Open (Ctrl+O)" aria-label="Open drawing">
+            <span aria-hidden="true">📂</span>
+          </button>
+          <button class="quick-access-button" type="button" data-command="save-drawing" title="Save (Ctrl+S)" aria-label="Save drawing" data-command-disabled-message="Open a DXF drawing to enable saving.">
+            <span aria-hidden="true">💾</span>
+          </button>
+          <button class="quick-access-button" type="button" data-command="undo" title="Undo (Ctrl+Z)" aria-label="Undo">
+            <span aria-hidden="true">↺</span>
+          </button>
+          <button class="quick-access-button" type="button" data-command="redo" title="Redo (Ctrl+Y)" aria-label="Redo">
+            <span aria-hidden="true">↻</span>
+          </button>
+        </div>
+        <div class="ribbon-title-area">
+          <span class="ribbon-title">DXF Editor</span>
+          <span class="ribbon-subtitle" id="ribbonActiveDocument">Untitled.dxf</span>
+        </div>
+        <div class="ribbon-user-area">
+          <button class="ribbon-meta-button" type="button" data-command="workspace-switcher" aria-label="Switch workspace">Workspace: Drafting</button>
+          <button class="ribbon-meta-button" type="button" data-command="toggle-help" aria-label="Toggle help">?</button>
+          <button class="ribbon-meta-button" type="button" data-command="user-account" aria-label="User account">Sign In</button>
+        </div>
+      </div>
+      <div class="ribbon-header">
+        <div class="ribbon-tab-container">
+          <nav class="ribbon-tabs" role="tablist" aria-label="Primary ribbon tabs">
+            <button class="ribbon-tab is-active" role="tab" aria-selected="true" aria-controls="ribbonHomePanel">
+              Home
+            </button>
+            <button class="ribbon-tab" role="tab" aria-selected="false" aria-controls="ribbonInsertPanel">
+              Insert
+            </button>
+            <button class="ribbon-tab" role="tab" aria-selected="false" aria-controls="ribbonAnnotatePanel">
+              Annotate
+            </button>
+            <button class="ribbon-tab" role="tab" aria-selected="false" aria-controls="ribbonViewPanel">
+              View
+            </button>
+          </nav>
+          <div class="ribbon-contextual-tabs" aria-label="Contextual ribbon tabs">
+            <div class="ribbon-contextual-tabset is-hidden" data-context="text-selection">
+              <span class="contextual-tab-label" aria-hidden="true">Text</span>
+              <button class="ribbon-tab" role="tab" aria-selected="false" aria-controls="ribbonTextPanel">
+                Text Tools
+              </button>
+            </div>
+            <div class="ribbon-contextual-tabset is-hidden" data-context="image-selection">
+              <span class="contextual-tab-label" aria-hidden="true">Image</span>
+              <button class="ribbon-tab" role="tab" aria-selected="false" aria-controls="ribbonImagePanel">
+                Image Tools
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="ribbon-header-aux">
+          <button class="ribbon-meta-button" type="button" data-command="minimize-ribbon" aria-label="Minimize ribbon">▴</button>
+        </div>
+      </div>
+      <div class="ribbon-panels">
+        <section class="ribbon-panel is-visible" id="ribbonHomePanel" role="tabpanel" aria-label="Home commands">
+          <div class="ribbon-group" data-group="clipboard">
+            <button class="ribbon-group-launcher" type="button" data-command="clipboard-dialog" title="Clipboard options">
+              ⌄
+            </button>
+            <div class="ribbon-group-inner">
+              <button class="ribbon-command ribbon-command--large" type="button" data-command="paste">
+                <span class="ribbon-command-icon" aria-hidden="true">📋</span>
+                <span class="ribbon-command-label">Paste</span>
+              </button>
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="cut">Cut</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="copy">Copy</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="copybase">Copy Base</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="match-properties">Match Prop</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Clipboard</span>
+          </div>
+          <div class="ribbon-group" data-group="properties">
+            <button class="ribbon-group-launcher" type="button" data-command="properties-dialog" title="Properties palette">
+              ⌄
+            </button>
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column ribbon-command-stack--align-start">
+                <button class="ribbon-command ribbon-command--mini" type="button" data-command="properties-color">
+                  <span class="ribbon-command-icon" aria-hidden="true">🎨</span>
+                  <span class="ribbon-command-label">Color</span>
+                </button>
+                <button class="ribbon-command ribbon-command--mini" type="button" data-command="properties-linetype">
+                  <span class="ribbon-command-icon" aria-hidden="true">〰️</span>
+                  <span class="ribbon-command-label">Linetype</span>
+                </button>
+                <button class="ribbon-command ribbon-command--mini" type="button" data-command="properties-lineweight">
+                  <span class="ribbon-command-icon" aria-hidden="true">⬍</span>
+                  <span class="ribbon-command-label">Lineweight</span>
+                </button>
+                <button class="ribbon-command ribbon-command--mini" type="button" data-command="properties-transparency">
+                  <span class="ribbon-command-icon" aria-hidden="true">◌</span>
+                  <span class="ribbon-command-label">Transparency</span>
+                </button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Properties</span>
+          </div>
+          <div class="ribbon-group" data-group="layers" data-collapse="stack">
+            <button class="ribbon-group-launcher" type="button" data-command="layer-properties" title="Layer properties manager">
+              ⌄
+            </button>
+            <div class="ribbon-group-inner">
+              <button class="ribbon-command ribbon-command--large" type="button" data-command="layer-properties">
+                <span class="ribbon-command-icon" aria-hidden="true">🗂️</span>
+                <span class="ribbon-command-label">Layer Properties</span>
+              </button>
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="layer-on">Layer On</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="layer-off">Layer Off</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="layer-freeze">Freeze</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="layer-thaw">Thaw</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Layers</span>
+          </div>
+          <div class="ribbon-group" data-group="draw" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-grid ribbon-command-grid--dense">
+                <button class="ribbon-command" type="button" data-command="line">
+                  <span class="ribbon-command-icon" aria-hidden="true">〣</span>
+                  <span class="ribbon-command-label">Line</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="polyline">
+                  <span class="ribbon-command-icon" aria-hidden="true">〠</span>
+                  <span class="ribbon-command-label">Polyline</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="circle">
+                  <span class="ribbon-command-icon" aria-hidden="true">◯</span>
+                  <span class="ribbon-command-label">Circle</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="arc">
+                  <span class="ribbon-command-icon" aria-hidden="true">⤻</span>
+                  <span class="ribbon-command-label">Arc</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="rectangle">
+                  <span class="ribbon-command-icon" aria-hidden="true">▭</span>
+                  <span class="ribbon-command-label">Rectangle</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="spline">
+                  <span class="ribbon-command-icon" aria-hidden="true">∿</span>
+                  <span class="ribbon-command-label">Spline</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="ellipse">
+                  <span class="ribbon-command-icon" aria-hidden="true">⬭</span>
+                  <span class="ribbon-command-label">Ellipse</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="polygon">
+                  <span class="ribbon-command-icon" aria-hidden="true">⬠</span>
+                  <span class="ribbon-command-label">Polygon</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="hatch">
+                  <span class="ribbon-command-icon" aria-hidden="true">▒</span>
+                  <span class="ribbon-command-label">Hatch</span>
+                </button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Draw</span>
+          </div>
+          <div class="ribbon-group" data-group="modify" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-grid ribbon-command-grid--dense">
+                <button class="ribbon-command" type="button" data-command="move">
+                  <span class="ribbon-command-icon" aria-hidden="true">🡆</span>
+                  <span class="ribbon-command-label">Move</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="copy">
+                  <span class="ribbon-command-icon" aria-hidden="true">⧉</span>
+                  <span class="ribbon-command-label">Copy</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="rotate">
+                  <span class="ribbon-command-icon" aria-hidden="true">⟲</span>
+                  <span class="ribbon-command-label">Rotate</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="scale">
+                  <span class="ribbon-command-icon" aria-hidden="true">⤢</span>
+                  <span class="ribbon-command-label">Scale</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="mirror">
+                  <span class="ribbon-command-icon" aria-hidden="true">⥱</span>
+                  <span class="ribbon-command-label">Mirror</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="offset">
+                  <span class="ribbon-command-icon" aria-hidden="true">↔️</span>
+                  <span class="ribbon-command-label">Offset</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="trim">
+                  <span class="ribbon-command-icon" aria-hidden="true">✂️</span>
+                  <span class="ribbon-command-label">Trim</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="extend">
+                  <span class="ribbon-command-icon" aria-hidden="true">⇥</span>
+                  <span class="ribbon-command-label">Extend</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="erase">
+                  <span class="ribbon-command-icon" aria-hidden="true">✖</span>
+                  <span class="ribbon-command-label">Erase</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="fillet">
+                  <span class="ribbon-command-icon" aria-hidden="true">∩</span>
+                  <span class="ribbon-command-label">Fillet</span>
+                </button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Modify</span>
+          </div>
+          <div class="ribbon-group" data-group="annotation" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--row">
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="mtext">
+                  <span class="ribbon-command-icon" aria-hidden="true">🅣</span>
+                  <span class="ribbon-command-label">Multiline Text</span>
+                </button>
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="dim-linear">
+                  <span class="ribbon-command-icon" aria-hidden="true">📏</span>
+                  <span class="ribbon-command-label">Dimension</span>
+                </button>
+              </div>
+              <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="single-line-text">Single Line</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="dim-aligned">Aligned</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="leader">Leader</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="mleader">Multileader</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="table">Table</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="field">Field</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Annotation</span>
+          </div>
+          <div class="ribbon-group" data-group="blocks" data-collapse="stack">
+            <button class="ribbon-group-launcher" type="button" data-command="insert-block" title="Block settings">
+              ⌄
+            </button>
+            <div class="ribbon-group-inner">
+              <button class="ribbon-command ribbon-command--large" type="button" data-command="insert-block">
+                <span class="ribbon-command-icon" aria-hidden="true">🧩</span>
+                <span class="ribbon-command-label">Insert Block</span>
+              </button>
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-block-create">Create Block</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-block-edit">Block Editor</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-block-attributes">Attributes</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Block</span>
+          </div>
+        </section>
+        <section class="ribbon-panel" id="ribbonInsertPanel" role="tabpanel" aria-label="Insert commands" hidden>
+          <div class="ribbon-group" data-group="insert-blocks" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="insert-block">
+                  <span class="ribbon-command-icon" aria-hidden="true">🧩</span>
+                  <span class="ribbon-command-label">Insert Block</span>
+                </button>
+                <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-block-create">Create</button>
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-block-edit">Block Editor</button>
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-block-attributes">Attributes</button>
+                </div>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Block</span>
+          </div>
+          <div class="ribbon-group" data-group="insert-reference" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="insert-attach">
+                  <span class="ribbon-command-icon" aria-hidden="true">🗂</span>
+                  <span class="ribbon-command-label">Attach</span>
+                </button>
+                <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-xref">DWG</button>
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-image">Image</button>
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-pdf">PDF</button>
+                </div>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Reference</span>
+          </div>
+          <div class="ribbon-group" data-group="insert-content" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column ribbon-command-stack--align-start">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="table">Table</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="field">Field</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="insert-data-link">Data Link</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Content</span>
+          </div>
+        </section>
+        <section class="ribbon-panel" id="ribbonAnnotatePanel" role="tabpanel" aria-label="Annotate commands" hidden>
+          <div class="ribbon-group" data-group="annotate-text" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="mtext">
+                  <span class="ribbon-command-icon" aria-hidden="true">🅣</span>
+                  <span class="ribbon-command-label">Multiline Text</span>
+                </button>
+                <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="single-line-text">Single Line</button>
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="text-style">Text Style</button>
+                  <button class="ribbon-command ribbon-command--small" type="button" data-command="field">Field</button>
+                </div>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Text</span>
+          </div>
+          <div class="ribbon-group" data-group="annotate-dimensions" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-grid ribbon-command-grid--dense">
+                <button class="ribbon-command" type="button" data-command="dim-linear">
+                  <span class="ribbon-command-icon" aria-hidden="true">📏</span>
+                  <span class="ribbon-command-label">Linear</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="dim-aligned">
+                  <span class="ribbon-command-icon" aria-hidden="true">📐</span>
+                  <span class="ribbon-command-label">Aligned</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="dim-radius">
+                  <span class="ribbon-command-icon" aria-hidden="true">◍</span>
+                  <span class="ribbon-command-label">Radius</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="dim-diameter">
+                  <span class="ribbon-command-icon" aria-hidden="true">◎</span>
+                  <span class="ribbon-command-label">Diameter</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="dim-angle">
+                  <span class="ribbon-command-icon" aria-hidden="true">∠</span>
+                  <span class="ribbon-command-label">Angular</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="dim-ordinate">
+                  <span class="ribbon-command-icon" aria-hidden="true">⟂</span>
+                  <span class="ribbon-command-label">Ordinate</span>
+                </button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Dimensions</span>
+          </div>
+          <div class="ribbon-group" data-group="annotate-leaders" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="leader">Leader</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="mleader">Multileader</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="mleader-style">Leader Style</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="center-mark">Center Mark</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Leaders</span>
+          </div>
+          <div class="ribbon-group" data-group="annotate-tables" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column ribbon-command-stack--align-start">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="table">Table</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="table-style">Table Style</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Tables</span>
+          </div>
+        </section>
+        <section class="ribbon-panel" id="ribbonViewPanel" role="tabpanel" aria-label="View commands" hidden>
+          <div class="ribbon-group" data-group="view-navigation" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="orbit">
+                  <span class="ribbon-command-icon" aria-hidden="true">🧭</span>
+                  <span class="ribbon-command-label">Orbit</span>
+                </button>
+                <button class="ribbon-command ribbon-command--large" type="button" data-command="pan">
+                  <span class="ribbon-command-icon" aria-hidden="true">🖐</span>
+                  <span class="ribbon-command-label">Pan</span>
+                </button>
+              </div>
+              <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="zoom-extents">Zoom Extents</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="zoom-window">Zoom Window</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="zoom-in">Zoom In</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="zoom-out">Zoom Out</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="view-home">Home</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="view-previous">Previous</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Navigate</span>
+          </div>
+          <div class="ribbon-group" data-group="view-visual" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-grid ribbon-command-grid--dense">
+                <button class="ribbon-command" type="button" data-command="visual-wireframe">
+                  <span class="ribbon-command-icon" aria-hidden="true">╳</span>
+                  <span class="ribbon-command-label">Wireframe</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="visual-shaded">
+                  <span class="ribbon-command-icon" aria-hidden="true">⬛</span>
+                  <span class="ribbon-command-label">Shaded</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="visual-realistic">
+                  <span class="ribbon-command-icon" aria-hidden="true">🖼</span>
+                  <span class="ribbon-command-label">Realistic</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="visual-xray">
+                  <span class="ribbon-command-icon" aria-hidden="true">🩻</span>
+                  <span class="ribbon-command-label">X-Ray</span>
+                </button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Visual Styles</span>
+          </div>
+          <div class="ribbon-group" data-group="view-display" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="show-grid">Grid</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="show-ucs">UCS Icon</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="toggle-annotations">Annotations</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="toggle-section-planes">Section Planes</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Display</span>
+          </div>
+          <div class="ribbon-group" data-group="view-layout" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column ribbon-command-stack--align-start">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="view-manager">View Manager</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="view-named-views">Named Views</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="view-layout-manager">Layouts</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Layout</span>
+          </div>
+        </section>
+        <section class="ribbon-panel ribbon-panel--contextual" id="ribbonTextPanel" role="tabpanel" aria-label="Text tools" hidden>
+          <div class="ribbon-group" data-group="text-font" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="font-bold">Bold</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="font-italic">Italic</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="font-underline">Underline</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="align-left">Left</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="align-center">Center</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="align-right">Right</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Font</span>
+          </div>
+          <div class="ribbon-group" data-group="text-spacing" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="line-spacing-1">Line Spacing 1.0</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="line-spacing-15">Line Spacing 1.5</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="line-spacing-2">Line Spacing 2.0</button>
+              </div>
+              <div class="ribbon-command-stack ribbon-command-stack--row ribbon-command-stack--wrap">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="paragraph-settings">Paragraph</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Spacing</span>
+          </div>
+        </section>
+        <section class="ribbon-panel ribbon-panel--contextual" id="ribbonImagePanel" role="tabpanel" aria-label="Image tools" hidden>
+          <div class="ribbon-group" data-group="image-adjust" data-collapse="wrap">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-grid ribbon-command-grid--dense">
+                <button class="ribbon-command" type="button" data-command="image-brightness">
+                  <span class="ribbon-command-icon" aria-hidden="true">☀️</span>
+                  <span class="ribbon-command-label">Brightness</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="image-contrast">
+                  <span class="ribbon-command-icon" aria-hidden="true">⚖️</span>
+                  <span class="ribbon-command-label">Contrast</span>
+                </button>
+                <button class="ribbon-command" type="button" data-command="image-fade">
+                  <span class="ribbon-command-icon" aria-hidden="true">🌫️</span>
+                  <span class="ribbon-command-label">Fade</span>
+                </button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Adjust</span>
+          </div>
+          <div class="ribbon-group" data-group="image-placement" data-collapse="stack">
+            <div class="ribbon-group-inner">
+              <div class="ribbon-command-stack ribbon-command-stack--column">
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="image-clip">Clip</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="image-reload">Reload</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="image-path">Path</button>
+                <button class="ribbon-command ribbon-command--small" type="button" data-command="image-manager">Image Manager</button>
+              </div>
+            </div>
+            <span class="ribbon-group-caption">Placement</span>
+          </div>
+        </section>
+      </div>
+    </header>
+    <main class="editor-shell">
+      <aside class="editor-sidebar" id="editorSidebar" aria-label="Project explorer">
+        <div class="panel-placeholder">Sidebar content</div>
+      </aside>
+      <section class="editor-viewport" id="editorViewport" aria-label="Drawing viewport">
+        <canvas class="viewport-layer" id="editorCanvas2D" aria-label="2D canvas"></canvas>
+        <canvas class="viewport-layer" id="editorCanvas3D" aria-label="3D canvas"></canvas>
+        <div class="viewport-overlay" id="editorOverlay"></div>
+      </section>
+      <aside class="editor-inspector" id="editorInspector" aria-label="Inspector panel">
+        <div class="panel-placeholder">Inspector content</div>
+      </aside>
+    </main>
+    <footer class="editor-status-bar" id="editorStatusBar" role="status">
+      <button class="status-button" id="commandPaletteButton" type="button" title="Open Command Palette (⌘⇧P)">
+        ⌘⇧P
+      </button>
+      <div class="status-left">
+        <span class="status-message" id="editorStatusMessage">Ready</span>
+        <span class="status-hint" id="editorStatusCursor">Cursor: —</span>
+      </div>
+      <div class="status-right">
+        <span class="status-entry" id="editorStatusCommand">Command: —</span>
+        <span class="status-entry" id="editorStatusLayer">Layers: —</span>
+        <span class="status-entry" id="editorStatusSnap">Snap: Off</span>
+        <span class="status-entry" id="editorStatusView">View: Auto</span>
+      </div>
+    </footer>
+  </div>
+
+  <div class="command-palette" id="editorCommandPalette" hidden>
+    <div class="command-palette-backdrop" data-close-command-palette></div>
+    <div class="command-palette-panel" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
+      <header class="command-palette-header">
+        <h2 class="command-palette-title" id="commandPaletteTitle">Command Palette</h2>
+        <button class="command-palette-close" type="button" data-close-command-palette aria-label="Close command palette">
+          ✖
+        </button>
+      </header>
+      <div class="command-palette-search">
+        <input id="commandPaletteInput" type="search" placeholder="Type a command…" autocomplete="off" spellcheck="false" aria-label="Search commands">
+      </div>
+      <ul class="command-palette-list" id="commandPaletteList" role="listbox" aria-label="Available commands"></ul>
+      <footer class="command-palette-footer">
+        <span>Use ↑ ↓ to navigate, Enter to run, Esc to close</span>
+      </footer>
+    </div>
+  </div>
+  <input type="file" id="editorOpenFileInput" accept=".dxf" style="display:none">
+</body>
+</html>
