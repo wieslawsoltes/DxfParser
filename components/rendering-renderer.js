@@ -2053,6 +2053,71 @@
             });
             break;
           }
+          case 'XLINE': {
+            // Construction line (infinite in both directions)
+            if (!geometry.point || !geometry.direction) return;
+            const dir = geometry.direction;
+            const dirLen = Math.hypot(dir.x || 0, dir.y || 0, dir.z || 0);
+            if (dirLen < 1e-9) return;
+            const normDir = {
+              x: (dir.x || 0) / dirLen,
+              y: (dir.y || 0) / dirLen,
+              z: (dir.z || 0) / dirLen
+            };
+            // Extend to a large distance for viewport clipping
+            const extendDist = 1e8;
+            const start = {
+              x: geometry.point.x - normDir.x * extendDist,
+              y: geometry.point.y - normDir.y * extendDist,
+              z: (geometry.point.z || 0) - normDir.z * extendDist
+            };
+            const end = {
+              x: geometry.point.x + normDir.x * extendDist,
+              y: geometry.point.y + normDir.y * extendDist,
+              z: (geometry.point.z || 0) + normDir.z * extendDist
+            };
+            const transformed = transformPoints([start, end], transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            rawPolylines.push({
+              points: transformed,
+              color,
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
+              worldBounds: this._computeBoundsFromPoints(transformed),
+              meta: makeMeta({ geometryKind: 'xline', isClosed: false })
+            });
+            break;
+          }
+          case 'RAY': {
+            // Semi-infinite line (starts at point, extends in direction)
+            if (!geometry.start || !geometry.direction) return;
+            const dir = geometry.direction;
+            const dirLen = Math.hypot(dir.x || 0, dir.y || 0, dir.z || 0);
+            if (dirLen < 1e-9) return;
+            const normDir = {
+              x: (dir.x || 0) / dirLen,
+              y: (dir.y || 0) / dirLen,
+              z: (dir.z || 0) / dirLen
+            };
+            // Extend to a large distance
+            const extendDist = 1e8;
+            const end = {
+              x: geometry.start.x + normDir.x * extendDist,
+              y: geometry.start.y + normDir.y * extendDist,
+              z: (geometry.start.z || 0) + normDir.z * extendDist
+            };
+            const transformed = transformPoints([geometry.start, end], transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            rawPolylines.push({
+              points: transformed,
+              color,
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
+              worldBounds: this._computeBoundsFromPoints(transformed),
+              meta: makeMeta({ geometryKind: 'ray', isClosed: false })
+            });
+            break;
+          }
           case 'LWPOLYLINE': {
             if (!geometry.points || geometry.points.length < 2) return;
             const transformed = transformPoints(geometry.points, transform);
@@ -2122,23 +2187,141 @@
               y: Number.isFinite(pt.y) ? pt.y : 0,
               z: Number.isFinite(pt.z) ? pt.z : 0
             }));
-            const transformed = transformPoints(verts, transform);
-            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
-            const isClosed = !!geometry.isClosed && transformed.length > 2;
-            if (isClosed && !this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
-              transformed.push({
-                x: transformed[0].x,
-                y: transformed[0].y,
-                z: transformed[0].z != null ? transformed[0].z : 0
-              });
+            const isClosed = !!geometry.isClosed && verts.length > 2;
+
+            // Try to resolve MLINE style from tables
+            const mlineStyleName = geometry.style || null;
+            const mlineScale = Number.isFinite(geometry.scale) ? geometry.scale : 1;
+            const justification = geometry.justification || 0; // 0=top, 1=zero, 2=bottom
+            let styleElements = null;
+            if (mlineStyleName && tables && tables.mlineStyles) {
+              const styleRecord = tables.mlineStyles[mlineStyleName]
+                || Object.values(tables.mlineStyles).find(s => s && s.name === mlineStyleName);
+              if (styleRecord && Array.isArray(styleRecord.elements)) {
+                styleElements = styleRecord.elements;
+              }
             }
-            rawPolylines.push({
-              points: transformed,
-              color,
-              lineweight: resolvedLineweight,
-              linetype: resolvedLinetype,
-              worldBounds: this._computeBoundsFromPoints(transformed),
-              meta: makeMeta({ geometryKind: 'polyline', isClosed, family: 'mline', style: geometry.style || null })
+
+            // If no style elements found, default to two parallel lines
+            if (!styleElements || styleElements.length === 0) {
+              styleElements = [
+                { offset: 0.5, colorNumber: null, trueColor: null, linetype: null },
+                { offset: -0.5, colorNumber: null, trueColor: null, linetype: null }
+              ];
+            }
+
+            // Calculate offset adjustment based on justification
+            let justificationOffset = 0;
+            if (styleElements.length > 0) {
+              const maxOffset = Math.max(...styleElements.map(e => e.offset || 0));
+              const minOffset = Math.min(...styleElements.map(e => e.offset || 0));
+              switch (justification) {
+                case 0: // Top - no offset change
+                  justificationOffset = 0;
+                  break;
+                case 1: // Zero - center the elements
+                  justificationOffset = -(maxOffset + minOffset) / 2;
+                  break;
+                case 2: // Bottom - shift all up
+                  justificationOffset = -minOffset - maxOffset;
+                  break;
+                default:
+                  justificationOffset = 0;
+              }
+            }
+
+            // Generate parallel polylines for each element
+            styleElements.forEach((element, elementIndex) => {
+              const elementOffset = ((element.offset || 0) + justificationOffset) * mlineScale;
+              const offsetVerts = [];
+
+              // For each vertex, calculate perpendicular offset direction
+              for (let i = 0; i < verts.length; i++) {
+                let perpX = 0, perpY = 0;
+                if (i === 0 && verts.length > 1) {
+                  // First vertex: use direction to next
+                  const dx = verts[1].x - verts[0].x;
+                  const dy = verts[1].y - verts[0].y;
+                  const len = Math.hypot(dx, dy);
+                  if (len > 1e-9) {
+                    perpX = -dy / len;
+                    perpY = dx / len;
+                  }
+                } else if (i === verts.length - 1 && !isClosed) {
+                  // Last vertex (open): use direction from previous
+                  const dx = verts[i].x - verts[i - 1].x;
+                  const dy = verts[i].y - verts[i - 1].y;
+                  const len = Math.hypot(dx, dy);
+                  if (len > 1e-9) {
+                    perpX = -dy / len;
+                    perpY = dx / len;
+                  }
+                } else {
+                  // Middle vertex or closed: use miter direction (average of adjacent normals)
+                  const prevIdx = i === 0 ? verts.length - 1 : i - 1;
+                  const nextIdx = (i + 1) % verts.length;
+                  const dx1 = verts[i].x - verts[prevIdx].x;
+                  const dy1 = verts[i].y - verts[prevIdx].y;
+                  const len1 = Math.hypot(dx1, dy1);
+                  const dx2 = verts[nextIdx].x - verts[i].x;
+                  const dy2 = verts[nextIdx].y - verts[i].y;
+                  const len2 = Math.hypot(dx2, dy2);
+                  if (len1 > 1e-9 && len2 > 1e-9) {
+                    const n1x = -dy1 / len1, n1y = dx1 / len1;
+                    const n2x = -dy2 / len2, n2y = dx2 / len2;
+                    perpX = (n1x + n2x) / 2;
+                    perpY = (n1y + n2y) / 2;
+                    const perpLen = Math.hypot(perpX, perpY);
+                    if (perpLen > 1e-9) {
+                      perpX /= perpLen;
+                      perpY /= perpLen;
+                    }
+                  }
+                }
+                offsetVerts.push({
+                  x: verts[i].x + perpX * elementOffset,
+                  y: verts[i].y + perpY * elementOffset
+                });
+              }
+
+              const transformed = transformPoints(offsetVerts, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+
+              if (isClosed && !this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
+                transformed.push({ x: transformed[0].x, y: transformed[0].y });
+              }
+
+              // Resolve element color
+              let elementColor = color;
+              if (element.trueColor) {
+                const tc = element.trueColor;
+                elementColor = [
+                  tc.r !== undefined ? tc.r / 255 : 1,
+                  tc.g !== undefined ? tc.g / 255 : 1,
+                  tc.b !== undefined ? tc.b / 255 : 1,
+                  1
+                ];
+              } else if (element.colorNumber != null && element.colorNumber !== 256) {
+                const resolved = this._resolveColorByNumber(element.colorNumber, tables);
+                if (resolved) {
+                  elementColor = resolved;
+                }
+              }
+
+              rawPolylines.push({
+                points: transformed,
+                color: elementColor,
+                lineweight: resolvedLineweight,
+                linetype: element.linetype || resolvedLinetype,
+                worldBounds: this._computeBoundsFromPoints(transformed),
+                meta: makeMeta({
+                  geometryKind: 'polyline',
+                  isClosed,
+                  family: 'mline',
+                  style: mlineStyleName,
+                  elementIndex
+                })
+              });
             });
             break;
           }
@@ -2217,11 +2400,10 @@
             break;
           }
           case 'SPLINE': {
-            let splinePoints = geometry.fitPoints && geometry.fitPoints.length >= 2
-              ? geometry.fitPoints
-              : geometry.controlPoints;
-            if (!splinePoints || splinePoints.length < 2) return;
-            const transformed = transformPoints(splinePoints, transform);
+            // Use proper B-spline/NURBS tessellation for accurate curve rendering
+            const tessellatedPoints = this._tessellateSpline(geometry, 64);
+            if (!tessellatedPoints || tessellatedPoints.length < 2) return;
+            const transformed = transformPoints(tessellatedPoints, transform);
             const clipBounds = this._computeBoundsFromPoints(transformed);
             if (this._shouldCullWithClip(clipBounds, clipStack)) {
               return;
@@ -2238,7 +2420,7 @@
               lineweight: resolvedLineweight,
               linetype: resolvedLinetype,
               worldBounds: this._computeBoundsFromPoints(transformed),
-              meta: makeMeta({ geometryKind: 'polyline', isClosed })
+              meta: makeMeta({ geometryKind: 'polyline', isClosed, curveType: 'spline' })
             });
             break;
           }
@@ -2332,6 +2514,198 @@
                 family: 'mpoint'
               });
             });
+            break;
+          }
+          case 'CENTERLINE': {
+            // Center line annotation - line with cross marks at ends
+            if (!geometry.start || !geometry.end) return;
+            const startWorld = applyMatrix(transform, geometry.start);
+            const endWorld = applyMatrix(transform, geometry.end);
+            updateBounds(startWorld.x, startWorld.y);
+            updateBounds(endWorld.x, endWorld.y);
+            
+            // Calculate direction and perpendicular
+            const dx = endWorld.x - startWorld.x;
+            const dy = endWorld.y - startWorld.y;
+            const length = Math.hypot(dx, dy);
+            if (length < 1e-9) break;
+            const dirX = dx / length;
+            const dirY = dy / length;
+            const perpX = -dirY;
+            const perpY = dirX;
+            
+            // Extension length (defaults based on line length)
+            const extLen = Number.isFinite(geometry.extensionLength) && geometry.extensionLength > 0
+              ? geometry.extensionLength
+              : length * 0.1;
+            const crossSize = Number.isFinite(geometry.crossSize) && geometry.crossSize > 0
+              ? geometry.crossSize
+              : length * 0.05;
+            const crossGap = Number.isFinite(geometry.crossGap) && geometry.crossGap > 0
+              ? geometry.crossGap
+              : crossSize * 0.5;
+            
+            // Main center line with extensions
+            const lineStart = {
+              x: startWorld.x - dirX * extLen,
+              y: startWorld.y - dirY * extLen
+            };
+            const lineEnd = {
+              x: endWorld.x + dirX * extLen,
+              y: endWorld.y + dirY * extLen
+            };
+            
+            rawPolylines.push({
+              points: [lineStart, lineEnd],
+              color,
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
+              meta: makeMeta({ geometryKind: 'centerline', part: 'main' })
+            });
+            
+            // Cross marks at start and end
+            const addCrossMark = (center) => {
+              // Perpendicular cross line
+              rawPolylines.push({
+                points: [
+                  { x: center.x + perpX * crossSize, y: center.y + perpY * crossSize },
+                  { x: center.x - perpX * crossSize, y: center.y - perpY * crossSize }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                linetype: null,
+                meta: makeMeta({ geometryKind: 'centerline', part: 'cross' })
+              });
+            };
+            
+            addCrossMark(startWorld);
+            addCrossMark(endWorld);
+            break;
+          }
+          case 'CENTERMARK': {
+            // Center mark annotation - cross at center of circle/arc
+            if (!geometry.center) return;
+            const centerWorld = applyMatrix(transform, geometry.center);
+            updateBounds(centerWorld.x, centerWorld.y);
+            
+            const scales = matrixScale(transform);
+            const avgScale = ((Math.abs(scales.sx) + Math.abs(scales.sy)) / 2) || 1;
+            
+            // Default sizes based on associated radius or fixed values
+            const radius = Number.isFinite(geometry.radius) ? geometry.radius * avgScale : 20;
+            const crossSize = Number.isFinite(geometry.crossSize)
+              ? geometry.crossSize * avgScale
+              : radius * 0.3;
+            const crossGap = Number.isFinite(geometry.crossGap)
+              ? geometry.crossGap * avgScale
+              : crossSize * 0.25;
+            const extLen = Number.isFinite(geometry.extensionLength)
+              ? geometry.extensionLength * avgScale
+              : 0;
+            
+            // Apply rotation
+            const rotRad = Number.isFinite(geometry.rotation) ? geometry.rotation * Math.PI / 180 : 0;
+            const cos = Math.cos(rotRad);
+            const sin = Math.sin(rotRad);
+            
+            // Cross lines through center (with gap)
+            if (geometry.showCrossLines !== false) {
+              // Horizontal cross (rotated)
+              const hDirX = cos;
+              const hDirY = sin;
+              // Left segment
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x - hDirX * crossSize, y: centerWorld.y - hDirY * crossSize },
+                  { x: centerWorld.x - hDirX * crossGap, y: centerWorld.y - hDirY * crossGap }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'cross-h-left' })
+              });
+              // Right segment
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x + hDirX * crossGap, y: centerWorld.y + hDirY * crossGap },
+                  { x: centerWorld.x + hDirX * crossSize, y: centerWorld.y + hDirY * crossSize }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'cross-h-right' })
+              });
+              
+              // Vertical cross (rotated)
+              const vDirX = -sin;
+              const vDirY = cos;
+              // Bottom segment
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x - vDirX * crossSize, y: centerWorld.y - vDirY * crossSize },
+                  { x: centerWorld.x - vDirX * crossGap, y: centerWorld.y - vDirY * crossGap }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'cross-v-bottom' })
+              });
+              // Top segment
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x + vDirX * crossGap, y: centerWorld.y + vDirY * crossGap },
+                  { x: centerWorld.x + vDirX * crossSize, y: centerWorld.y + vDirY * crossSize }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'cross-v-top' })
+              });
+            }
+            
+            // Extension lines beyond circle (if enabled)
+            if (geometry.showExtensionLines && extLen > 0) {
+              const hDirX = cos;
+              const hDirY = sin;
+              const vDirX = -sin;
+              const vDirY = cos;
+              
+              // Horizontal extensions
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x - hDirX * (radius + crossGap), y: centerWorld.y - hDirY * (radius + crossGap) },
+                  { x: centerWorld.x - hDirX * (radius + extLen), y: centerWorld.y - hDirY * (radius + extLen) }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'ext-h-left' })
+              });
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x + hDirX * (radius + crossGap), y: centerWorld.y + hDirY * (radius + crossGap) },
+                  { x: centerWorld.x + hDirX * (radius + extLen), y: centerWorld.y + hDirY * (radius + extLen) }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'ext-h-right' })
+              });
+              
+              // Vertical extensions
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x - vDirX * (radius + crossGap), y: centerWorld.y - vDirY * (radius + crossGap) },
+                  { x: centerWorld.x - vDirX * (radius + extLen), y: centerWorld.y - vDirY * (radius + extLen) }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'ext-v-bottom' })
+              });
+              rawPolylines.push({
+                points: [
+                  { x: centerWorld.x + vDirX * (radius + crossGap), y: centerWorld.y + vDirY * (radius + crossGap) },
+                  { x: centerWorld.x + vDirX * (radius + extLen), y: centerWorld.y + vDirY * (radius + extLen) }
+                ],
+                color,
+                lineweight: resolvedLineweight,
+                meta: makeMeta({ geometryKind: 'centermark', part: 'ext-v-top' })
+              });
+            }
             break;
           }
           case 'SHAPE': {
@@ -2559,31 +2933,82 @@
             if (!geometry || !geometry.center) {
               break;
             }
+            const text = geometry.text || '';
+            if (!text) break;
+            
             const radius = Number.isFinite(geometry.radius) ? geometry.radius : 0;
             const startRad = Number.isFinite(geometry.startAngle) ? geometry.startAngle * Math.PI / 180 : 0;
-            const endRad = Number.isFinite(geometry.endAngle) ? geometry.endAngle * Math.PI / 180 : startRad;
-            const midAngle = startRad + (endRad - startRad) / 2;
-            const anchorX = geometry.center.x + radius * Math.cos(midAngle);
-            const anchorY = geometry.center.y + radius * Math.sin(midAngle);
-            const tangentAngle = midAngle + (geometry.reverse ? Math.PI / 2 : -Math.PI / 2);
-            const textGeometry = {
-              position: { x: anchorX, y: anchorY },
-              rotation: tangentAngle * 180 / Math.PI,
-              height: geometry.textHeight || geometry.height || Math.max(Math.abs(radius) * 0.05, 8),
-              textStyle: geometry.textStyle || null,
-              widthFactor: geometry.widthFactor ?? 1,
-              content: geometry.text || ''
-            };
-            this._queueSingleLineText({
-              kind: 'ARCALIGNEDTEXT',
-              entity,
-              geometry: textGeometry,
-              transform,
-              rawTexts,
-              updateBounds,
-              color,
-              meta: makeMeta({ geometryKind: 'text', textKind: 'ARCALIGNEDTEXT' })
-            });
+            const endRad = Number.isFinite(geometry.endAngle) ? geometry.endAngle * Math.PI / 180 : startRad + Math.PI;
+            const arcSpan = endRad - startRad;
+            const offset = Number.isFinite(geometry.offset) ? geometry.offset : 0;
+            const effectiveRadius = radius + offset;
+            const textHeight = geometry.textHeight || geometry.height || Math.max(Math.abs(radius) * 0.05, 8);
+            const charSpacing = geometry.characterSpacing || textHeight * 0.1;
+            const widthFactor = geometry.widthFactor ?? 1;
+            const isReversed = !!geometry.reverse;
+            
+            // Calculate approximate character width
+            const charWidth = (textHeight * 0.6 * widthFactor + charSpacing);
+            const totalWidth = text.length * charWidth;
+            const arcLength = Math.abs(arcSpan * effectiveRadius);
+            
+            // Calculate starting angle to center text on arc
+            let textArcSpan;
+            if (arcLength > 0 && totalWidth < arcLength) {
+              textArcSpan = (totalWidth / effectiveRadius);
+            } else {
+              textArcSpan = Math.abs(arcSpan);
+            }
+            
+            const alignment = geometry.alignment || 0;
+            let charStartAngle;
+            switch (alignment) {
+              case 1: // Left aligned
+                charStartAngle = isReversed ? endRad : startRad;
+                break;
+              case 3: // Right aligned  
+                charStartAngle = isReversed ? (startRad + textArcSpan) : (endRad - textArcSpan);
+                break;
+              case 2: // Center aligned (default)
+              default:
+                const midAngle = (startRad + endRad) / 2;
+                charStartAngle = isReversed ? (midAngle + textArcSpan / 2) : (midAngle - textArcSpan / 2);
+                break;
+            }
+            
+            // Render each character along the arc
+            const direction = isReversed ? -1 : 1;
+            const charArcStep = (charWidth / effectiveRadius) * direction;
+            
+            for (let i = 0; i < text.length; i++) {
+              const char = text[i];
+              const charAngle = charStartAngle + (i + 0.5) * charArcStep;
+              const charX = geometry.center.x + effectiveRadius * Math.cos(charAngle);
+              const charY = geometry.center.y + effectiveRadius * Math.sin(charAngle);
+              
+              // Rotation is tangent to arc (perpendicular to radius)
+              const tangentAngle = charAngle + (Math.PI / 2) * (isReversed ? -1 : 1);
+              
+              const charGeometry = {
+                position: { x: charX, y: charY },
+                rotation: tangentAngle * 180 / Math.PI,
+                height: textHeight,
+                textStyle: geometry.textStyle || null,
+                widthFactor: widthFactor,
+                content: char
+              };
+              
+              this._queueSingleLineText({
+                kind: 'ARCALIGNEDTEXT',
+                entity,
+                geometry: charGeometry,
+                transform,
+                rawTexts,
+                updateBounds,
+                color,
+                meta: makeMeta({ geometryKind: 'text', textKind: 'ARCALIGNEDTEXT', charIndex: i })
+              });
+            }
             break;
           }
         case 'TEXT': {
@@ -2786,19 +3211,24 @@
             const worldHeight = baseHeight * avgScale;
             const styleName = entity.textStyle ||
               (entity.resolved && entity.resolved.textStyle ? entity.resolved.textStyle.name : (geometry.textStyle || null));
-            rawTexts.push({
-              kind: 'TOLERANCE',
+            
+            // Parse and render GD&T tolerance frame
+            const toleranceText = geometry.text || '';
+            this._renderToleranceFrame({
               entity,
               geometry,
-              color,
-              worldPosition,
+              position: worldPosition,
               rotation: appliedRotation,
-              worldHeight,
+              height: worldHeight,
               baseHeight,
               scaleMagnitude: avgScale,
+              text: toleranceText,
               styleName,
-              content: geometry.text || '',
-              meta: makeMeta({ geometryKind: 'text', textKind: 'TOLERANCE' })
+              color,
+              rawPolylines,
+              rawTexts,
+              updateBounds,
+              makeMeta
             });
             break;
           }
@@ -3006,13 +3436,6 @@
           const effectiveScaleZ = resolvedScaleZ * unitScale;
           const localScale = scaleMatrix(effectiveScaleX, effectiveScaleY, effectiveScaleZ);
           const rotation = rotateMatrix((geometry.rotation || 0) * Math.PI / 180);
-          const translate = translateMatrix(
-            geometry.position ? (Number.isFinite(geometry.position.x) ? geometry.position.x : 0) : 0,
-            geometry.position ? (Number.isFinite(geometry.position.y) ? geometry.position.y : 0) : 0,
-            geometry.position ? (Number.isFinite(geometry.position.z) ? geometry.position.z : 0) : 0
-          );
-
-          const insertTransform = multiplyMatrix(transform, multiplyMatrix(translate, multiplyMatrix(rotation, localScale)));
 
           const columnCount = geometry.columnCount || 1;
           const rowCount = geometry.rowCount || 1;
@@ -3030,8 +3453,17 @@
 
           for (let row = 0; row < rowCount; row++) {
             for (let col = 0; col < columnCount; col++) {
-              const offset = translateMatrix(col * columnSpacing, row * rowSpacing, 0);
-              const composedTransform = multiplyMatrix(insertTransform, multiplyMatrix(offset, definitionTransform));
+              // Calculate position for this grid cell
+              // Row/column spacing is in OCS, applied before extrusion
+              const posX = (geometry.position ? (Number.isFinite(geometry.position.x) ? geometry.position.x : 0) : 0) + col * columnSpacing;
+              const posY = (geometry.position ? (Number.isFinite(geometry.position.y) ? geometry.position.y : 0) : 0) + row * rowSpacing;
+              const posZ = geometry.position ? (Number.isFinite(geometry.position.z) ? geometry.position.z : 0) : 0;
+              const translate = translateMatrix(posX, posY, posZ);
+              
+              // Transform order: basePoint → blockLayout → scale → rotation → translate → extrusion → parent
+              // This becomes: parent × extrusion × translate × rotation × scale × blockLayout × basePoint
+              const insertTransform = multiplyMatrix(transform, multiplyMatrix(translate, multiplyMatrix(rotation, localScale)));
+              const composedTransform = multiplyMatrix(insertTransform, definitionTransform);
               let instanceClipStack = clipStack;
               if (blockClipPolygons.length) {
                 const worldClips = [];
@@ -3087,6 +3519,36 @@
           );
           break;
         }
+        case 'ARC_DIMENSION': {
+          // Arc length dimension - shows the length along an arc
+          this._addArcDimensionGeometry(
+            entity,
+            geometry,
+            transform,
+            updateBounds,
+            rawPolylines,
+            rawTexts,
+            color,
+            makeMeta,
+            contextUnits
+          );
+          break;
+        }
+        case 'LARGE_RADIAL_DIMENSION': {
+          // Jogged radius dimension for large arcs
+          this._addLargeRadialDimensionGeometry(
+            entity,
+            geometry,
+            transform,
+            updateBounds,
+            rawPolylines,
+            rawTexts,
+            color,
+            makeMeta,
+            contextUnits
+          );
+          break;
+        }
         case 'MESH':
         case 'POLYFACE_MESH': {
           this._addMeshGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, color, materialDescriptor, makeMeta);
@@ -3135,7 +3597,8 @@
           });
           break;
         }
-        case 'PROXYENTITY': {
+        case 'PROXYENTITY':
+        case 'ACAD_PROXY_ENTITY': {
           if (geometry.position) {
             const projected = applyMatrix(transform, geometry.position);
             updateBounds(projected.x, projected.y);
@@ -3148,6 +3611,127 @@
               meta: makeMeta({ geometryKind: 'proxy' })
             });
           }
+          break;
+        }
+        case '3DFACE': {
+          // 3DFACE is a triangular or quadrilateral face in 3D space
+          const points = [];
+          if (geometry.firstCorner) points.push(geometry.firstCorner);
+          if (geometry.secondCorner) points.push(geometry.secondCorner);
+          if (geometry.thirdCorner) points.push(geometry.thirdCorner);
+          if (geometry.fourthCorner) {
+            // Check if fourth corner is distinct from third (quad vs triangle)
+            const p3 = geometry.thirdCorner;
+            const p4 = geometry.fourthCorner;
+            if (Math.abs(p3.x - p4.x) > 0.0001 || Math.abs(p3.y - p4.y) > 0.0001 || Math.abs((p3.z || 0) - (p4.z || 0)) > 0.0001) {
+              points.push(geometry.fourthCorner);
+            }
+          }
+          if (points.length >= 3) {
+            const transformed = transformPoints(points, transform);
+            transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+            // Close the polygon
+            if (!this._pointsApproxEqual(transformed[0], transformed[transformed.length - 1])) {
+              transformed.push({ x: transformed[0].x, y: transformed[0].y });
+            }
+            // Render as filled polygon
+            if (this._isFillEnabled()) {
+              rawFills.push({
+                points: transformed,
+                color,
+                material: materialDescriptor,
+                worldBounds: this._computeBoundsFromPoints(transformed),
+                meta: makeMeta({ geometryKind: 'fill', fillKind: '3dface' })
+              });
+            }
+            // Always render outline
+            rawPolylines.push({
+              points: transformed,
+              color,
+              lineweight: resolvedLineweight,
+              linetype: resolvedLinetype,
+              worldBounds: this._computeBoundsFromPoints(transformed),
+              meta: makeMeta({ geometryKind: 'polyline', isClosed: true, family: '3dface' })
+            });
+          }
+          break;
+        }
+        case 'EXTRUDEDSURFACE':
+        case 'LOFTEDSURFACE':
+        case 'REVOLVEDSURFACE':
+        case 'SWEPTSURFACE':
+        case 'PLANESURFACE':
+        case 'NURBSURFACE': {
+          // Procedural surfaces - tessellate to triangles
+          this._addProceduralSurfaceGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, color, materialDescriptor, makeMeta);
+          break;
+        }
+        case 'PDFUNDERLAY':
+        case 'DWFUNDERLAY':
+        case 'DGNUNDERLAY':
+        case 'UNDERLAYFRAME':
+        case 'OVERLAYFRAME': {
+          // External reference underlays - render as placeholder frame
+          this._queueUnderlay(entity, geometry, transform, updateBounds, rawFills, rawTexts, highlightActive);
+          break;
+        }
+        case 'OLE2FRAME':
+        case 'OLEFRAME': {
+          // OLE embedded objects - render bounding box as placeholder
+          this._addOleFrameGeometry(entity, geometry, transform, updateBounds, rawPolylines, rawFills, rawTexts, color, resolvedLineweight, makeMeta);
+          break;
+        }
+        case 'CAMERA': {
+          // Camera entity - render as point with direction indicator
+          if (geometry.position) {
+            const projected = applyMatrix(transform, geometry.position);
+            updateBounds(projected.x, projected.y);
+            rawPoints.push({
+              position: [projected.x, projected.y],
+              color,
+              size: Math.max(8, resolvedLineweight || 8),
+              worldBounds: { minX: projected.x, minY: projected.y, maxX: projected.x, maxY: projected.y },
+              meta: makeMeta({ geometryKind: 'point', family: 'camera' })
+            });
+            // Draw line from camera to target
+            if (geometry.target) {
+              const targetPt = applyMatrix(transform, geometry.target);
+              updateBounds(targetPt.x, targetPt.y);
+              rawPolylines.push({
+                points: [projected, targetPt],
+                color: this._adjustColorAlpha(color, 0.5, 0.3),
+                lineweight: (resolvedLineweight || 1) * 0.5,
+                worldBounds: this._computeBoundsFromPoints([projected, targetPt]),
+                meta: makeMeta({ geometryKind: 'polyline', family: 'camera-direction' })
+              });
+            }
+          }
+          break;
+        }
+        case 'RTEXT': {
+          // Reactive text - render as regular text (expression not evaluated)
+          if (geometry.position) {
+            const projected = applyMatrix(transform, geometry.position);
+            updateBounds(projected.x, projected.y);
+            rawTexts.push({
+              text: geometry.text || '[RTEXT]',
+              position: [projected.x, projected.y],
+              height: geometry.height || 2.5,
+              rotation: geometry.rotation || 0,
+              color,
+              halign: 'left',
+              valign: 'baseline',
+              meta: makeMeta({ geometryKind: 'text', family: 'rtext' })
+            });
+          }
+          break;
+        }
+        case 'SUNSTUDY': {
+          // Sun study - render marker at sun path origin if available
+          break;
+        }
+        case 'GEOMCONSTRAINT': {
+          // Geometric constraint - not visually rendered in model space
           break;
         }
         default: {
@@ -8829,9 +9413,37 @@
       switch (type) {
         case 0: // rotated / linear
         case 1: { // aligned
-          dimensionSegment = adjustDimensionLineSegment(definitionPoint, dimensionLinePoint);
+          // For linear dimensions, the dimension line connects the arrow points
+          // Arrow points (16,26,36) and (17,27,37) are on the dimension line
+          // Extension lines go from measured points (13,23,33) and (14,24,34) to the dimension line
+          let dimLineStart = arrow1 || definitionPoint;
+          let dimLineEnd = arrow2 || dimensionLinePoint;
+          
+          // If no arrow points, compute from definition point and extension line origins
+          if (!arrow1 && !arrow2 && definitionPoint && dimensionLinePoint && extension1) {
+            // For LINEAR: definition point (10) is on dimension line
+            // dimensionLinePoint (13) and extensionLine1Point (14) are measured points
+            // Compute dimension line direction from measured points
+            const measuredDir = normalizeUnit(
+              extension1.x - dimensionLinePoint.x,
+              extension1.y - dimensionLinePoint.y
+            );
+            if (measuredDir.length > 1e-6) {
+              // Dimension line is parallel to the line between measured points
+              // Position it at definition point's perpendicular distance
+              dimLineStart = definitionPoint;
+              const dist = Math.hypot(extension1.x - dimensionLinePoint.x, extension1.y - dimensionLinePoint.y);
+              dimLineEnd = {
+                x: definitionPoint.x + measuredDir.x * dist,
+                y: definitionPoint.y + measuredDir.y * dist,
+                z: definitionPoint.z || 0
+              };
+            }
+          }
+          
+          dimensionSegment = adjustDimensionLineSegment(dimLineStart, dimLineEnd);
           if (dimensionSegment) {
-            dimensionSegment = rotateSegment(dimensionSegment, dimensionSegment.start || definitionPoint || dimensionLinePoint);
+            dimensionSegment = rotateSegment(dimensionSegment, dimensionSegment.start || dimLineStart || dimLineEnd);
             if (isBaselineDimension && Number.isFinite(dimensionLineIncrementValue) && dimensionLineIncrementValue !== 0) {
               dimensionSegment = applyPerpendicularOffset(dimensionSegment, dimensionLineIncrementValue);
             }
@@ -8839,18 +9451,18 @@
           if (!suppressDimensionLine) {
             if (dimensionSegment) {
               addLine(dimensionSegment.start, dimensionSegment.end, weight, 'dimensionLine');
-            } else if (definitionPoint && dimensionLinePoint) {
-              addLine(definitionPoint, dimensionLinePoint, weight, 'dimensionLine');
+            } else if (dimLineStart && dimLineEnd) {
+              addLine(dimLineStart, dimLineEnd, weight, 'dimensionLine');
             }
           }
           const dimensionLineStart = dimensionSegment
             ? dimensionSegment.start
-            : (definitionPoint || dimensionLinePoint);
+            : (dimLineStart || arrow1 || definitionPoint);
           const dimensionLineEnd = dimensionSegment
             ? dimensionSegment.end
-            : (dimensionLinePoint || definitionPoint);
-          const extensionTarget1 = dimensionLineStart || definitionPoint;
-          const extensionTarget2 = dimensionLineEnd || dimensionLinePoint;
+            : (dimLineEnd || arrow2 || dimensionLinePoint);
+          const extensionTarget1 = arrow1 || dimensionLineStart;
+          const extensionTarget2 = arrow2 || dimensionLineEnd;
           if (dimensionSegment) {
             dimensionNormal = { x: -dimensionSegment.unit.y, y: dimensionSegment.unit.x };
           } else if (dimensionLineStart && dimensionLineEnd) {
@@ -8862,18 +9474,23 @@
               dimensionNormal = { x: -fallbackDirection.y, y: fallbackDirection.x };
             }
           }
-          if (!skipExtension1 && extension1 && extensionTarget1) {
-            let extensionSegment1 = adjustExtensionSegment(extension1, extensionTarget1);
-            extensionSegment1 = rotateSegment(extensionSegment1, extension1);
+          // For LINEAR dimensions:
+          // - First extension line: from dimensionLinePoint (13,23,33) to arrow1/dimension line
+          // - Second extension line: from extension1 (14,24,34) to arrow2/dimension line
+          const extOrigin1 = dimensionLinePoint;  // First measured point (13,23,33)
+          const extOrigin2 = extension1;           // Second measured point (14,24,34)
+          if (!skipExtension1 && extOrigin1 && extensionTarget1) {
+            let extensionSegment1 = adjustExtensionSegment(extOrigin1, extensionTarget1);
+            extensionSegment1 = rotateSegment(extensionSegment1, extOrigin1);
             addLine(extensionSegment1.start, extensionSegment1.end, weight * 0.8, 'extensionLine1');
           }
-          if (!skipExtension2 && extension2 && extensionTarget2) {
-            let extensionSegment2 = adjustExtensionSegment(extension2, extensionTarget2);
-            extensionSegment2 = rotateSegment(extensionSegment2, extensionTarget2);
+          if (!skipExtension2 && extOrigin2 && extensionTarget2) {
+            let extensionSegment2 = adjustExtensionSegment(extOrigin2, extensionTarget2);
+            extensionSegment2 = rotateSegment(extensionSegment2, extOrigin2);
             addLine(extensionSegment2.start, extensionSegment2.end, weight * 0.8, 'extensionLine2');
           }
-          const arrowBase1 = dimensionLineStart || extensionTarget1;
-          const arrowBase2 = dimensionLineEnd || extensionTarget2;
+          const arrowBase1 = arrow2 || dimLineEnd || dimensionLineEnd;  // Arrow 1 points away from arrow 2
+          const arrowBase2 = arrow1 || dimLineStart || dimensionLineStart;  // Arrow 2 points away from arrow 1
           if (arrow1 && arrowBase1) {
             drawArrowHead(arrow1, arrowBase1, 0);
           }
@@ -9035,6 +9652,332 @@
           rotation,
           worldHeight,
           baseHeight: baseLabelHeight,
+          scaleMagnitude: avgScale,
+          color,
+          meta: createTextMeta({ textKind: 'DIMENSION_LABEL', dimensionPart: 'label' })
+        });
+      }
+    }
+
+    _addArcDimensionGeometry(entity, geometry, transform, updateBounds, polylineCollector, textCollector, color, metaFactory, contextUnits) {
+      // ARC_DIMENSION measures the arc length along an arc segment
+      if (!geometry) {
+        return;
+      }
+      const createPolylineMeta = (overrides) => {
+        if (typeof metaFactory !== 'function') {
+          return null;
+        }
+        return metaFactory(Object.assign({ geometryKind: 'polyline' }, overrides || {}));
+      };
+      const createTextMeta = (overrides) => {
+        if (typeof metaFactory !== 'function') {
+          return null;
+        }
+        return metaFactory(Object.assign({ geometryKind: 'text' }, overrides || {}));
+      };
+      const addLine = (start, end, weight = 1, part = 'segment') => {
+        if (!start || !end) return;
+        const transformed = transformPoints([start, end], transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color,
+          lineweight: entity.lineweight,
+          weight,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: createPolylineMeta({ dimensionPart: part })
+        });
+      };
+      const addPolyline = (points, weight = 1, part = 'polyline') => {
+        if (!points || points.length < 2) {
+          return;
+        }
+        const transformed = transformPoints(points, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color,
+          lineweight: entity.lineweight,
+          weight,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: createPolylineMeta({ dimensionPart: part })
+        });
+      };
+
+      const arcCenter = geometry.arcCenter;
+      const ext1 = geometry.extensionLine1Point;
+      const ext2 = geometry.extensionLine2Point;
+      const dimArcPoint = geometry.dimensionArcPoint;
+      const textPoint = geometry.textPoint;
+      const arcRadius = geometry.arcRadius;
+      const weight = this._lineweightToPx(entity.lineweight);
+
+      // Compute dimension arc radius (from center to dimension arc point)
+      let dimRadius = arcRadius;
+      if (arcCenter && dimArcPoint) {
+        dimRadius = Math.hypot(dimArcPoint.x - arcCenter.x, dimArcPoint.y - arcCenter.y);
+      }
+      if (!Number.isFinite(dimRadius) || dimRadius <= 0) {
+        dimRadius = arcRadius || 10;
+      }
+
+      // Compute start and end angles
+      let startAngle = geometry.startAngle;
+      let endAngle = geometry.endAngle;
+      if (arcCenter && ext1) {
+        startAngle = Math.atan2(ext1.y - arcCenter.y, ext1.x - arcCenter.x);
+      }
+      if (arcCenter && ext2) {
+        endAngle = Math.atan2(ext2.y - arcCenter.y, ext2.x - arcCenter.x);
+      }
+      if (startAngle == null) startAngle = 0;
+      if (endAngle == null) endAngle = Math.PI / 2;
+
+      // Ensure proper angle sweep
+      let sweep = endAngle - startAngle;
+      if (sweep < 0) sweep += Math.PI * 2;
+      if (sweep > Math.PI * 2) sweep = Math.PI * 2;
+
+      // Build dimension arc
+      const segments = Math.max(16, Math.ceil(sweep / (Math.PI / 36)));
+      const arcPoints = [];
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (sweep * i / segments);
+        arcPoints.push({
+          x: arcCenter.x + dimRadius * Math.cos(angle),
+          y: arcCenter.y + dimRadius * Math.sin(angle)
+        });
+      }
+      if (arcPoints.length >= 2) {
+        addPolyline(arcPoints, weight, 'dimensionArc');
+      }
+
+      // Draw extension lines from arc points to dimension arc
+      if (arcCenter && ext1) {
+        const ext1OnDimArc = {
+          x: arcCenter.x + dimRadius * Math.cos(startAngle),
+          y: arcCenter.y + dimRadius * Math.sin(startAngle)
+        };
+        addLine(ext1, ext1OnDimArc, weight * 0.8, 'extensionLine1');
+      }
+      if (arcCenter && ext2) {
+        const ext2OnDimArc = {
+          x: arcCenter.x + dimRadius * Math.cos(endAngle),
+          y: arcCenter.y + dimRadius * Math.sin(endAngle)
+        };
+        addLine(ext2, ext2OnDimArc, weight * 0.8, 'extensionLine2');
+      }
+
+      // Draw arrowheads at arc endpoints
+      const arrow1Pos = arcPoints[0];
+      const arrow2Pos = arcPoints[arcPoints.length - 1];
+      if (arrow1Pos && arcCenter) {
+        const tangent1 = { x: -(arrow1Pos.y - arcCenter.y), y: arrow1Pos.x - arcCenter.x };
+        const len = Math.hypot(tangent1.x, tangent1.y);
+        if (len > 1e-6) {
+          const arrowSize = geometry.textHeight || 3;
+          const arrowBase = {
+            x: arrow1Pos.x + (tangent1.x / len) * arrowSize,
+            y: arrow1Pos.y + (tangent1.y / len) * arrowSize
+          };
+          this._renderDimensionArrow({
+            tip: arrow1Pos,
+            toward: arrowBase,
+            size: arrowSize,
+            descriptor: { kind: 'open' },
+            transform,
+            updateBounds,
+            polylineCollector,
+            color,
+            weight,
+            metaFactory,
+            lineweight: entity.lineweight
+          });
+        }
+      }
+      if (arrow2Pos && arcCenter) {
+        const tangent2 = { x: arrow2Pos.y - arcCenter.y, y: -(arrow2Pos.x - arcCenter.x) };
+        const len = Math.hypot(tangent2.x, tangent2.y);
+        if (len > 1e-6) {
+          const arrowSize = geometry.textHeight || 3;
+          const arrowBase = {
+            x: arrow2Pos.x + (tangent2.x / len) * arrowSize,
+            y: arrow2Pos.y + (tangent2.y / len) * arrowSize
+          };
+          this._renderDimensionArrow({
+            tip: arrow2Pos,
+            toward: arrowBase,
+            size: arrowSize,
+            descriptor: { kind: 'open' },
+            transform,
+            updateBounds,
+            polylineCollector,
+            color,
+            weight,
+            metaFactory,
+            lineweight: entity.lineweight
+          });
+        }
+      }
+
+      // Add dimension text
+      const labelText = geometry.text || '';
+      const arcLength = sweep * dimRadius;
+      const label = labelText || arcLength.toFixed(4);
+      const textAnchor = textPoint || dimArcPoint || (arcPoints.length > 0 ? arcPoints[Math.floor(arcPoints.length / 2)] : arcCenter);
+      if (label && textAnchor) {
+        const position = applyMatrix(transform, textAnchor);
+        updateBounds(position.x, position.y);
+        const scale = matrixScale(transform);
+        const avgScale = ((Math.abs(scale.sx) + Math.abs(scale.sy)) / 2) || 1;
+        const rotation = matrixRotation(transform);
+        const textHeight = geometry.textHeight || 3;
+        const worldHeight = textHeight * avgScale;
+        textCollector.push({
+          kind: 'TEXT',
+          entity,
+          geometry,
+          styleName: null,
+          content: label,
+          worldPosition: position,
+          rotation,
+          worldHeight,
+          baseHeight: textHeight,
+          scaleMagnitude: avgScale,
+          color,
+          meta: createTextMeta({ textKind: 'DIMENSION_LABEL', dimensionPart: 'label' })
+        });
+      }
+    }
+
+    _addLargeRadialDimensionGeometry(entity, geometry, transform, updateBounds, polylineCollector, textCollector, color, metaFactory, contextUnits) {
+      // LARGE_RADIAL_DIMENSION is a jogged radius dimension for large radius arcs
+      if (!geometry) {
+        return;
+      }
+      const createPolylineMeta = (overrides) => {
+        if (typeof metaFactory !== 'function') {
+          return null;
+        }
+        return metaFactory(Object.assign({ geometryKind: 'polyline' }, overrides || {}));
+      };
+      const createTextMeta = (overrides) => {
+        if (typeof metaFactory !== 'function') {
+          return null;
+        }
+        return metaFactory(Object.assign({ geometryKind: 'text' }, overrides || {}));
+      };
+      const addLine = (start, end, weight = 1, part = 'segment') => {
+        if (!start || !end) return;
+        const transformed = transformPoints([start, end], transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        polylineCollector.push({
+          points: transformed,
+          color,
+          lineweight: entity.lineweight,
+          weight,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: createPolylineMeta({ dimensionPart: part })
+        });
+      };
+
+      const centerPoint = geometry.centerPoint;
+      const definitionPoint = geometry.definitionPoint;
+      const jogPoint = geometry.jogPoint;
+      const chordPoint = geometry.chordPoint;
+      const textPoint = geometry.textPoint;
+      const jogAngle = geometry.jogAngle || (Math.PI / 4);
+      const weight = this._lineweightToPx(entity.lineweight);
+
+      // A jogged radius dimension has:
+      // 1. Line from chord point (on arc) toward center, but stopped at jog point
+      // 2. A jog (zig-zag) at the jog point
+      // 3. Line from jog to definition point (where text goes)
+      if (chordPoint && jogPoint) {
+        addLine(chordPoint, jogPoint, weight, 'dimensionLine');
+      }
+      if (jogPoint && definitionPoint) {
+        // Create jog - a small zig-zag perpendicular to main line
+        const mainDir = centerPoint && chordPoint
+          ? { x: centerPoint.x - chordPoint.x, y: centerPoint.y - chordPoint.y }
+          : { x: 1, y: 0 };
+        const mainLen = Math.hypot(mainDir.x, mainDir.y);
+        if (mainLen > 1e-6) {
+          const ux = mainDir.x / mainLen;
+          const uy = mainDir.y / mainLen;
+          // Perpendicular for jog
+          const px = -uy;
+          const py = ux;
+          const jogSize = (geometry.textHeight || 3) * 0.5;
+          // Jog pattern: up, across, down
+          const jogMid1 = {
+            x: jogPoint.x + px * jogSize,
+            y: jogPoint.y + py * jogSize
+          };
+          const jogMid2 = {
+            x: jogMid1.x + ux * jogSize * 2,
+            y: jogMid1.y + uy * jogSize * 2
+          };
+          const jogEnd = {
+            x: jogMid2.x - px * jogSize,
+            y: jogMid2.y - py * jogSize
+          };
+          addLine(jogPoint, jogMid1, weight, 'jog');
+          addLine(jogMid1, jogMid2, weight, 'jog');
+          addLine(jogMid2, jogEnd, weight, 'jog');
+          addLine(jogEnd, definitionPoint, weight, 'dimensionLine');
+        } else {
+          addLine(jogPoint, definitionPoint, weight, 'dimensionLine');
+        }
+      } else if (chordPoint && definitionPoint) {
+        addLine(chordPoint, definitionPoint, weight, 'dimensionLine');
+      }
+
+      // Draw arrowhead at chord point (pointing toward center)
+      if (chordPoint && centerPoint) {
+        const arrowSize = geometry.textHeight || 3;
+        this._renderDimensionArrow({
+          tip: chordPoint,
+          toward: centerPoint,
+          size: arrowSize,
+          descriptor: { kind: 'open' },
+          transform,
+          updateBounds,
+          polylineCollector,
+          color,
+          weight,
+          metaFactory,
+          lineweight: entity.lineweight
+        });
+      }
+
+      // Add dimension text
+      const labelText = geometry.text || '';
+      let radius = null;
+      if (centerPoint && chordPoint) {
+        radius = Math.hypot(chordPoint.x - centerPoint.x, chordPoint.y - centerPoint.y);
+      }
+      const label = labelText || (radius != null ? ('R' + radius.toFixed(4)) : 'R');
+      const textAnchor = textPoint || definitionPoint || jogPoint;
+      if (label && textAnchor) {
+        const position = applyMatrix(transform, textAnchor);
+        updateBounds(position.x, position.y);
+        const scale = matrixScale(transform);
+        const avgScale = ((Math.abs(scale.sx) + Math.abs(scale.sy)) / 2) || 1;
+        const rotation = matrixRotation(transform);
+        const textHeight = geometry.textHeight || 3;
+        const worldHeight = textHeight * avgScale;
+        textCollector.push({
+          kind: 'TEXT',
+          entity,
+          geometry,
+          styleName: null,
+          content: label,
+          worldPosition: position,
+          rotation,
+          worldHeight,
+          baseHeight: textHeight,
           scaleMagnitude: avgScale,
           color,
           meta: createTextMeta({ textKind: 'DIMENSION_LABEL', dimensionPart: 'label' })
@@ -9574,6 +10517,429 @@
             : null
         });
       }
+    }
+
+    _addProceduralSurfaceGeometry(entity, geometry, transform, updateBounds, polylineCollector, fillCollector, color, material, makeMeta) {
+      if (!geometry) {
+        return;
+      }
+      const lineweight = this._resolveLineweight(entity);
+      
+      // Try tessellation first if available
+      if (this.tessellator && typeof this.tessellator.tessellateProceduralSurface === 'function') {
+        const tessellated = this.tessellator.tessellateProceduralSurface(geometry);
+        if (tessellated) {
+          if (Array.isArray(tessellated.triangles)) {
+            tessellated.triangles.forEach((triangle) => {
+              const transformed = transformPoints(triangle, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+              const data = this._pointsToFloatArray(transformed);
+              if (data.length >= 6) {
+                fillCollector.push({
+                  triangles: new Float32Array(data),
+                  color,
+                  material: material || null,
+                  meta: makeMeta ? makeMeta({ geometryKind: 'fill', fillKind: 'procedural-surface' }) : null
+                });
+              }
+            });
+          }
+          if (Array.isArray(tessellated.outlines)) {
+            tessellated.outlines.forEach((outline) => {
+              if (!outline || outline.length < 2) return;
+              const transformed = transformPoints(outline, transform);
+              transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+              polylineCollector.push({
+                points: transformed,
+                color,
+                lineweight,
+                worldBounds: this._computeBoundsFromPoints(transformed),
+                meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'procedural-surface-outline' }) : null
+              });
+            });
+          }
+          return;
+        }
+      }
+
+      // Fallback: render bounding box or profile
+      let outline = null;
+      if (geometry.profilePoints && geometry.profilePoints.length >= 3) {
+        outline = geometry.profilePoints.map((pt) => ({ x: pt.x, y: pt.y }));
+      } else if (geometry.boundingBox) {
+        outline = this._outlineFromBoundingBox(geometry.boundingBox);
+      }
+      
+      if (outline && outline.length >= 3) {
+        const transformed = transformPoints(outline, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        const closed = this._ensureClosedPolyline(transformed);
+        polylineCollector.push({
+          points: closed,
+          color,
+          lineweight,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'procedural-surface' }) : null
+        });
+      }
+    }
+
+    _addOleFrameGeometry(entity, geometry, transform, updateBounds, polylineCollector, fillCollector, textCollector, color, lineweight, makeMeta) {
+      // OLE frames are embedded objects - render the bounding box as placeholder
+      let bounds = null;
+      
+      if (geometry.upperLeft && geometry.lowerRight) {
+        bounds = {
+          minX: Math.min(geometry.upperLeft.x, geometry.lowerRight.x),
+          minY: Math.min(geometry.upperLeft.y, geometry.lowerRight.y),
+          maxX: Math.max(geometry.upperLeft.x, geometry.lowerRight.x),
+          maxY: Math.max(geometry.upperLeft.y, geometry.lowerRight.y)
+        };
+      } else if (geometry.boundingBox) {
+        bounds = geometry.boundingBox;
+      } else if (geometry.insertionPoint) {
+        // Create a default size if only insertion point exists
+        const size = 100;
+        bounds = {
+          minX: geometry.insertionPoint.x,
+          minY: geometry.insertionPoint.y,
+          maxX: geometry.insertionPoint.x + size,
+          maxY: geometry.insertionPoint.y + size
+        };
+      }
+      
+      if (bounds) {
+        const rectPoints = [
+          { x: bounds.minX, y: bounds.minY },
+          { x: bounds.maxX, y: bounds.minY },
+          { x: bounds.maxX, y: bounds.maxY },
+          { x: bounds.minX, y: bounds.maxY },
+          { x: bounds.minX, y: bounds.minY }
+        ];
+        
+        const transformed = transformPoints(rectPoints, transform);
+        transformed.forEach((pt) => updateBounds(pt.x, pt.y));
+        
+        // Draw frame outline
+        polylineCollector.push({
+          points: transformed,
+          color,
+          lineweight: lineweight || 1,
+          worldBounds: this._computeBoundsFromPoints(transformed),
+          meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'ole-frame' }) : null
+        });
+        
+        // Draw X across the frame to indicate placeholder
+        const diagonal1 = transformPoints([
+          { x: bounds.minX, y: bounds.minY },
+          { x: bounds.maxX, y: bounds.maxY }
+        ], transform);
+        const diagonal2 = transformPoints([
+          { x: bounds.maxX, y: bounds.minY },
+          { x: bounds.minX, y: bounds.maxY }
+        ], transform);
+        
+        polylineCollector.push({
+          points: diagonal1,
+          color: this._adjustColorAlpha(color, 0.5, 0.3),
+          lineweight: (lineweight || 1) * 0.5,
+          worldBounds: this._computeBoundsFromPoints(diagonal1),
+          meta: makeMeta ? makeMeta({ geometryKind: 'polyline', family: 'ole-placeholder' }) : null
+        });
+        polylineCollector.push({
+          points: diagonal2,
+          color: this._adjustColorAlpha(color, 0.5, 0.3),
+          lineweight: (lineweight || 1) * 0.5,
+          worldBounds: this._computeBoundsFromPoints(diagonal2),
+          meta: makeMeta ? makeMeta({ geometryKind: 'polyline', family: 'ole-placeholder' }) : null
+        });
+        
+        // Add label text in center
+        const centerX = (bounds.minX + bounds.maxX) / 2;
+        const centerY = (bounds.minY + bounds.maxY) / 2;
+        const centerPt = applyMatrix(transform, { x: centerX, y: centerY });
+        const height = Math.min(bounds.maxY - bounds.minY, bounds.maxX - bounds.minX) * 0.15;
+        
+        textCollector.push({
+          text: 'OLE Object',
+          position: [centerPt.x, centerPt.y],
+          height: height || 10,
+          rotation: 0,
+          color: this._adjustColorAlpha(color, 0.7, 0.5),
+          halign: 'center',
+          valign: 'middle',
+          meta: makeMeta ? makeMeta({ geometryKind: 'text', family: 'ole-label' }) : null
+        });
+      }
+    }
+
+    /**
+     * Tessellate a B-spline/NURBS curve using De Boor algorithm
+     * @param {Object} geometry - Spline geometry with controlPoints, knots, degree, weights
+     * @param {number} numSamples - Number of output samples
+     * @returns {Array} Array of tessellated points
+     */
+    _tessellateSpline(geometry, numSamples = 64) {
+      const degree = geometry.degree || 3;
+      const controlPoints = geometry.controlPoints || [];
+      const weights = geometry.weights || [];
+      let knots = geometry.knots || [];
+      
+      // If fit points but no control points, use fit points directly with Catmull-Rom
+      if ((!controlPoints || controlPoints.length < 2) && geometry.fitPoints && geometry.fitPoints.length >= 2) {
+        return this._tessellateWithCatmullRom(geometry.fitPoints, numSamples, !!geometry.isClosed);
+      }
+      
+      if (controlPoints.length < 2) {
+        return controlPoints.slice();
+      }
+      
+      // Generate uniform knot vector if not provided
+      const n = controlPoints.length;
+      if (!knots || knots.length < n + degree + 1) {
+        knots = [];
+        const numKnots = n + degree + 1;
+        for (let i = 0; i < numKnots; i++) {
+          if (i < degree + 1) {
+            knots.push(0);
+          } else if (i >= numKnots - degree - 1) {
+            knots.push(1);
+          } else {
+            knots.push((i - degree) / (numKnots - 2 * degree - 1));
+          }
+        }
+      }
+      
+      // Normalize knots to [0, 1]
+      const minKnot = knots[0];
+      const maxKnot = knots[knots.length - 1];
+      const knotRange = maxKnot - minKnot;
+      if (knotRange < 1e-10) {
+        return controlPoints.slice();
+      }
+      const normalizedKnots = knots.map(k => (k - minKnot) / knotRange);
+      
+      // Ensure weights array
+      const w = weights.length === n ? weights : controlPoints.map(() => 1);
+      
+      // De Boor B-spline basis function
+      const bsplineBasis = (i, p, t) => {
+        if (p === 0) {
+          return (t >= normalizedKnots[i] && t < normalizedKnots[i + 1]) ? 1 : 0;
+        }
+        let left = 0, right = 0;
+        const d1 = normalizedKnots[i + p] - normalizedKnots[i];
+        if (Math.abs(d1) > 1e-10) {
+          left = ((t - normalizedKnots[i]) / d1) * bsplineBasis(i, p - 1, t);
+        }
+        const d2 = normalizedKnots[i + p + 1] - normalizedKnots[i + 1];
+        if (Math.abs(d2) > 1e-10) {
+          right = ((normalizedKnots[i + p + 1] - t) / d2) * bsplineBasis(i + 1, p - 1, t);
+        }
+        return left + right;
+      };
+      
+      // Evaluate NURBS curve at parameter t
+      const evaluateAt = (t) => {
+        // Clamp t for endpoint
+        if (t >= 1) t = 1 - 1e-10;
+        
+        let numeratorX = 0, numeratorY = 0, numeratorZ = 0;
+        let denominator = 0;
+        
+        for (let i = 0; i < n; i++) {
+          const basis = bsplineBasis(i, degree, t);
+          const weight = w[i];
+          const weighted = basis * weight;
+          
+          numeratorX += (controlPoints[i].x || 0) * weighted;
+          numeratorY += (controlPoints[i].y || 0) * weighted;
+          numeratorZ += (controlPoints[i].z || 0) * weighted;
+          denominator += weighted;
+        }
+        
+        if (Math.abs(denominator) < 1e-10) {
+          return { x: controlPoints[0].x || 0, y: controlPoints[0].y || 0, z: controlPoints[0].z || 0 };
+        }
+        
+        return {
+          x: numeratorX / denominator,
+          y: numeratorY / denominator,
+          z: numeratorZ / denominator
+        };
+      };
+      
+      // Sample the curve
+      const result = [];
+      for (let i = 0; i <= numSamples; i++) {
+        const t = i / numSamples;
+        result.push(evaluateAt(t));
+      }
+      
+      return result;
+    }
+
+    /**
+     * Tessellate using Catmull-Rom spline interpolation for fit points
+     */
+    _tessellateWithCatmullRom(fitPoints, numSamples, isClosed) {
+      if (fitPoints.length < 2) return fitPoints.slice();
+      
+      const result = [];
+      const n = fitPoints.length;
+      const segmentsPerSpan = Math.ceil(numSamples / (n - 1));
+      
+      for (let i = 0; i < n - 1; i++) {
+        const p0 = fitPoints[Math.max(0, i - 1)];
+        const p1 = fitPoints[i];
+        const p2 = fitPoints[Math.min(n - 1, i + 1)];
+        const p3 = fitPoints[Math.min(n - 1, i + 2)];
+        
+        for (let j = 0; j < segmentsPerSpan; j++) {
+          const t = j / segmentsPerSpan;
+          const t2 = t * t;
+          const t3 = t2 * t;
+          
+          // Catmull-Rom coefficients
+          const c0 = -0.5 * t3 + t2 - 0.5 * t;
+          const c1 = 1.5 * t3 - 2.5 * t2 + 1;
+          const c2 = -1.5 * t3 + 2 * t2 + 0.5 * t;
+          const c3 = 0.5 * t3 - 0.5 * t2;
+          
+          result.push({
+            x: c0 * (p0.x || 0) + c1 * (p1.x || 0) + c2 * (p2.x || 0) + c3 * (p3.x || 0),
+            y: c0 * (p0.y || 0) + c1 * (p1.y || 0) + c2 * (p2.y || 0) + c3 * (p3.y || 0),
+            z: c0 * (p0.z || 0) + c1 * (p1.z || 0) + c2 * (p2.z || 0) + c3 * (p3.z || 0)
+          });
+        }
+      }
+      
+      // Add the last point
+      result.push({ ...fitPoints[n - 1] });
+      
+      if (isClosed && result.length > 0) {
+        result.push({ ...result[0] });
+      }
+      
+      return result;
+    }
+
+    _renderToleranceFrame({ entity, geometry, position, rotation, height, baseHeight, scaleMagnitude, text, styleName, color, rawPolylines, rawTexts, updateBounds, makeMeta }) {
+      // GD&T Tolerance frame rendering
+      // Parse tolerance text format: %%v{symbol}/{value1}^{value2}%%v{datum}...
+      // Common GD&T symbols: ⌀ (diameter), ⊥ (perpendicularity), ∥ (parallelism), etc.
+      
+      const gdtSymbols = {
+        'gdt;n': '⌀',      // Diameter
+        'gdt;j': '⊥',      // Perpendicularity
+        'gdt;h': '∥',      // Parallelism
+        'gdt;p': '⦜',      // Position
+        'gdt;r': '○',      // Circularity
+        'gdt;s': '⌭',      // Cylindricity
+        'gdt;f': '⏥',      // Flatness
+        'gdt;l': '—',      // Straightness
+        'gdt;g': '⌓',      // Profile of surface
+        'gdt;k': '⌒',      // Profile of line
+        'gdt;a': '⦟',      // Angularity
+        'gdt;c': '◎',      // Concentricity
+        'gdt;u': '↗',      // Runout
+        'gdt;t': '↗↗',     // Total runout
+        'gdt;i': 'Ⓜ',      // Maximum material condition
+        'gdt;o': 'Ⓛ',      // Least material condition
+        'gdt;m': 'Ⓢ',      // Regardless of feature size
+        'gdt;e': 'Ⓟ',      // Projected tolerance zone
+      };
+      
+      // Parse the tolerance string
+      let displayText = text;
+      Object.keys(gdtSymbols).forEach(key => {
+        const regex = new RegExp(key.replace(/;/g, '\\;'), 'gi');
+        displayText = displayText.replace(regex, gdtSymbols[key]);
+      });
+      
+      // Also handle %%c (diameter) and %%p (plus/minus)
+      displayText = displayText.replace(/%%c/gi, '⌀');
+      displayText = displayText.replace(/%%p/gi, '±');
+      displayText = displayText.replace(/%%d/gi, '°');
+      
+      // Calculate frame dimensions
+      const cellHeight = height * 1.5;
+      const cellPadding = height * 0.3;
+      
+      // Split into cells (separated by /)
+      const cells = displayText.split(/[\/\\|]/);
+      let totalWidth = 0;
+      const cellWidths = cells.map(cell => {
+        const width = Math.max(cell.length * height * 0.6, height);
+        totalWidth += width + cellPadding * 2;
+        return width + cellPadding * 2;
+      });
+      
+      // Draw frame outline
+      const cos = Math.cos(rotation);
+      const sin = Math.sin(rotation);
+      
+      const transformPoint = (dx, dy) => ({
+        x: position.x + dx * cos - dy * sin,
+        y: position.y + dx * sin + dy * cos
+      });
+      
+      // Main frame rectangle
+      const framePoints = [
+        transformPoint(0, 0),
+        transformPoint(totalWidth, 0),
+        transformPoint(totalWidth, cellHeight),
+        transformPoint(0, cellHeight),
+        transformPoint(0, 0)
+      ];
+      
+      framePoints.forEach(pt => updateBounds(pt.x, pt.y));
+      
+      rawPolylines.push({
+        points: framePoints,
+        color,
+        lineweight: 1,
+        worldBounds: this._computeBoundsFromPoints(framePoints),
+        meta: makeMeta ? makeMeta({ geometryKind: 'polyline', isClosed: true, family: 'tolerance-frame' }) : null
+      });
+      
+      // Draw cell dividers and text
+      let xOffset = 0;
+      cells.forEach((cell, index) => {
+        const cellWidth = cellWidths[index];
+        
+        // Draw vertical divider (except for first cell)
+        if (index > 0) {
+          const dividerStart = transformPoint(xOffset, 0);
+          const dividerEnd = transformPoint(xOffset, cellHeight);
+          rawPolylines.push({
+            points: [dividerStart, dividerEnd],
+            color,
+            lineweight: 1,
+            worldBounds: this._computeBoundsFromPoints([dividerStart, dividerEnd]),
+            meta: makeMeta ? makeMeta({ geometryKind: 'polyline', family: 'tolerance-divider' }) : null
+          });
+        }
+        
+        // Add cell text
+        const textX = xOffset + cellWidth / 2;
+        const textY = cellHeight / 2;
+        const textPos = transformPoint(textX, textY);
+        
+        rawTexts.push({
+          text: cell.trim(),
+          position: [textPos.x, textPos.y],
+          height: height,
+          rotation: rotation * 180 / Math.PI,
+          color,
+          halign: 'center',
+          valign: 'middle',
+          styleName,
+          meta: makeMeta ? makeMeta({ geometryKind: 'text', textKind: 'tolerance-cell', cellIndex: index }) : null
+        });
+        
+        xOffset += cellWidth;
+      });
     }
     }
 

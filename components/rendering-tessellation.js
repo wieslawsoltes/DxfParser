@@ -716,6 +716,14 @@
         return null;
       }
 
+      // Try ACIS parsing first if acisData is available
+      if (geometry.acisData && typeof geometry.acisData === 'string' && geometry.acisData.trim()) {
+        const acisResult = this._tessellateACIS(geometry.acisData);
+        if (acisResult && (acisResult.triangles.length > 0 || acisResult.outlines.length > 0)) {
+          return acisResult;
+        }
+      }
+
       const collectLoops = () => {
         const loops = [];
         if (Array.isArray(geometry.outline2D) && geometry.outline2D.length) {
@@ -862,6 +870,12 @@
         };
       });
 
+      // Check for subdivision level and apply Catmull-Clark if available
+      const subdivisionLevel = geometry.subdivisionLevel || 0;
+      if (subdivisionLevel > 0 && namespace.SubdivisionMesh && namespace.CatmullClarkSubdivision) {
+        return this._tessellateSubdividedMesh(vertices, geometry.faces, subdivisionLevel);
+      }
+
       const triangleList = [];
       const outlines = [];
 
@@ -895,6 +909,70 @@
       };
     }
 
+    /**
+     * Apply Catmull-Clark subdivision to a mesh and tessellate
+     * @param {Array} vertices - Array of vertex positions {x, y, z}
+     * @param {Array} faces - Array of face definitions with indices
+     * @param {number} level - Subdivision level (1-4)
+     * @returns {Object|null} Tessellation result with triangles and outlines
+     */
+    _tessellateSubdividedMesh(vertices, faces, level) {
+      try {
+        // Create SubdivisionMesh from geometry
+        const subdivMesh = new namespace.SubdivisionMesh();
+        
+        // Add vertices
+        vertices.forEach(v => {
+          subdivMesh.addVertex(v.x, v.y, v.z);
+        });
+        
+        // Add faces (convert from 1-based to 0-based indices)
+        if (Array.isArray(faces)) {
+          faces.forEach(face => {
+            const indices = Array.isArray(face.indices) ? face.indices : [];
+            if (indices.length >= 3) {
+              // Convert to 0-based indices
+              const zeroBasedIndices = indices.map(idx => Math.abs(idx) - 1);
+              subdivMesh.addFace(zeroBasedIndices);
+            }
+          });
+        }
+        
+        // Apply Catmull-Clark subdivision
+        const subdivided = namespace.CatmullClarkSubdivision.subdivide(subdivMesh, Math.min(level, 4));
+        
+        // Extract triangles from subdivided mesh
+        const triangleList = [];
+        const outlines = [];
+        
+        subdivided.faces.forEach(face => {
+          if (face.vertices.length >= 3) {
+            const facePoints = face.vertices.map(v => ({
+              x: v.position.x,
+              y: v.position.y,
+              z: v.position.z
+            }));
+            
+            const flattened = facePoints.map(pt => ({ x: pt.x, y: pt.y }));
+            const localTriangles = triangulateFan(flattened);
+            triangleList.push(...localTriangles);
+            outlines.push(this._ensureClosedOutline(flattened));
+          }
+        });
+        
+        if (triangleList.length > 0) {
+          return {
+            triangles: triangleList,
+            outlines
+          };
+        }
+      } catch (e) {
+        console.warn('Catmull-Clark subdivision failed, falling back to base mesh:', e.message);
+      }
+      
+      return null;
+    }
+
     _ensureClosedOutline(points) {
       if (!Array.isArray(points) || points.length === 0) {
         return [];
@@ -909,6 +987,92 @@
         outline.push({ x: first.x, y: first.y });
       }
       return outline;
+    }
+
+    /**
+     * Parse ACIS SAT data and tessellate the geometry
+     * @param {string} acisData - The ACIS SAT data string
+     * @returns {Object|null} Tessellation result with triangles and outlines
+     */
+    _tessellateACIS(acisData) {
+      try {
+        // Use the ACIS parser if available
+        if (namespace.parseACIS && namespace.acisToRenderGeometry) {
+          const parsed = namespace.parseACIS(acisData);
+          if (parsed) {
+            const renderData = namespace.acisToRenderGeometry(parsed);
+            if (renderData) {
+              return {
+                triangles: renderData.triangles || [],
+                outlines: renderData.outlines || []
+              };
+            }
+          }
+        }
+      } catch (e) {
+        // ACIS parsing failed, fall back to outline-based tessellation
+      }
+      return null;
+    }
+
+    /**
+     * Tessellate a procedural surface entity (EXTRUDEDSURFACE, REVOLVEDSURFACE, etc.)
+     * @param {Object} geometry - The procedural surface geometry data
+     * @returns {Object|null} Tessellation result with triangles and outlines
+     */
+    tessellateProceduralSurface(geometry) {
+      if (!geometry || !geometry.surfaceType) {
+        return null;
+      }
+
+      try {
+        // First try ACIS data if available
+        if (geometry.acisData) {
+          const acisResult = this._tessellateACIS(geometry.acisData);
+          if (acisResult && acisResult.triangles && acisResult.triangles.length > 0) {
+            return acisResult;
+          }
+        }
+
+        // Use ProceduralSurfaceFactory if available
+        if (namespace.ProceduralSurfaceFactory) {
+          const factory = new namespace.ProceduralSurfaceFactory({
+            uSegments: 16,
+            vSegments: 16
+          });
+
+          const result = factory.tessellate(geometry);
+          if (result && result.vertices && result.faces) {
+            // Convert to our format
+            const triangles = [];
+            const outlines = [];
+
+            result.faces.forEach(face => {
+              if (face.length >= 3) {
+                const facePoints = face.map(idx => {
+                  const v = result.vertices[idx];
+                  return v ? { x: v.x, y: v.y, z: v.z } : null;
+                }).filter(Boolean);
+
+                if (facePoints.length >= 3) {
+                  const flattened = facePoints.map(pt => ({ x: pt.x, y: pt.y }));
+                  const localTriangles = triangulateFan(flattened);
+                  triangles.push(...localTriangles);
+                  outlines.push(this._ensureClosedOutline(flattened));
+                }
+              }
+            });
+
+            if (triangles.length > 0) {
+              return { triangles, outlines };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Procedural surface tessellation failed:', e.message);
+      }
+
+      return null;
     }
   }
 

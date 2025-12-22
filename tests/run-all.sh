@@ -24,6 +24,7 @@ TESTS=(
   "check-visual-styles.js"
   "check-matrix-utils.js"
   "check-parser-utils.js"
+  "check-advanced-features.js"
   "rendering-parity.js"
 )
 

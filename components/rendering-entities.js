@@ -1122,20 +1122,6 @@ function collectUnderlayClip(map) {
     const ys = (map.get(24) || []).map(toFloat);
     const clip = [];
     for (let i = 0; i < vertexCount; i++) {
-      clip.push({ x: xs[i] ?? 0, y: ys[i] ?? 0 });
-    }
-    return clip.length ? clip : null;
-  }
-
-  function collectViewportClip(map) {
-    const vertexCount = toInt((map.get(90) || [])[0]) || 0;
-    if (vertexCount <= 0) {
-      return null;
-    }
-    const xs = (map.get(14) || []).map(toFloat);
-    const ys = (map.get(24) || []).map(toFloat);
-    const clip = [];
-    for (let i = 0; i < vertexCount; i++) {
       const x = xs[i] ?? 0;
       const y = ys[i] ?? 0;
       clip.push({ x, y });
@@ -1177,6 +1163,37 @@ function collectUnderlayClip(map) {
         return {
           type: 'point',
           position: pointFromCodes(10, 20, 30)
+        };
+      }
+      case 'CENTERLINE': {
+        // Center line annotation - connects two points with centerline marks
+        const startPoint = pointFromCodes(10, 20, 30);
+        const endPoint = pointFromCodes(11, 21, 31);
+        return {
+          type: 'centerline',
+          start: startPoint,
+          end: endPoint,
+          extensionLength: toFloat(map.get(40)?.[0]) ?? 0,
+          crossSize: toFloat(map.get(41)?.[0]) ?? 0,
+          crossGap: toFloat(map.get(42)?.[0]) ?? 0,
+          associatedGeometry: map.get(330)?.[0] || null,
+          normal: extractExtrusion(tags)
+        };
+      }
+      case 'CENTERMARK': {
+        // Center mark annotation - marks center of circle/arc
+        return {
+          type: 'centermark',
+          center: pointFromCodes(10, 20, 30),
+          radius: toFloat(map.get(40)?.[0]) ?? 0,
+          crossSize: toFloat(map.get(41)?.[0]) ?? null,
+          crossGap: toFloat(map.get(42)?.[0]) ?? null,
+          extensionLength: toFloat(map.get(43)?.[0]) ?? null,
+          showCrossLines: (toInt(map.get(70)?.[0]) || 1) === 1,
+          showExtensionLines: (toInt(map.get(71)?.[0]) || 0) === 1,
+          rotation: toFloat(map.get(50)?.[0]) ?? 0,
+          associatedGeometry: map.get(330)?.[0] || null,
+          normal: extractExtrusion(tags)
         };
       }
       case 'MPOINT': {
@@ -1234,6 +1251,77 @@ function collectUnderlayClip(map) {
             mapSize: shadowMapSize,
             softness: shadowSoftness
           }
+        };
+      }
+      case 'CAMERA': {
+        // CAMERA entity - Named camera with view settings
+        const viewHeight = toFloat(map.get(40)?.[0]) ?? 0;
+        const viewWidth = toFloat(map.get(41)?.[0]) ?? 0;
+        const lensLength = toFloat(map.get(42)?.[0]) ?? 50;
+        const frontClipping = toFloat(map.get(43)?.[0]) ?? 0;
+        const backClipping = toFloat(map.get(44)?.[0]) ?? 0;
+        const rollAngle = toFloat(map.get(50)?.[0]) ?? 0;
+        return {
+          type: 'camera',
+          name: map.get(1)?.[0] || null,
+          position: pointFromCodes(10, 20, 30),
+          target: pointFromCodes(11, 21, 31),
+          viewHeight,
+          viewWidth,
+          lensLength,
+          frontClipping,
+          backClipping,
+          rollAngle,
+          viewHandle: map.get(340)?.[0] || null,
+          plotStyleHandle: map.get(341)?.[0] || null,
+          clippingPlane: (toInt(map.get(71)?.[0]) || 0) !== 0
+        };
+      }
+      case 'RTEXT': {
+        // RTEXT - Reactive text (evaluated expression)
+        return {
+          type: 'rtext',
+          position: pointFromCodes(10, 20, 30),
+          height: toFloat(map.get(40)?.[0]) ?? 2.5,
+          rotation: toFloat(map.get(50)?.[0]) ?? 0,
+          text: map.get(1)?.[0] || '',
+          styleName: map.get(7)?.[0] || 'STANDARD',
+          flags: toInt(map.get(70)?.[0]) || 0,
+          normal: extractExtrusion(tags)
+        };
+      }
+      case 'SUNSTUDY': {
+        // SUNSTUDY - Sun study settings
+        const sunStart = map.get(90)?.[0] ? toInt(map.get(90)?.[0]) : null;
+        const sunEnd = map.get(91)?.[0] ? toInt(map.get(91)?.[0]) : null;
+        const interval = toFloat(map.get(40)?.[0]);
+        return {
+          type: 'sunstudy',
+          name: map.get(1)?.[0] || null,
+          description: map.get(2)?.[0] || null,
+          sunStart,
+          sunEnd,
+          interval,
+          outputType: toInt(map.get(70)?.[0]) || 0,
+          sheetSetHandle: map.get(340)?.[0] || null,
+          useSubset: (toInt(map.get(290)?.[0]) || 0) !== 0,
+          selectDates: (toInt(map.get(291)?.[0]) || 0) !== 0,
+          dates: (map.get(93) || []).map(toInt),
+          selectRange: (toInt(map.get(292)?.[0]) || 0) !== 0,
+          hoursLockRange: toInt(map.get(71)?.[0]) || 0,
+          hoursPerDay: toInt(map.get(72)?.[0]) || 0
+        };
+      }
+      case 'GEOMCONSTRAINT': {
+        // GEOMCONSTRAINT - Geometric constraint definition
+        const constraintType = toInt(map.get(280)?.[0]) || 0;
+        return {
+          type: 'geomconstraint',
+          constraintType,
+          ownerHandle: map.get(330)?.[0] || null,
+          status: toInt(map.get(90)?.[0]) || 0,
+          constraintGroup: toInt(map.get(71)?.[0]) || 0,
+          nodes: (map.get(340) || []).map(h => String(h))
         };
       }
       case 'CIRCLE': {
@@ -1760,7 +1848,102 @@ function collectUnderlayClip(map) {
           dimensionStyle: dimensionStyleName,
           dimensionStyleHandle,
           associativeHandles,
-          dimensionAssociativeHandles: associativeHandles.slice()
+          dimensionAssociativeHandles: associativeHandles.slice(),
+          extrusion: extractExtrusion(tags)
+        };
+      }
+      case 'ARC_DIMENSION': {
+        // ARC_DIMENSION measures the arc length (not angle) of an arc segment
+        // Group codes per DXF spec:
+        // 10,20,30 = arc center
+        // 13,23,33 = first extension line start (on arc)
+        // 14,24,34 = second extension line start (on arc)
+        // 15,25,35 = arc definition point / dimension arc point
+        // 16,26,36 = leader start (where dimension line ends)
+        // 40 = arc radius
+        // 41 = leader 1 length
+        // 42 = leader 2 length
+        // 50 = start angle
+        // 51 = end angle
+        // 52 = arc start parameter
+        // 53 = arc end parameter
+        // 70 = flag (2 = partial, 4 = has leader)
+        const arcCenter = pointFromCodes(10, 20, 30);
+        const extensionLine1Start = pointFromCodes(13, 23, 33);
+        const extensionLine2Start = pointFromCodes(14, 24, 34);
+        const dimensionArcPoint = pointFromCodes(15, 25, 35);
+        const leaderEndPoint = pointFromCodes(16, 26, 36);
+        const textPoint = pointFromCodes(11, 21, 31);
+        const arcRadius = toFloat(map.get(40)?.[0]) ?? null;
+        const leader1Length = toFloat(map.get(41)?.[0]) ?? 0;
+        const leader2Length = toFloat(map.get(42)?.[0]) ?? 0;
+        const startAngle = toFloat(map.get(50)?.[0]) ?? null;
+        const endAngle = toFloat(map.get(51)?.[0]) ?? null;
+        const arcStartParam = toFloat(map.get(52)?.[0]) ?? null;
+        const arcEndParam = toFloat(map.get(53)?.[0]) ?? null;
+        const arcDimensionFlags = toInt(map.get(70)?.[0]) || 0;
+        const dimensionStyleNameArc = map.get(3)?.[0] || null;
+        const dimensionStyleHandleArc = map.get(340)?.[0] || null;
+        const textHeight = toFloat(map.get(140)?.[0]) ?? null;
+        const measurement = toFloat(map.get(42)?.[0]) ?? null;
+        return {
+          type: 'arc_dimension',
+          arcCenter,
+          extensionLine1Point: extensionLine1Start,
+          extensionLine2Point: extensionLine2Start,
+          dimensionArcPoint,
+          leaderEndPoint,
+          textPoint,
+          arcRadius,
+          leader1Length,
+          leader2Length,
+          startAngle,
+          endAngle,
+          arcStartParam,
+          arcEndParam,
+          flags: arcDimensionFlags,
+          text: map.get(1)?.[0] || '',
+          measurement,
+          textHeight,
+          blockName: map.get(2)?.[0] || null,
+          dimensionStyle: dimensionStyleNameArc,
+          dimensionStyleHandle: dimensionStyleHandleArc,
+          extrusion: extractExtrusion(tags)
+        };
+      }
+      case 'LARGE_RADIAL_DIMENSION': {
+        // LARGE_RADIAL_DIMENSION is used for jogged radius dimensions (large radius arcs)
+        // Group codes:
+        // 10,20,30 = center point
+        // 13,23,33 = definition point (chord midpoint)
+        // 14,24,34 = jog point (override point)
+        // 15,25,35 = chord point
+        // 40 = jog angle (radians or degrees based on flag)
+        const centerPoint = pointFromCodes(10, 20, 30);
+        const definitionPoint = pointFromCodes(13, 23, 33);
+        const jogPoint = pointFromCodes(14, 24, 34);
+        const chordPoint = pointFromCodes(15, 25, 35);
+        const textPoint = pointFromCodes(11, 21, 31);
+        const jogAngle = toFloat(map.get(40)?.[0]) ?? null;
+        const dimensionStyleNameLR = map.get(3)?.[0] || null;
+        const dimensionStyleHandleLR = map.get(340)?.[0] || null;
+        const textHeight = toFloat(map.get(140)?.[0]) ?? null;
+        const measurement = toFloat(map.get(42)?.[0]) ?? null;
+        return {
+          type: 'large_radial_dimension',
+          centerPoint,
+          definitionPoint,
+          jogPoint,
+          chordPoint,
+          textPoint,
+          jogAngle,
+          text: map.get(1)?.[0] || '',
+          measurement,
+          textHeight,
+          blockName: map.get(2)?.[0] || null,
+          dimensionStyle: dimensionStyleNameLR,
+          dimensionStyleHandle: dimensionStyleHandleLR,
+          extrusion: extractExtrusion(tags)
         };
       }
       case 'LEADER': {
@@ -2030,13 +2213,62 @@ function collectUnderlayClip(map) {
         };
       }
       case 'MESH': {
+        // MESH entity - subdivision mesh with vertices and faces
+        // Group codes:
+        // 71 = vertex count
+        // 72 = face list size count
+        // 91 = subdivision level
+        // 92 = property overrides flag
+        // 10,20,30 = vertex positions (sequentially)
+        // 90 = face vertex count then vertex indices (sequentially in face list)
+        const vertexCount = toInt(map.get(91)?.[0]) || 0;
+        const faceListSizeCount = toInt(map.get(92)?.[0]) || 0;
+        const subdivisionLevel = toInt(map.get(71)?.[0]) || 0;
+
+        // Parse vertices from 10,20,30 codes
+        const xs = (map.get(10) || []).map(toFloat);
+        const ys = (map.get(20) || []).map(toFloat);
+        const zs = (map.get(30) || []).map(toFloat);
+        const vertices = [];
+        const meshVertexCount = Math.max(xs.length, ys.length, zs.length);
+        for (let i = 0; i < meshVertexCount; i++) {
+          vertices.push({
+            position: {
+              x: xs[i] ?? 0,
+              y: ys[i] ?? 0,
+              z: zs[i] ?? 0
+            }
+          });
+        }
+
+        // Parse face list from 90 codes
+        // Face list format: [count1, idx1, idx2, ..., count2, idx1, idx2, ...]
+        const faceListValues = (map.get(90) || []).map(toInt);
+        const faces = [];
+        let faceIdx = 0;
+        while (faceIdx < faceListValues.length) {
+          const faceVertCount = faceListValues[faceIdx];
+          faceIdx++;
+          if (!Number.isFinite(faceVertCount) || faceVertCount < 3) {
+            break;
+          }
+          const indices = [];
+          for (let v = 0; v < faceVertCount && faceIdx < faceListValues.length; v++) {
+            indices.push(faceListValues[faceIdx] + 1); // Convert to 1-based for consistency
+            faceIdx++;
+          }
+          if (indices.length >= 3) {
+            faces.push({ indices });
+          }
+        }
+
         return {
           type: 'mesh',
-          vertexCount: toInt(map.get(71)?.[0]) || 0,
-          faceCount: toInt(map.get(72)?.[0]) || 0,
-          subdivisionLevel: toInt(map.get(91)?.[0]) || 0,
-          vertices: [],
-          faces: []
+          vertexCount: vertices.length,
+          faceCount: faces.length,
+          subdivisionLevel,
+          vertices,
+          faces
         };
       }
       case 'LWPOLYLINE': {
@@ -2164,6 +2396,134 @@ function collectUnderlayClip(map) {
           acisData: extractACISData(map),
           outline2D: outlinePoints.length ? outlinePoints.map(({ x, y }) => ({ x, y })) : null,
           boundingBox
+        };
+      }
+      case 'EXTRUDEDSURFACE': {
+        // DXF 2007+ Extruded surface entity
+        const sweepVector = {
+          x: toFloat(map.get(10)?.[0]) ?? 0,
+          y: toFloat(map.get(20)?.[0]) ?? 0,
+          z: toFloat(map.get(30)?.[0]) ?? 1
+        };
+        const scaleFactor = toFloat(map.get(42)?.[0]) ?? 1;
+        const twistAngle = toFloat(map.get(43)?.[0]) ?? 0; // radians
+        const alignAngle = toFloat(map.get(44)?.[0]) ?? 0;
+        const modifierFlags = toInt(map.get(90)?.[0]) || 0;
+        return {
+          type: 'extrudedsurface',
+          surfaceType: 'EXTRUDEDSURFACE',
+          acisData: extractACISData(map),
+          sweepVector,
+          scaleFactor,
+          twistAngle,
+          alignAngle,
+          alignOption: toInt(map.get(70)?.[0]) || 0,
+          modifierFlags,
+          solidFlag: (modifierFlags & 1) !== 0
+        };
+      }
+      case 'LOFTEDSURFACE': {
+        // DXF 2007+ Lofted surface entity
+        const crossSectionCount = toInt(map.get(71)?.[0]) || 0;
+        const guideCurveCount = toInt(map.get(72)?.[0]) || 0;
+        return {
+          type: 'loftedsurface',
+          surfaceType: 'LOFTEDSURFACE',
+          acisData: extractACISData(map),
+          crossSectionCount,
+          guideCurveCount,
+          planeNormal: (toInt(map.get(90)?.[0]) || 0) !== 0,
+          arcLengthParam: (toInt(map.get(91)?.[0]) || 0) !== 0,
+          closed: (toInt(map.get(92)?.[0]) || 0) !== 0
+        };
+      }
+      case 'REVOLVEDSURFACE': {
+        // DXF 2007+ Revolved surface entity
+        const axisPoint = {
+          x: toFloat(map.get(10)?.[0]) ?? 0,
+          y: toFloat(map.get(20)?.[0]) ?? 0,
+          z: toFloat(map.get(30)?.[0]) ?? 0
+        };
+        const axisDirection = {
+          x: toFloat(map.get(11)?.[0]) ?? 0,
+          y: toFloat(map.get(21)?.[0]) ?? 0,
+          z: toFloat(map.get(31)?.[0]) ?? 1
+        };
+        return {
+          type: 'revolvedsurface',
+          surfaceType: 'REVOLVEDSURFACE',
+          acisData: extractACISData(map),
+          axisPoint,
+          axisDirection,
+          revolveAngle: toFloat(map.get(40)?.[0]) ?? (2 * Math.PI),
+          startAngle: toFloat(map.get(41)?.[0]) ?? 0
+        };
+      }
+      case 'SWEPTSURFACE': {
+        // DXF 2007+ Swept surface entity
+        const pathLength = toFloat(map.get(42)?.[0]) ?? 0;
+        const twistAngle = toFloat(map.get(43)?.[0]) ?? 0;
+        const scaleFactor = toFloat(map.get(44)?.[0]) ?? 1;
+        return {
+          type: 'sweptsurface',
+          surfaceType: 'SWEPTSURFACE',
+          acisData: extractACISData(map),
+          pathLength,
+          twistAngle,
+          scaleFactor,
+          alignOption: toInt(map.get(70)?.[0]) || 0,
+          bankFlag: (toInt(map.get(290)?.[0]) || 0) !== 0
+        };
+      }
+      case 'PLANESURFACE': {
+        // DXF 2007+ Planar surface entity
+        return {
+          type: 'planesurface',
+          surfaceType: 'PLANESURFACE',
+          acisData: extractACISData(map),
+          uBounds: {
+            min: toFloat(map.get(40)?.[0]) ?? 0,
+            max: toFloat(map.get(41)?.[0]) ?? 1
+          },
+          vBounds: {
+            min: toFloat(map.get(42)?.[0]) ?? 0,
+            max: toFloat(map.get(43)?.[0]) ?? 1
+          }
+        };
+      }
+      case 'NURBSURFACE': {
+        // DXF 2007+ NURBS surface entity
+        const degreeU = toInt(map.get(71)?.[0]) || 3;
+        const degreeV = toInt(map.get(72)?.[0]) || 3;
+        const controlPointCountU = toInt(map.get(73)?.[0]) || 0;
+        const controlPointCountV = toInt(map.get(74)?.[0]) || 0;
+        // Collect knots and control points
+        const knotsU = (map.get(40) || []).slice(0, degreeU + controlPointCountU + 1).map(toFloat);
+        const knotsV = (map.get(41) || []).slice(0, degreeV + controlPointCountV + 1).map(toFloat);
+        // Control points from groups 10/20/30
+        const cpXs = (map.get(10) || []).map(toFloat);
+        const cpYs = (map.get(20) || []).map(toFloat);
+        const cpZs = (map.get(30) || []).map(toFloat);
+        const controlPoints = [];
+        const totalCPs = controlPointCountU * controlPointCountV;
+        for (let i = 0; i < Math.min(cpXs.length, totalCPs); i++) {
+          controlPoints.push({
+            x: cpXs[i] ?? 0,
+            y: cpYs[i] ?? 0,
+            z: cpZs[i] ?? 0
+          });
+        }
+        return {
+          type: 'nurbsurface',
+          surfaceType: 'NURBSURFACE',
+          acisData: extractACISData(map),
+          degreeU,
+          degreeV,
+          controlPointCountU,
+          controlPointCountV,
+          knotsU,
+          knotsV,
+          controlPoints
         };
       }
       case 'SECTION': {
@@ -2327,32 +2687,6 @@ function collectUnderlayClip(map) {
           logicalId: map.get(69)?.[0] || null,
           clipOn: (toInt(map.get(90)?.[0]) || 0) === 1,
           clipBoundary: collectViewportClip(map)
-        };
-      }
-      case 'PDFUNDERLAY':
-      case 'DGNUNDERLAY':
-      case 'DWFUNDERLAY': {
-        return {
-          type: 'underlay',
-          underlayType: upperType,
-          position: pointFromCodes(10, 20, 30),
-          scale: {
-            x: toFloat(map.get(41)?.[0]) ?? 1,
-            y: toFloat(map.get(42)?.[0]) ?? 1,
-            z: toFloat(map.get(43)?.[0]) ?? 1
-          },
-          rotation: toFloat(map.get(50)?.[0]) ?? 0,
-          normal: {
-            x: toFloat(map.get(210)?.[0]) ?? 0,
-            y: toFloat(map.get(220)?.[0]) ?? 0,
-            z: toFloat(map.get(230)?.[0]) ?? 1
-          },
-          contrast: toInt(map.get(280)?.[0]) ?? 50,
-          fade: toInt(map.get(281)?.[0]) ?? 0,
-          isOn: (toInt(map.get(70)?.[0]) || 0) === 0,
-          isMonochrome: (toInt(map.get(290)?.[0]) || 0) === 1,
-          clip: this._collectUnderlayClip(map),
-          underlayId: map.get(340)?.[0] || null
         };
       }
       default: {

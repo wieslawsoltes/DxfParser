@@ -997,6 +997,41 @@
         dimStyleHandle: null
       };
 
+      const dimensionDefaults = {
+        dimScale: null,        // $DIMSCALE - Overall dimension scale
+        dimTxt: null,          // $DIMTXT - Text height
+        dimArrowSize: null,    // $DIMASZ - Arrow size
+        dimExOffset: null,     // $DIMEXO - Extension line offset
+        dimExExtend: null,     // $DIMEXE - Extension line extension
+        dimDimLine: null,      // $DIMDLI - Dimension line increment
+        dimGap: null,          // $DIMGAP - Gap from dimension line to text
+        dimLFac: null,         // $DIMLFAC - Linear scale factor
+        dimRnd: null,          // $DIMRND - Rounding value
+        dimTol: null,          // $DIMTOL - Tolerance display
+        dimLim: null,          // $DIMLIM - Limits display
+        dimTxtDirection: null, // $DIMTXTDIRECTION - Text direction
+        dimCen: null,          // $DIMCEN - Center mark size
+        dimUnit: null,         // $DIMUNIT - Units format
+        dimDec: null,          // $DIMDEC - Decimal places
+        dimTdec: null,         // $DIMTDEC - Tolerance decimal places
+        dimTFac: null,         // $DIMTFAC - Tolerance text scale factor
+        dimTxsty: null,        // $DIMTXSTY - Text style name
+        dimBlk: null,          // $DIMBLK - Arrow block name
+        dimBlk1: null,         // $DIMBLK1 - First arrow block
+        dimBlk2: null,         // $DIMBLK2 - Second arrow block
+        dimLdrBlk: null,       // $DIMLDRBLK - Leader arrow block
+        dimSE1: null,          // $DIMSE1 - Suppress extension line 1
+        dimSE2: null,          // $DIMSE2 - Suppress extension line 2
+        dimSD1: null,          // $DIMSD1 - Suppress dimension line 1
+        dimSD2: null,          // $DIMSD2 - Suppress dimension line 2
+        dimTad: null,          // $DIMTAD - Text placement
+        dimJust: null,         // $DIMJUST - Horizontal text justification
+        dimClrD: null,         // $DIMCLRD - Dimension line color
+        dimClrE: null,         // $DIMCLRE - Extension line color
+        dimClrT: null,         // $DIMCLRT - Text color
+        dimADec: null          // $DIMADEC - Angular decimal places
+      };
+
       const display = {
         pointMode: 0,
         pointSize: null,
@@ -1339,6 +1374,168 @@
                 display.traceWidth = floatVal;
               }
               break;
+            // Dimension header variables
+            case '$DIMSCALE':
+              if (floatVal != null) {
+                dimensionDefaults.dimScale = floatVal;
+              }
+              break;
+            case '$DIMTXT':
+              if (floatVal != null) {
+                dimensionDefaults.dimTxt = floatVal;
+              }
+              break;
+            case '$DIMASZ':
+              if (floatVal != null) {
+                dimensionDefaults.dimArrowSize = floatVal;
+              }
+              break;
+            case '$DIMEXO':
+              if (floatVal != null) {
+                dimensionDefaults.dimExOffset = floatVal;
+              }
+              break;
+            case '$DIMEXE':
+              if (floatVal != null) {
+                dimensionDefaults.dimExExtend = floatVal;
+              }
+              break;
+            case '$DIMDLI':
+              if (floatVal != null) {
+                dimensionDefaults.dimDimLine = floatVal;
+              }
+              break;
+            case '$DIMGAP':
+              if (floatVal != null) {
+                dimensionDefaults.dimGap = floatVal;
+              }
+              break;
+            case '$DIMLFAC':
+              if (floatVal != null) {
+                dimensionDefaults.dimLFac = floatVal;
+              }
+              break;
+            case '$DIMRND':
+              if (floatVal != null) {
+                dimensionDefaults.dimRnd = floatVal;
+              }
+              break;
+            case '$DIMTOL':
+              if (intVal != null) {
+                dimensionDefaults.dimTol = intVal;
+              }
+              break;
+            case '$DIMLIM':
+              if (intVal != null) {
+                dimensionDefaults.dimLim = intVal;
+              }
+              break;
+            case '$DIMCEN':
+              if (floatVal != null) {
+                dimensionDefaults.dimCen = floatVal;
+              }
+              break;
+            case '$DIMUNIT':
+            case '$DIMLUNIT':
+              if (intVal != null) {
+                dimensionDefaults.dimUnit = intVal;
+              }
+              break;
+            case '$DIMDEC':
+              if (intVal != null) {
+                dimensionDefaults.dimDec = intVal;
+              }
+              break;
+            case '$DIMTDEC':
+              if (intVal != null) {
+                dimensionDefaults.dimTdec = intVal;
+              }
+              break;
+            case '$DIMTFAC':
+              if (floatVal != null) {
+                dimensionDefaults.dimTFac = floatVal;
+              }
+              break;
+            case '$DIMTXSTY':
+              if (trimmedValue) {
+                dimensionDefaults.dimTxsty = trimmedValue;
+              }
+              break;
+            case '$DIMBLK':
+              if (trimmedValue) {
+                dimensionDefaults.dimBlk = trimmedValue;
+              }
+              break;
+            case '$DIMBLK1':
+              if (trimmedValue) {
+                dimensionDefaults.dimBlk1 = trimmedValue;
+              }
+              break;
+            case '$DIMBLK2':
+              if (trimmedValue) {
+                dimensionDefaults.dimBlk2 = trimmedValue;
+              }
+              break;
+            case '$DIMLDRBLK':
+              if (trimmedValue) {
+                dimensionDefaults.dimLdrBlk = trimmedValue;
+              }
+              break;
+            case '$DIMSE1':
+              if (intVal != null) {
+                dimensionDefaults.dimSE1 = intVal !== 0;
+              }
+              break;
+            case '$DIMSE2':
+              if (intVal != null) {
+                dimensionDefaults.dimSE2 = intVal !== 0;
+              }
+              break;
+            case '$DIMSD1':
+              if (intVal != null) {
+                dimensionDefaults.dimSD1 = intVal !== 0;
+              }
+              break;
+            case '$DIMSD2':
+              if (intVal != null) {
+                dimensionDefaults.dimSD2 = intVal !== 0;
+              }
+              break;
+            case '$DIMTAD':
+              if (intVal != null) {
+                dimensionDefaults.dimTad = intVal;
+              }
+              break;
+            case '$DIMJUST':
+              if (intVal != null) {
+                dimensionDefaults.dimJust = intVal;
+              }
+              break;
+            case '$DIMCLRD':
+              if (intVal != null) {
+                dimensionDefaults.dimClrD = intVal;
+              }
+              break;
+            case '$DIMCLRE':
+              if (intVal != null) {
+                dimensionDefaults.dimClrE = intVal;
+              }
+              break;
+            case '$DIMCLRT':
+              if (intVal != null) {
+                dimensionDefaults.dimClrT = intVal;
+              }
+              break;
+            case '$DIMADEC':
+              if (intVal != null) {
+                dimensionDefaults.dimADec = intVal;
+              }
+              break;
+            case '$DIMTXTDIRECTION':
+              if (intVal != null) {
+                dimensionDefaults.dimTxtDirection = intVal;
+              }
+              break;
             case '$VIEWDIR':
               if (code === 16) {
                 coordinate.view.direction.x = floatVal;
@@ -1489,6 +1686,94 @@
                 metadata.timezoneMinutes = intVal;
               }
               break;
+            // Additional header variables for 100% compliance
+            case '$VISRETAIN':
+              if (intVal != null) {
+                display.visRetain = intVal;
+              }
+              break;
+            case '$CEPSNID':
+            case '$CEPSNTYPE':
+              if (code === 390 && trimmedValue) {
+                entityDefaults.plotStyleHandle = trimmedValue;
+              } else if (intVal != null) {
+                entityDefaults.plotStyleType = intVal;
+              }
+              break;
+            case '$FINGERPRINTGUID':
+              if (trimmedValue) {
+                metadata.fingerprint = trimmedValue;
+              }
+              break;
+            case '$VERSIONGUID':
+              if (trimmedValue) {
+                metadata.versionGuid = trimmedValue;
+              }
+              break;
+            case '$TDUCREATE': {
+              const descriptor = convertJulianDay(rawValue);
+              if (descriptor) {
+                metadata.createdUtc = descriptor;
+              }
+              break;
+            }
+            case '$TDUUPDATE': {
+              const descriptor = convertJulianDay(rawValue);
+              if (descriptor) {
+                metadata.updatedUtc = descriptor;
+              }
+              break;
+            }
+            case '$SORTENTS':
+              if (intVal != null) {
+                display.sortEnts = intVal;
+              }
+              break;
+            case '$INDEXCTL':
+              if (intVal != null) {
+                display.indexCtl = intVal;
+              }
+              break;
+            case '$HIDETEXT':
+              if (intVal != null) {
+                display.hideText = intVal;
+              }
+              break;
+            case '$XCLIPFRAME':
+              if (intVal != null) {
+                display.xClipFrame = intVal;
+              }
+              break;
+            case '$HALOGAP':
+              if (floatVal != null) {
+                display.haloGap = floatVal;
+              }
+              break;
+            case '$OBSCOLOR':
+              if (intVal != null) {
+                display.obsColor = intVal;
+              }
+              break;
+            case '$OBSLTYPE':
+              if (intVal != null) {
+                display.obsLtype = intVal;
+              }
+              break;
+            case '$INTERSECTIONCOLOR':
+              if (intVal != null) {
+                display.intersectionColor = intVal;
+              }
+              break;
+            case '$INTERSECTIONDISPLAY':
+              if (intVal != null) {
+                display.intersectionDisplay = intVal;
+              }
+              break;
+            case '$SHADOWPLANELOCATION':
+              if (floatVal != null) {
+                display.shadowPlaneLocation = floatVal;
+              }
+              break;
             default:
               break;
           }
@@ -1597,6 +1882,7 @@
         metadata,
         geographic,
         entityDefaults,
+        dimensionDefaults,
         display,
         coordinate
       };
@@ -3463,6 +3749,7 @@
       const imageDefinitions = { byHandle: Object.create(null), list: [] };
       const imageDefReactors = { byHandle: Object.create(null), list: [] };
       let rasterVariables = null;
+      let wipeoutVariables = null;
       const underlayDefinitions = { byHandle: Object.create(null), list: [] };
       const pointCloudDefinitions = { byHandle: Object.create(null), list: [] };
       const pointCloudReactors = { byHandle: Object.create(null), list: [] };
@@ -3479,6 +3766,8 @@
       const dictionaries = { byHandle: Object.create(null), list: [] };
       const xrecords = { byHandle: Object.create(null), list: [] };
       const spatialFilters = { byHandle: Object.create(null), list: [] };
+      const sortEntsTables = { byHandle: Object.create(null), list: [] };
+      const associativityObjects = { byHandle: Object.create(null), list: [] };
 
       let section = null;
       let i = 0;
@@ -3783,6 +4072,60 @@
               i = nextIndex;
               continue;
             }
+
+            if (upperValue === 'SORTENTSTABLE') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const sortTable = this.parseSortEntsTable(objectTags);
+              if (sortTable) {
+                const handleKey = sortTable.handleUpper || sortTable.handle;
+                if (handleKey) {
+                  sortEntsTables.byHandle[handleKey] = sortTable;
+                }
+                sortEntsTables.list.push(sortTable);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'WIPEOUTVARIABLES') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const wipVars = this.parseWipeoutVariables(objectTags);
+              if (wipVars) {
+                wipeoutVariables = wipVars;
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'ACAD_PROXY_OBJECT') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const proxy = this.parseProxyObject(objectTags);
+              if (proxy) {
+                const handleKey = proxy.handleUpper || proxy.handle;
+                if (handleKey) {
+                  proxyObjects.byHandle[handleKey] = proxy;
+                }
+                proxyObjects.list.push(proxy);
+              }
+              i = nextIndex;
+              continue;
+            }
+
+            if (upperValue === 'ACDBASSOCNETWORK' || upperValue.startsWith('ACDBASSOCDEPENDENCY') || 
+                upperValue.startsWith('ACDBASSOCGEOM') || upperValue.startsWith('ACDBASSOCACTION') ||
+                upperValue === 'ASSOCPERSSUBENTMANAGER') {
+              const { tags: objectTags, nextIndex } = this.collectEntityTags(i + 1);
+              const assoc = this.parseAssociativityObject(upperValue, objectTags);
+              if (assoc) {
+                const handleKey = assoc.handleUpper || assoc.handle;
+                if (handleKey) {
+                  associativityObjects.byHandle[handleKey] = assoc;
+                }
+                associativityObjects.list.push(assoc);
+              }
+              i = nextIndex;
+              continue;
+            }
           }
         }
 
@@ -3793,6 +4136,7 @@
         imageDefinitions,
         imageDefReactors,
         rasterVariables,
+        wipeoutVariables,
         underlayDefinitions,
         pointClouds: {
           definitions: pointCloudDefinitions,
@@ -3810,7 +4154,9 @@
         lightLists,
         dictionaries,
         xrecords,
-        spatialFilters
+        spatialFilters,
+        sortEntsTables,
+        associativityObjects
       };
     }
 
@@ -4478,6 +4824,128 @@
         rawTags: this._mapRawTags(tags)
       };
     }
+
+    parseSortEntsTable(tags) {
+      // SORTENTSTABLE object defines draw order for entities in a block or model space
+      // DXF codes:
+      //   5: Handle
+      //   330: Owner handle (block or model space)
+      //   100: AcDbSortentsTable
+      //   331: Sort handle (entity handles in draw order, multiple entries)
+      //   5: Entity handle (paired with 331 - the actual entity handle)
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      
+      // Collect entity draw order - pairs of code 331 (sort handle) and following code 5 (entity handle)
+      const sortOrder = [];
+      const entityHandles331 = [];
+      const entityHandles5 = [];
+      
+      // Group codes 331 as sort handles and associated entity handles
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (code === 331) {
+          entityHandles331.push(normalizeHandle(tag.value));
+        }
+      });
+      
+      // Also collect any soft pointer references (code 330 after the first one is child handles)
+      let foundOwner = false;
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (code === 330) {
+          if (foundOwner) {
+            // Subsequent 330 codes are child entity handles
+            entityHandles5.push(normalizeHandle(tag.value));
+          }
+          foundOwner = true;
+        }
+      });
+      
+      // Build the sort order array - each entry is { sortHandle, entityHandle }
+      const maxLen = Math.max(entityHandles331.length, entityHandles5.length);
+      for (let i = 0; i < maxLen; i++) {
+        sortOrder.push({
+          sortHandle: entityHandles331[i] || null,
+          entityHandle: entityHandles5[i] || entityHandles331[i] || null,
+          order: i
+        });
+      }
+      
+      return {
+        type: 'SORTENTSTABLE',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        sortOrder,
+        entityCount: sortOrder.length,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseWipeoutVariables(tags) {
+      // WIPEOUTVARIABLES object controls wipeout frame display
+      // DXF codes:
+      //   5: Handle
+      //   330: Owner handle
+      //   70: Display image frame (0=off, 1=on)
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const displayFrame = utils.toInt(utils.getFirstCodeValue(tags, 70)) || 0;
+      
+      return {
+        type: 'WIPEOUTVARIABLES',
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        displayFrame: displayFrame !== 0,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
+    parseAssociativityObject(typeName, tags) {
+      // Parse various associativity objects (ACDBASSOCNETWORK, ACDBASSOCDEPENDENCY, etc.)
+      // These are used for parametric constraints but are not visually rendered
+      if (!Array.isArray(tags) || !tags.length) {
+        return null;
+      }
+      const handle = utils.getFirstCodeValue(tags, 5) || null;
+      const owner = utils.getFirstCodeValue(tags, 330) || null;
+      const status = utils.toInt(utils.getFirstCodeValue(tags, 90)) || 0;
+      const nodeRefs = [];
+      const actionRefs = [];
+      
+      tags.forEach((tag) => {
+        const code = Number(tag.code);
+        if (code === 330 && tag.value !== owner) {
+          nodeRefs.push(normalizeHandle(tag.value));
+        }
+        if (code === 360) {
+          actionRefs.push(normalizeHandle(tag.value));
+        }
+      });
+      
+      return {
+        type: typeName,
+        handle,
+        handleUpper: normalizeHandle(handle),
+        owner,
+        ownerUpper: normalizeHandle(owner),
+        status,
+        nodeRefs,
+        actionRefs,
+        rawTags: this._mapRawTags(tags)
+      };
+    }
+
     processTableRecord(collections, tableName, recordType, recordTags) {
       const upperTable = tableName.toUpperCase();
       const name = (utils.getFirstCodeValue(recordTags, 2) ||
@@ -4998,6 +5466,22 @@
           paperUnits: utils.toFloat(utils.getFirstCodeValue(recordTags, 40)) ?? null,
           drawingUnits: utils.toFloat(utils.getFirstCodeValue(recordTags, 41)) ?? null,
           codeValues: codeLookup,
+          rawTags: this._mapRawTags(recordTags)
+        });
+        return;
+      }
+
+      if ((upperTable === 'PLOTSTYLENAME' || upperTable === 'ACDBPLACEHOLDER') && 
+          (recordType === 'PLOTSTYLENAME' || recordType === 'ACDBPLACEHOLDER')) {
+        const handle = utils.getFirstCodeValue(recordTags, 5) || null;
+        const owner = utils.getFirstCodeValue(recordTags, 330) || null;
+        collections[upperTable].set(name || handle, {
+          name: name || handle,
+          handle,
+          handleUpper: normalizeHandle(handle),
+          owner,
+          ownerUpper: normalizeHandle(owner),
+          flags: utils.toInt(utils.getFirstCodeValue(recordTags, 70)) || 0,
           rawTags: this._mapRawTags(recordTags)
         });
         return;

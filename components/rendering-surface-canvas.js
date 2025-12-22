@@ -183,6 +183,17 @@
         ctx.lineWidth = Math.max(0.6, polyline.weight || 1);
         ctx.strokeStyle = strokeCss;
         ctx.globalAlpha = polyline.color ? polyline.color.a : 1;
+        
+        // Apply linetype dash pattern if available
+        if (polyline.lineDash && Array.isArray(polyline.lineDash) && polyline.lineDash.length > 0) {
+          ctx.setLineDash(polyline.lineDash);
+          if (typeof polyline.lineDashOffset === 'number') {
+            ctx.lineDashOffset = polyline.lineDashOffset;
+          }
+        } else {
+          ctx.setLineDash([]);
+        }
+        
         ctx.beginPath();
         ctx.moveTo(polyline.screenPoints[0], polyline.screenPoints[1]);
         for (let p = 2; p < polyline.screenPoints.length; p += 2) {
@@ -192,7 +203,28 @@
           ctx.closePath();
         }
         ctx.stroke();
+        ctx.setLineDash([]);
         ctx.globalAlpha = 1;
+      }
+
+      // Render complex linetype shapes (text and shape markers)
+      const linetypeShapes = frame.linetypeShapes || [];
+      for (let i = 0; i < linetypeShapes.length; i++) {
+        const shape = linetypeShapes[i];
+        if (!shape || !shape.position) continue;
+        ctx.save();
+        ctx.translate(shape.position.x, shape.position.y);
+        if (typeof shape.rotation === 'number') {
+          ctx.rotate(shape.rotation);
+        }
+        const size = Math.max(4, shape.size || 8);
+        ctx.font = `${size}px sans-serif`;
+        ctx.fillStyle = shape.colorCss || 'rgba(210, 227, 255, 1)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const label = shape.text || '•';
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
       }
 
       const points = frame.points || [];
