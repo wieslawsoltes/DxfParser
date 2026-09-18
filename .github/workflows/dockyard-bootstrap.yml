@@ -1,0 +1,43 @@
+name: Stage Dockyard migration
+on:
+  push:
+    branches: [feat/dockyard-workspace]
+    paths: [.github/workflows/dockyard-bootstrap.yml]
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/dockyard-workspace
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/Dockyard
+          ref: 7b2b56b281ccf71555c21a1bef4bdf38df67e034
+          path: .dockyard-upstream
+      - name: Vendor audited browser distribution
+        run: |
+          mkdir -p vendor/dockyard
+          cp .dockyard-upstream/dist/avalondock.js vendor/dockyard/
+          cp .dockyard-upstream/dist/avalondock.css vendor/dockyard/
+          cp .dockyard-upstream/LICENSE vendor/dockyard/LICENSE
+          cp .dockyard-upstream/NOTICE.md vendor/dockyard/NOTICE.md
+          printf '%s\n' 'Upstream: https://github.com/wieslawsoltes/Dockyard' 'Commit: 7b2b56b281ccf71555c21a1bef4bdf38df67e034' 'Unmodified browser distribution. MIT; see LICENSE and NOTICE.md.' > vendor/dockyard/UPSTREAM.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vendor/dockyard
+          git diff --cached --quiet || git commit -m 'build: vendor pinned Dockyard browser distribution'
+          git push origin HEAD:feat/dockyard-workspace
+      - name: Collect migration sources
+        run: |
+          mkdir -p /tmp/docking-source/DxfParser /tmp/docking-source/Dockyard
+          git archive HEAD | tar -x -C /tmp/docking-source/DxfParser
+          git -C .dockyard-upstream archive HEAD | tar -x -C /tmp/docking-source/Dockyard
+          tar -czf docking-source.tar.gz -C /tmp/docking-source .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docking-source
+          path: docking-source.tar.gz
+          retention-days: 3
