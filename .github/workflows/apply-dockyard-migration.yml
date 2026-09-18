@@ -12,41 +12,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feat/dockyard-workspace
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Decode and verify reviewed patch
+      - name: Apply verified narrow-pane follow-up
         run: |
-          python - <<'PY'
-          import base64, hashlib, lzma
-          from pathlib import Path
-          chunks = sorted(Path('.dockyard-migration').glob('*.b64'))
-          assert [p.name for p in chunks] == ['00.b64', '01.b64', '02.b64', '03.b64']
-          encoded = ''.join(p.read_text().strip() for p in chunks)
-          assert len(encoded) == 33296
-          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
-          assert len(patch) == 98817
-          assert hashlib.sha256(patch).hexdigest() == '3e064c8bfd8503fab059b79ad159837a969e691c25d577ff8a21f0c8e2ac0899'
-          Path('/tmp/dockyard-migration.patch').write_bytes(patch)
-          PY
-      - name: Apply source and regenerate distribution
-        run: |
-          git apply --check --exclude='.github/workflows/*' /tmp/dockyard-migration.patch
-          git apply --index --exclude='.github/workflows/*' /tmp/dockyard-migration.patch
-          node scripts/build-rendering-bundle.js
-          rm -rf .dockyard-migration
+          echo '8410fadd6c15b2752df5ab87ba5d4022076029ba0e3c691f0c2d8bc2e8446cdc  .dockyard-polish.patch' | sha256sum -c -
+          git apply --check .dockyard-polish.patch
+          git apply --index .dockyard-polish.patch
+          rm .dockyard-polish.patch
           git add -A
-          # Workflow changes are handled separately by the connected account.
-          # Verify the exact final source tree using a temporary index only.
           cp .git/index /tmp/dockyard-verification-index
           GIT_INDEX_FILE=/tmp/dockyard-verification-index git rm --cached .github/workflows/apply-dockyard-migration.yml .github/workflows/dockyard-bootstrap.yml
           ACTUAL="$(GIT_INDEX_FILE=/tmp/dockyard-verification-index git write-tree)"
           echo "Final repository tree after workflow cleanup: $ACTUAL"
-          test "$ACTUAL" = '1c8bb3a0acf7d40cd8f355a2d2afa4dc10e1984f'
+          test "$ACTUAL" = '0337da984993d0fe5efd130241f75c50a06c98d4'
           test -z "$(git diff --cached --name-only -- .github/workflows)"
+          node --check components/tree-data-grid.js
+          node --check components/docking-parser.js
       - name: Commit verified source to feature branch
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat: migrate parser and editor to full Dockyard workspaces'
+          git commit -m 'fix: preserve readable tree columns in narrow dock panes'
           git push origin HEAD:feat/dockyard-workspace
