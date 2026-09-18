@@ -1,0 +1,4 @@
+Repository: https://github.com/wieslawsoltes/RichTextWeb
+Commit: 7f6242b6355b7448bf975a96f12aa18a161ea9a7
+Version: 0.5.0
+Browser root entry built with upstream package-lock, bundled dependency notices retained.
