@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import functools
 import http.server
+import io
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import re
 import threading
 import unittest
 
+from PIL import Image
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,13 +126,14 @@ class DockingTests(unittest.TestCase):
         self.settle()
 
     def colors(self):
-        return self.page.evaluate('''() => {
-          const canvas = document.getElementById('renderingOverlayCanvas');
-          const data = canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
-          const colors = new Set();
-          for (let i=0;i<data.length;i+=4) { colors.add(`${data[i]},${data[i+1]},${data[i+2]},${data[i+3]}`); if(colors.size>16) break; }
-          return colors.size;
-        }''')
+        # Read the composited canvas, not a backend-specific drawing context.
+        # Normal HTTP can select WebGL/WebGPU; requesting a 2D context on that
+        # same canvas returns null. Screenshot pixels cover every backend and
+        # still fail for a cleared/uniform bitmap after a docking operation.
+        screenshot = self.page.locator('#renderingOverlayCanvas').screenshot()
+        with Image.open(io.BytesIO(screenshot)) as image:
+            colors = image.convert('RGBA').getcolors(maxcolors=16)
+            return len(colors) if colors is not None else 17
 
     def test_01_main_registry_and_connected_retained_nodes(self):
         self.load()
@@ -304,11 +307,14 @@ class DockingTests(unittest.TestCase):
         else:
             self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
         self.assertJS("!w.isOpen('tree-right') && w.manager.Theme==='dark'")
-        self.page.evaluate("localStorage.setItem(w.storageKey,'broken')")
         if INJECTED:
             self.page.close(); self.page=self.context.new_page(); self.page.on('pageerror',lambda e:self.errors.append(str(e)))
             self.load(storage={'dxfparser.dockyard.parser.v1':'broken'})
         else:
+            # Corrupt the next document before app startup, after the outgoing
+            # workspace's pagehide autosave has finished. Poisoning the live
+            # page instead would be repaired by its intentional reload save.
+            self.page.add_init_script("localStorage.setItem('dxfparser.dockyard.parser.v1','broken')")
             self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
         self.assertJS("w.isOpen('tree-right') && w.status.dataset.error==='true'")
 
