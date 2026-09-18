@@ -31,16 +31,20 @@ jobs:
           PY
       - name: Apply source and regenerate distribution
         run: |
-          git apply --check /tmp/dockyard-migration.patch
-          git apply --index /tmp/dockyard-migration.patch
+          git apply --check --exclude='.github/workflows/*' /tmp/dockyard-migration.patch
+          git apply --index --exclude='.github/workflows/*' /tmp/dockyard-migration.patch
           node scripts/build-rendering-bundle.js
           rm -rf .dockyard-migration
-          rm .github/workflows/apply-dockyard-migration.yml
           git add -A
-          ACTUAL="$(git write-tree)"
-          echo "Final repository tree: $ACTUAL"
+          # Workflow changes are handled separately by the connected account.
+          # Verify the exact final source tree using a temporary index only.
+          cp .git/index /tmp/dockyard-verification-index
+          GIT_INDEX_FILE=/tmp/dockyard-verification-index git rm --cached .github/workflows/apply-dockyard-migration.yml .github/workflows/dockyard-bootstrap.yml
+          ACTUAL="$(GIT_INDEX_FILE=/tmp/dockyard-verification-index git write-tree)"
+          echo "Final repository tree after workflow cleanup: $ACTUAL"
           test "$ACTUAL" = '1c8bb3a0acf7d40cd8f355a2d2afa4dc10e1984f'
-      - name: Commit verified tree to feature branch
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+      - name: Commit verified source to feature branch
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
