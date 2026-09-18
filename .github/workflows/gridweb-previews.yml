@@ -1,0 +1,38 @@
+name: GridWeb reports and Office previews
+on:
+  pull_request:
+  push:
+    branches: [main, feat/gridweb-document-previews]
+permissions:
+  contents: read
+concurrency:
+  group: gridweb-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: GridWeb and RichTextWeb integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify pinned assets and JavaScript syntax
+        run: |
+          for dir in vendor/gridweb vendor/richtextweb vendor/office-compat; do (cd "$dir" && sha256sum -c SHA256SUMS); done
+          for file in components/data-grid.js components/tabular-reports.js components/office-preview.js components/batch-data-grid.js scripts/build-office-controls.mjs; do node --check "$file"; done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser test tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Test normally served application and real document imports
+        run: python tests/gridweb-previews.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gridweb-office-browser-evidence
+          path: test-results/gridweb
+          retention-days: 14
