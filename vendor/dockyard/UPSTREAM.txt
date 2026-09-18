@@ -1,0 +1,3 @@
+Upstream: https://github.com/wieslawsoltes/Dockyard
+Commit: 7b2b56b281ccf71555c21a1bef4bdf38df67e034
+Unmodified browser distribution. MIT; see LICENSE and NOTICE.md.

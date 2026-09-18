@@ -1,0 +1,56 @@
+name: Dockyard workspace
+on:
+  pull_request:
+  push:
+    branches: [main, feat/dockyard-workspace]
+permissions:
+  contents: read
+concurrency:
+  group: dockyard-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    name: Existing suite and base-frame comparison
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate the pinned local dependency
+        run: cd vendor/dockyard && sha256sum -c SHA256SUMS
+      - name: Verify generated rendering bundle
+        run: |
+          node scripts/build-rendering-bundle.js
+          git diff --exit-code -- dist/dxf-rendering.global.js
+      - name: Prepare comparison baseline
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          BASE="${PR_BASE:-origin/main}"
+          if [ "${{ github.ref }}" = refs/heads/main ] && [ -z "$PR_BASE" ]; then BASE=HEAD^; fi
+          git worktree add --detach "$RUNNER_TEMP/dxf-base" "$BASE"
+      - name: Gate existing tests and unchanged baseline debt
+        run: python tests/check-docking-regressions.py --baseline "$RUNNER_TEMP/dxf-base"
+  browser:
+    name: Chromium workspace integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked browser test tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Test real HTTP loading, docking and browser persistence
+        run: python tests/docking-workspace.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docking-browser-evidence
+          path: test-results/docking
+          retention-days: 14

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <!-- This meta tag makes the app responsive on mobile devices -->
@@ -29,8 +29,13 @@
   <script src="components/state-manager.js"></script>
   <script src="components/tree-diff-engine.js"></script>
   <script src="components/dxf-diagnostics-engine.js"></script>
+  <script src="vendor/dockyard/avalondock.js"></script>
+  <script src="components/docking-workspace.js"></script>
+  <script src="components/docking-parser.js"></script>
   <script src="components/app.js"></script>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="vendor/dockyard/avalondock.css">
+  <link rel="stylesheet" href="components/docking.css">
 </head>
 <body>
   <div class="main-container">
@@ -846,6 +851,7 @@
   <!-- Application Code -->
   <script>
     (function() {
+      if (window.DxfDocking) return; // Dockyard owns sidebar visibility and sizing.
       const contentWrapper = document.querySelector('.content-wrapper');
       const toggleBtn = document.getElementById('toggleSidebarBtn');
       const closeBtn = document.getElementById('closeSidebarBtn');
