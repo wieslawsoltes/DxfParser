@@ -1,0 +1,65 @@
+name: Vendor Office controls
+on:
+  push:
+    branches: [feat/gridweb-document-previews]
+    paths: [.github/workflows/vendor-office-controls.yml]
+permissions:
+  contents: write
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/gridweb-document-previews
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/GridWeb
+          ref: 79fe32584e646a614a6549c8a14ea12e976b2e02
+          path: .gridweb-source
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/RichTextWeb
+          ref: 7f6242b6355b7448bf975a96f12aa18a161ea9a7
+          path: .richtextweb-source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned upstream build toolchain
+        working-directory: .richtextweb-source
+        run: npm ci --ignore-scripts --legacy-peer-deps
+      - name: Build browser distributions
+        run: |
+          mkdir -p vendor/gridweb vendor/richtextweb vendor/office-compat
+          node --input-type=module <<'JS'
+          import {build} from './.richtextweb-source/node_modules/esbuild/lib/main.js';
+          await build({stdin:{contents:"export * from './.gridweb-source/src/browser.js'; export * from './.gridweb-source/src/io.js'; export {readZip,writeZip} from './.gridweb-source/src/zip.js';",resolveDir:process.cwd()},outfile:'vendor/gridweb/gridweb.global.js',bundle:true,format:'iife',globalName:'GridWeb',platform:'browser',target:'es2022',minify:true,legalComments:'linked',external:['node:zlib']});
+          await build({entryPoints:['.richtextweb-source/src/index.ts'],outfile:'vendor/richtextweb/richtextweb.global.js',bundle:true,format:'iife',globalName:'RichTextWeb',platform:'browser',target:'es2022',minify:true,legalComments:'linked'});
+          JS
+          cp .gridweb-source/LICENSE .gridweb-source/NOTICE.md vendor/gridweb/
+          cp .richtextweb-source/LICENSE .richtextweb-source/NOTICE vendor/richtextweb/
+          cp .richtextweb-source/node_modules/mathjax-full/LICENSE vendor/richtextweb/MATHJAX-LICENSE
+          cp .richtextweb-source/node_modules/mhchemparser/LICENSE.txt vendor/richtextweb/MHCHEM-LICENSE
+          cp .richtextweb-source/node_modules/jszip/dist/jszip.min.js vendor/office-compat/jszip.min.js
+          cp .richtextweb-source/node_modules/jszip/LICENSE.markdown vendor/office-compat/JSZIP-LICENSE
+          npm install --prefix /tmp/xlsx-compat --ignore-scripts xlsx-js-style@1.2.0
+          cp /tmp/xlsx-compat/node_modules/xlsx-js-style/dist/xlsx.min.js vendor/office-compat/xlsx.min.js
+          cp /tmp/xlsx-compat/node_modules/xlsx-js-style/LICENSE vendor/office-compat/XLSX-LICENSE
+          printf '%s\n' 'Repository: https://github.com/wieslawsoltes/GridWeb' 'Commit: 79fe32584e646a614a6549c8a14ea12e976b2e02' 'Version: 0.5.0' 'Built from unmodified source with pinned RichTextWeb esbuild toolchain.' > vendor/gridweb/UPSTREAM.txt
+          printf '%s\n' 'Repository: https://github.com/wieslawsoltes/RichTextWeb' 'Commit: 7f6242b6355b7448bf975a96f12aa18a161ea9a7' 'Version: 0.5.0' 'Browser root entry built with upstream package-lock, bundled dependency notices retained.' > vendor/richtextweb/UPSTREAM.txt
+          printf '%s\n' 'JSZip 3.10.2, from pinned RichTextWeb package-lock.' 'xlsx-js-style 1.2.0: existing DXF exports and legacy Excel decoding only; all previews use GridWeb.' > vendor/office-compat/UPSTREAM.txt
+          for dir in vendor/gridweb vendor/richtextweb vendor/office-compat; do (cd "$dir" && sha256sum * > SHA256SUMS); done
+      - name: Commit dependency assets only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vendor/gridweb vendor/richtextweb vendor/office-compat
+          git diff --cached --quiet || git commit -m 'build: vendor pinned local GridWeb and RichTextWeb distributions'
+          git push origin HEAD:feat/gridweb-document-previews
+      - name: Collect built dependencies
+        run: tar -czf /tmp/office-controls.tar.gz vendor/gridweb vendor/richtextweb vendor/office-compat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: office-controls
+          path: /tmp/office-controls.tar.gz
+          retention-days: 3
