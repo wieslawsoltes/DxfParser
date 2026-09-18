@@ -1,0 +1,15 @@
+RichTextWeb is an independent implementation of a JavaScript flow document
+model and editing control with .NET-style API names. It does not contain or
+redistribute Microsoft Word's proprietary engine and is not affiliated with
+or endorsed by Microsoft, the .NET Foundation, Avalonia, or Meta.
+
+Runtime dependencies retain their own licenses:
+- JSZip 3.10.1: MIT OR GPL-3.0-or-later (used under MIT).
+- pdf-lib 1.17.1: MIT.
+- @pdf-lib/fontkit 1.1.1: MIT.
+- marked 17.0.5: MIT.
+- React is an optional peer dependency, licensed MIT.
+
+Bundled dependencies' legal comments are retained in adjacent .LEGAL.txt
+files. See dependency package distributions for full third-party notices.
+PDF import and preview use Mozilla PDF.js (pdfjs-dist), distributed under the Apache License 2.0. Its license is included with the redistributed PDF worker and assets in dist/pdf-assets/LICENSE.

@@ -1,0 +1,2 @@
+JSZip 3.10.2, from pinned RichTextWeb package-lock.
+xlsx-js-style 1.2.0: existing DXF exports and legacy Excel decoding only; all previews use GridWeb.

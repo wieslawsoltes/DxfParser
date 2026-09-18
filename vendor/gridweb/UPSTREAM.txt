@@ -1,0 +1,4 @@
+Repository: https://github.com/wieslawsoltes/GridWeb
+Commit: 79fe32584e646a614a6549c8a14ea12e976b2e02
+Version: 0.5.0
+Built from unmodified source with pinned RichTextWeb esbuild toolchain.

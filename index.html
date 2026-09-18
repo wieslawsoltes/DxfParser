@@ -6,10 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DXF Parser</title>
   <!-- Include JSZip for ZIP file browsing -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js">
-  </script>
+  <script src="vendor/office-compat/jszip.min.js"></script>
   <!-- Use style-enabled XLSX build to support cell background colors in exports -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
+  <script src="vendor/office-compat/xlsx.min.js"></script>
   <!-- Load components in dependency order -->
   <script src="components/utils.js"></script>
   <script src="components/dxf-parser.js"></script>
@@ -36,6 +35,12 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="vendor/dockyard/avalondock.css">
   <link rel="stylesheet" href="components/docking.css">
+<script src="vendor/gridweb/gridweb.global.js"></script>
+<script src="vendor/richtextweb/richtextweb.global.js"></script>
+<script src="components/data-grid.js"></script>
+<script src="components/office-preview.js"></script>
+<script src="components/tabular-reports.js"></script>
+<link rel="stylesheet" href="components/data-grid.css">
 </head>
 <body>
   <div class="main-container">

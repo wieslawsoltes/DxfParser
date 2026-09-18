@@ -91,7 +91,7 @@ class DockingTests(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context(viewport={'width': 1440, 'height': 1000})
-        # Existing ZIP/XLSX libraries are outside this migration. The docking tests need no network.
+        # All application dependencies are local; accidental external requests are blocked.
         self.context.route('https://**/*', lambda route: route.abort())
         self.errors = []
         self.context.set_default_timeout(7000)
@@ -137,7 +137,7 @@ class DockingTests(unittest.TestCase):
 
     def test_01_main_registry_and_connected_retained_nodes(self):
         self.load()
-        self.assertJS('w.definitions.size === 28')
+        self.assertJS('w.definitions.size === 29')
         self.assertJS("['commands','tools','tree-left','tree-right'].every(id=>w.isOpen(id))")
         self.assertJS('[...w.definitions.values()].every(d=>d.node.isConnected)')
         self.assertJS("new Set([...document.querySelectorAll('[id]')].map(n=>n.id)).size === document.querySelectorAll('[id]').length")
@@ -262,9 +262,9 @@ class DockingTests(unittest.TestCase):
         self.settle()
         self.assertJS("w.manager.Find('render-blocks').IsSelected && w.isOpen('render-layers')")
         self.page.evaluate("w.show('render-layers')"); self.settle()
-        self.page.locator('input[data-action="toggle-on"]').uncheck(); self.settle()
+        self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).uncheck(); self.settle()
         self.assertJS("!document.querySelector('input[data-action=\"toggle-on\"]').checked")
-        self.page.locator('input[data-action="toggle-on"]').check(); self.settle()
+        self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).check(); self.settle()
         self.assertGreater(self.colors(),4)
         self.assertJS("document.getElementById('renderingOverlayPropertyPanel').getAttribute('aria-hidden')==='false'")
         self.page.evaluate("w.show('render-controls')"); self.settle()
@@ -345,7 +345,7 @@ class DockingTests(unittest.TestCase):
 
     def test_16_editor_layout_palette_and_rendering_retention(self):
         self.load('editor/index.html')
-        self.assertJS('w.definitions.size===6')
+        self.assertJS('w.definitions.size===7')
         self.page.locator('#editorOpenFileInput').set_input_files(str(ROOT/'tests/data/sample.dxf'))
         self.page.wait_for_function('!!DxfEditorApp.getActiveDocument()'); self.settle()
         self.page.evaluate('window.record=DxfEditorApp.getActiveDocument();window.canvas=document.getElementById("editorCanvas2D")')

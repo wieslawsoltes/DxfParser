@@ -100,6 +100,7 @@
     const documents = (w, ids, width = '1*') => new A.LayoutDocumentPane({
       DockWidth: width, DockMinWidth: 120, DockMinHeight: 100, Children: ids.map(id => w.make(id))
     });
+    if (global.DxfOffice) panels.push(global.DxfOffice.createPanel(app));
     const workspace = new Workspace({
       id: 'parser', title: 'DXF Parser', shell, panels,
       presets: ['Compare', 'Review', 'Focus'],
@@ -132,6 +133,7 @@
       onRestore: w => w.refreshData?.()
     });
     app.dockingWorkspace = workspace;
+    app.officePreview?.attachWorkspace(workspace);
     renderer.dockingWorkspace = workspace;
     renderer.dockingInformationPanels = { info: 'render-info', layers: 'render-layers', blocks: 'render-blocks' };
     renderer.setInformationTab(renderer.activeInfoTab);
