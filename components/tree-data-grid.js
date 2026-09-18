@@ -30,6 +30,8 @@
           objectCount: 100,
           dataSize: 100
         };
+        // Optional lower bounds preserve readable columns in narrow docked views.
+        this.minimumColumnWidths = options.minimumColumnWidths || {};
         this.flatData = [];
         this.treeData = [];
         this.selectedRowId = null;
@@ -181,6 +183,10 @@
             finalWidths[col] = width;
           }
         });
+        columns.forEach(col => {
+          const minimum = this.minimumColumnWidths[col];
+          if (Number.isFinite(minimum) && minimum > finalWidths[col]) finalWidths[col] = minimum;
+        });
         return finalWidths;
       }
       
@@ -188,6 +194,11 @@
         const header = this.headerRootId ? document.getElementById(this.headerRootId) : document.getElementById("treeGridHeader");
         if (!header) return;
         const colWidths = this.computeColumnFinalWidths();
+        if (Object.values(this.minimumColumnWidths).some(value => Number.isFinite(value) && value > 0)) {
+          const width = Object.values(colWidths).reduce((sum, value) => sum + value, 0) + "px";
+          this.content.style.minWidth = width;
+          header.style.minWidth = width;
+        }
         const lineCell = header.querySelector('.tree-line');
         if (lineCell) lineCell.style.width = colWidths.line + "px";
         const codeCell = header.querySelector('.tree-code');

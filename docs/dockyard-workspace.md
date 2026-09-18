@@ -90,7 +90,8 @@ The nested diagnostic rules dialog is registered independently, not left inside 
 parent. Native browser alert/confirm/prompt/file pickers remain browser primitives, not fake dock tabs.
 
 ResizeObserver notifications are coalesced into animation frames. Tree virtualization is refreshed
-when its retained container changes size. Hidden canvases are not reallocated. A visible rendering
+when its retained container changes size. Narrow tree panes retain a readable Data column and
+scroll horizontally with a synchronized header rather than collapsing that column to zero. Hidden canvases are not reallocated. A visible rendering
 resize updates backing pixels using device-pixel ratio and redraws the scene while preserving camera
 state; Canvas2D would otherwise remain cleared after a backing-store resize. The controller changes
 are also included in the regenerated `dist/dxf-rendering.global.js`.

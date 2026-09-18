@@ -318,6 +318,12 @@ class DockingTests(unittest.TestCase):
         for preset in ['Review','Focus','Compare']:
             self.page.get_by_label('Workspace preset',exact=True).select_option(preset); self.settle()
             self.assertJS('app.tabs[0]===tab && app.tabsRight[0]===right')
+            if preset == 'Review':
+                self.assertJS('app.myTreeGridLeft.computeColumnFinalWidths().type >= 200')
+                self.assertJS('app.treeViewContainer.scrollWidth > app.treeViewContainer.clientWidth')
+                self.page.evaluate('app.treeViewContainer.scrollLeft=150')
+                self.settle()
+                self.assertJS("document.getElementById('treeGridHeaderLeft').style.transform==='translateX(-150px)'")
         self.page.get_by_role('button',name='Reset layout',exact=True).click(); self.settle()
         self.assertJS("app.tabs[0]===tab && w.isOpen('tree-right')")
 

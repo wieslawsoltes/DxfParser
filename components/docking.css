@@ -114,3 +114,5 @@
 .dxf-dock-host .dxf-dock-render-tool :is(.layer-name-text,.layer-name-meta,.layer-cell,.layer-color-label,.layer-manager-filter)::placeholder { color:var(--ad-text-muted); }
 .dxf-dock-host .dxf-dock-render-tool input::placeholder { color:var(--ad-text-muted); }
 .dxf-dock-host .dxf-dock-render-tool :is(.layer-name-text,.layer-name-meta,.layer-manager-table label) { color:var(--ad-text); }
+
+.dxf-dock-host .dxf-dock-view-controls .rendering-style-selector label { color:var(--ad-text); }

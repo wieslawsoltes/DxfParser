@@ -9,6 +9,8 @@
     const shell = document.querySelector('.main-container');
     const originalContent = document.querySelector('.content-wrapper');
     const renderer = app.renderingOverlayController;
+    // A narrow split must scroll rather than collapse the Data column to zero.
+    for (const grid of [app.myTreeGridLeft, app.myTreeGridRight]) grid.minimumColumnWidths = { type: 200 };
     const commands = element('div', 'dxf-dock-commands');
     commands.append(document.querySelector('.top-header'), byId('rowControls'));
     const sidebar = document.querySelector('.sidebar');
