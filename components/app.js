@@ -104,6 +104,7 @@
     this.initStateFileIO();
         // Mount only after controllers have cached their original DOM nodes and listeners.
         if (window.DxfDocking) this.dockingWorkspace = window.DxfDocking.mountParser(this);
+        window.DxfGrid?.installApp(this);
       }
       
       // Initialize state management and restore saved state

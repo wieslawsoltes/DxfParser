@@ -18,6 +18,7 @@
       id: 'editor', title: 'DXF Editor', shell, theme: 'dark',
       presets: ['Drafting', 'Review', 'Focus'], defaultPreset: 'Drafting',
       panels: [
+        ...(global.DxfOffice ? [global.DxfOffice.createPanel(app)] : []),
         { id: 'ribbon', title: 'Ribbon & Commands', node: byId('editorRibbon'), side: 'Top', height: 230 },
         { id: 'explorer', title: 'Project Explorer', node: byId('editorSidebar'), side: 'Left', width: 220 },
         { id: 'viewport', title: 'Drawing Viewport', node: viewport, kind: 'document', closable: false, titleNode: title,
@@ -47,6 +48,7 @@
       }
     });
     app.dockingWorkspace = workspace;
+    app.officePreview?.attachWorkspace(workspace);
     oldMain.hidden = true;
     const context = (_model, _manager, defaults) => defaults.filter(entry => entry?.Label !== 'Open in browser window');
     workspace.manager.DocumentContextMenu = context;
