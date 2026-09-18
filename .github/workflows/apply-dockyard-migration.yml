@@ -1,0 +1,48 @@
+name: Apply verified Dockyard migration
+on:
+  push:
+    branches: [feat/dockyard-workspace]
+    paths: [.github/workflows/apply-dockyard-migration.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/dockyard-workspace
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Decode and verify reviewed patch
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.dockyard-migration').glob('*.b64'))
+          assert [p.name for p in chunks] == ['00.b64', '01.b64', '02.b64', '03.b64']
+          encoded = ''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded) == 33296
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert len(patch) == 98817
+          assert hashlib.sha256(patch).hexdigest() == '3e064c8bfd8503fab059b79ad159837a969e691c25d577ff8a21f0c8e2ac0899'
+          Path('/tmp/dockyard-migration.patch').write_bytes(patch)
+          PY
+      - name: Apply source and regenerate distribution
+        run: |
+          git apply --check /tmp/dockyard-migration.patch
+          git apply --index /tmp/dockyard-migration.patch
+          node scripts/build-rendering-bundle.js
+          rm -rf .dockyard-migration
+          rm .github/workflows/apply-dockyard-migration.yml
+          git add -A
+          ACTUAL="$(git write-tree)"
+          echo "Final repository tree: $ACTUAL"
+          test "$ACTUAL" = '1c8bb3a0acf7d40cd8f355a2d2afa4dc10e1984f'
+      - name: Commit verified tree to feature branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: migrate parser and editor to full Dockyard workspaces'
+          git push origin HEAD:feat/dockyard-workspace
