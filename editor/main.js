@@ -1183,6 +1183,11 @@
   }
 
   function handleWorkspaceSwitchCommand() {
+    const workspace = window.DxfEditorApp.dockingWorkspace;
+    if (workspace) {
+      workspace.showPanelsMenu();
+      return true;
+    }
     return defaultStubCommand('Workspace switching');
   }
 
@@ -1366,6 +1371,11 @@
   }
 
   function handlePropertiesDialogCommand() {
+    const workspace = window.DxfEditorApp.dockingWorkspace;
+    if (workspace) {
+      workspace.show('inspector');
+      return true;
+    }
     return defaultStubCommand('Properties palette');
   }
 
@@ -1656,7 +1666,9 @@
 
   function openCommandPalette() {
     ensurePaletteDom();
-    if (!dom.commandPalette || state.palette.open) {
+    if (!dom.commandPalette) return;
+    if (state.palette.open) {
+      window.DxfEditorApp.dockingWorkspace?.show('command-palette');
       return;
     }
     state.palette.open = true;
@@ -1665,6 +1677,7 @@
     recomputePaletteResults('');
     dom.commandPalette.classList.add("show");
     dom.commandPalette.removeAttribute("hidden");
+    window.DxfEditorApp.dockingWorkspace?.show('command-palette');
     renderCommandPalette();
     window.requestAnimationFrame(() => {
       if (dom.commandPaletteInput) {
@@ -1683,6 +1696,7 @@
     state.palette.open = false;
     dom.commandPalette.classList.remove("show");
     dom.commandPalette.setAttribute("hidden", "true");
+    window.DxfEditorApp.dockingWorkspace?.hide('command-palette');
     if (state.palette.previousFocus && typeof state.palette.previousFocus.focus === "function") {
       state.palette.previousFocus.focus();
     }
@@ -2629,6 +2643,7 @@
     }
 
     initializeSkeleton();
+    if (window.DxfDocking) window.DxfEditorApp.dockingWorkspace = window.DxfDocking.mountEditor(window.DxfEditorApp);
     console.info("[editor] DXF Editor skeleton initialized.");
   }
 

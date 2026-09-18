@@ -102,6 +102,8 @@
 
     // Wire file import/export buttons
     this.initStateFileIO();
+        // Mount only after controllers have cached their original DOM nodes and listeners.
+        if (window.DxfDocking) this.dockingWorkspace = window.DxfDocking.mountParser(this);
       }
       
       // Initialize state management and restore saved state
@@ -109,6 +111,7 @@
         // Attempt to restore state on app startup
         setTimeout(() => {
           this.restoreAppState();
+          this.dockingWorkspace?.refreshData();
         }, 100); // Small delay to ensure DOM is ready
         
         // Auto-save state periodically
@@ -1120,6 +1123,10 @@
       }
 
       setRightPanelHidden(hidden) {
+        if (this.dockingWorkspace) {
+          this.dockingWorkspace.setVisible('tree-right', !hidden);
+          return;
+        }
         const right = document.getElementById('panelRight');
         const splitter = document.getElementById('compareSplitter');
         const toggleBtn = document.getElementById('toggleRightPanelBtn');
@@ -1144,6 +1151,7 @@
       }
 
       initCompareSplitter() {
+        if (window.DxfDocking) return; // The Dockyard layout owns all splitters.
         const splitter = document.getElementById('compareSplitter');
         const left = document.getElementById('panelLeft');
         const right = document.getElementById('panelRight');
@@ -2091,7 +2099,7 @@
         if (!overlay || !tab) return;
         // Close any open dropdowns and opposite side overlay
         this._closeFloatingDropdown();
-        this.closeFiltersOverlay(side === 'left' ? 'right' : 'left');
+        if (!this.dockingWorkspace) this.closeFiltersOverlay(side === 'left' ? 'right' : 'left');
         // Ensure dropdowns populated
         this.populateObjectTypeDropdown();
         // Sync tags
@@ -2122,6 +2130,10 @@
           this.updateObjectTypeDropdownButton(side);
         }
         overlay.style.display = 'block';
+        if (this.dockingWorkspace) {
+          this.dockingWorkspace.show(overlay.id);
+          return; // No absolute positioning, outside-click dismissal or competing drag handlers.
+        }
         // Position overlay content under the corresponding Filters button
         const btn = document.getElementById(side === 'right' ? 'filtersRightBtn' : 'filtersLeftBtn');
         const content = overlay.querySelector('.overlay-content');

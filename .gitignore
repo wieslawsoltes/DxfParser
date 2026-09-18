@@ -1,0 +1,5 @@
+# Local test artifacts and Python tooling.
+test-results/
+__pycache__/
+*.pyc
+.venv/

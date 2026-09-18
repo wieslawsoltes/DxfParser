@@ -1093,7 +1093,8 @@
         this.propertyGrid = null;
       }
       if (this.propertyPanel) {
-        this.propertyPanel.setAttribute('aria-hidden', 'true');
+        this.propertyPanel.setAttribute('aria-hidden', this.dockingWorkspace
+        ? String(!this.dockingWorkspace.isOpen('render-properties')) : 'true');
       }
       if (this.propertySummaryEl) {
         this.propertySummaryEl.textContent = 'No selection.';
@@ -1245,6 +1246,10 @@
       const nextTab = allowedTabs.includes(tabId) ? tabId : 'info';
       const focusRequested = options.focus === true;
       this.activeInfoTab = nextTab;
+      if (this.dockingWorkspace && this.dockingInformationPanels) {
+        if (focusRequested) this.dockingWorkspace.show(this.dockingInformationPanels[nextTab]);
+        return; // Information, layers and blocks are independent, retained dock tools.
+      }
       const infoActive = nextTab === 'info';
       const layersActive = nextTab === 'layers';
       const blocksActive = nextTab === 'blocks';
@@ -1434,6 +1439,7 @@
 
       this.overlayRoot.style.display = 'block';
       this.overlayRoot.setAttribute('aria-hidden', 'false');
+      if (this.dockingWorkspace) this.dockingWorkspace.show('rendering');
       requestAnimationFrame(() => this.resizeCanvas());
     }
 
@@ -2834,8 +2840,10 @@
       }
       const rect = container.getBoundingClientRect();
       const dpr = (this.global && this.global.devicePixelRatio) || 1;
-      const width = Math.max(320, rect.width);
-      const height = Math.max(240, rect.height);
+      // Hidden tabs have zero bounds. Do not allocate/clear a canvas while it is parked.
+      if (this.dockingWorkspace && (!rect.width || !rect.height)) return;
+      const width = Math.max(this.dockingWorkspace ? 1 : 320, rect.width);
+      const height = Math.max(this.dockingWorkspace ? 1 : 240, rect.height);
       if (this.canvas.width !== Math.floor(width * dpr) || this.canvas.height !== Math.floor(height * dpr)) {
         this.canvas.width = Math.floor(width * dpr);
         this.canvas.height = Math.floor(height * dpr);
@@ -2844,7 +2852,12 @@
       this.canvas.style.height = `${height}px`;
       if (this.surfaceManager) {
         this.surfaceManager.resize(width, height, dpr);
-        this.refreshViewportOverlays(this.surfaceManager.lastFrame);
+        // Resizing clears the backing bitmap. Rebuild the frame at its new bounds,
+        // preserving the manager's current camera rather than resetting to auto-fit.
+        const frame = this.dockingWorkspace && this.currentSceneGraph
+          ? this.surfaceManager.renderScene(this.currentSceneGraph)
+          : this.surfaceManager.lastFrame;
+        this.refreshViewportOverlays(frame);
       }
       if (this.textLayer) {
         this.textLayer.style.width = `${width}px`;
@@ -3047,7 +3060,8 @@
           ? `Handle ${handles[0]}`
           : `${handles.length} entities selected`;
       }
-      this.propertyPanel.setAttribute('aria-hidden', 'false');
+      this.propertyPanel.setAttribute('aria-hidden', this.dockingWorkspace
+        ? String(!this.dockingWorkspace.isOpen('render-properties')) : 'false');
       if (this.overlayBodyEl) {
         this.overlayBodyEl.classList.add('has-properties');
       }

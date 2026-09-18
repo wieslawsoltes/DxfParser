@@ -1,0 +1,116 @@
+/* Scoped application presentation. Dockyard's own layout/drag/resize implementation is unmodified. */
+.dxf-dock-shell { display:flex!important; flex-direction:column!important; width:100%; height:100vh!important; height:100dvh!important; min-width:0; min-height:0; padding:0!important; overflow:hidden; gap:0; background:#e8ecef; }
+.dxf-dock-shell > [hidden], .dxf-dock-storage { display:none!important; }
+.dxf-dock-host { flex:1 1 0; min-width:0; min-height:0; }
+.dxf-dock-toolbar { display:flex; align-items:center; gap:5px; min-height:36px; padding:4px 8px; flex:none; overflow-x:auto; white-space:nowrap; border-bottom:1px solid #ccd4dc; background:#f4f6f8; color:#26323e; font:12px/1.4 system-ui,sans-serif; }
+.dxf-dock-toolbar button,.dxf-dock-toolbar select { min-height:26px; padding:3px 8px; border:1px solid #c9d2db; border-radius:3px; background:#fff; color:inherit; font:inherit; cursor:pointer; }
+.dxf-dock-toolbar button:hover { background:#e7edf3; }
+.dxf-dock-toolbar button:disabled { opacity:.45; cursor:default; }
+.dxf-dock-toolbar :focus-visible { outline:2px solid #0067c0; outline-offset:1px; }
+.dxf-dock-brand { margin-right:12px; font-size:13px; letter-spacing:.02em; }
+.dxf-dock-toolbar-spacer { flex:1; }
+.dxf-dock-status { min-height:23px; flex:none; padding:3px 10px; border-top:1px solid #ccd4dc; color:#52616e; background:#f4f6f8; font:11px/1.45 system-ui,sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dxf-dock-status.is-error { color:#973d0a; background:#fff0d9; }
+.dxf-dock-host .ad-context-menu { max-height:calc(100% - 12px); overflow-y:auto; }
+.dxf-dock-host .ad-pane-title { min-height:25px; flex-basis:25px; }
+.dxf-dock-host .ad-tab-row { min-height:29px; flex-basis:29px; }
+.dxf-dock-host .ad-tab-overflow { height:28px; }
+.dxf-dock-host .ad-anchorable-pane:has(> .ad-tab-row .ad-tab:only-child) > .ad-tab-row { display:none; }
+.dxf-dock-host .ad-content { overflow:hidden; }
+.dxf-dock-host .dxf-dock-surface { display:flex!important; position:relative!important; flex-direction:column; width:100%!important; height:100%!important; min-width:0!important; min-height:0!important; max-width:none!important; max-height:none!important; margin:0!important; inset:auto!important; transform:none!important; z-index:auto!important; overflow:auto; background:var(--ad-panel); color:var(--ad-text); box-sizing:border-box; }
+.dxf-dock-host .dxf-dock-surface[hidden] { display:none!important; }
+.dxf-dock-host .sidebar { padding:6px!important; border:0; }
+.dxf-dock-host .sidebar-buttons { display:flex; flex-direction:column; gap:3px; }
+.dxf-dock-host .sidebar-buttons .fluent-button { min-height:31px; padding:5px 8px; font-size:12px; background:transparent; color:var(--ad-text); border-color:transparent; }
+.dxf-dock-host .sidebar-buttons .fluent-button:hover { background:var(--ad-hover); }
+.dxf-dock-host .sidebar-buttons .fluent-icon { width:19px; font-size:15px; }
+.dxf-dock-commands { padding:3px 6px; overflow:auto; gap:3px; }
+.dxf-dock-commands .top-header { padding:2px 4px; min-height:29px; margin:0; border:0; border-radius:0; background:transparent; flex-wrap:wrap; gap:5px; }
+.dxf-dock-commands .app-title { display:none; }
+.dxf-dock-commands .top-header-right { flex-wrap:wrap; }
+.dxf-dock-commands .top-header-right > button,.dxf-dock-commands .top-header-right > label { height:26px; font-size:12px; }
+.dxf-dock-commands .row-controls { display:flex; gap:6px; padding:0; margin:0; flex-wrap:wrap; align-items:flex-start; }
+.dxf-dock-commands .row-controls-right { flex:1; min-width:200px; }
+.dxf-dock-commands #navControls { display:flex; flex-wrap:wrap; gap:5px; align-items:flex-start; }
+.dxf-dock-commands #handleNavBar { margin:0; }
+.dxf-dock-commands #navHistoryContainer { flex:1; min-width:160px; }
+.dxf-dock-commands #navHistoryList { max-height:38px; overflow:auto; }
+.dxf-dock-host .panel { overflow:hidden; padding:0 4px 4px; }
+.dxf-dock-host .panel > div:first-child { flex:none; flex-wrap:wrap; }
+.dxf-dock-host .tab-container { max-height:58px; overflow:auto; }
+.dxf-dock-host .tree-header { flex:none; }
+.dxf-dock-host #treeViewContainerLeft,.dxf-dock-host #treeViewContainerRight { min-height:0; }
+.dxf-dock-host .dxf-dock-dialog { padding:0; border:0; border-radius:0; }
+.dxf-dock-host .dxf-dock-dialog > .overlay-content { display:flex; flex-direction:column; gap:6px; position:relative!important; inset:auto!important; transform:none!important; width:100%!important; height:100%!important; max-width:none!important; max-height:none!important; min-height:0; margin:0!important; padding:10px!important; overflow:auto!important; border:0; border-radius:0; box-shadow:none; background:var(--ad-panel); color:var(--ad-text); }
+.dxf-dock-host .dxf-dock-dialog > .overlay-content > h2 { margin:0; font-size:15px; }
+.dxf-dock-host .dxf-dock-legacy-close { display:none!important; }
+.dxf-dock-host .backToTreeBtn { align-self:flex-start; position:static; margin:0; }
+.dxf-dock-host .diagnostics-header,.dxf-dock-host .diagnostics-controls,.dxf-dock-host .rule-config-header { flex-wrap:wrap; gap:6px; }
+.dxf-dock-host .diagnostics-header h2 { font-size:14px; margin:0; }
+.dxf-dock-host .diagnostics-tab-content { min-height:0; }
+.dxf-dock-host .dxf-dock-rendering { overflow:hidden!important; padding:0; }
+.dxf-dock-host .rendering-overlay-content { width:100%!important; height:100%!important; max-width:none!important; max-height:none!important; margin:0!important; padding:0!important; border:0; border-radius:0; position:relative!important; inset:auto!important; box-shadow:none; background:var(--ad-panel); }
+.dxf-dock-host .rendering-overlay-body { display:flex!important; width:100%; height:100%; min-height:0; gap:0; padding:0; }
+.dxf-dock-host .rendering-overlay-viewport { flex:1; position:relative; width:100%; height:100%; min-height:0!important; min-width:0!important; border:0; border-radius:0; overflow:hidden; }
+.dxf-dock-host #renderingOverlayCanvas { min-width:0; min-height:0; }
+.dxf-dock-host .dxf-dock-render-tool { padding:10px; gap:9px; border:0; background:var(--ad-panel); overflow:auto; }
+.dxf-dock-host .dxf-dock-render-tool section { padding:0; border:0; margin:0; }
+.dxf-dock-host .dxf-dock-render-tool h3 { font-size:12px; margin:0 0 7px; }
+.dxf-dock-host .dxf-dock-render-tool .layer-manager-header { flex-wrap:wrap; }
+.dxf-dock-host .dxf-dock-render-tool .layer-manager-controls { flex-wrap:wrap; }
+.dxf-dock-host .rendering-property-grid-container { min-height:0; flex:1; overflow:auto; }
+.dxf-dock-host .rendering-overlay-properties[aria-hidden="true"] { display:flex; }
+/* Old report markup contains light colors; override surfaces, never drawing entity colors. */
+.dxf-dock-host[data-theme="dark"] :is(.dxf-dock-dialog,.dxf-dock-render-tool,.panel,.dxf-dock-commands) :is(table,thead,tbody,tr,th,td,pre,input,select,textarea,button,.tree-header,.filter-content,.diagnostics-header,.diagnostics-controls,.rule-config-header) { background-color:var(--ad-panel); color:var(--ad-text); border-color:var(--ad-border); }
+.dxf-dock-shell:has(.ad-manager[data-theme="dark"]) > :is(.dxf-dock-toolbar,.dxf-dock-status) { background:#22272d; color:#dce1e7; border-color:#353b43; }
+.dxf-dock-shell:has(.ad-manager[data-theme="dark"]) > .dxf-dock-toolbar :is(button,select) { background:#1b1f24; border-color:#353b43; }
+.dxf-dock-shell:has(.ad-manager[data-theme="contrast"]) > :is(.dxf-dock-toolbar,.dxf-dock-status) { background:#000; color:#fff; border-color:#fff; }
+.dxf-dock-shell:has(.ad-manager[data-theme="contrast"]) > .dxf-dock-toolbar :is(button,select) { background:#000; color:#fff; border-color:#fff; }
+@media (max-width:700px) {
+  .dxf-dock-brand { margin-right:3px; }
+  .dxf-dock-toolbar { gap:3px; padding-inline:4px; }
+  .dxf-dock-host .sidebar { position:relative!important; transform:none!important; visibility:visible!important; }
+  .dxf-dock-host .ad-tab { min-width:65px; max-width:180px; }
+}
+
+/* The standalone editor uses the same manager, but retains its own ribbon and CAD controls. */
+.editor-app.dxf-dock-shell { width:100%; min-height:0; background:#202328; }
+.editor-app.dxf-dock-shell .editor-shell[hidden] { display:none !important; }
+.dxf-dock-host .editor-viewport { position:relative !important; padding:0; border:0; min-width:0; min-height:0; }
+.dxf-dock-host .editor-sidebar, .dxf-dock-host .editor-inspector { display:block !important; padding:8px; border:0; overflow:auto; }
+.dxf-dock-host .editor-ribbon { padding:5px 8px; gap:5px; min-height:0; max-height:none; overflow:auto; transition:none; }
+.dxf-dock-host .editor-ribbon.is-collapsed:not(.is-peek) .ribbon-panels { display:none; }
+.dxf-dock-host .ribbon-top-bar { flex-wrap:wrap; gap:8px; }
+.dxf-dock-host .ribbon-header { gap:8px; min-width:0; }
+.dxf-dock-host .ribbon-panels { min-height:0; }
+.dxf-dock-host .ribbon-panel.is-active { min-height:105px; }
+.dxf-dock-host .editor-status-bar { padding:4px 8px; gap:6px; flex-flow:row wrap !important; align-content:center; border:0; overflow:auto; }
+.dxf-dock-host .editor-status-bar .status-right { flex-wrap:wrap; gap:8px; }
+.dxf-dock-host .dxf-dock-command-palette { padding:0; background:transparent; align-items:stretch; justify-content:stretch; }
+.dxf-dock-host .command-palette-backdrop { display:none; }
+.dxf-dock-host .command-palette-panel { position:relative; width:100%; height:100%; max-width:none; max-height:none; margin:0; border:0; border-radius:0; box-shadow:none; transform:none; }
+.dxf-dock-host .command-palette-header { flex:none; }
+.dxf-dock-host .command-palette-list { min-height:0; flex:1; overflow:auto; }
+.dxf-dock-host .command-palette-footer { flex:none; }
+.editor-app .dxf-dock-host .panel-placeholder { min-height:0; }
+@media(max-width:700px) {
+  .dxf-dock-host .ribbon-top-bar .ribbon-user-area { gap:3px; }
+  .dxf-dock-host .ribbon-title-area { min-width:0; }
+}
+
+/* View controls are a real tool pane; nothing obscures a small drawing viewport. */
+.dxf-dock-host .dxf-dock-view-controls > * { position:relative; inset:auto; flex:none; max-width:100%; padding:6px; margin:0; border-radius:4px; box-shadow:none; backdrop-filter:none; background:var(--ad-panel); color:var(--ad-text); pointer-events:auto; }
+.dxf-dock-host .dxf-dock-view-controls :is(.rendering-view-overlay,.rendering-style-selector) { align-items:stretch; }
+.dxf-dock-host .dxf-dock-view-controls .rendering-measurement-toolbar { flex-wrap:wrap; }
+.dxf-dock-host .dxf-dock-view-controls .rendering-navigation-wheel { align-self:flex-start; grid-template-columns:repeat(3,36px); grid-template-rows:repeat(3,32px); }
+.dxf-dock-host .dxf-dock-view-controls .rendering-view-cube { grid-template-columns:repeat(3,minmax(32px,1fr)); padding:0; background:none; box-shadow:none; }
+.dxf-dock-host .dxf-dock-view-controls :is(button,select,input) { background:var(--ad-surface); color:var(--ad-text); border:1px solid var(--ad-border); border-radius:3px; }
+.dxf-dock-host .dxf-dock-view-controls button:disabled { opacity:.5; }
+.dxf-dock-host .dxf-dock-view-controls button[aria-pressed="true"] { background:var(--ad-selected); }
+.dxf-dock-host .dxf-dock-render-tool :is(.layer-manager-container,.layer-manager-row,.layer-manager-table,.layer-manager-table thead,.layer-manager-table th,.layer-manager-table td) { background:var(--ad-panel); color:var(--ad-text); border-color:var(--ad-border); }
+.dxf-dock-host .dxf-dock-render-tool :is(input,select,button) { background:var(--ad-surface); color:var(--ad-text); border-color:var(--ad-border); }
+.dxf-dock-host .dxf-dock-render-tool .layer-manager-status { color:var(--ad-text-muted); }
+
+.dxf-dock-host .dxf-dock-render-tool :is(.layer-name-text,.layer-name-meta,.layer-cell,.layer-color-label,.layer-manager-filter)::placeholder { color:var(--ad-text-muted); }
+.dxf-dock-host .dxf-dock-render-tool input::placeholder { color:var(--ad-text-muted); }
+.dxf-dock-host .dxf-dock-render-tool :is(.layer-name-text,.layer-name-meta,.layer-manager-table label) { color:var(--ad-text); }
