@@ -1,0 +1,39 @@
+name: Analysis view usability
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: analysis-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: Interactive analysis and source navigation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify local control and integration syntax
+        run: |
+          (cd vendor/treedatagridweb && sha256sum -c SHA256SUMS)
+          for file in components/analysis-view.js components/analysis-reports.js components/data-grid.js components/tabular-reports.js components/app.js; do node --check "$file"; done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned browser tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Test normally served analysis workflows
+        run: python tests/analysis-views.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analysis-browser-evidence
+          path: test-results/analysis
+          retention-days: 14
