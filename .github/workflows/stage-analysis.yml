@@ -1,0 +1,29 @@
+name: Stage analysis review
+on:
+  push:
+    branches: [feat/analysis-usability]
+    paths: [.github/workflows/stage-analysis.yml]
+permissions:
+  contents: read
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/TreeDataGridWeb
+          ref: 4fe97dc907cedb148639a456a3987125369f8f1c
+          path: .treegrid-source
+          persist-credentials: false
+      - name: Archive exact source trees
+        run: |
+          mkdir -p /tmp/analysis-source/{DxfParser,TreeDataGridWeb}
+          git archive HEAD | tar -x -C /tmp/analysis-source/DxfParser
+          git -C .treegrid-source archive HEAD | tar -x -C /tmp/analysis-source/TreeDataGridWeb
+          tar -czf /tmp/analysis-source.tar.gz -C /tmp/analysis-source .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: analysis-source
+          path: /tmp/analysis-source.tar.gz
+          retention-days: 3
