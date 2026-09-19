@@ -1,5 +1,7 @@
     class TreeDataGrid {
       constructor(container, content, options = {}) {
+        this.lifetime = new AbortController();
+        this.onEdit = options.onEdit || null;
         this.container = container;
         this.content = content;
         this.itemHeight = options.itemHeight || 24;
@@ -35,8 +37,11 @@
         this.flatData = [];
         this.treeData = [];
         this.selectedRowId = null;
-        this.container.addEventListener("scroll", () => { 
-          requestAnimationFrame(() => this.updateVisibleNodes());
+        this.listen(this.container, "scroll", () => {
+          if (this.renderFrame) return;
+          this.renderFrame = requestAnimationFrame(() => { this.renderFrame = 0; this.updateVisibleNodes(); });
+          const header = document.getElementById(this.headerRootId);
+          if (header?.parentElement.classList.contains('dxf-tree-header-clip')) header.parentElement.scrollLeft = this.container.scrollLeft;
         });
         this.attachHeaderResizerEvents();
         // Diff overview (minimap) UI
@@ -57,18 +62,18 @@
         } else {
           this.container.appendChild(this._overview);
         }
-        this._overview.addEventListener("click", (e) => this.handleOverviewClick(e));
+        this.listen(this._overview, "click", (e) => this.handleOverviewClick(e));
         // Drag to scroll
-        this._overview.addEventListener("mousedown", (e) => this.handleOverviewDragStart(e));
-        this._overview.addEventListener("touchstart", (e) => this.handleOverviewDragStart(e), { passive: false });
+        this.listen(this._overview, "mousedown", (e) => this.handleOverviewDragStart(e));
+        this.listen(this._overview, "touchstart", (e) => this.handleOverviewDragStart(e), { passive: false });
         // Keep rail positioned left of the scrollbar
         const onResize = () => { this.positionOverviewRail(); this.updateOverview(); this.updateOverviewViewport(); };
-        window.addEventListener('resize', onResize);
+        this.listen(window, 'resize', onResize);
         // Initial layout
         this.positionOverviewRail();
         this.updateOverview();
         this.updateOverviewViewport();
-        this.content.addEventListener("click", (e) => {
+        this.listen(this.content, "click", (e) => {
           if (e.target.classList.contains("toggle")) {
             e.stopPropagation();
             const row = e.target.closest(".tree-row");
@@ -78,6 +83,17 @@
             }
           }
         });
+      }
+
+      listen(target, type, handler, options = {}) {
+        target.addEventListener(type, handler, { ...options, signal: this.lifetime.signal });
+      }
+
+      dispose() {
+        if (this.lifetime.signal.aborted) return;
+        this.lifetime.abort(); cancelAnimationFrame(this.renderFrame);
+        this._overview.remove(); this.flatData = []; this.treeData = [];
+        this.copyCallback = this.openCallback = this.onEdit = this.onRowSelect = null;
       }
 
       setRowClassProvider(provider) {
@@ -112,7 +128,7 @@
         const scopeSelector = this.headerRootId ? `#${this.headerRootId}` : '#treeGridHeader';
         const headerResizers = document.querySelectorAll(`${scopeSelector} .header-cell .resizer`);
         headerResizers.forEach(resizer => {
-          resizer.addEventListener("mousedown", (e) => this.handleResizerMouseDown(e));
+          this.listen(resizer, "mousedown", (e) => this.handleResizerMouseDown(e));
         });
       }
       
@@ -133,8 +149,8 @@
           document.removeEventListener("mousemove", onMouseMove);
           document.removeEventListener("mouseup", onMouseUp);
         };
-        document.addEventListener("mousemove", onMouseMove);
-        document.addEventListener("mouseup", onMouseUp);
+        this.listen(document, "mousemove", onMouseMove);
+        this.listen(document, "mouseup", onMouseUp);
       }
       
       computeColumnFinalWidths() {
@@ -340,7 +356,11 @@
         dataDiv.appendChild(input);
         input.focus();
 
+        let finished = false;
         const finishEdit = (commit) => {
+          if (finished || this.lifetime.signal.aborted) return;
+          finished = true;
+          const changed = commit && input.value !== String(originalValue);
           if (commit) {
             const newValue = input.value;
             node.data = newValue;
@@ -348,6 +368,7 @@
           }
           dataDiv.innerHTML = "";
           dataDiv.textContent = node.data;
+          if (changed) this.onEdit?.(node, "data");
           this.updateVisibleNodes();
         };
 
@@ -371,7 +392,11 @@
         codeDiv.appendChild(input);
         input.focus();
 
+        let finished = false;
         const finishEdit = (commit) => {
+          if (finished || this.lifetime.signal.aborted) return;
+          finished = true;
+          const changed = commit && input.value !== String(originalValue);
           if (commit) {
             const newValue = input.value;
             node.code = newValue;
@@ -379,6 +404,7 @@
           }
           codeDiv.innerHTML = "";
           codeDiv.textContent = node.code;
+          if (changed) this.onEdit?.(node, "code");
           this.updateVisibleNodes();
         };
 
@@ -393,6 +419,7 @@
       }
 
       updateVisibleNodes() {
+        if (this.lifetime.signal.aborted) return;
         const scrollTop = this.container.scrollTop;
         const containerHeight = this.container.clientHeight;
         const totalRows = (typeof this.overrideTotalRows === 'number' && this.overrideTotalRows > 0)
@@ -768,11 +795,11 @@
           window.removeEventListener('touchend', up);
           window.removeEventListener('touchcancel', up);
         };
-        window.addEventListener('mousemove', move);
-        window.addEventListener('mouseup', up);
-        window.addEventListener('touchmove', move, { passive: false });
-        window.addEventListener('touchend', up);
-        window.addEventListener('touchcancel', up);
+        this.listen(window, 'mousemove', move);
+        this.listen(window, 'mouseup', up);
+        this.listen(window, 'touchmove', move, { passive: false });
+        this.listen(window, 'touchend', up);
+        this.listen(window, 'touchcancel', up);
         // apply immediately
         this.handleOverviewDragMove(e);
       }

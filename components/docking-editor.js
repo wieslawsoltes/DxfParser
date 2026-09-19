@@ -19,7 +19,6 @@
       presets: ['Drafting', 'Review', 'Focus'], defaultPreset: 'Drafting',
       panels: [
         ...(global.DxfOffice ? [global.DxfOffice.createPanel(app)] : []),
-        { id: 'ribbon', title: 'Ribbon & Commands', node: byId('editorRibbon'), side: 'Top', height: 230 },
         { id: 'explorer', title: 'Project Explorer', node: byId('editorSidebar'), side: 'Left', width: 220 },
         { id: 'viewport', title: 'Drawing Viewport', node: viewport, kind: 'document', closable: false, titleNode: title,
           onResize: () => app.rerenderActiveDocument() },
@@ -36,7 +35,6 @@
           documentPane, tool('inspector', { DockWidth: 270 })
         ] });
         return new A.LayoutRoot({ RootPanel: new A.LayoutPanel({ Orientation: 'Vertical', Children: [
-          ...(preset === 'Focus' ? [] : [tool('ribbon', { DockHeight: 228, DockMinHeight: 80 })]),
           center, tool('status', { DockHeight: 75 })
         ] }) });
       },
@@ -48,6 +46,7 @@
       }
     });
     app.dockingWorkspace = workspace;
+    workspace.parking.append(byId("editorRibbon"));
     app.officePreview?.attachWorkspace(workspace);
     oldMain.hidden = true;
     const context = (_model, _manager, defaults) => defaults.filter(entry => entry?.Label !== 'Open in browser window');
@@ -55,6 +54,7 @@
     workspace.manager.AnchorableContextMenu = context;
     if (workspace.isOpen('command-palette')) app.openCommandPalette();
     shell.querySelector('[data-command="workspace-switcher"]').textContent = `Workspace: ${workspace.preset}`;
+    app.ribbonWorkspace = global.DxfRibbon.mountEditor(app, workspace);
     return workspace;
   }
   global.DxfDocking.mountEditor = mountEditor;

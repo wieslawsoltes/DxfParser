@@ -1,5 +1,10 @@
 # Dockyard workspaces
 
+> This documents the original Dockyard migration. For the current RibbonWeb command layout,
+> independently dockable DXF file documents and source-aware tool navigation, see
+> [RibbonWeb and dock documents](ribbon-document-workspace.md). The original commands/tools
+> panels and nested file tab behavior below have been superseded.
+
 The parser (`/index.html`) and standalone editor (`/editor/index.html`) now use the real
 Dockyard layout model and DOM renderer. The previous sidebar drawer, comparison splitter,
 fixed rendering inspector and application-dialog positioning are not a second layout system.

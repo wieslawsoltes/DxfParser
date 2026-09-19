@@ -8,6 +8,7 @@ Storage substitute. CI must run normal mode to test navigation and real persiste
 from __future__ import annotations
 
 import argparse
+import base64
 import functools
 import http.server
 import io
@@ -28,6 +29,29 @@ if INJECTED:
     os.sys.argv.remove('--injected')
 
 
+def inline_module(file, cache=None):
+    """Keep ESM semantics in offline mode; only relative URLs become data URLs.
+
+    This harness does not claim to verify network or native HTTP module loading.
+    Production files are unmodified. CI runs without --injected.
+    """
+    cache = {} if cache is None else cache
+    file = file.resolve()
+    if file in cache:
+        return cache[file]
+    source = file.read_text()
+    def dependency(match):
+        specifier = match.group(2)
+        if not specifier.startswith('.'):
+            raise ValueError(f'Nonlocal offline dependency: {specifier}')
+        return match.group(1) + inline_module(file.parent / specifier, cache) + match.group(3)
+    source = re.sub(r"(from\s*['\"])([^'\"]+)(['\"])", dependency, source, flags=re.M)
+    source = re.sub(r"(^[ \t]*import\s*['\"])([^'\"]+)(['\"])", dependency, source, flags=re.M)
+    url = 'data:text/javascript;base64,' + base64.b64encode(source.encode()).decode()
+    cache[file] = url
+    return url
+
+
 def injected_load(page, path: str, storage=None):
     """No application source substitutions; only loading and browser storage differ."""
     file = ROOT / path
@@ -35,10 +59,12 @@ def injected_load(page, path: str, storage=None):
     scripts = []
     for match in re.finditer(r'<script\b([^>]*)>(.*?)</script>', html, re.S):
         src = re.search(r'\bsrc="([^"]+)"', match[1])
+        module = 'type="module"' in match[1]
         if src and not src[1].startswith('https:'):
-            scripts.append(((file.parent / src[1]).read_text(), src[1]))
+            script = 'import ' + json.dumps(inline_module(file.parent / src[1])) + ';' if module else (file.parent / src[1]).read_text()
+            scripts.append((script, src[1], module))
         elif not src:
-            scripts.append((match[2], 'inline.js'))
+            scripts.append((match[2], 'inline.js', module))
     styles = [ (file.parent / href).read_text() for href in
                re.findall(r'<link\s+rel="stylesheet"\s+href="([^"]+)"[^>]*>', html)]
     html = re.sub(r'<script\b[^>]*>.*?</script>', '', html, flags=re.S)
@@ -54,8 +80,8 @@ def injected_load(page, path: str, storage=None):
     }''', storage or {})
     for css in styles:
         page.add_style_tag(content=css)
-    for script, name in scripts:
-        page.add_script_tag(content=script + '\n//# sourceURL=' + name)
+    for script, name, module in scripts:
+        page.add_script_tag(content=script + '\n//# sourceURL=' + name, type='module' if module else 'text/javascript')
     if path == 'index.html':
         page.evaluate("document.dispatchEvent(new Event('DOMContentLoaded'))")
 
@@ -111,7 +137,7 @@ class DockingTests(unittest.TestCase):
             self.page.goto(self.base + path, wait_until='domcontentloaded')
         self.page.wait_for_function('window.app?.dockingWorkspace || window.DxfEditorApp?.dockingWorkspace')
         self.page.wait_for_timeout(180)  # App state restoration is scheduled at 100 ms.
-        self.page.evaluate('window.w = window.app?.dockingWorkspace || window.DxfEditorApp.dockingWorkspace')
+        self.page.evaluate('window.w = window.app?.dockingWorkspace || window.DxfEditorApp.dockingWorkspace;window.dw=window.app?.documentWorkspace;window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon')
         self.assertJS('w.host.clientHeight > 300 && w.host.clientWidth > 300')
 
     def assertJS(self, expression, message=None):
@@ -137,8 +163,8 @@ class DockingTests(unittest.TestCase):
 
     def test_01_main_registry_and_connected_retained_nodes(self):
         self.load()
-        self.assertJS('w.definitions.size === 29')
-        self.assertJS("['commands','tools','tree-left','tree-right'].every(id=>w.isOpen(id))")
+        self.assertJS('w.definitions.size === 26')
+        self.assertJS("['tree-left','tree-right'].every(id=>w.isOpen(id)) && ['commands','tools','render-controls'].every(id=>!w.definitions.has(id)) && !!rb.shadowRoot")
         self.assertJS('[...w.definitions.values()].every(d=>d.node.isConnected)')
         self.assertJS("new Set([...document.querySelectorAll('[id]')].map(n=>n.id)).size === document.querySelectorAll('[id]').length")
         self.assertJS("document.getElementById('compareSplitter').hidden")
@@ -146,12 +172,11 @@ class DockingTests(unittest.TestCase):
 
     def test_02_file_inputs_and_right_toggle_preserve_data(self):
         self.load(); self.sample(); self.sample(True)
-        self.page.evaluate("window.rightNode=document.getElementById('panelRight');window.rightTab=app.tabsRight[0]")
-        self.page.locator('#toggleRightPanelBtn').click(); self.settle()
-        self.assertJS("!w.isOpen('tree-right') && document.getElementById('panelRight')===rightNode")
-        self.page.locator('#toggleRightPanelBtn').click(); self.settle()
-        self.assertJS("w.isOpen('tree-right') && app.tabsRight[0]===rightTab")
-        self.assertJS("document.getElementById('toggleRightPanelBtn').getAttribute('aria-pressed')==='false'")
+        self.page.evaluate("window.left=dw.current('left');window.right=dw.current('right');window.rightNode=right.node;window.rightTab=right.tab;app.setRightPanelHidden(true)")
+        self.settle()
+        self.assertJS("dw.records.has(right.id) && w.isOpen(right.id) && right.node===rightNode && app.tabsRight[0]===rightTab")
+        self.page.evaluate("dw.activate(left);dw.activate(right)"); self.settle()
+        self.assertJS("dw.active===right && right.grid===app.myTreeGrid && w.manager.Find(right.id).IsActive")
 
     def test_03_all_report_launchers_and_nested_rules(self):
         self.load(); self.sample()
@@ -177,11 +202,11 @@ class DockingTests(unittest.TestCase):
 
     def test_04_filter_dialogs_are_simultaneous_modeless_and_retained(self):
         self.load(); self.sample(); self.sample(True)
-        self.page.locator('#filtersLeftBtn').click(); self.settle()
+        self.page.evaluate("app.openFiltersOverlay('left')"); self.settle()
         self.page.evaluate("document.getElementById('filtersRightBtn').click()")
         self.settle()
         self.assertJS("w.isOpen('filtersOverlayLeft') && w.isOpen('filtersOverlayRight')")
-        self.page.locator('.dxf-dock-brand').click(); self.settle()
+        self.page.locator('.dxf-dock-status').click(); self.settle()
         self.assertJS("w.isOpen('filtersOverlayLeft') && w.isOpen('filtersOverlayRight')")
         self.page.evaluate("window.field=document.getElementById('minLineInputLeft');field.value='17';w.manager.Find('filtersOverlayLeft').Dock()")
         self.settle()
@@ -193,14 +218,14 @@ class DockingTests(unittest.TestCase):
         self.load(); self.sample()
         self.page.evaluate("document.getElementById('showStatsOverlayBtn').click()")
         self.settle()
-        self.page.evaluate("w.manager.Dock(w.manager.Find('statsOverlay'),w.manager.Find('tree-left').Parent,'Center');w.manager.Find('tree-left').Activate()")
+        self.page.evaluate("w.manager.Dock(w.manager.Find('statsOverlay'),w.manager.Find(dw.current('left').id).Parent,'Center');w.manager.Find(dw.current('left').id).Activate()")
         self.settle()
-        self.page.locator('#showStatsOverlayBtn').click(); self.settle()
+        self.page.evaluate("app.ribbonWorkspace.ribbon.execute('analysis-statsOverlay')"); self.settle()
         self.assertJS("w.manager.Find('statsOverlay').IsSelected")
 
     def test_06_pointer_float_resize_and_dock_back(self):
         self.load()
-        self.page.evaluate("window.node=document.getElementById('panelRight')")
+        self.page.evaluate("window.node=w.require('tree-right').node")
         tab = self.page.locator('[data-tab-id="tree-right"]')
         box = tab.bounding_box()
         self.page.keyboard.down('Control')
@@ -216,30 +241,30 @@ class DockingTests(unittest.TestCase):
         self.assertLess(after['width'],before['width']-30)
         self.page.evaluate("w.manager.Find('tree-right').Dock()")
         self.settle()
-        self.assertJS("!w.manager.Find('tree-right').IsFloating && document.getElementById('panelRight')===node")
+        self.assertJS("!w.manager.Find('tree-right').IsFloating && w.require('tree-right').node===node")
 
     def test_07_auto_hide_pin_and_hide_show(self):
-        self.load()
-        self.page.evaluate("window.node=w.require('tools').node;w.manager.Find('tools').ToggleAutoHide()")
+        self.load(); self.sample()
+        self.page.evaluate("w.requestOpen('statsOverlay');w.manager.Find('statsOverlay').Dock();window.node=w.require('statsOverlay').node;w.manager.Find('statsOverlay').ToggleAutoHide()")
         self.settle()
-        self.assertJS("w.manager.Find('tools').IsAutoHidden")
-        self.page.locator('.ad-anchor-tab[data-content-id="tools"]').click(); self.settle()
-        self.assertTrue(self.page.locator('#showStatsOverlayBtn').is_visible())
-        self.page.evaluate("w.manager.Find('tools').ToggleAutoHide();w.hide('tools');w.show('tools')")
+        self.assertJS("w.manager.Find('statsOverlay').IsAutoHidden")
+        self.page.locator('.ad-anchor-tab[data-content-id="statsOverlay"]').click(); self.settle()
+        self.assertTrue(self.page.locator('#statsOverlay .backToTreeBtn').is_visible())
+        self.page.evaluate("w.manager.Find('statsOverlay').ToggleAutoHide();w.hide('statsOverlay');w.show('statsOverlay')")
         self.settle()
-        self.assertJS("!w.manager.Find('tools').IsAutoHidden && w.require('tools').node===node")
+        self.assertJS("!w.manager.Find('statsOverlay').IsAutoHidden && w.require('statsOverlay').node===node")
 
     def test_08_splitter_keyboard_and_layout_history(self):
         self.load()
-        before=self.page.locator('#panelLeft').bounding_box()['width']
+        before=self.page.locator('[data-dock-panel=tree-left]').bounding_box()['width']
         splitter=self.page.locator('.ad-splitter-vertical').last
         splitter.focus(); self.page.keyboard.press('ArrowRight'); self.settle()
-        after=self.page.locator('#panelLeft').bounding_box()['width']
+        after=self.page.locator('[data-dock-panel=tree-left]').bounding_box()['width']
         self.assertGreater(after,before+4)
-        self.page.get_by_role('button',name='Undo layout change',exact=True).click(); self.settle()
-        self.assertAlmostEqual(before,self.page.locator('#panelLeft').bounding_box()['width'],delta=2)
-        self.page.get_by_role('button',name='Redo layout change',exact=True).click(); self.settle()
-        self.assertAlmostEqual(after,self.page.locator('#panelLeft').bounding_box()['width'],delta=2)
+        self.page.evaluate("rb.execute('layout-undo')"); self.settle()
+        self.assertAlmostEqual(before,self.page.locator('[data-dock-panel=tree-left]').bounding_box()['width'],delta=2)
+        self.page.evaluate("rb.execute('layout-redo')"); self.settle()
+        self.assertAlmostEqual(after,self.page.locator('[data-dock-panel=tree-left]').bounding_box()['width'],delta=2)
 
     def test_09_render_resize_reparent_redraw_and_cleanup(self):
         self.load(); self.sample()
@@ -267,14 +292,15 @@ class DockingTests(unittest.TestCase):
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).check(); self.settle()
         self.assertGreater(self.colors(),4)
         self.assertJS("document.getElementById('renderingOverlayPropertyPanel').getAttribute('aria-hidden')==='false'")
-        self.page.evaluate("w.show('render-controls')"); self.settle()
-        self.assertTrue(self.page.locator('#renderingMeasurementToolbar').is_visible())
+        self.page.evaluate("w.manager.Find('rendering').Activate();rb.selectTab('drawing')"); self.settle()
+        self.page.locator('ribbon-web').get_by_role('button', name='Distance', exact=True).click(); self.settle()
+        self.assertJS("document.querySelector('[data-mode=distance]').getAttribute('aria-pressed')==='true' && !w.definitions.has('render-controls')")
 
     def test_11_export_import_keeps_content_and_model_types(self):
         self.load(); self.sample()
-        self.page.evaluate("window.node=document.getElementById('panelLeft');window.tab=app.tabs[0];w.show('statsOverlay');window.saved=w.exportLayout();w.hide('statsOverlay');w.importLayout(saved)")
+        self.page.evaluate("window.record=dw.current('left');window.node=record.node;window.tab=app.tabs[0];w.show('statsOverlay');window.saved=w.exportLayout();w.hide('statsOverlay');w.importLayout(saved)")
         self.settle()
-        self.assertJS("w.isOpen('statsOverlay') && document.getElementById('panelLeft')===node && app.tabs[0]===tab")
+        self.assertJS("w.isOpen('statsOverlay') && w.manager.Find(record.id).Content===node && app.tabs[0]===tab")
         data=json.loads(self.page.evaluate('w.exportLayout()'))
         self.assertEqual(data['format'],'dxfparser-dockyard-workspace')
         self.assertNotIn('originalTreeData',json.dumps(data))
@@ -322,21 +348,22 @@ class DockingTests(unittest.TestCase):
         self.load(); self.sample(); self.sample(True)
         self.page.evaluate('window.tab=app.tabs[0];window.right=app.tabsRight[0]')
         for preset in ['Review','Focus','Compare']:
-            self.page.get_by_label('Workspace preset',exact=True).select_option(preset); self.settle()
+            self.page.evaluate('(preset)=>rb.execute("workspace-preset",preset)',preset); self.settle()
             self.assertJS('app.tabs[0]===tab && app.tabsRight[0]===right')
             if preset == 'Review':
+                self.page.evaluate("dw.activate(dw.current('left'))"); self.settle()
                 self.assertJS('app.myTreeGridLeft.computeColumnFinalWidths().type >= 200')
                 self.assertJS('app.treeViewContainer.scrollWidth > app.treeViewContainer.clientWidth')
                 self.page.evaluate('app.treeViewContainer.scrollLeft=150')
                 self.settle()
-                self.assertJS("document.getElementById('treeGridHeaderLeft').style.transform==='translateX(-150px)'")
-        self.page.get_by_role('button',name='Reset layout',exact=True).click(); self.settle()
-        self.assertJS("app.tabs[0]===tab && w.isOpen('tree-right')")
+                self.assertJS("dw.current('left').header.parentElement.scrollLeft===150")
+        self.page.evaluate("rb.execute('layout-reset')"); self.settle()
+        self.assertJS("app.tabs[0]===tab && w.isOpen(dw.current('right').id)")
 
     def test_15_compact_default_and_float_bounds(self):
         self.page.set_viewport_size({'width':390,'height':844}); self.load()
         self.assertJS("w.preset==='Focus'")
-        self.assertTrue(self.page.locator('#openLeftBtn').is_visible())
+        self.assertTrue(self.page.locator('ribbon-web .qat').get_by_role('button',name='Open DXF',exact=True).is_visible())
         self.page.evaluate("w.show('hexViewerOverlay')"); self.settle()
         self.page.set_viewport_size({'width':360,'height':640}); self.settle()
         box=self.page.locator('.ad-floating').bounding_box()
@@ -345,7 +372,7 @@ class DockingTests(unittest.TestCase):
 
     def test_16_editor_layout_palette_and_rendering_retention(self):
         self.load('editor/index.html')
-        self.assertJS('w.definitions.size===7')
+        self.assertJS('w.definitions.size===6')
         self.page.locator('#editorOpenFileInput').set_input_files(str(ROOT/'tests/data/sample.dxf'))
         self.page.wait_for_function('!!DxfEditorApp.getActiveDocument()'); self.settle()
         self.page.evaluate('window.record=DxfEditorApp.getActiveDocument();window.canvas=document.getElementById("editorCanvas2D")')
@@ -373,10 +400,10 @@ class DockingTests(unittest.TestCase):
         self.page.locator('[data-tab-id="tree-left"]').click(button='right'); self.settle()
         self.assertEqual(self.page.get_by_role('menuitem',name='Open in browser window',exact=True).count(),0)
         self.page.keyboard.press('Escape')
-        self.page.evaluate("w.hide('tools');w.hide('commands')")
-        self.page.get_by_role('button',name='Show or hide workspace panels',exact=True).click()
-        self.page.get_by_role('menuitemradio',name='Analysis Tools',exact=True).click(); self.settle()
-        self.assertJS("w.isOpen('tools')")
+        self.page.evaluate("w.show('hexViewerOverlay');w.hide('hexViewerOverlay');rb.selectTab('workspace')");self.settle()
+        self.page.locator('ribbon-web').get_by_role('button',name='Panels',exact=True).click()
+        self.page.locator('ribbon-web').get_by_role('menuitem',name='Hex Viewer',exact=True).click();self.settle()
+        self.assertJS("w.isOpen('hexViewerOverlay') && !w.definitions.has('tools')")
 
 
 if __name__ == '__main__':

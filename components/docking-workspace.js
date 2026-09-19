@@ -78,8 +78,7 @@
       for (const definition of this.definitions.values()) {
         if (definition.onResize) this.resizeObserver.observe(definition.resizeNode || definition.node);
       }
-      this.restore();
-      this.ready = true;
+      if (!options.deferRestore) { this.restore(); this.ready = true; }
       this.syncPresentation(false);
       this.scheduleResize();
       global.addEventListener('pagehide', () => this.save(), { signal: this.abort.signal });
@@ -101,13 +100,39 @@
       // Unseen panels must remain discoverable by the application's existing getElementById calls.
       this.parking.append(record.node);
       this.definitions.set(record.id, record);
+      if (this.resizeObserver && record.onResize) this.resizeObserver.observe(record.resizeNode || record.node);
+      if (this.observer && record.bridge) this.observer.observe(record.node, {
+        attributes: true, attributeFilter: record.bridge === 'hidden' ? ['hidden'] : ['style']
+      });
+      return record;
+    }
+
+    unregister(id) {
+      const d = this.definitions.get(id);
+      if (!d) return;
+      this.resizeObserver?.unobserve(d.resizeNode || d.node);
+      const model = this.manager.Find(id);
+      if (model?.Parent?.Children) model.Parent.Children.Remove(model);
+      if (model?.IsHidden) this.manager.Layout.Hidden.Remove(model);
+      this.definitions.delete(id);
+      this.manager.Layout.CollectGarbage();
+      this.manager.ReleaseContent(id);
+      d.node.remove();
+      this.changed();
+    }
+
+    /** Navigation dismisses a floating dialog, never an ordinary docked tool. */
+    dismissAfterNavigation(id) {
+      const model = this.manager.Find(id);
+      if (model?.IsFloating) return this.hide(id);
+      return false;
     }
 
     make(id) {
       const d = this.require(id);
       const Type = d.kind === 'document' ? this.api.LayoutDocument : this.api.LayoutAnchorable;
       return new Type({
-        ContentId: id, Title: d.title, Content: d.node,
+        ContentId: id, Title: d.title, Content: d.node, IsModified: !!d.isModified,
         CanClose: d.kind === 'document' && d.closable,
         CanHide: d.closable,
         CanFloat: true, CanMove: true, CanDock: true,
@@ -295,6 +320,7 @@
         const isDocument = args.Model instanceof this.api.LayoutDocument;
         if (isDocument !== (d.kind === 'document')) throw new Error(`Incorrect panel type: ${d.id}`);
         args.Content = d.node;
+        args.Model.IsModified = !!d.isModified;
         args.Model.CanClose = isDocument && d.closable;
         if (!isDocument) {
           args.Model.CanHide = d.closable;
@@ -313,7 +339,10 @@
         this.preset = this.options.presets.includes(data.preset) ? data.preset : this.options.defaultPreset;
         if (['light', 'dark', 'contrast'].includes(data.theme)) this.manager.Theme = data.theme;
         for (const d of this.definitions.values()) {
-          if (!d.closable && !this.manager.Find(d.id)) this.manager.AddDocument(this.make(d.id));
+          if ((!d.closable || d.keepOpen) && !this.manager.Find(d.id) &&
+              !(d.emptySide && [...this.definitions.values()].some(item => item.fileSide === d.emptySide))) {
+            this.manager.AddDocument(this.make(d.id));
+          }
         }
       } finally { this.suppress--; }
       this.presetSelect.value = this.preset;
