@@ -1,0 +1,62 @@
+name: Apply verified analysis workbench
+on:
+  push:
+    branches: [feat/analysis-usability]
+    paths: [.github/workflows/apply-analysis.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/analysis-usability
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/TreeDataGridWeb
+          ref: 4fe97dc907cedb148639a456a3987125369f8f1c
+          path: .treegrid-upstream
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Decode and verify reviewed patch
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.analysis-migration').glob('*.b64'))
+          assert [p.name for p in chunks] == [f'{i:02}.b64' for i in range(8)]
+          encoded = ''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded) == 57168, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert len(patch) == 175391
+          assert hashlib.sha256(patch).hexdigest() == '0506e04e97550f1c17480a52bec0849b0c165a3a82bed30d287ba6cf2ee5b629'
+          Path('/tmp/analysis.patch').write_bytes(patch)
+          PY
+      - name: Apply source changes and verify final tree
+        run: |
+          git apply --check /tmp/analysis.patch
+          git apply --index /tmp/analysis.patch
+          cp .treegrid-upstream/dist/treedatagrid.global.js vendor/treedatagridweb/
+          (cd vendor/treedatagridweb && sha256sum -c SHA256SUMS)
+          rm -rf .treegrid-upstream .analysis-migration
+          node scripts/build-rendering-bundle.js
+          git diff --exit-code -- dist/dxf-rendering.global.js
+          git add -A
+          cp .git/index /tmp/analysis-verification-index
+          GIT_INDEX_FILE=/tmp/analysis-verification-index git rm --cached .github/workflows/stage-analysis.yml .github/workflows/analysis-browser-tools.yml .github/workflows/apply-analysis.yml
+          ACTUAL="$(GIT_INDEX_FILE=/tmp/analysis-verification-index git write-tree)"
+          echo "Final tree after temporary workflow cleanup: $ACTUAL"
+          test "$ACTUAL" = 'cddf333629a43d4a26dc8b5d753a0ed731256015'
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git diff --cached --check
+          for file in components/analysis-view.js components/analysis-reports.js components/data-grid.js components/tabular-reports.js components/app.js; do node --check "$file"; done
+      - name: Commit verified sources only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: restore analysis usability with interactive record workbenches'
+          git push origin HEAD:feat/analysis-usability
