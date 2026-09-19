@@ -57,7 +57,7 @@
            key: `${index}:${i}`, values: [section.title, prop.name, prop.isHtml ? String(prop.value ?? '').replace(/<[^>]*>/g, '') : prop.value]
          })));
          if (this.gridView) this.gridView.setRows(rows);
-         else { this.container.replaceChildren(); this.gridView = new root.DxfGrid.GridView(this.container, { title: 'Selection Properties', columns: ['Section', 'Property', 'Value'], rows }); }
+         else { this.container.replaceChildren(); this.gridView = new (root.DxfAnalysis?.AnalysisView || root.DxfGrid.GridView)(this.container, { title: 'Selection Properties', columns: ['Section', 'Property', 'Value'], rows }); }
          return;
        }
        this.container.innerHTML = '';

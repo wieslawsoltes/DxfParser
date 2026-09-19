@@ -138,10 +138,8 @@ class RibbonTests(unittest.TestCase):
         self.load();self.file('handles.dxf',text=(ROOT/'tests/data/sample.dxf').read_text().replace('0\nLINE','0\nLINE\n5\nABC1'));self.file('other.dxf','Right');self.record_globals()
         self.page.evaluate('dw.activate(a)');self.execute('analysis-handleMapOverlay')
         self.page.evaluate('w.manager.Dock(w.manager.Find("handleMapOverlay"),w.manager.Find(a.id).Parent,"Right");dw.activate(b)');self.settle()
-        # The retained source producer's real link is routed by GridWeb; invoke its command exactly.
-        self.page.evaluate('''() => { const source=document.querySelector('#overlayHandleMapContent');
-          const button=[...source.querySelectorAll('button,a')].find(n=>/Handle: ABC1/i.test(n.textContent));
-          if(!button)throw Error('No handle navigation action');button.click(); }''');self.settle()
+        # The interactive row's action captures its canonical DXF node, not a formatted link label.
+        self.page.locator('#handleMapOverlay .analysis-details > .dxf-grid-actions').get_by_role('button',name='Show in Tree',exact=True).click();self.settle()
         self.assertJS('dw.active===a && w.isOpen("handleMapOverlay") && a.grid.selectedRowId!==null')
 
     def test_10_closed_report_source_cannot_navigate_an_unrelated_file(self):

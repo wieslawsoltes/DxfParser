@@ -232,7 +232,7 @@
           ] }));
         this.archiveViews ||= new Map();
         this.archiveViews.get(container)?.dispose(); container.replaceChildren();
-        const view = new DxfGrid.GridView(container, { title: 'Archive Entries', columns: [{ title: 'Path', width: 430 }, 'Kind', 'Bytes'], rows });
+        const view = new (global.DxfAnalysis?.AnalysisView || DxfGrid.GridView)(container, { title: 'Archive Entries', columns: [{ title: 'Path', width: 430 }, 'Kind', 'Bytes'], rows });
         this.archiveViews.set(container, view);
       } catch (error) { if (generation === this.archiveGeneration && !this.disposed) { this.archiveViews?.get(container)?.dispose(); this.archiveViews?.delete(container); container.replaceChildren(element('p', 'dxf-office-status', error.message)); } }
     }

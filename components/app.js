@@ -5419,6 +5419,9 @@ EOF`;
           metadata.ordered.forEach((block) => {
             const card = document.createElement("div");
             card.className = "block-card";
+            // Typed report adapters use the complete metadata, not truncated card prose.
+            card.analysisBlock = block;
+            card.analysisTab = activeTab;
             if (this.isBlockIsolated(block.name)) {
               card.classList.add("is-isolated");
             }
@@ -7401,7 +7404,7 @@ EOF`;
           });
           
           // Generate and download
-          const fileName = `${activeTab.fileName || 'dxf'}_diagnostics_${new Date().toISOString().slice(0,10)}.xlsx`;
+          const fileName = `${activeTab.name || activeTab.fileName || 'dxf'}_diagnostics_${new Date().toISOString().slice(0,10)}.xlsx`;
           XLSX.writeFile(wb, fileName);
           
         } catch (error) {
@@ -7415,7 +7418,7 @@ EOF`;
         const summaryData = [
           ['DXF Comprehensive Diagnostics Report'],
           ['Generated on:', new Date().toISOString()],
-          ['File:', this.getActiveTab()?.fileName || 'Unknown'],
+          ['File:', this.getActiveTab()?.name || this.getActiveTab()?.fileName || 'Unknown'],
           [],
           ['Summary Statistics'],
           ['Severity Level', 'Count'],
@@ -7520,7 +7523,7 @@ EOF`;
         let report = "DXF Comprehensive Diagnostics Report\n";
         report += "====================================\n\n";
         report += `Generated on: ${new Date().toISOString()}\n`;
-        report += `File: ${this.getActiveTab()?.fileName || 'Unknown'}\n\n`;
+        report += `File: ${this.getActiveTab()?.name || this.getActiveTab()?.fileName || 'Unknown'}\n\n`;
         
         report += "SUMMARY STATISTICS\n";
         report += "------------------\n";

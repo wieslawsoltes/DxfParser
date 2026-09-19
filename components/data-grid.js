@@ -34,12 +34,12 @@
   }
 
   class GridView {
-    constructor(container, { title = 'Data', columns = [], rows = [], height, onSelect } = {}) {
+    constructor(container, { title = 'Data', columns = [], rows = [], height, onSelect, showDetails = true } = {}) {
       if (!global.GridWeb) throw new Error('The local GridWeb distribution is not loaded.');
       this.container = container;
       this.columns = columns.map(c => typeof c === 'string' ? { title: c } : c);
       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;
-      this.onSelect = onSelect; this.disposed = false;
+      this.onSelect = onSelect; this.showDetails = showDetails; this.disposed = false;
       this.abort = new AbortController();
       this.host = element('section', 'dxf-grid-view');
       this.host.setAttribute('aria-label', title);
@@ -120,7 +120,8 @@
       for (const view of this.relatedViews || []) view.dispose(); this.relatedViews = [];
       this.selectedKey = row?.key ?? null;
       this.selectedRow = row;
-      this.details.replaceChildren(); this.details.hidden = !row;
+      this.details.replaceChildren(); this.details.hidden = !row || !this.showDetails;
+      if (!this.showDetails) { this.onSelect?.(row); return; }
       if (!row) return;
       const full = element('details', 'dxf-grid-values');
       full.append(element('summary', '', 'Selected row details'));
@@ -232,7 +233,7 @@
   class ReportRegistry {
     constructor(roots, descriptors = []) {
       this.roots = roots.filter(Boolean); this.descriptors = descriptors;
-      this.theme = 'light'; this.projections = new Set(); this.disposed = false; this.pending = false;
+      this.states = new Map(); this.theme = 'light'; this.projections = new Set(); this.disposed = false; this.pending = false;
       this.observer = new MutationObserver(records => {
         if (records.some(r => !r.target.closest?.('.dxf-grid-view'))) this.schedule();
       });
@@ -244,8 +245,10 @@
       this.observer.disconnect();
       try {
         for (const projection of [...this.projections]) {
-          if (!projection.source.isConnected || !projection.view.host.isConnected) { projection.view.dispose(); projection.container.remove(); this.projections.delete(projection); }
+          if (!projection.source.isConnected || !projection.view.host.isConnected) { if (projection.view.saveState) this.states.set(projection.stateKey, projection.view.saveState()); projection.view.dispose(); projection.container.remove(); this.projections.delete(projection); }
           else projection.update();
+          // Session-level presentation state is bounded independently of document bytes.
+          while (this.states.size > 128) this.states.delete(this.states.keys().next().value);
         }
         for (const descriptor of this.descriptors) {
           for (const root of this.roots) for (const source of root.querySelectorAll(descriptor.selector)) {
@@ -257,16 +260,11 @@
           for (const source of root.querySelectorAll('table')) {
             if (!source.closest('.dxf-grid-view,.dxf-grid-source')) this.projectTable(source);
           }
-          // Remaining report lists include font references, owner graphs, plot/layout
-          // metadata, dependencies and attribute definitions. Flatten hierarchy with depth.
+          // Preserve parent-child relationships and action ownership instead of a Depth/Record spreadsheet.
           for (const source of root.querySelectorAll('ul,ol')) {
             if (source.closest('.dxf-grid-view,.dxf-grid-source')) continue;
-            this.project(source, { title: source.previousElementSibling?.textContent || 'Records',
-              columns: [{ title: 'Depth', width: 70 }, { title: 'Record', width: 480 }],
-              records: node => [...node.querySelectorAll('li')].map(row => {
-                let depth = 0; for (let p = row.parentElement; p && p !== node; p = p.parentElement) if (p.matches('ul,ol')) depth++;
-                return { key: keyFor(row), values: [depth, directText(row)], source: row, hidden: row.classList.contains('hidden') };
-              }) });
+            this.project(source, { title: source.previousElementSibling?.textContent || 'Records', columns: ['Record'],
+              records: node => global.DxfAnalysis.listRecords(node) });
           }
         }
       } finally { if (!this.disposed) this.listen(); }
@@ -277,7 +275,8 @@
       const header = source.tHead?.rows[0] || (hasHeader ? first : null);
       const width = first?.cells.length || 2;
       const columns = header ? [...header.cells].map(cell => text(cell)) : width === 2 ? ['Property', 'Value'] : Array.from({ length: width }, (_, i) => 'Column ' + (i + 1));
-      this.project(source, { title: source.caption?.textContent || source.className || 'Data', columns,
+      const titles = { 'layer-manager-table': 'Layers', 'plot-style-table': 'Plot styles', 'layer-summary-table': 'Layer summary', 'rendering-attribute-table': 'Attributes' };
+      this.project(source, { title: source.caption?.textContent || titles[source.className] || source.closest('section')?.querySelector('h3')?.textContent || 'Properties', columns,
         records: node => [...node.rows].filter(row => row !== header).map(row => ({
           key: keyFor(row), values: [...row.cells].map(valueOf), source: row, hidden: row.classList.contains('hidden')
         })) });
@@ -287,24 +286,30 @@
       const container = element('div', 'dxf-grid-projection'); source.before(container);
       if (descriptor.preserve) for (const node of source.querySelectorAll(descriptor.preserve)) container.before(node);
       source.hidden = true; source.classList.add('dxf-grid-source');
-      const view = new GridView(container, { title: String(descriptor.title || 'Data').slice(0, 100), columns: descriptor.columns });
+      const View = global.DxfAnalysis?.AnalysisView || GridView;
+      const view = new View(container, { title: String(descriptor.title || 'Data').slice(0, 100), columns: descriptor.columns });
+      const root = this.roots.find(r => r.contains(source));
+      const stateKey = [root?.id, root?.dataset.sourceTabId, descriptor.selector || source.id || source.className, descriptor.title].join('|');
+      container.dataset.reportSource = source.id || descriptor.selector || '';
+      descriptor.onMount?.(view);
       let signature = '';
-      const projection = { source, view, container, update() {
+      const projection = { source, view, container, stateKey, update() {
         container.hidden = source.matches('.rule-category-body,.diagnostics-category-content') && !source.classList.contains('expanded');
         const rows = descriptor.records(source);
         // Empty-state prose stays visible; populated source rows are never displayed.
         source.hidden = rows.length > 0;
         if (!rows.length) container.hidden = true;
-        const next = JSON.stringify(rows.map(r => [r.key, r.values, r.hidden]));
+        const next = JSON.stringify(rows.map(r => [r.key, r.values, r.hidden, r.source?.innerHTML, ...(global.DxfAnalysis?.sourceControls(r.source) || []).map(c => [c.value, c.checked, c.disabled]) ]));
         if (signature !== next) { signature = next; view.setRows(rows); }
       } };
       view.onSourceChange = () => this.schedule();
       this.projections.add(projection); projection.update();
+      view.restoreState?.(this.states.get(stateKey));
       view.setTheme(this.theme);
       return view;
     }
     setTheme(theme) { this.theme = theme; for (const p of this.projections) p.view.setTheme(theme); }
-    dispose() { this.disposed = true; this.observer.disconnect(); for (const p of this.projections) p.view.dispose(); this.projections.clear(); }
+    dispose() { this.disposed = true; this.observer.disconnect(); for (const p of this.projections) p.view.dispose(); this.projections.clear(); this.states.clear(); }
   }
   global.DxfGrid = { GridView, ReportRegistry, element, scalar, text, directText, keyFor, valueOf };
 })(window);

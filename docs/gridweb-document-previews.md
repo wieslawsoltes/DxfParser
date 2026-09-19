@@ -7,38 +7,38 @@ The DXF tree renderer is still `TreeDataGrid`, not GridWeb. The later
 own retained dock document and tree instance, and moves top-level preview commands into
 the contextual Document Preview ribbon tab.
 
-## Display inventory
+## Report displays after the analysis usability revision
 
-| Surface | Display implementation |
-|---|---|
-| Statistics, frequencies/clouds, dependencies, handle mappings, font references, classes/application frequencies | GridWeb report workbooks |
-| Binary object list, proxy objects/usage, object sizes | GridWeb report workbooks with retained navigation actions |
-| Blocks/inserts, attributes, diagnostics and nested instance lists | GridWeb report workbooks; selected-row details lazily create additional GridWeb workbooks |
-| Line types, texts, diagnostics results/severity summary, rule configuration | GridWeb report workbooks; rule controls remain functional |
-| Renderer layers, plot styles, drawing information, selection properties, block definitions | GridWeb report workbooks; layer controls and block actions use original controllers |
-| Batch query results | GridWeb, with original result records retained for Excel export and opening a source DXF at its line |
-| Hex Viewer | GridWeb; 2,048 rows / 32 KiB per page, previous/next and hexadecimal byte-offset navigation |
-| ZIP entries | GridWeb; Preview and Download actions on the selected entry |
-| Excel workbooks and delimited text | Real `grid-web`, separate worksheet tabs, zoom, read-only selection/copy |
-| Word documents | Real read-only `rich-text-page-editor`, measured pages, zoom and page navigation |
+See [Analysis workbench](analysis-workbench.md) for the current report inventory and
+interaction contract. Analysis reports now default to real **TreeDataGridWeb** record
+views with inline actions/settings, hierarchical relationships, facets, and a resizable
+detail inspector. Every record view has an explicit **Spreadsheet** mode backed by a
+lazily constructed GridWeb workbook. The main DXF TreeDataGrid remains unchanged.
 
-Menus, navigation history, command palettes, input forms and document text are not
-tabular report surfaces and retain their appropriate controls. Tables *inside a Word
-document* remain part of its RichTextWeb document model. The standalone editor's
-existing Inspector placeholder is not presented as a new feature.
+Statistics, frequencies, dependencies, ownership, fonts, classes, line types, text,
+binary/proxy objects, object sizes and diagnostics use purpose-specific typed models.
+Blocks use complete renderer metadata for related collections; existing renderer,
+layer and rule callbacks remain connected through narrow adapters. Batch results,
+ZIP entries and paged hex inspection use the same interactive record surface.
+
+Excel documents still use **GridWeb directly**, including worksheet tabs, formatting,
+zoom and selection/copy. Word documents and their embedded tables still belong to
+**RichTextWeb**. These document-format engines have not been replaced by the record
+control. Menus, histories, input forms and editor placeholders are not report tables.
 
 ## Using reports
 
-Select a row to expose its original commands and editable settings below the grid.
-The filter searches literal displayed values; sorting is numeric for numeric cells
-and natural text order otherwise. Sort direction and original order are available.
-A stable record key keeps commands attached to the selected record after sorting.
-Copy copies the actual GridWeb cell selection. Cells in report workbooks are read-only;
-a rule checkbox or a layer control remains editable through the selected-row controls.
+Select a record for full values, actions and raw source. Expand ownership/font trees,
+click sortable column headers, resize/reorder/hide columns, search all or one column,
+and combine the report's categorical filters. Inline checkboxes and menus operate on
+their canonical source record, even after sorting. Related collections can open in a
+full report viewport with a Back command instead of a tiny nested spreadsheet.
 
-Expand **Selected row details** to inspect full values, warnings, block metadata,
-attributes and other nested records. GridWeb instances for nested collections are
-created on demand. Block thumbnails remain available with the selected record.
+**Records** copies selected records as TSV. **Spreadsheet** copies GridWeb's selected
+cells. **CSV** exports the currently displayed, filtered/sorted tree projection;
+expand branches to include their children. Formula-like string fields are escaped
+in CSV and kept literal in GridWeb. Full details are outside the grid and stay readable
+when columns are narrow. Source-aware navigation preserves docked panels.
 
 ## Document Preview
 
