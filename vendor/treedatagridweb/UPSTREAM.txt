@@ -1,0 +1,3 @@
+Repository: https://github.com/wieslawsoltes/TreeDataGridWeb
+Commit: 4fe97dc907cedb148639a456a3987125369f8f1c
+Unmodified global distribution; main DXF TreeDataGrid is not replaced.

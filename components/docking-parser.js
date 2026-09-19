@@ -77,15 +77,15 @@
       ['proxyObjectsOverlay', 'Proxy Objects', 'showProxyObjectsOverlayBtn'],
       ['fontsOverlay', 'Fonts', 'showFontsOverlayBtn'],
       ['classesOverlay', 'Classes', 'showClassesOverlayBtn'],
-      ['diagnosticsOverlay', 'Diagnostics', 'showDiagnosticsOverlayBtn', 1000, 670],
-      ['ruleConfigOverlay', 'Diagnostic Rules', 'configureRulesBtn', 900, 650],
+      ['diagnosticsOverlay', 'Diagnostics', 'showDiagnosticsOverlayBtn', 1150, 740],
+      ['ruleConfigOverlay', 'Diagnostic Rules', 'configureRulesBtn', 1100, 740],
       ['objectSizeOverlay', 'Object Sizes', 'showObjectSizeOverlayBtn'],
       ['blocksOverlay', 'Blocks & Inserts', 'showBlocksOverlayBtn'],
       ['lineTypesOverlay', 'Line Types', 'showLineTypesOverlayBtn'],
       ['textsOverlay', 'Texts', 'showTextsOverlayBtn'],
       ['batchProcessingOverlay', 'Batch Processing', 'showBatchProcessOverlayBtn', 1050, 680]
     ];
-    for (const [id, title, buttonId, width = 800, height = 570] of dialogs) {
+    for (const [id, title, buttonId, width = 1100, height = 720] of dialogs) {
       const node = byId(id);
       node.classList.add('dxf-dock-dialog');
       node.removeAttribute('aria-modal');

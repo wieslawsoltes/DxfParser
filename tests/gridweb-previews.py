@@ -42,6 +42,8 @@ class GridPreviewTests(unittest.TestCase):
         self.assertJS("customElements.get('grid-web') === GridWeb.GridWebElement && !!RichTextWeb.fromDOCX")
         self.assertJS("app.myTreeGrid instanceof TreeDataGrid && app.myTreeGridRight instanceof TreeDataGrid && !document.querySelector('#panelLeft grid-web,#panelRight grid-web')")
         self.page.evaluate("document.getElementById('showStatsOverlayBtn').click()")
+        self.page.wait_for_function("document.querySelector('#statsOverlay tree-data-grid')")
+        self.page.locator('#statsOverlay').get_by_role('button',name='Spreadsheet',exact=True).click()
         self.page.wait_for_function("document.querySelector('#statsOverlay grid-web')")
         self.assertJS("[...document.querySelectorAll('#statsOverlay grid-web')].every(g=>g.ReadOnly && g.Workbook instanceof GridWeb.Workbook)")
 
@@ -51,7 +53,7 @@ class GridPreviewTests(unittest.TestCase):
           const launchers=['showCloudOverlayBtn','showStatsOverlayBtn','showDepsOverlayBtn','showBinaryObjectsOverlayBtn','showHandleMapOverlayBtn','showProxyObjectsOverlayBtn','showFontsOverlayBtn','showClassesOverlayBtn','showObjectSizeOverlayBtn','showBlocksOverlayBtn','showLineTypesOverlayBtn','showTextsOverlayBtn','showDiagnosticsOverlayBtn','configureRulesBtn'];
           for(const id of launchers){document.getElementById(id).click();await new Promise(requestAnimationFrame);}
           w.applyPreset('Review');await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);
-          return {grids:document.querySelectorAll('grid-web').length,tables:[...document.querySelectorAll('table')].filter(n=>!n.closest('.dxf-grid-source,[hidden]')).length,
+          return {grids:document.querySelectorAll('tree-data-grid').length,tables:[...document.querySelectorAll('table')].filter(n=>!n.closest('.dxf-grid-source,[hidden]')).length,
             trees:!document.querySelector('#panelLeft grid-web,#panelRight grid-web')};
         }""")
         self.assertGreater(result['grids'],10);self.assertEqual(0,result['tables']);self.assertTrue(result['trees'])
@@ -81,36 +83,36 @@ class GridPreviewTests(unittest.TestCase):
 
     def test_05_rule_configuration_and_source_updates(self):
         self.sample();self.page.evaluate("document.getElementById('configureRulesBtn').click()");self.settle()
-        self.page.evaluate("""()=>{const p=[...app.tabularReports.projections].find(p=>p.source.matches('.rule-category-body'));window.rv=p.view;p.source.classList.add('expanded');window.sourceCheck=rv.selectedRow.source.querySelector('input');window.wasChecked=sourceCheck.checked;}""")
+        self.page.evaluate("""()=>{const p=[...app.tabularReports.projections].find(p=>p.source.matches('#ruleConfigContent'));window.rv=p.view;window.sourceCheck=rv.selectedRow.source.querySelector('input');window.wasChecked=sourceCheck.checked;}""")
         self.settle()
         self.page.evaluate("rv.details.querySelector('input[type=checkbox]').click()")
-        self.page.wait_for_function("rv.selectedRow.values[0] !== wasChecked")
-        self.assertJS("sourceCheck.checked!==wasChecked && !!document.querySelector('.rule-category-controls:not(.dxf-grid-source)')")
+        self.page.wait_for_function("rv.selectedRow.values[1] !== wasChecked")
+        self.assertJS("sourceCheck.checked!==wasChecked && !!rv.bar.textContent.includes('Enable filtered')")
 
     def test_06_classes_cloud_back_command_and_empty_recovery(self):
         self.sample()
         self.page.evaluate("""()=>{app.getActiveTab().originalTreeData.push({type:'CLASS',id:'cls',line:30,handle:'C0',properties:[{code:1,value:'PumpClass'},{code:2,value:'PumpCpp'},{code:3,value:'CADTest'}],children:[]});document.getElementById('showClassesOverlayBtn').click();}""")
         self.settle()
         self.assertJS("document.querySelector('[data-grid-title=\"Classes\"]')?.gridView.rows[0].values[0].includes('PumpClass')")
-        self.page.get_by_role('button',name='CADTest (1)',exact=True).click();self.settle()
-        self.assertTrue(self.page.get_by_role('button',name='Show All Classes',exact=True).is_visible())
-        self.page.get_by_role('button',name='Show All Classes',exact=True).click();self.settle()
+        self.page.locator('#classesOverlay').get_by_role('combobox',name='Application filter',exact=True).select_option('CADTest');self.settle()
+        self.assertTrue(self.page.locator('#classesOverlay').get_by_role('button',name='Reset filters',exact=True).is_visible())
+        self.page.locator('#classesOverlay').get_by_role('button',name='Reset filters',exact=True).click();self.settle()
         self.assertEqual(1,self.page.locator('[data-grid-title="Classes"]').count())
         self.page.evaluate("app.getActiveTab().originalTreeData=app.getActiveTab().originalTreeData.filter(n=>n.id!=='cls');app.updateClasses()")
-        self.settle();self.assertEqual(0,self.page.locator('[data-grid-title="Classes"]').count())
+        self.settle();self.assertJS("document.querySelector('[data-grid-title=\"Classes\"]').gridView.rows.length===0")
 
     def test_07_nested_block_metadata_and_proxy_actions(self):
         self.page.evaluate("""()=>{w.show('blocksOverlay');const container=document.getElementById('blocksOverlay').querySelector('.overlay-content');const list=document.createElement('div');list.className='block-overlay-list';list.innerHTML='<div class="block-card"><h3>Pump</h3><div class="block-card-line">Base point: 1,2,3</div><div class="block-card-line">Instances: 2</div><div class="block-card-warning">Review units</div><details><summary>Attributes</summary><ul><li>Tag: P-101</li><li>Power: 7.5 kW</li></ul></details><button>Jump to definition</button></div>';list.querySelector('button').onclick=()=>window.blockAction=true;container.append(list);}""")
         self.settle()
-        self.assertJS("document.querySelector('[data-grid-title=\"Blocks & Inserts\"]').gridView.rows[0].values[1]==='Instances: 2'")
+        self.assertJS("document.querySelector('[data-grid-title=\"Blocks & Inserts\"]').gridView.rows[0].values[1]===2")
         self.page.get_by_role('button',name='Jump to definition',exact=True).click();self.assertJS('window.blockAction===true')
-        self.page.evaluate("const v=document.querySelector('[data-grid-title=\"Blocks & Inserts\"]').gridView;v.details.querySelector('details').open=true;v.details.querySelectorAll('.dxf-grid-related')[1].open=true")
+        self.page.evaluate("const v=document.querySelector('[data-grid-title=\"Blocks & Inserts\"]').gridView;v.showDetail('related')")
         self.settle();self.assertJS("document.querySelector('[data-grid-title=\"Attributes\"]')?.gridView.rows.length===2")
 
     def test_08_batch_rows_actions_and_original_export_records(self):
         self.page.evaluate("""()=>{w.show('batchProcessingOverlay');window.batchId=app.batchDataGrid.addTab('Query');window.file=new File(['0\\nEOF'],'drawing.dxf');for(let i=0;i<2500;i++)app.batchDataGrid.addRow(batchId,{file:'drawing.dxf',line:i+1,data:'Record '+i,fileObject:file});app.openFileTab=(f,line)=>window.opened={same:f===file,line};}""")
         self.page.wait_for_function("app.batchDataGrid.tabs[batchId].view.rows.length===2500")
-        self.page.evaluate("app.batchDataGrid.tabs[batchId].view.grid.Select('A11')")
+        self.page.evaluate("app.batchDataGrid.tabs[batchId].view.selectIndex(9)")
         self.page.get_by_role('button',name='Open file at line',exact=True).click()
         self.assertJS("opened.same && opened.line===10 && app.batchDataGrid.getAllTabs()[batchId].rows[0].fileObject===file")
         self.page.evaluate("window.oldView=app.batchDataGrid.tabs[batchId].view;app.batchDataGrid.removeTab(batchId)");self.assertJS('oldView.disposed')
@@ -160,7 +162,7 @@ class GridPreviewTests(unittest.TestCase):
 
     def test_15_archives_route_office_entries_to_real_controls(self):
         self.assertTrue(self.page.evaluate("async()=>{window.zip=GridWeb.writeZip({'Equipment.xlsx':gridFixtures.excel(),'Review.docx':await gridFixtures.word()});return await app.officePreview.open(zip,'Package.zip');}"))
-        self.assertJS("app.officePreview.stage.querySelector('grid-web') instanceof GridWeb.GridWebElement")
+        self.assertJS("app.officePreview.stage.querySelector('tree-data-grid')?.Model instanceof TreeDataGridCore.HierarchicalTreeDataGridSource")
         self.page.get_by_role('button',name='Preview',exact=True).click();self.page.wait_for_function('!!app.officePreview.book')
         self.assertJS("app.officePreview.book.Worksheets.Count===2")
         self.assertTrue(self.page.evaluate("async()=>{const entries=await GridWeb.readZip(zip);return await app.officePreview.open(entries.get('Review.docx'),'Review.docx');}"))
@@ -185,10 +187,12 @@ class GridPreviewTests(unittest.TestCase):
 
     def test_19_projection_cleanup_and_dispose(self):
         self.sample();self.page.evaluate("document.getElementById('showStatsOverlayBtn').click()");self.settle()
-        self.page.evaluate("window.views=[...app.tabularReports.projections].map(p=>p.view);document.getElementById('statsOverlay').querySelector('.overlay-content').replaceChildren()")
+        self.page.evaluate("const src=document.createElement('div');src.className='block-overlay-list';src.innerHTML='<div class=block-card><h3>Cleanup</h3></div>';document.getElementById('overlayBlocksContent').append(src);window.cleanupSource=src")
+        self.settle()
+        self.page.evaluate("window.views=[...app.tabularReports.projections].map(p=>p.view);window.directView=app.analysisReports.views.get('overlayStatsContent').view;cleanupSource.remove()")
         self.settle();self.assertJS("views.some(v=>v.disposed)")
         self.page.evaluate("w.dispose();w.dispose()")
-        self.assertJS('app.tabularReports.disposed && app.officePreview.disposed && app.tabularReports.projections.size===0')
+        self.assertJS('app.tabularReports.disposed && app.officePreview.disposed && app.tabularReports.projections.size===0 && directView.disposed && app.analysisReports.disposed')
 
     def test_20_editor_has_document_preview_and_local_dependencies(self):
         self.context.close();harness.DockingTests.setUp(self);self.load('editor/index.html')

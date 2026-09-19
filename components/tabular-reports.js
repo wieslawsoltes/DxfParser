@@ -8,38 +8,33 @@
     key: keyFor(node), source: node, values: values(node), hidden: node.classList.contains('hidden')
   }));
   const descriptors = [
-    { selector: '#binaryObjectsList', title: 'Binary Objects', columns: ['Type', 'Line', 'Handle', 'Details'],
-      records: s => records(s, ':scope > div', n => { const t = directText(n); return [match(t, /Type: (.*?) \|/), Number(match(t, /Line: (\d+)/)), match(t, /Handle: ([^\s|]+)/), t]; }) },
-    { selector: '#proxyObjectsList', title: 'Proxy Objects', columns: ['Proxy', 'Properties'],
-      records: s => records(s, ':scope > div', n => [text(n.querySelector('h3,strong')), directText(n)]) },
-    { selector: '.dxf-class-records', title: 'Classes', columns: ['Class', 'C++ class', 'Application'],
-      records: s => records(s, '.class-record', n => [text(n.querySelector('h3')), text(n.querySelectorAll('p')[0]), text(n.querySelectorAll('p')[1])]) },
-    { selector: '.block-overlay-list', title: 'Blocks & Inserts', columns: ['Block', 'Instances', 'Base point', 'Constraints', 'Block type', 'Units'],
-      records: s => records(s, ':scope > .block-card', n => {
+    { selector: '.block-overlay-list', title: 'Blocks & Inserts', columns: ['Block', {title:'Instances',bar:true}, 'Base point', 'Constraints', 'Block type', 'Units'],
+      records: s => { const rows = records(s, ':scope > .block-card', n => {
         const lines = [...n.querySelectorAll(':scope > .block-card-line')].map(text);
-        return [text(n.querySelector('h3')), ...['Instances:', 'Base point:', 'Constraints:', 'Block type:', 'Units:'].map(prefix => lines.find(line => line.toLowerCase().startsWith(prefix.toLowerCase())) || '')];
-      }) },
+        const values = ['Instances:', 'Base point:', 'Constraints:', 'Block type:', 'Units:'].map(prefix => (lines.find(line => line.toLowerCase().startsWith(prefix.toLowerCase())) || '').slice(prefix.length).trim());
+        return [text(n.querySelector('h3')), Number.parseInt(values[0].replace(/,/g,''),10) || 0, ...values.slice(1)];
+      }).map(row => ({...row, key: 'block:' + row.values[0]}));
+        return global.app?.analysisReports?.enrichBlocks(rows) || rows; } },
     { selector: '.rendering-summary-grid', title: 'Drawing Information', columns: ['Property', 'Value'],
-      records: s => records(s, ':scope > div', n => { const label = text(n.querySelector('.label')); return [label.replace(/:$/, ''), text(n).slice(label.length).trim()]; }) },
-    { selector: '.app-cloud', title: 'Class Applications', columns: ['Application', 'Count'],
-      records: s => records(s, '.cloud-tag', n => [text(n).replace(/\s*\(\d+\)$/, ''), Number(match(text(n), /\((\d+)\)$/))]) },
+      records: s => records(s, ':scope > div', n => { const label = text(n.querySelector('.label')); return [label.replace(/:$/, ''), text(n).slice(label.length).trim()]; }).map(row => ({...row,key:row.values[0]})) },
     { selector: '#renderingBlocksGrid', title: 'Block Definitions', columns: ['Block', 'Details'],
-      records: s => records(s, '.rendering-block-card', n => [text(n.querySelector('.rendering-block-name')), text(n.querySelector('.rendering-block-details'))]) },
-    { selector: '.diagnostics-category-content', title: 'Diagnostic Issues', columns: ['Severity', 'Title', 'Description', 'Location'],
-      records: s => records(s, ':scope > .diagnostic-item', n => ['.diagnostic-severity', '.diagnostic-title', '.diagnostic-description', '.diagnostic-location'].map(c => text(n.querySelector(c)))) },
-    { selector: '.rule-category-body', title: 'Diagnostic Rules', columns: [{ title: 'Enabled', width: 80 }, 'Rule', 'Description', 'Severity'], preserve: '.rule-category-controls',
-      records: s => records(s, ':scope > .rule-item', n => [!!n.querySelector('input')?.checked, ...['.rule-title', '.rule-description', '.rule-severity'].map(c => text(n.querySelector(c)))]) },
-    { selector: '#diagnosticsStats', title: 'Diagnostics Summary', columns: ['Severity', 'Count'],
-      records: s => records(s, '.diagnostics-stat', n => [text(n.querySelector('.diagnostics-stat-label')), Number(text(n.querySelector('.diagnostics-stat-number')))]) },
-    { selector: '#overlayObjectCloud,#overlayCodeCloud', title: 'DXF Frequencies', columns: ['Value', 'Count'],
-      records: s => records(s, '.cloud-tag', n => [text(n).replace(/\s*\(\d+\)$/, ''), Number(match(text(n), /\((\d+)\)$/))]) }
+      records: s => records(s, '.rendering-block-card', n => [text(n.querySelector('.rendering-block-name')), text(n.querySelector('.rendering-block-details'))]).map(row=>({...row,key:'block:'+row.values[0]})) },
+    { selector: '#ruleConfigContent', title: 'Diagnostic Rules', columns: ['Rule', {title:'Enabled',width:85,control:row=>row.source.querySelector('input[type=checkbox]')}, 'Category', 'Severity', {title:'Description',width:350}],
+      records: s => records(s, '.rule-item', n => [text(n.querySelector('.rule-title')), !!n.querySelector('input')?.checked, n.dataset.category || '', text(n.querySelector('.rule-severity')), text(n.querySelector('.rule-description'))])
+        .map(row=>({...row,key:'rule:'+row.source.dataset.category+':'+row.source.dataset.rule})),
+      onMount: view => {
+        for (const enabled of [true,false]) {
+          const b=DxfGrid.element('button','',enabled?'Enable filtered':'Disable filtered');b.type='button';
+          b.addEventListener('click',()=>view.runAction(()=>{for(const row of view.filteredRows||view.visibleRows){const input=row.source?.querySelector('input[type=checkbox]');if(input&&!input.disabled){input.checked=enabled;input.dispatchEvent(new Event('change',{bubbles:true}));}}view.onSourceChange?.();}));view.bar.append(b);
+        }
+      } }
   ];
   function mount(container, options) {
     if (container._dataGrid && container._dataGrid.host.isConnected) {
       container._dataGrid.setRows(options.rows); return container._dataGrid;
     }
     container._dataGrid?.dispose(); container.replaceChildren();
-    return container._dataGrid = new GridView(container, options);
+    return container._dataGrid = new (global.DxfAnalysis?.AnalysisView || GridView)(container, options);
   }
   function installApp(app) {
     const rootIds = ['cloudOverlay', 'statsOverlay', 'depsOverlay', 'hexViewerOverlay', 'binaryObjectsOverlay', 'handleMapOverlay',
@@ -57,6 +52,7 @@
         return result;
       };
     }
+    // Typed reports are installed before the registry's first observation; old sources never flash.
     const registry = new ReportRegistry(rootIds.map(byId), descriptors);
     app.tabularReports = registry;
     app.renderObjectSizeList = function () {
@@ -117,6 +113,7 @@
         for (const id of ['objectSizeList', 'hexContent']) byId(id)?._dataGrid?.dispose(); dispose(); };
     }
   }
-  global.DxfGrid.installApp = installApp;
+  const installLegacy = installApp;
+  global.DxfGrid.installApp = app => { installLegacy(app); global.DxfAnalysis?.install(app); };
   global.DxfGrid.mount = mount;
 })(window);

@@ -1,4 +1,4 @@
-/* Batch query results use the same GridWeb surface as all other reports. */
+/* Batch query results use interactive records with an optional GridWeb sheet. */
 class BatchDataGrid {
   constructor(tabHeadersContainer, tabContentsContainer) {
     this.tabHeadersContainer = tabHeadersContainer;
@@ -18,7 +18,7 @@ class BatchDataGrid {
     const content = document.createElement('div'); content.className = 'batch-tab-content'; content.dataset.tabId = id;
     content.style.height = '100%'; content.setAttribute('role', 'tabpanel');
     this.tabHeadersContainer.append(header); this.tabContentsContainer.append(content);
-    const view = new DxfGrid.GridView(content, { title: 'Batch Results · ' + fileName,
+    const view = new (window.DxfAnalysis?.AnalysisView || DxfGrid.GridView)(content, { title: 'Batch Results · ' + fileName,
       columns: [{ title: '#', width: 70 }, { title: 'File', width: 300 }, { title: 'Line', width: 90 }, { title: 'Data', width: 500 }] });
     this.tabs[id] = { fileName, header, content, view, rows: [], frame: 0 };
     this.switchTab(id); return id;
@@ -34,7 +34,7 @@ class BatchDataGrid {
     tab.view.setRows(tab.rows.map((row, index) => ({ key: index, values: [index + 1, row.file, row.line, row.data],
       actions: [{ label: 'Open file at line', run: () => window.app.openFileTab(row.fileObject, row.line) }] })));
   }
-  syncHeaderWidths(id) { this.tabs[id]?.view.grid.Refresh(); }
+  syncHeaderWidths(id) { const view=this.tabs[id]?.view; if(view?.refreshLayout) view.refreshLayout(); else view?.grid.Refresh(); }
   switchTab(id) {
     if (!this.tabs[id]) return;
     this.activeTabId = id;
@@ -42,7 +42,7 @@ class BatchDataGrid {
       tab.content.style.display = key === id ? 'block' : 'none';
       tab.header.setAttribute('aria-selected', String(key === id));
       tab.header.style.fontWeight = key === id ? 'bold' : 'normal';
-      if (key === id) tab.view.grid.Refresh();
+      if (key === id) { if(tab.view.refreshLayout) tab.view.refreshLayout(); else tab.view.grid.Refresh(); }
     }
   }
   removeTab(id) {
