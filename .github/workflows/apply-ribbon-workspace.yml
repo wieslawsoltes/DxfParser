@@ -1,0 +1,62 @@
+name: Apply verified RibbonWeb workspace
+on:
+  push:
+    branches: [feat/ribbon-document-workspace]
+    paths: [.github/workflows/apply-ribbon-workspace.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ribbon-document-workspace
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/RibbonWeb
+          ref: d4f8f53c038e7b21e5942c8084eae211d3d4e4a1
+          path: .ribbon-upstream
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Decode checksum-verified source patch
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.ribbon-migration').glob('*.b64'))
+          assert [p.name for p in chunks] == [f'{i:02}.b64' for i in range(8)]
+          encoded = ''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded) == 60652, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert len(patch) == 215671
+          assert hashlib.sha256(patch).hexdigest() == '0e0c026872c8ce81ed31e3ef3e5aeeffc3a317779bf9793cc00b82bba35a260c'
+          Path('/tmp/ribbon-workspace.patch').write_bytes(patch)
+          PY
+      - name: Apply integration and pinned unmodified dependency
+        run: |
+          git apply --check /tmp/ribbon-workspace.patch
+          git apply --index /tmp/ribbon-workspace.patch
+          cp .ribbon-upstream/src/*.js .ribbon-upstream/src/*.ts vendor/ribbonweb/
+          (cd vendor/ribbonweb && sha256sum -c SHA256SUMS)
+          rm -rf .ribbon-upstream .ribbon-migration
+          node scripts/build-rendering-bundle.js
+          git diff --exit-code -- dist/dxf-rendering.global.js
+          git add -A
+          cp .git/index /tmp/ribbon-verification-index
+          GIT_INDEX_FILE=/tmp/ribbon-verification-index git rm --cached .github/workflows/stage-ribbon-workspace.yml .github/workflows/apply-ribbon-workspace.yml
+          ACTUAL="$(GIT_INDEX_FILE=/tmp/ribbon-verification-index git write-tree)"
+          echo "Final tree after temporary workflow cleanup: $ACTUAL"
+          test "$ACTUAL" = '62d94ebe6c9f6c26075ad7db3d5218b7096ccae7'
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git diff --cached --check
+          for file in components/ribbon-workspace.mjs components/docking-documents.js components/docking-parser.js components/docking-editor.js components/docking-workspace.js components/tree-data-grid.js components/state-manager.js components/app.js; do node --check "$file"; done
+      - name: Commit verified source changes only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: complete RibbonWeb and independent dock-document integration'
+          git push origin HEAD:feat/ribbon-document-workspace
