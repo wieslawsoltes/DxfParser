@@ -1,0 +1,3 @@
+Repository: https://github.com/wieslawsoltes/RibbonWeb
+Commit: d4f8f53c038e7b21e5942c8084eae211d3d4e4a1
+Unmodified src JavaScript modules and declarations. MIT; see LICENSE.

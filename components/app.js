@@ -105,15 +105,21 @@
         // Mount only after controllers have cached their original DOM nodes and listeners.
         if (window.DxfDocking) this.dockingWorkspace = window.DxfDocking.mountParser(this);
         window.DxfGrid?.installApp(this);
+        // Restore document identities before deserializing the layout that refers to them.
+        this.restoreAppState();
+        if (this.dockingWorkspace) {
+          this.dockingWorkspace.restore();
+          this.documentWorkspace.reconcileLayout();
+          this.dockingWorkspace.ready = true;
+          this.dockingWorkspace.syncPresentation(false);
+          this.dockingWorkspace.scheduleResize();
+          this.ribbonWorkspace = window.DxfRibbon.mountParser(this, this.dockingWorkspace);
+        }
       }
       
       // Initialize state management and restore saved state
       initializeStateManagement() {
-        // Attempt to restore state on app startup
-        setTimeout(() => {
-          this.restoreAppState();
-          this.dockingWorkspace?.refreshData();
-        }, 100); // Small delay to ensure DOM is ready
+        // Synchronous startup restoration runs after controllers and document registry are mounted.
         
         // Auto-save state periodically
         setInterval(() => {
@@ -128,7 +134,7 @@
       
       // Save current state to localStorage
       saveCurrentState() {
-        if (this.tabs.length > 0) {
+        if (!this.documentWorkspace?.disposed) {
           // Use light save to reduce quota pressure (full export is available via Save to File)
           this.stateManager.saveAppStateLight(this.tabs, this.tabsRight, this.activeTabId, this.activeTabIdRight, this.columnWidths);
         }
@@ -177,7 +183,8 @@
                 dataCase: tabState.dataCase || false,
                 selectedObjectTypes: tabState.selectedObjectTypes || [],
                 navigationHistory: tabState.navigationHistory || [],
-                currentHistoryIndex: tabState.currentHistoryIndex || -1,
+                currentHistoryIndex: tabState.currentHistoryIndex ?? -1,
+                columnWidths: tabState.columnWidths, isModified: !!tabState.isModified,
                 classIdToName: tabState.classIdToName || {}
               };
               
@@ -214,7 +221,8 @@
                 dataCase: tabState.dataCase || false,
                 selectedObjectTypes: tabState.selectedObjectTypes || [],
                 navigationHistory: tabState.navigationHistory || [],
-                currentHistoryIndex: tabState.currentHistoryIndex || -1,
+                currentHistoryIndex: tabState.currentHistoryIndex ?? -1,
+                columnWidths: tabState.columnWidths, isModified: !!tabState.isModified,
                 classIdToName: tabState.classIdToName || {}
               };
               restoredTabsRight.push(restoredTab);
@@ -286,10 +294,8 @@
           tab.maxLine,
           tab.selectedObjectTypes
         );
-        // Update left tree display
-        if (this.myTreeGrid) {
-          this.myTreeGrid.setData(tab.currentTreeData);
-        }
+        const grid = this.documentWorkspace?.findByTab(tab.id)?.grid || this.myTreeGrid;
+        if (grid) grid.setData(tab.currentTreeData);
         // Refresh filter indicators on buttons
         this.updateFiltersButtonIndicators();
       }
@@ -423,10 +429,10 @@
         const clearLeft = document.getElementById('clearSearchBtnLeft');
         const searchRight = document.getElementById('searchBtnRight');
         const clearRight = document.getElementById('clearSearchBtnRight');
-        if (searchLeft) searchLeft.addEventListener('click', () => { this.handleSearch('left'); this.closeFiltersOverlay('left'); });
-        if (clearLeft) clearLeft.addEventListener('click', () => { this.handleClearSearch('left'); this.closeFiltersOverlay('left'); });
-        if (searchRight) searchRight.addEventListener('click', () => { this.handleSearch('right'); this.closeFiltersOverlay('right'); });
-        if (clearRight) clearRight.addEventListener('click', () => { this.handleClearSearch('right'); this.closeFiltersOverlay('right'); });
+        if (searchLeft) searchLeft.addEventListener('click', () => { this.handleSearch('left'); this.dismissReportAfterNavigation('filtersOverlayLeft'); });
+        if (clearLeft) clearLeft.addEventListener('click', () => { this.handleClearSearch('left'); this.dismissReportAfterNavigation('filtersOverlayLeft'); });
+        if (searchRight) searchRight.addEventListener('click', () => { this.handleSearch('right'); this.dismissReportAfterNavigation('filtersOverlayRight'); });
+        if (clearRight) clearRight.addEventListener('click', () => { this.handleClearSearch('right'); this.dismissReportAfterNavigation('filtersOverlayRight'); });
 
         // Options and range inputs per side
         const optionSets = [
@@ -753,7 +759,7 @@
         document.querySelectorAll(".backToTreeBtn").forEach(btn => {
           btn.addEventListener("click", (e) => {
             const overlayId = btn.getAttribute("data-overlay");
-            document.getElementById(overlayId).style.display = "none";
+            this.showReportSource(overlayId);
             this.treeViewContainer.focus();
           });
         });
@@ -783,7 +789,7 @@
         this.sideBySideDiffEnabled = !this.sideBySideDiffEnabled;
         if (this.sideBySideDiffEnabled) {
           // On enabling diff, expand all nodes first on both sides, then apply current filters
-          const leftTab = this.getActiveTab();
+          const leftTab = this.getComparisonTab('left');
           const rightTab = this.getActiveTabRight();
           if (leftTab) {
             this.expandAllNodes(leftTab.originalTreeData);
@@ -800,7 +806,7 @@
               leftTab.maxLine || null,
               leftTab.selectedObjectTypes || []
             );
-            if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
+            if (this.myTreeGridLeft) this.myTreeGridLeft.setData(leftTab.currentTreeData);
           }
           if (rightTab) {
             this.expandAllNodes(rightTab.originalTreeData);
@@ -827,15 +833,16 @@
       }
 
       clearSideBySideDiff() {
+        this.sideBySideDiffEnabled = false;
         this.currentDiffMap = null;
         // Stop syncing scroll positions when Tree Diff is disabled
         this.detachVerticalScrollSync();
         // 1) Clear all diff-related providers and alignment on both grids
-        if (this.myTreeGrid) {
-          if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
-          if (this.myTreeGrid.setCellClassProvider) this.myTreeGrid.setCellClassProvider(null);
-          if (this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
-          if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(null);
+        if (this.myTreeGridLeft) {
+          if (this.myTreeGridLeft.setRowClassProvider) this.myTreeGridLeft.setRowClassProvider(null);
+          if (this.myTreeGridLeft.setCellClassProvider) this.myTreeGridLeft.setCellClassProvider(null);
+          if (this.myTreeGridLeft.setOverrideTotalRows) this.myTreeGridLeft.setOverrideTotalRows(null);
+          if (this.myTreeGridLeft.setIndexMap) this.myTreeGridLeft.setIndexMap(null);
         }
         if (this.myTreeGridRight) {
           if (this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
@@ -845,14 +852,14 @@
         }
 
         // 2) Restore each panel's view to its own filtered/sorted state
-        const leftTab = this.getActiveTab();
+        const leftTab = this.getComparisonTab('left');
         const rightTab = this.getActiveTabRight();
 
         if (leftTab) {
           // Re-apply the saved filters/sort on left and update grid
           this.applyTabFilters(leftTab);
-        } else if (this.myTreeGrid) {
-          this.myTreeGrid.setData([]);
+        } else if (this.myTreeGridLeft) {
+          this.myTreeGridLeft.setData([]);
         }
 
         if (rightTab) {
@@ -876,13 +883,13 @@
         }
 
         // 3) Force re-render
-        if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+        if (this.myTreeGridLeft) this.myTreeGridLeft.updateVisibleNodes();
         if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
         this.updateDiffIndicator();
       }
 
       computeAndApplySideBySideDiff() {
-        const leftTab = this.getActiveTab();
+        const leftTab = this.getComparisonTab('left');
         const rightTab = this.getActiveTabRight();
         if (!leftTab || !rightTab) {
           // If one side is missing, skip compute but keep the toggle state as-is.
@@ -891,8 +898,8 @@
           return;
         }
         // Preserve current virtual scroll position (ratio) to avoid jumps on expand/collapse
-        const rowHeight = this.myTreeGrid?.itemHeight || 24;
-        const leftC = this.treeViewContainer;
+        const rowHeight = this.myTreeGridLeft?.itemHeight || 24;
+        const leftC = this.treeViewContainerLeft;
         const rightC = this.treeViewContainerRight;
         const prevTotalRows = this.currentDiffMap?.totalRows || null;
         const prevScrollTop = leftC ? leftC.scrollTop : 0;
@@ -900,11 +907,11 @@
         const prevScrollable = (prevTotalRows != null) ? Math.max(1, (prevTotalRows * rowHeight) - prevViewport) : null;
         const prevScrollRatio = (prevScrollable && prevScrollable > 0) ? (prevScrollTop / prevScrollable) : null;
         // 1) Reset both grids to a clean state (clear any previous diff overlays)
-        if (this.myTreeGrid) {
-          if (this.myTreeGrid.setRowClassProvider) this.myTreeGrid.setRowClassProvider(null);
-          if (this.myTreeGrid.setCellClassProvider) this.myTreeGrid.setCellClassProvider(null);
-          if (this.myTreeGrid.setOverrideTotalRows) this.myTreeGrid.setOverrideTotalRows(null);
-          if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(null);
+        if (this.myTreeGridLeft) {
+          if (this.myTreeGridLeft.setRowClassProvider) this.myTreeGridLeft.setRowClassProvider(null);
+          if (this.myTreeGridLeft.setCellClassProvider) this.myTreeGridLeft.setCellClassProvider(null);
+          if (this.myTreeGridLeft.setOverrideTotalRows) this.myTreeGridLeft.setOverrideTotalRows(null);
+          if (this.myTreeGridLeft.setIndexMap) this.myTreeGridLeft.setIndexMap(null);
         }
         if (this.myTreeGridRight) {
           if (this.myTreeGridRight.setRowClassProvider) this.myTreeGridRight.setRowClassProvider(null);
@@ -914,7 +921,7 @@
         }
         // 2) Use currently filtered/sorted trees as the diff source
         // Do not overwrite currentTreeData with original; respect active filters.
-        if (this.myTreeGrid) this.myTreeGrid.setData(leftTab.currentTreeData);
+        if (this.myTreeGridLeft) this.myTreeGridLeft.setData(leftTab.currentTreeData);
         if (this.myTreeGridRight) this.myTreeGridRight.setData(rightTab.currentTreeData);
         // Build flattened lists using semantic keys that ignore DXF handles for better alignment
         const diffOptions = { ignoreHandles: true, respectExpanded: true };
@@ -967,9 +974,9 @@
           }
         }
         this.currentDiffMap = { leftRowClasses: leftClasses, rightRowClasses: rightClasses, leftCellClasses, rightCellClasses, totalRows };
-        this.myTreeGrid.setRowClassProvider((index, item) => this.currentDiffMap.leftRowClasses.get(index) || null);
+        this.myTreeGridLeft.setRowClassProvider((index, item) => this.currentDiffMap.leftRowClasses.get(index) || null);
         this.myTreeGridRight.setRowClassProvider((index, item) => this.currentDiffMap.rightRowClasses.get(index) || null);
-        this.myTreeGrid.setCellClassProvider((index, item, key) => {
+        this.myTreeGridLeft.setCellClassProvider((index, item, key) => {
           const map = this.currentDiffMap.leftCellClasses.get(index);
           return map ? map[key] || null : null;
         });
@@ -977,7 +984,7 @@
           const map = this.currentDiffMap.rightCellClasses.get(index);
           return map ? map[key] || null : null;
         });
-        this.myTreeGrid.setOverrideTotalRows(totalRows);
+        this.myTreeGridLeft.setOverrideTotalRows(totalRows);
         this.myTreeGridRight.setOverrideTotalRows(totalRows);
         // Build index maps so placeholders are rendered at unmatched positions
         const leftIndexMap = new Array(totalRows).fill(null);
@@ -989,11 +996,11 @@
             if (pair.rightIndex != null) rightIndexMap[idx] = pair.rightIndex;
           }
         }
-        if (this.myTreeGrid.setIndexMap) this.myTreeGrid.setIndexMap(leftIndexMap);
+        if (this.myTreeGridLeft.setIndexMap) this.myTreeGridLeft.setIndexMap(leftIndexMap);
         if (this.myTreeGridRight.setIndexMap) this.myTreeGridRight.setIndexMap(rightIndexMap);
         this.syncVerticalScroll();
         // 4) Force re-render and restore scroll position to previous ratio (avoid jump)
-        if (this.myTreeGrid) { this.myTreeGrid.updateVisibleNodes(); }
+        if (this.myTreeGridLeft) { this.myTreeGridLeft.updateVisibleNodes(); }
         if (this.myTreeGridRight) { this.myTreeGridRight.updateVisibleNodes(); }
         if (prevScrollRatio != null && leftC) {
           const newViewport = leftC.clientHeight || 0;
@@ -1010,7 +1017,7 @@
         const indicator = document.getElementById('diffIndicator');
         const nav = document.getElementById('diffNavButtons');
         if (!indicator) return;
-        const hasLeft = !!this.getActiveTab();
+        const hasLeft = !!this.getComparisonTab('left');
         const hasRight = !!this.getActiveTabRight();
         const on = !!this.sideBySideDiffEnabled && hasLeft && hasRight;
         indicator.style.display = on ? 'inline-block' : 'none';
@@ -1024,8 +1031,8 @@
         const total = this.currentDiffMap.totalRows || 0;
         if (total <= 0) return;
         // Determine current virtual index from left scroll position
-        const rowHeight = this.myTreeGrid?.itemHeight || 24;
-        const container = this.treeViewContainer; // left as reference
+        const rowHeight = this.myTreeGridLeft?.itemHeight || 24;
+        const container = this.treeViewContainerLeft; // left as reference
         const currentIndex = Math.floor((container?.scrollTop || 0) / rowHeight);
         const start = Math.max(0, currentIndex + 1);
         const matchClass = kind === 'added' ? 'diff-added' : kind === 'removed' ? 'diff-removed' : 'diff-changed';
@@ -1048,19 +1055,19 @@
         };
         const jumpTo = (i) => {
           const top = i * rowHeight;
-          if (this.treeViewContainer) this.treeViewContainer.scrollTop = top;
+          if (this.treeViewContainerLeft) this.treeViewContainerLeft.scrollTop = top;
           if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = top;
-          if (this.myTreeGrid && this.myTreeGrid.indexMap) {
-            const mapped = this.myTreeGrid.indexMap[i];
-            if (mapped != null && mapped >= 0 && mapped < this.myTreeGrid.flatData.length) {
-              const node = this.myTreeGrid.flatData[mapped]?.node;
+          if (this.myTreeGridLeft && this.myTreeGridLeft.indexMap) {
+            const mapped = this.myTreeGridLeft.indexMap[i];
+            if (mapped != null && mapped >= 0 && mapped < this.myTreeGridLeft.flatData.length) {
+              const node = this.myTreeGridLeft.flatData[mapped]?.node;
               if (node && node.id) {
                 this.selectedNodeId = node.id;
-                this.myTreeGrid.selectedRowId = node.id;
+                this.myTreeGridLeft.selectedRowId = node.id;
               }
             }
           }
-          if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
+          if (this.myTreeGridLeft) this.myTreeGridLeft.updateVisibleNodes();
           if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
         };
         // Search forward for the next block start, then wrap around
@@ -1091,7 +1098,7 @@
 
       syncVerticalScroll() {
         if (this._scrollSyncAttached) return;
-        const leftC = this.treeViewContainer;
+        const leftC = this.treeViewContainerLeft;
         const rightC = this.treeViewContainerRight;
         if (!leftC || !rightC) return;
         // Keep listener references and a lock so we can detach cleanly
@@ -1113,7 +1120,7 @@
 
       detachVerticalScrollSync() {
         if (!this._scrollSyncAttached) return;
-        const leftC = this.treeViewContainer;
+        const leftC = this.treeViewContainerLeft;
         const rightC = this.treeViewContainerRight;
         if (leftC && this._onLeftScroll) leftC.removeEventListener('scroll', this._onLeftScroll);
         if (rightC && this._onRightScroll) rightC.removeEventListener('scroll', this._onRightScroll);
@@ -1124,6 +1131,7 @@
       }
 
       setRightPanelHidden(hidden) {
+        if (this.documentWorkspace) return this.documentWorkspace.showSide('right', !hidden);
         if (this.dockingWorkspace) {
           this.dockingWorkspace.setVisible('tree-right', !hidden);
           return;
@@ -1204,7 +1212,10 @@
         const menu = document.getElementById('contextMenu');
         if (!menu) return;
         let currentRow = null;
-        let currentSide = 'left'; // 'left' or 'right'
+        let currentSide = 'left'; // Comparison role, independent of dock position.
+        let currentDocumentId = null;
+        const lifetime = this.contextMenuLifetime = new AbortController();
+        const options = { signal: lifetime.signal };
 
         const openMenuAt = (x, y) => {
           menu.style.left = x + 'px';
@@ -1279,22 +1290,21 @@
           menu.appendChild(root);
         };
 
-        const bind = (container) => {
-          if (!container) return;
-          container.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            const row = e.target.closest('.tree-row');
-            if (!row) return;
-            currentRow = row;
-            // Detect which side triggered the context menu
-            const isRight = !!row.closest('#treeViewContainerRight');
-            currentSide = isRight ? 'right' : 'left';
-            buildMenu(row);
-            openMenuAt(e.clientX, e.clientY);
-          });
-        };
-        bind(this.treeViewContainer);
-        bind(this.treeViewContainerRight);
+        // Delegate once: file documents are created, floated and reparented dynamically.
+        document.addEventListener('contextmenu', (e) => {
+          const row = e.target.closest?.('.tree-row');
+          const owner = row?.closest('.dxf-file-document');
+          if (!row || (!owner && !row.closest('#treeViewContainerLeft,#treeViewContainerRight'))) return;
+          e.preventDefault();
+          const record = owner ? this.documentWorkspace?.findByTab(owner.dataset.documentId) : null;
+          if (record) this.documentWorkspace.activate(record, { focus: false });
+          // Virtualized row elements may be reused while the menu is open. Capture the node instead.
+          currentRow = { _nodeRef: row._nodeRef, dataset: { id: row.dataset.id } };
+          currentDocumentId = record?.id || null;
+          currentSide = record?.side || (row.closest('#treeViewContainerRight') ? 'right' : 'left');
+          buildMenu(currentRow);
+          openMenuAt(e.clientX, e.clientY);
+        }, options);
 
         // Command dispatch
         menu.addEventListener('click', (e) => {
@@ -1309,9 +1319,15 @@
           const cmd = item.dataset.cmd;
           const arg = item.dataset.arg;
           if (!cmd || !currentRow) { hideMenu(); return; }
+          const record = currentDocumentId && this.documentWorkspace?.records.get(currentDocumentId);
+          if (currentDocumentId && !record) { hideMenu(); return; }
+          if (record) {
+            this.documentWorkspace.activate(record, { focus: false });
+            currentSide = record.side;
+          }
           this._executeContextCommand(cmd, arg, currentRow, currentSide);
           hideMenu();
-        });
+        }, options);
 
         // Hover intent to open submenus
         let hoverTimer;
@@ -1326,16 +1342,17 @@
               trigger.setAttribute('aria-expanded', 'true');
             }
           }, 120);
-        });
+        }, options);
 
         // Global dismissal
-        document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); });
-        window.addEventListener('blur', hideMenu);
+        document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); }, options);
+        window.addEventListener('blur', hideMenu, options);
+        lifetime.signal.addEventListener('abort', () => { clearTimeout(hoverTimer); hideMenu(); }, { once: true });
         document.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') hideMenu();
           if (e.key === 'ArrowRight') { const t = document.activeElement?.closest('.submenu-trigger'); if (t) { t.classList.add('open'); t.setAttribute('aria-expanded', 'true'); } }
           if (e.key === 'ArrowLeft') { const o = menu.querySelector('.menu-item.open'); if (o) { o.classList.remove('open'); o.setAttribute('aria-expanded', 'false'); } }
-        });
+        }, options);
       }
 
       _openFloatingDropdown(buttonEl, contentEl) {
@@ -1409,7 +1426,7 @@
 
       _executeContextCommand(cmd, arg, row, side = 'left') {
         const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
+        const activeTab = this.getComparisonTab(side);
         if (!activeTab || !row) return;
         const node = row._nodeRef || this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, row.dataset.id);
         if (!node) return;
@@ -1427,7 +1444,8 @@
           case 'add-table': this.addTableEntry(insertionTarget, arg, side); break;
           case 'add-object': this.addDxfObject(insertionTarget, arg, side); break;
         }
-        this.updateEffectiveSearchTerms(side);
+        this.applyTabFilters(activeTab);
+        if (this.sideBySideDiffEnabled) this.computeAndApplySideBySideDiff();
         this.saveCurrentState();
       }
       
@@ -1458,9 +1476,12 @@
       
       // Handle context menu actions (legacy path) – route to correct side based on row location
       handleContextMenuAction(action, type, targetRow) {
-        const side = targetRow && targetRow.closest('#treeViewContainerRight') ? 'right' : 'left';
+        const owner = targetRow?.closest('.dxf-file-document');
+        const record = owner && this.documentWorkspace?.findByTab(owner.dataset.documentId);
+        if (record) this.documentWorkspace.activate(record, { focus: false });
+        const side = record?.side || (targetRow?.closest('#treeViewContainerRight') ? 'right' : 'left');
         const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
+        const activeTab = this.getComparisonTab(side);
         if (!activeTab) return;
 
         const nodeRef = targetRow && targetRow._nodeRef ? targetRow._nodeRef : null;
@@ -1498,209 +1519,99 @@
             break;
         }
 
-        this.updateEffectiveSearchTerms(side);
+        this.applyTabFilters(activeTab);
+        if (this.sideBySideDiffEnabled) this.computeAndApplySideBySideDiff();
         this.saveCurrentState();
       }
       
-      // Add row above the selected node
-      addRowAbove(targetNode, side = 'left') {
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        if (!activeTab) return;
-        
+      /** Resolve the actual mutable collection. Never splice a stale/foreign selection at -1. */
+      locateTreeRow(targetNode, side = this.documentWorkspace?.side() || 'left') {
+        const tab = this.getComparisonTab(side);
+        if (!tab || !targetNode) return null;
         if (targetNode.isProperty) {
-          // Add property above current property
-          const parent = targetNode.parentNode;
-          if (parent) {
-            const index = parent.properties.findIndex(p => p === targetNode.propRef);
-            const newProp = { line: '', code: 0, value: '' };
-            parent.properties.splice(index, 0, newProp);
-          }
-        } else {
-          // Add node above current node
-          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-          const newNode = this.createNewNode('NEW');
+          const parent = this.filteredNodeSources?.get(targetNode.parentNode) || targetNode.parentNode;
+          if (!parent || this.dxfParser.findNodeByIdIterative(tab.originalTreeData, parent.id) !== parent) return null;
+          const items = parent.properties || [], index = items.indexOf(targetNode.propRef);
+          return index < 0 ? null : { tab, items, index, property: true };
+        }
+        targetNode = this.filteredNodeSources?.get(targetNode) || targetNode;
+        const parent = this.dxfParser.findParentByIdIterative(tab.originalTreeData, targetNode.id);
+        const items = parent ? parent.children : tab.originalTreeData;
+        const index = items.indexOf(targetNode);
+        return index < 0 ? null : { tab, items, index, node: targetNode, property: false };
+      }
 
-          if (parent) {
-            const index = parent.children.indexOf(targetNode);
-            parent.children.splice(index, 0, newNode);
-          } else {
-            const index = activeTab.originalTreeData.indexOf(targetNode);
-            activeTab.originalTreeData.splice(index, 0, newNode);
-          }
-        }
+      addRowAbove(targetNode, side = this.documentWorkspace?.side() || 'left') {
+        const location = this.locateTreeRow(targetNode, side);
+        if (!location) return false;
+        location.items.splice(location.index, 0, location.property
+          ? { line: '', code: 0, value: '' } : this.createNewNode('NEW'));
+        return true;
       }
-      
-      // Add row below the selected node
-      addRowBelow(targetNode, side = 'left') {
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        if (!activeTab) return;
-        
-        if (targetNode.isProperty) {
-          // Add property below current property
-          const parent = targetNode.parentNode;
-          if (parent) {
-            const index = parent.properties.findIndex(p => p === targetNode.propRef);
-            const newProp = { line: '', code: 0, value: '' };
-            parent.properties.splice(index + 1, 0, newProp);
-          }
-        } else {
-          // Add node below current node
-          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-          const newNode = this.createNewNode('NEW');
 
-          if (parent) {
-            const index = parent.children.indexOf(targetNode);
-            parent.children.splice(index + 1, 0, newNode);
-          } else {
-            const index = activeTab.originalTreeData.indexOf(targetNode);
-            activeTab.originalTreeData.splice(index + 1, 0, newNode);
-          }
-        }
+      addRowBelow(targetNode, side = this.documentWorkspace?.side() || 'left') {
+        const location = this.locateTreeRow(targetNode, side);
+        if (!location) return false;
+        location.items.splice(location.index + 1, 0, location.property
+          ? { line: '', code: 0, value: '' } : this.createNewNode('NEW'));
+        return true;
       }
-      
-      // Add child row to the selected node
-      addChildRow(targetNode) {
-        if (targetNode.isProperty) return; // Can't add children to properties
-        
-        const newNode = this.createNewNode('NEW');
-        if (!targetNode.children) {
-          targetNode.children = [];
-        }
-        targetNode.children.push(newNode);
-        targetNode.expanded = true; // Expand to show new child
+
+      addChildRow(targetNode, side = this.documentWorkspace?.side() || 'left') {
+        const location = this.locateTreeRow(targetNode, side);
+        if (!location || location.property) return false;
+        (location.node.children ||= []).push(this.createNewNode('NEW'));
+        location.node.expanded = true;
+        return true;
       }
-      
-      // Remove the selected row
-      removeRow(targetNode, side = 'left') {
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        if (!activeTab) return;
-        
-        if (targetNode.isProperty) {
-          // Remove property
-          const parent = targetNode.parentNode;
-          if (parent) {
-            const index = parent.properties.findIndex(p => p === targetNode.propRef);
-            if (index >= 0) parent.properties.splice(index, 1);
-          }
-        } else {
-          // Remove node
-          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-          if (parent) {
-            const index = parent.children.indexOf(targetNode);
-            if (index >= 0) parent.children.splice(index, 1);
-          } else {
-            const index = activeTab.originalTreeData.indexOf(targetNode);
-            if (index >= 0) activeTab.originalTreeData.splice(index, 1);
-          }
-        }
+
+      removeRow(targetNode, side = this.documentWorkspace?.side() || 'left') {
+        const location = this.locateTreeRow(targetNode, side);
+        if (!location) return false;
+        location.items.splice(location.index, 1);
+        return true;
       }
-      
-      // Create a new node with default properties
+
       createNewNode(type) {
-        return {
-          id: this.dxfParser.nextId++,
-          type: type,
-          line: '',
-          code: 0,
-          properties: [],
-          children: [],
-          expanded: false
-        };
+        // Parsing another file resets the parser's numeric counter. Edited rows use opaque IDs
+        // so imports, restored sessions and independent documents cannot collide with it.
+        const unique = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}-${this._editSequence = (this._editSequence || 0) + 1}`;
+        return { id: `edit:${unique}`, type, line: '', code: 0, properties: [], children: [], expanded: false };
       }
-      
-      // Add DXF Section
-      addDxfSection(targetNode, sectionType, side = 'left') {
-        const newSection = this.createNewNode('SECTION');
-        newSection.properties = [
-          { line: '', code: 2, value: sectionType }
-        ];
-        newSection.children = [
-          this.createNewNode('ENDSEC')
-        ];
-        
-        this.addRowBelow(targetNode, side);
-        // Replace the generic 'NEW' node with our section
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-        if (parent) {
-          const index = parent.children.indexOf(targetNode) + 1;
-          parent.children[index] = newSection;
-        } else {
-          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
-          activeTab.originalTreeData[index] = newSection;
-        }
+
+      insertTreeNodeAfter(targetNode, newNode, side) {
+        const target = targetNode?.isProperty ? targetNode.parentNode : targetNode;
+        const location = this.locateTreeRow(target, side);
+        if (!location || location.property) return false;
+        location.items.splice(location.index + 1, 0, newNode);
+        return true;
       }
-      
-      // Add DXF Entity
-      addDxfEntity(targetNode, entityType, side = 'left') {
-        const templates = this.getDxfEntityTemplates();
-        const template = templates[entityType] || templates['LINE']; // Default to LINE
-        
-        const newEntity = this.createNewNode(entityType);
-        newEntity.properties = template.map(prop => ({ ...prop })); // Clone properties
-        
-        this.addRowBelow(targetNode, side);
-        // Replace the generic 'NEW' node with our entity
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-        if (parent) {
-          const index = parent.children.indexOf(targetNode) + 1;
-          parent.children[index] = newEntity;
-        } else {
-          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
-          activeTab.originalTreeData[index] = newEntity;
-        }
+
+      addDxfSection(targetNode, sectionType, side = this.documentWorkspace?.side() || 'left') {
+        const node = this.createNewNode('SECTION');
+        node.properties = [{ line: '', code: 2, value: sectionType }];
+        node.children = [this.createNewNode('ENDSEC')];
+        return this.insertTreeNodeAfter(targetNode, node, side);
       }
-      
-      // Add Table Entry
-      addTableEntry(targetNode, tableType, side = 'left') {
-        const templates = this.getDxfTableTemplates();
-        const template = templates[tableType] || templates['LAYER']; // Default to LAYER
-        
-        const newEntry = this.createNewNode(tableType);
-        newEntry.properties = template.map(prop => ({ ...prop })); // Clone properties
-        
-        this.addRowBelow(targetNode, side);
-        // Replace the generic 'NEW' node with our table entry
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-        if (parent) {
-          const index = parent.children.indexOf(targetNode) + 1;
-          parent.children[index] = newEntry;
-        } else {
-          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
-          activeTab.originalTreeData[index] = newEntry;
-        }
+
+      addDxfEntity(targetNode, entityType, side = this.documentWorkspace?.side() || 'left') {
+        const templates = this.getDxfEntityTemplates(), node = this.createNewNode(entityType);
+        node.properties = (templates[entityType] || templates.LINE).map(prop => ({ ...prop }));
+        return this.insertTreeNodeAfter(targetNode, node, side);
       }
-      
-      // Add DXF Object
-      addDxfObject(targetNode, objectType, side = 'left') {
-        const templates = this.getDxfObjectTemplates();
-        const template = templates[objectType] || templates['DICTIONARY']; // Default to DICTIONARY
-        
-        const newObject = this.createNewNode(objectType);
-        newObject.properties = template.map(prop => ({ ...prop })); // Clone properties
-        
-        this.addRowBelow(targetNode, side);
-        // Replace the generic 'NEW' node with our object
-        const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
-        const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, targetNode.id);
-        if (parent) {
-          const index = parent.children.indexOf(targetNode) + 1;
-          parent.children[index] = newObject;
-        } else {
-          const index = activeTab.originalTreeData.indexOf(targetNode) + 1;
-          activeTab.originalTreeData[index] = newObject;
-        }
+
+      addTableEntry(targetNode, tableType, side = this.documentWorkspace?.side() || 'left') {
+        const templates = this.getDxfTableTemplates(), node = this.createNewNode(tableType);
+        node.properties = (templates[tableType] || templates.LAYER).map(prop => ({ ...prop }));
+        return this.insertTreeNodeAfter(targetNode, node, side);
       }
-      
+
+      addDxfObject(targetNode, objectType, side = this.documentWorkspace?.side() || 'left') {
+        const templates = this.getDxfObjectTemplates(), node = this.createNewNode(objectType);
+        node.properties = (templates[objectType] || templates.DICTIONARY).map(prop => ({ ...prop }));
+        return this.insertTreeNodeAfter(targetNode, node, side);
+      }
+
       // Get DXF Entity templates with common properties
       getDxfEntityTemplates() {
         return {
@@ -1942,11 +1853,16 @@
         };
       }
 
+      getFilterTab(side = 'left') {
+        const source = this.dockingWorkspace?.definitions.get(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft')?.sourceTabId;
+        if (source != null && this.documentWorkspace) return this.documentWorkspace.findByTab(source)?.tab || null;
+        return this.getComparisonTab(side);
+      }
+
       updateEffectiveSearchTerms(side = 'left') {
         const useRight = side === 'right';
-        const getTab = () => useRight ? this.getActiveTabRight() : this.getActiveTab();
-        const setData = (data) => useRight ? this.myTreeGridRight.setData(data) : this.myTreeGrid.setData(data);
-        const setScrollTop = () => { if (useRight) this.treeViewContainerRight.scrollTop = 0; else this.treeViewContainer.scrollTop = 0; };
+        const getTab = () => this.getFilterTab(side);
+
         const activeTab = getTab();
         if (!activeTab) return;
         const codeInput = document.getElementById(useRight ? 'codeSearchInputRight' : 'codeSearchInputLeft') || { value: '' };
@@ -1998,8 +1914,12 @@
           activeTab.maxLine,
           selectedTypes // Pass selected types into the filter
         );
-        setData(activeTab.currentTreeData);
-        setScrollTop();
+        const record = this.documentWorkspace?.findByTab(activeTab.id);
+        const grid = record?.grid || (useRight ? this.myTreeGridRight : this.myTreeGridLeft);
+        grid?.setData(activeTab.currentTreeData);
+        const treeContainer = record?.container || (useRight ? this.treeViewContainerRight : this.treeViewContainerLeft);
+        if (treeContainer) treeContainer.scrollTop = 0;
+        this.stateManager.saveTabState(activeTab);
         this.saveCurrentState();
         this.updateFiltersButtonIndicators();
         // If diff mode is active and both panels are present, recompute diff on filter changes
@@ -2010,7 +1930,29 @@
       
       handleSearchOptionChange(side = 'left') { this.updateEffectiveSearchTerms(side); }
       
-      getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
+      getActiveTab() { return this.documentWorkspace?.active?.tab || this.getComparisonTab('left') || this.getComparisonTab('right'); }
+
+      getComparisonTab(side = 'left') {
+        const tabs = side === 'right' ? this.tabsRight : this.tabs;
+        const id = side === 'right' ? this.activeTabIdRight : this.activeTabId;
+        return tabs.find(tab => String(tab.id) === String(id));
+      }
+
+      dismissReportAfterNavigation(id) {
+        if (this.dockingWorkspace) return this.dockingWorkspace.dismissAfterNavigation(id);
+        const node = document.getElementById(id); if (node) node.style.display = 'none';
+      }
+
+      showReportSource(id) {
+        const definition = this.dockingWorkspace?.definitions.get(id);
+        if (definition?.sourceTabId != null) {
+          const record = this.documentWorkspace.findByTab(definition.sourceTabId);
+          if (!record) { this.dockingWorkspace.notify('The source drawing is closed. Refresh this report from an open drawing.', true); return false; }
+          this.documentWorkspace.activate(record);
+        } else if (this.documentWorkspace?.active) this.documentWorkspace.activate(this.documentWorkspace.active);
+        this.dismissReportAfterNavigation(id);
+        return true;
+      }
 
       getTabById(tabId) {
         if (!tabId) {
@@ -2096,7 +2038,7 @@
 
       openFiltersOverlay(side = 'left') {
         const overlay = document.getElementById(side === 'right' ? 'filtersOverlayRight' : 'filtersOverlayLeft');
-        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        const tab = this.getComparisonTab(side);
         if (!overlay || !tab) return;
         // Close any open dropdowns and opposite side overlay
         this._closeFloatingDropdown();
@@ -2241,7 +2183,7 @@
 
       updateFiltersButtonIndicators() {
         const updateForSide = (side) => {
-          const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+          const tab = this.getComparisonTab(side);
           const btn = document.getElementById(side === 'right' ? 'filtersRightBtn' : 'filtersLeftBtn');
           if (!btn) return;
           if (!tab) { btn.classList.remove('has-active'); return; }
@@ -2266,6 +2208,11 @@
       }
  
       updateTabUI() {
+        if (this.documentWorkspace) {
+          this.documentWorkspace.sync();
+          this.populateObjectTypeDropdown(); this.updateNavHistoryUI(); this.updateNavButtons(); this.updateFiltersButtonIndicators();
+          return;
+        }
         // Left panel tabs
         this.renderTabsInto('tabContainerLeft', this.tabs, this.activeTabId, true);
         // Right panel tabs
@@ -2416,7 +2363,7 @@
       
       handleExpandAllSide(side = 'left') {
         // Allow expand-all per side in diff mode; recompute if active
-        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        const tab = this.getComparisonTab(side);
         if (!tab) return;
         this.expandAllNodes(tab.originalTreeData);
         if (tab.currentSortField) {
@@ -2474,7 +2421,7 @@
 
       handleCollapseAllSide(side = 'left') {
         // Allow collapse-all per side in diff mode; recompute if active
-        const tab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        const tab = this.getComparisonTab(side);
         if (!tab) return;
         this.collapseAllNodes(tab.originalTreeData);
         if (tab.currentSortField) {
@@ -2605,7 +2552,7 @@
         }
       }
 
-      getActiveTabRight() { return this.tabsRight.find(t => t.id === this.activeTabIdRight); }
+      getActiveTabRight() { return this.getComparisonTab('right'); }
 
       handleToggleExpandRight(nodeId) {
         // Allow expand/collapse in diff mode; recompute diff to keep alignment/colors consistent
@@ -2724,7 +2671,7 @@
         }
         activeTab.currentSortField = field;
         activeTab.currentSortAscending = ascending;
-        document.querySelectorAll('.header-cell').forEach(cell => {
+        headerCell.parentElement.querySelectorAll('.header-cell').forEach(cell => {
           if (cell !== headerCell) {
             cell.setAttribute('data-sort', 'none');
             cell.querySelector('.sort-indicator').textContent = '';
@@ -2922,12 +2869,10 @@
         }
 
         // Otherwise, return the node (with filtered properties and children).
-        return {
-          ...obj,
-          expanded: obj.expanded,
-          properties: filteredProperties,
-          children: filteredChildren
-        };
+        const view = { ...obj, expanded: obj.expanded, properties: filteredProperties, children: filteredChildren };
+        // Preserve canonical ownership without putting back-pointers in serializable DXF records.
+        (this.filteredNodeSources ||= new WeakMap()).set(view, obj);
+        return view;
       }
 
       handleCopy(nodeId) {
@@ -3066,7 +3011,7 @@
         if (this.renderingOverlayController) {
           this.renderingOverlayController.ensureDocumentForTab(activeTab);
         }
-        this.openRenderingOverlay('left');
+        this.openRenderingOverlay(this.documentWorkspace?.side() || 'left');
         const focusedTab = this.getActiveTab();
         if (!focusedTab) {
           return;
@@ -3115,7 +3060,7 @@
       }
 
       openBlockForPane(nodeId, pane = 'left') {
-        const activeTab = pane === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        const activeTab = this.getComparisonTab(pane);
         if (!activeTab) {
           alert('No DXF file loaded.');
           return;
@@ -3143,7 +3088,7 @@
             this.myTreeGrid.updateVisibleNodes();
           }
         }
-        const tab = pane === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        const tab = this.getComparisonTab(pane);
         if (!tab) {
           return;
         }
@@ -3169,12 +3114,13 @@
           return;
         }
         // Create a new tab object that displays only this node.
-        const serialized = this.dxfParser.serializeTree([node]);
+        const copy = structuredClone(node);
+        const serialized = this.dxfParser.serializeTree([copy]);
         const newTab = {
           id: Date.now() + Math.random(),
           name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
-          originalTreeData: [node],    // only this node will be shown in the tree
-          currentTreeData: [node],
+          originalTreeData: [copy],    // only this node will be shown in the tree
+          currentTreeData: [copy],
           renderingSourceText: serialized,
           codeSearchTerms: [],
           dataSearchTerms: [],
@@ -3202,12 +3148,13 @@
           alert("Node not found.");
           return;
         }
-        const serialized = this.dxfParser.serializeTree([node]);
+        const copy = structuredClone(node);
+        const serialized = this.dxfParser.serializeTree([copy]);
         const newTab = {
           id: Date.now() + Math.random(),
           name: node.type + (node.handle ? " (" + node.handle + ")" : ""),
-          originalTreeData: [node],
-          currentTreeData: [node],
+          originalTreeData: [copy],
+          currentTreeData: [copy],
           renderingSourceText: serialized,
           codeSearchTerms: [],
           dataSearchTerms: [],
@@ -3227,53 +3174,30 @@
         this.registerRenderingDocumentForTab(newTab, serialized);
       }
 
+      selectedTreeRow() {
+        if (this.selectedNodeId == null) return null;
+        const tab = this.getActiveTab();
+        return this.myTreeGrid?.flatData.find(item => String(item.node.id) === String(this.selectedNodeId))?.node
+          || (tab && this.dxfParser.findNodeByIdIterative(tab.originalTreeData, this.selectedNodeId));
+      }
+
       handleAddRow() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab || !this.selectedNodeId) return;
-        const selected = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, this.selectedNodeId);
-        if (!selected) return;
-        if (selected.isProperty) {
-          const parent = selected.parentNode;
-          if (!parent) return;
-          const index = parent.properties.indexOf(selected.propRef);
-          const newProp = { line: '', code: '', value: '' };
-          parent.properties.splice(index + 1, 0, newProp);
-        } else {
-          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, selected.id);
-          const newNode = { id: this.dxfParser.nextId++, type: 'NEW', line: '', code: 0, properties: [], children: [], expanded: false };
-          if (parent) {
-            const idx = parent.children.indexOf(selected);
-            parent.children.splice(idx + 1, 0, newNode);
-          } else {
-            const idx = activeTab.originalTreeData.indexOf(selected);
-            activeTab.originalTreeData.splice(idx + 1, 0, newNode);
-          }
-        }
-        this.updateEffectiveSearchTerms('left');
+        const tab = this.getActiveTab(), selected = this.selectedTreeRow();
+        if (!tab || !selected || !this.addRowBelow(selected)) return false;
+        this.applyTabFilters(tab);
+        if (this.sideBySideDiffEnabled) this.computeAndApplySideBySideDiff();
+        return true;
       }
 
       handleRemoveRow() {
-        const activeTab = this.getActiveTab();
-        if (!activeTab || !this.selectedNodeId) return;
-        const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, this.selectedNodeId);
-        if (!node) return;
-        if (node.isProperty) {
-          const parent = node.parentNode;
-          if (!parent) return;
-          const idx = parent.properties.indexOf(node.propRef);
-          if (idx >= 0) parent.properties.splice(idx, 1);
-        } else {
-          const parent = this.dxfParser.findParentByIdIterative(activeTab.originalTreeData, node.id);
-          if (parent) {
-            const idx = parent.children.indexOf(node);
-            if (idx >= 0) parent.children.splice(idx, 1);
-          } else {
-            const idx = activeTab.originalTreeData.indexOf(node);
-            if (idx >= 0) activeTab.originalTreeData.splice(idx, 1);
-          }
-        }
+        const tab = this.getActiveTab(), selected = this.selectedTreeRow();
+        if (!tab || !selected || !this.removeRow(selected)) return false;
         this.selectedNodeId = null;
-        this.updateEffectiveSearchTerms('left');
+        if (this.documentWorkspace?.active) this.documentWorkspace.active.selectedNodeId = null;
+        this.myTreeGrid.selectedRowId = null;
+        this.applyTabFilters(tab);
+        if (this.sideBySideDiffEnabled) this.computeAndApplySideBySideDiff();
+        return true;
       }
 
       handleDownloadDxf() {
@@ -3324,7 +3248,7 @@
           alert("Rendering overlay is not initialized.");
           return;
         }
-        const tab = pane === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+        const tab = this.getComparisonTab(pane);
         if (!tab) {
           alert(`No DXF file loaded in the ${pane} pane.`);
           return;
@@ -3406,8 +3330,8 @@
                     this.tabs.push(newTab);
                     this.activeTabId = newTab.id;
                     // Initialize class mapping before displaying data
-                    this.updateClasses();
                     this.updateTabUI();
+                    this.updateClasses();
                     this.myTreeGrid.setData(newTab.currentTreeData);
                     // Save state after new tab creation
                     this.saveCurrentState();
@@ -3454,8 +3378,8 @@
                 this.tabs.push(newTab);
                 this.activeTabId = newTab.id;
                 // Call updateClasses() now so that CLASS nodes get their classId set.
-                this.updateClasses();
                 this.updateTabUI();
+                this.updateClasses();
                 this.myTreeGrid.setData(newTab.currentTreeData);
                 // Save state after new tab creation
                 this.saveCurrentState();
@@ -3495,8 +3419,8 @@
         
         this.tabs.push(newTab);
         this.activeTabId = newTab.id;
-        this.updateClasses();
         this.updateTabUI();
+        this.updateClasses();
         this.myTreeGrid.setData(newTab.currentTreeData);
         // Save state after new tab creation
         this.saveCurrentState();
@@ -3567,7 +3491,7 @@ EOF`;
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           const isRight = /Right$/.test(containerId);
-          const activeTab = isRight ? this.getActiveTabRight() : this.getActiveTab();
+          const activeTab = this.getFilterTab(isRight ? 'right' : 'left');
           if (!activeTab) return;
           if (type === "code") {
             activeTab.codeSearchTerms = activeTab.codeSearchTerms.filter(term => term !== text);
@@ -3586,13 +3510,11 @@ EOF`;
             activeTab.maxLine,
             activeTab.selectedObjectTypes
           );
-          if (isRight) {
-            if (this.myTreeGridRight) this.myTreeGridRight.setData(activeTab.currentTreeData);
-            if (this.treeViewContainerRight) this.treeViewContainerRight.scrollTop = 0;
-          } else {
-            this.myTreeGrid.setData(activeTab.currentTreeData);
-            this.treeViewContainer.scrollTop = 0;
-          }
+          const record = this.documentWorkspace?.findByTab(activeTab.id);
+          const grid = record?.grid || (isRight ? this.myTreeGridRight : this.myTreeGridLeft);
+          grid?.setData(activeTab.currentTreeData);
+          if (record) record.container.scrollTop = 0;
+          this.stateManager.saveTabState(activeTab);
           this.updateFiltersButtonIndicators();
         });
         tag.appendChild(removeBtn);
@@ -3616,7 +3538,7 @@ EOF`;
             e.preventDefault();
             const text = input.value.trim();
             if (text !== "") {
-              const activeTab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+              const activeTab = this.getFilterTab(side);
               if (!activeTab) return;
               if (type === "code") {
                 if (!activeTab.codeSearchTerms.includes(text)) {
@@ -3637,7 +3559,7 @@ EOF`;
         input.addEventListener("blur", () => {
           const text = input.value.trim();
           if (text !== "") {
-            const activeTab = side === 'right' ? this.getActiveTabRight() : this.getActiveTab();
+            const activeTab = this.getFilterTab(side);
             if (!activeTab) return;
             if (type === "code") {
               if (!activeTab.codeSearchTerms.includes(text)) {
@@ -3658,7 +3580,7 @@ EOF`;
       
       handleSearch(side = 'left') {
         const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
+        const activeTab = this.getFilterTab(side);
         if (!activeTab) return;
         const codeInput = document.getElementById(useRight ? "codeSearchInputRight" : "codeSearchInputLeft");
         const dataInput = document.getElementById(useRight ? "dataSearchInputRight" : "dataSearchInputLeft");
@@ -3683,7 +3605,7 @@ EOF`;
       
       handleClearSearch(side = 'left') {
         const useRight = side === 'right';
-        const activeTab = useRight ? this.getActiveTabRight() : this.getActiveTab();
+        const activeTab = this.getFilterTab(side);
         if (!activeTab) return;
 
         // Clear search-related terms
@@ -3729,13 +3651,12 @@ EOF`;
           null,
           activeTab.selectedObjectTypes
         );
-        if (useRight) {
-          this.myTreeGridRight.setData(activeTab.currentTreeData);
-          this.treeViewContainerRight.scrollTop = 0;
-        } else {
-          this.myTreeGrid.setData(activeTab.currentTreeData);
-          this.treeViewContainer.scrollTop = 0;
-        }
+        const record = this.documentWorkspace?.findByTab(activeTab.id);
+        const grid = record?.grid || (useRight ? this.myTreeGridRight : this.myTreeGridLeft);
+        grid?.setData(activeTab.currentTreeData);
+        const treeContainer = record?.container || (useRight ? this.treeViewContainerRight : this.treeViewContainerLeft);
+        if (treeContainer) treeContainer.scrollTop = 0;
+        this.stateManager.saveTabState(activeTab);
         if (this.sideBySideDiffEnabled && this.getActiveTab() && this.getActiveTabRight()) {
           this.computeAndApplySideBySideDiff();
         }
@@ -3831,6 +3752,7 @@ EOF`;
       }
       
       navigateToHandle(handle, addHistory = true) {
+        if (this.documentWorkspace) return this.documentWorkspace.navigateToHandle(handle, addHistory);
         const activeTab = this.getActiveTab();
         if (!activeTab) return;
         const path = this.findPathByHandle(activeTab.originalTreeData, handle);
@@ -3971,7 +3893,7 @@ EOF`;
             span.textContent = `${key} (${count})`;
             span.style.cursor = "pointer";
             span.addEventListener("click", () => {
-              document.getElementById("cloudOverlay").style.display = "none";
+              window.app.dismissReportAfterNavigation('cloudOverlay');
               this.handleCloudTagClick(cloudType, key);
             });
             element.appendChild(span);
@@ -4093,7 +4015,7 @@ EOF`;
           link.addEventListener("click", (e) => {
             e.preventDefault();
             const type = link.getAttribute("data-type");
-            document.getElementById("statsOverlay").style.display = "none";
+            window.app.dismissReportAfterNavigation('statsOverlay');
             this.handleCloudTagClick("object", type);
           });
         });
@@ -4143,7 +4065,7 @@ EOF`;
         document.querySelectorAll(".dep-link").forEach(link => {
           link.addEventListener("click", function(e) {
             e.preventDefault();
-            document.getElementById("depsOverlay").style.display = "none";
+            window.app.dismissReportAfterNavigation('depsOverlay');
             const handle = this.getAttribute("data-handle");
             self.handleLinkToHandle(handle);
           });
@@ -4547,7 +4469,7 @@ EOF`;
               a.textContent = `Handle: ${item.handle} | Type: ${item.type} | Line: ${item.line}`;
               a.addEventListener("click", (e) => {
                 e.preventDefault();
-                document.getElementById("handleMapOverlay").style.display = "none";
+                window.app.dismissReportAfterNavigation('handleMapOverlay');
                 this.handleLinkToHandle(item.handle);
               });
               li.appendChild(a);
@@ -4615,7 +4537,7 @@ EOF`;
               showLink.style.marginLeft = "10px";
               showLink.addEventListener("click", (e) => {
                 e.preventDefault();
-                document.getElementById("binaryObjectsOverlay").style.display = "none";
+                window.app.dismissReportAfterNavigation('binaryObjectsOverlay');
                 this.handleLinkToHandle(node.handle);
               });
               div.appendChild(showLink);
@@ -4746,7 +4668,7 @@ EOF`;
             Handle: <code>${handle || "N/A"}</code><br/>
             Class ID: ${classId || "N/A"}<br/>
             Class Name: ${className}
-            ${classNode ? ` - <a href="#" onclick="window.app.navigateToClassById('${classId}'); document.getElementById('proxyObjectsOverlay').style.display='none'; return false;">Show Class</a>` : ""}
+            ${classNode ? ` - <a href="#" onclick="window.app.navigateToClassById('${classId}'); window.app.dismissReportAfterNavigation('proxyObjectsOverlay'); return false;">Show Class</a>` : ""}
           `;
 
           // Show in Tree
@@ -4754,7 +4676,7 @@ EOF`;
             const showBtn = document.createElement("button");
             showBtn.textContent = "Show In Tree";
             showBtn.onclick = () => {
-              document.getElementById("proxyObjectsOverlay").style.display = "none";
+              window.app.dismissReportAfterNavigation('proxyObjectsOverlay');
               this.handleLinkToHandle(handle);
             };
             div.appendChild(showBtn);
@@ -4798,7 +4720,7 @@ EOF`;
               showLink.textContent = "Show";
               showLink.onclick = (e) => {
                 e.preventDefault();
-                document.getElementById("proxyObjectsOverlay").style.display = "none";
+                window.app.dismissReportAfterNavigation('proxyObjectsOverlay');
                 if (ref.node.handle) {
                   window.app.handleLinkToHandle(ref.node.handle);
                 } else {
@@ -4878,7 +4800,7 @@ EOF`;
             fonts[font].forEach(entry => {
               html += `<li>${entry.desc}`;
               if (entry.handle) {
-                html += ` <a href="#" onclick="window.app.handleLinkToHandle('${entry.handle}'); document.getElementById('fontsOverlay').style.display = 'none'; return false;">Show in Tree</a>`;
+                html += ` <a href="#" onclick="window.app.handleLinkToHandle('${entry.handle}'); window.app.dismissReportAfterNavigation('fontsOverlay'); return false;">Show in Tree</a>`;
               }
               html += `</li>`;
             });
@@ -5019,7 +4941,7 @@ EOF`;
             if (cls.handle) {
               html += `<p><a class="show-in-tree" href="#"
                               onclick="window.app.handleLinkToHandle('${cls.handle}');
-                                       document.getElementById('classesOverlay').style.display='none'; return false;">
+                                       window.app.dismissReportAfterNavigation('classesOverlay'); return false;">
                               Show in Tree</a></p>`;
             }
             html += `<button class="toggle-details" style="margin-bottom:8px;" 
@@ -5092,7 +5014,7 @@ EOF`;
             if (cls.handle) {
               html += `<p><a class="show-in-tree" href="#"
                               onclick="window.app.handleLinkToHandle('${cls.handle}'); 
-                                       document.getElementById('classesOverlay').style.display='none'; return false;">
+                                       window.app.dismissReportAfterNavigation('classesOverlay'); return false;">
                               Show in Tree</a></p>`;
             }
             html += `<button class="toggle-details" style="margin-bottom:8px;" 
@@ -5201,7 +5123,7 @@ EOF`;
             showButton.textContent = "Show In Tree";
             showButton.addEventListener("click", () => {
               // Close the Object Size dialog.
-              document.getElementById("objectSizeOverlay").style.display = "none";
+              window.app.dismissReportAfterNavigation('objectSizeOverlay');
 
               if (node.handle) {
                 // Navigate using the handle if available.
@@ -5797,7 +5719,7 @@ EOF`;
                 this.handleLinkToHandle(block.handle);
                 const overlay = document.getElementById("blocksOverlay");
                 if (overlay) {
-                  overlay.style.display = "none";
+                  this.dismissReportAfterNavigation('blocksOverlay');
                 }
               });
             } else {
@@ -5817,7 +5739,7 @@ EOF`;
                 this.handleLinkToHandle(firstInstance.handle);
                 const overlay = document.getElementById("blocksOverlay");
                 if (overlay) {
-                  overlay.style.display = "none";
+                  this.dismissReportAfterNavigation('blocksOverlay');
                 }
               });
               actions.appendChild(jumpInstanceBtn);
@@ -5871,7 +5793,7 @@ EOF`;
                     this.handleLinkToHandle(instance.handle);
                     const overlay = document.getElementById("blocksOverlay");
                     if (overlay) {
-                      overlay.style.display = "none";
+                      this.dismissReportAfterNavigation('blocksOverlay');
                     }
                   });
                   item.appendChild(viewBtn);
@@ -5948,8 +5870,8 @@ EOF`;
         const node = this.dxfParser.findNodeByIdIterative(activeTab.originalTreeData, nodeId);
         if (node) {
           // Close the overlays that initiated this action.
-          document.getElementById("lineTypesOverlay").style.display = "none";
-          document.getElementById("textsOverlay").style.display = "none";
+          window.app.dismissReportAfterNavigation('lineTypesOverlay');
+          window.app.dismissReportAfterNavigation('textsOverlay');
           // Navigate to and highlight the node.
           this.showInTree(node);
         } else {
@@ -6348,7 +6270,7 @@ EOF`;
 
       openFileTab(file, targetLine) {
         // Close the batch results overlay.
-        document.getElementById("batchProcessingOverlay").style.display = "none";
+        window.app.dismissReportAfterNavigation('batchProcessingOverlay');
 
         // Check if a tab for this file already exists (using file.name as the identifier).
         let existingTab = this.tabs.find(tab => tab.name === file.name);
@@ -7275,7 +7197,7 @@ EOF`;
 
       navigateToNode(nodeId) {
         // Close diagnostics overlay and navigate to the node
-        document.getElementById("diagnosticsOverlay").style.display = "none";
+        window.app.dismissReportAfterNavigation('diagnosticsOverlay');
         
         // Find and expand the node in the tree
         const activeTab = this.getActiveTab();
@@ -8293,7 +8215,7 @@ EOF`;
         
         this.ruleConfiguration = config;
         this.saveRuleConfiguration();
-        this.hideRuleConfigDialog();
+        this.dismissReportAfterNavigation('ruleConfigOverlay');
         alert("Rule configuration applied successfully!");
       }
 

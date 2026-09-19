@@ -75,6 +75,8 @@
     return {
       id: tab.id,
       name: tab.name,
+            isModified: !!tab.isModified,
+            columnWidths: tab.columnWidths || null,
       codeSearchTerms: tab.codeSearchTerms || [],
       dataSearchTerms: tab.dataSearchTerms || [],
       currentSortField: tab.currentSortField || 'line',
@@ -131,6 +133,8 @@
           const tabState = {
             id: tab.id,
             name: tab.name,
+            isModified: !!tab.isModified,
+            columnWidths: tab.columnWidths || null,
             codeSearchTerms: tab.codeSearchTerms || [],
             dataSearchTerms: tab.dataSearchTerms || [],
             currentSortField: tab.currentSortField || 'line',
@@ -141,7 +145,7 @@
             dataCase: tab.dataCase || false,
             selectedObjectTypes: tab.selectedObjectTypes || [],
             navigationHistory: tab.navigationHistory || [],
-            currentHistoryIndex: tab.currentHistoryIndex || -1,
+            currentHistoryIndex: tab.currentHistoryIndex ?? -1,
             classIdToName: tab.classIdToName || {},
             // Store the original file content for reconstruction
             originalTreeDataSerialized: tab.originalTreeData ? this.serializeTreeData(tab.originalTreeData) : null,
@@ -156,6 +160,8 @@
         const lite = {
           id: tab.id,
           name: tab.name,
+            isModified: !!tab.isModified,
+            columnWidths: tab.columnWidths || null,
           codeSearchTerms: tab.codeSearchTerms || [],
           dataSearchTerms: tab.dataSearchTerms || [],
           currentSortField: tab.currentSortField || 'line',
@@ -166,7 +172,7 @@
           dataCase: tab.dataCase || false,
           selectedObjectTypes: tab.selectedObjectTypes || [],
           navigationHistory: tab.navigationHistory || [],
-          currentHistoryIndex: tab.currentHistoryIndex || -1,
+          currentHistoryIndex: tab.currentHistoryIndex ?? -1,
           classIdToName: tab.classIdToName || {},
           originalTreeDataSerialized: null,
           expandedNodeIds: tab.originalTreeData ? this.getExpandedNodeIds(tab.originalTreeData) : [],

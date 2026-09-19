@@ -4,6 +4,14 @@
   const { Workspace, element } = global.DxfDocking;
   const byId = id => document.getElementById(id);
 
+  function welcome(side) {
+    const node = element('section', 'dxf-welcome-document');
+    node.append(element('h2', '', side === 'left' ? 'DXF workspace' : 'Compare drawings'));
+    node.append(element('p', '', 'Open a drawing to inspect, compare and analyze. Each file has its own dockable document.'));
+    const open = element('button', '', side === 'left' ? 'Open DXF…' : 'Open comparison drawing…');
+    open.type = 'button'; open.addEventListener('click', () => byId(side === 'left' ? 'openLeftBtn' : 'openRightBtn').click());
+    node.append(open); return node;
+  }
   function mountParser(app) {
     const A = global.AvalonDock;
     const shell = document.querySelector('.main-container');
@@ -20,19 +28,16 @@
     const renderingHeader = renderingRoot.querySelector('.rendering-overlay-header');
     renderingHeader.hidden = true;
     const panels = [
-      { id: 'commands', title: 'Commands & Navigation', node: commands, side: 'Top' },
-      { id: 'tools', title: 'Analysis Tools', node: sidebar, side: 'Left', width: 218,
-        toggleButton: byId('toggleSidebarBtn') },
-      { id: 'tree-left', title: 'DXF Tree · Left', node: byId('panelLeft'), kind: 'document', closable: false,
+      { id: 'tree-left', title: 'Open a drawing', node: welcome('left'), kind: 'document', closable: false, emptySide: 'left',
         onResize: () => app.myTreeGridLeft.updateVisibleNodes() },
-      { id: 'tree-right', title: 'DXF Tree · Right', node: byId('panelRight'), kind: 'document',
+      { id: 'tree-right', title: 'Open comparison drawing', node: welcome('right'), kind: 'document', emptySide: 'right',
         bridge: 'display', display: 'flex', toggleButton: byId('toggleRightPanelBtn'),
         onResize: () => app.myTreeGridRight.updateVisibleNodes() },
       { id: 'rendering', title: 'DXF Rendering', node: renderingRoot, kind: 'document', bridge: 'display',
         titleNode: byId('renderingOverlayTitle'), resizeNode: renderer.viewportEl,
         onResize: () => renderer.resizeCanvas(), onClose: () => renderer.close(),
         openAction: () => {
-          const pane = app.getActiveTab() ? 'left' : 'right';
+          const pane = app.documentWorkspace?.side() || (app.getComparisonTab('left') ? 'left' : 'right');
           if (app.getActiveTab() || app.getActiveTabRight()) app.openRenderingOverlay(pane);
           else app.dockingWorkspace.show('rendering');
         } }
@@ -56,7 +61,7 @@
       byId('renderingSelectionToolbar'), renderingRoot.querySelector('.rendering-view-overlay'),
       byId('renderingNavigationWheel')
     );
-    panels.push({ id: 'render-controls', title: 'View & Measurement', node: viewControls, width: 340 });
+
     // These tabs are replaced by independent Dockyard tools, not a second nested docking system.
     renderingRoot.querySelector('.rendering-overlay-info').hidden = true;
 
@@ -94,45 +99,46 @@
           : null
       });
     }
-    const pane = (w, id, width) => new A.LayoutAnchorablePane({
-      DockWidth: width || '1*', DockMinWidth: 130, DockMinHeight: 70, Children: [w.make(id)]
-    });
-    const documents = (w, ids, width = '1*') => new A.LayoutDocumentPane({
-      DockWidth: width, DockMinWidth: 120, DockMinHeight: 100, Children: ids.map(id => w.make(id))
-    });
+    const documents = (w, side, width = '1*', extra = []) => {
+      const ids = [...w.definitions.values()].filter(d => d.fileSide === side).map(d => d.id);
+      return new A.LayoutDocumentPane({ Id: `dxf-pane-${side}`, DockWidth: width,
+        DockMinWidth: 120, DockMinHeight: 100, Children: [...(ids.length ? ids : [`tree-${side}`]), ...extra].map(id => w.make(id)) });
+    };
     if (global.DxfOffice) panels.push(global.DxfOffice.createPanel(app));
     const workspace = new Workspace({
-      id: 'parser', title: 'DXF Parser', shell, panels,
+      id: 'parser', title: 'DXF Parser', shell, panels, deferRestore: true,
       presets: ['Compare', 'Review', 'Focus'],
       defaultPreset: global.matchMedia('(max-width: 700px)').matches ? 'Focus' : 'Compare',
       layout(w, preset) {
+        let main;
         if (preset === 'Focus') {
-          return new A.LayoutRoot({ RootPanel: new A.LayoutPanel({ Children: [documents(w, ['tree-left', 'rendering'])] }) });
-        }
-        const main = preset === 'Review'
-          ? new A.LayoutPanel({ Orientation: 'Horizontal', Children: [
-              documents(w, ['tree-left'], '0.8*'), documents(w, ['rendering'], '1.8*'),
-              new A.LayoutPanel({ Orientation: 'Vertical', DockWidth: 300, DockMinWidth: 160, Children: [
-                new A.LayoutAnchorablePane({ Children: ['render-layers', 'render-controls', 'render-blocks', 'render-info'].map(id => w.make(id)) }),
-                new A.LayoutAnchorablePane({ DockHeight: '0.7*', Children: [w.make('render-properties')] })
-              ] })
+          const ids = [...w.definitions.values()].filter(d => d.fileSide).map(d => d.id);
+          main = new A.LayoutDocumentPane({ Id: 'dxf-pane-left', Children: [...(ids.length ? ids : ['tree-left']), 'rendering'].map(id => w.make(id)) });
+        } else if (preset === 'Review') {
+          const ids = [...w.definitions.values()].filter(d => d.fileSide).map(d => d.id);
+          main = new A.LayoutPanel({ Orientation: 'Horizontal', Children: [
+            new A.LayoutDocumentPane({ Id: 'dxf-pane-left', DockWidth: '0.8*', Children: (ids.length ? ids : ['tree-left']).map(id => w.make(id)) }),
+            new A.LayoutDocumentPane({ DockWidth: '1.8*', Children: [w.make('rendering')] }),
+            new A.LayoutPanel({ Orientation: 'Vertical', DockWidth: 300, DockMinWidth: 160, Children: [
+              new A.LayoutAnchorablePane({ Children: ['render-layers', 'render-blocks', 'render-info'].map(id => w.make(id)) }),
+              new A.LayoutAnchorablePane({ DockHeight: '0.7*', Children: [w.make('render-properties')] })
             ] })
-          : new A.LayoutPanel({ Orientation: 'Horizontal', Children: [
-              pane(w, 'tools', 218), documents(w, ['tree-left']), documents(w, ['tree-right'])
-            ] });
-        return new A.LayoutRoot({ RootPanel: new A.LayoutPanel({ Orientation: 'Vertical', Children: [
-          new A.LayoutAnchorablePane({ DockHeight: 96, DockMinHeight: 80, Children: [w.make('commands')] }), main
-        ] }) });
+          ] });
+        } else main = new A.LayoutPanel({ Orientation: 'Horizontal', Children: [documents(w, 'left'), documents(w, 'right')] });
+        return new A.LayoutRoot({ RootPanel: new A.LayoutPanel({ Children: [main] }) });
       },
       onPreset(preset, w) {
         if (preset !== 'Compare') {
           if (app.getActiveTab() || app.getActiveTabRight()) w.requestOpen('rendering');
-          else w.manager.Find('tree-left')?.Activate();
+          else (app.documentWorkspace?.active ? w.manager.Find(app.documentWorkspace.active.id) : w.manager.Find('tree-left'))?.Activate();
         }
       },
       onRestore: w => w.refreshData?.()
     });
     app.dockingWorkspace = workspace;
+    workspace.legacyCommandSources = { commands, sidebar, viewControls };
+    workspace.parking.append(commands, sidebar, viewControls);
+    app.documentWorkspace = new global.DxfDocking.DocumentWorkspace(app, workspace);
     app.officePreview?.attachWorkspace(workspace);
     renderer.dockingWorkspace = workspace;
     renderer.dockingInformationPanels = { info: 'render-info', layers: 'render-layers', blocks: 'render-blocks' };
@@ -142,14 +148,15 @@
     byId('sidebarBackdrop').hidden = true;
     byId('compareSplitter').hidden = true;
     byId('closeSidebarBtn').hidden = true;
-    byId('toggleSidebarBtn').addEventListener('click', () => {
-      workspace.setVisible('tools', !workspace.isOpen('tools'));
-    }, { signal: workspace.abort.signal });
     // Keep a rendered canvas and the independent layer/property tools available from its context menu.
     const context = (_model, _manager, defaults) => defaults.filter(entry => entry?.Label !== 'Open in browser window');
     workspace.manager.DocumentContextMenu = (model, manager, defaults) => [
+      ...(model.ContentId?.startsWith('dxf:') ? [
+        { Label: 'Use as left comparison', Execute: () => app.documentWorkspace.assignSide(app.documentWorkspace.records.get(model.ContentId), 'left') },
+        { Label: 'Use as right comparison', Execute: () => app.documentWorkspace.assignSide(app.documentWorkspace.records.get(model.ContentId), 'right') }, null
+      ] : []),
       ...context(model, manager, defaults), null,
-      ...['render-controls', 'render-info', 'render-layers', 'render-blocks', 'render-properties'].map(id => ({
+      ...['render-info', 'render-layers', 'render-blocks', 'render-properties'].map(id => ({
         Label: `Show ${workspace.require(id).title}`, Execute: () => workspace.show(id)
       }))
     ];
@@ -165,7 +172,11 @@
       if (!app.getActiveTab() && !app.getActiveTabRight()) return;
       if (workspace.isOpen('rendering')) workspace.requestOpen('rendering');
       for (const [id, , buttonId] of dialogs) {
-        if (buttonId && workspace.isOpen(id)) byId(buttonId).click();
+        if (buttonId && workspace.isOpen(id)) {
+          const source = app.documentWorkspace.findByTab(workspace.require(id).sourceTabId);
+          if (source) app.documentWorkspace.activate(source, { focus: false });
+          byId(buttonId).click();
+        }
       }
     };
     // Restoring an old app state still restores the comparison data; the new layout has its own key.

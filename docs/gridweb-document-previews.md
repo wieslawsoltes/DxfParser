@@ -2,8 +2,10 @@
 
 The parser and standalone editor load local, pinned browser controls. No npm install,
 CDN, remote document conversion service, or upload is required to use the application.
-The two main DXF `TreeDataGrid` instances, their diff/navigation behavior and their
-file models are unchanged.
+The DXF tree renderer is still `TreeDataGrid`, not GridWeb. The later
+[RibbonWeb/document migration](ribbon-document-workspace.md) gives each parser file its
+own retained dock document and tree instance, and moves top-level preview commands into
+the contextual Document Preview ribbon tab.
 
 ## Display inventory
 
