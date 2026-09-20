@@ -1,0 +1,21 @@
+name: Stage renderer lifetime audit
+on:
+  push:
+    branches: [work/skia-lifetime-audit]
+    paths: [.github/workflows/stage-lifetime-audit.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 120aa56cbe8ae458a2aa4b8f1ab8c1d947efbb43
+          persist-credentials: false
+      - run: git archive HEAD --format=tar.gz -o /tmp/renderer-audit-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: renderer-audit-source
+          path: /tmp/renderer-audit-source.tar.gz
+          retention-days: 3
