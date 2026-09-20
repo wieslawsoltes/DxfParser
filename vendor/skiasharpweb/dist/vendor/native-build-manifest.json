@@ -1,0 +1,41 @@
+{
+  "skiaRevision": "f446aec4ce9e0e95e0a504e875955de3eb521f75",
+  "emsdkRevision": "5eb0bde7585670252e8ba05e9d361627bffd08b5",
+  "emscriptenVersion": "4.0.8",
+  "backends": [
+    "Graphite/Dawn/WebGPU",
+    "Ganesh/WebGL",
+    "Skia raster"
+  ],
+  "artifacts": {
+    "canvaskit.js": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+    "canvaskit.cjs": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+    "canvaskit.wasm": "698921da1c2d684dc52b9607cb2031aee9d9f4ddb06a6dca107265d684a73505"
+  },
+  "extensionSources": {
+    "README.md": "a1758c3bd7b79da0da7726f1fef37daf7238b0347dfade693b9a0eda03335a99",
+    "THIRD_PARTY_LICENSES.txt": "0b8b565cfb9c7216da4341c5773bba3f9f3b8c82fab81d9120242e0108e95ca2",
+    "build_native.py": "0dafe49cec3b4b29508cd8a7cb8e73f9948d34c09d9e80bdaef0cd69e3ddba2d",
+    "native-build-manifest.json": "955f5cd7e58d74d740fb44449cb247f258c7ff8778218a7ec8510955fde5ec28",
+    "native-validation.json": "90bac7ad0bf45f207169723ddd7a33997e628faefe9571aaeb1f8a98ef61e12c",
+    "patch_emscripten_webgpu.py": "8e43d5fb8c6fec7121602fe24f7634bcadb837089da34930b888ff0a1b8126b3",
+    "patch_pdf_diagnostics.py": "ca1385c6570a9a3c283fd508c9d99152e71a335ccf47cd7afc399d789c90c5a7",
+    "prepare_native.py": "b59d6b19f10c98ccb737375869bfe2be45c8badfc766d286c2fbb896fd317a0c",
+    "skia-webgpu.patch": "069f13969fc618427c877b037d94d7f2eda509bf28db67cc0cbf501abf5c0e69",
+    "skiasharp_assets.cpp": "8c448fe43a71d03cd6ade0f74c2f0914bed79713ee83bbe37c996adba5f5af97",
+    "skiasharp_completion.cpp": "796964f5b823b0cc3e5b71585ef954955b7f1acdd4e1427aae415579a7cb90a8",
+    "skiasharp_conformance.cpp": "117f8a84f9e75b0db96a885bb513c5e57ffe078eee40a46a9228b84c5a4b5958",
+    "skiasharp_conformance.js": "d3cee172aa52e5872fa3b86ba5d2e02bec5d0eb823d225625ca4bc6062a0ac3b",
+    "skiasharp_documents.cpp": "da97e583336987c87ad1af03bbaddacce334694fefdf1fa1183dcb90b5724a8a",
+    "skiasharp_effects.cpp": "a25ba3a21ceb92fc9a4e11eecbab629d2246cd85b914e234e0de17a41ed33243",
+    "skiasharp_effects.js": "eca1c9427f048f3c0db0c2a504551909fae51594023900eec4d676615477e6f5",
+    "skiasharp_encoders.cpp": "05a2ed299ab49af906d22eb258873af88f866cb7bbff4c9bc984ca247ce2798d",
+    "skiasharp_fonts.cpp": "a65bc5b46e9ace9b7fc72f0e1563a56f0faba6da75fcf8fd08adfbea6e1dd7d9",
+    "skiasharp_gpu.cpp": "7b51271afb98a51dbec039b1f0b18ce55cb8d8f46d94c950b3865ceadde114b9",
+    "skiasharp_gpu.js": "34397377c5186a2986d264415cdfdff31d83b1d0b06f1110cde4f22288caada1",
+    "skiasharp_memory.cpp": "b9227f66bafcfa0a6d6fcda78be099b276771c3bfb1c6471144791489a4e6a76",
+    "verify_gpu_images.mjs": "bb7d417c4635ef88f63a1bf61fc6d31444e53ae17475e57ffb24b79254e16a60",
+    "verify_gpu_records.mjs": "d70468cca9b2a14b44b61cdf7e4d20510c93f035b282e76fdbba2127c2cc3940",
+    "verify_native.mjs": "f6c255d3b10eda64d64dbf9c18036c1ae057bd8d4650c17c8eb888c4072d94f8"
+  }
+}
