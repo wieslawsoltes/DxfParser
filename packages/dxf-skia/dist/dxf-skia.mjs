@@ -2786,6 +2786,7 @@ const module = undefined;
             this._reportedError = '';
             this._disposePromise = null;
             this._retirements = new WeakMap();
+            this._surfaceOperations = new WeakMap();
         }
         initialize(canvas) {
             if (this.disposed) throw new Error('Surface host is disposed.');
@@ -2839,17 +2840,31 @@ const module = undefined;
             const next = previous.cloneNode(false);
             previous.replaceWith?.(next);
             this.canvas = next;
-            this.onCanvasReplaced?.(next, previous);
+            this.notifyCanvasReplaced(next, previous);
+        }
+        notifyCanvasReplaced(next, previous) {
+            try { this.onCanvasReplaced?.(next, previous); }
+            catch (error) { this.callbackError = error; } // Notification failures are not GPU failures.
+        }
+        surfaceOperation(surface, action) {
+            // Native readback, drawing/flush and retirement share one FIFO per surface.
+            // Waiting for GPU completion is not sufficient: SnapshotAsync can still
+            // own mapping/Skia state after a frame has finished. A rejected read must
+            // also release the queue, never stall subsequent paints or teardown.
+            const previous = this._surfaceOperations.get(surface) || Promise.resolve();
+            const operation = previous.then(action);
+            this._surfaceOperations.set(surface, operation.then(() => {}, () => {}));
+            return operation;
         }
         async releaseSurface(surface = this.surface) {
             if (!surface) return;
             if (this.surface === surface) this.surface = null;
             // All disposal callers join the same promise, including a loss during flush.
             if (this._retirements.has(surface)) return this._retirements.get(surface);
-            const promise = (async () => {
+            const promise = this.surfaceOperation(surface, async () => {
                 try { if (surface.DisposeAsync) await surface.DisposeAsync(); else surface.Dispose(); }
                 catch (error) { this.disposalError = error; } // Native teardown failed; do not reuse it.
-            })();
+            });
             this._retirements.set(surface, promise);
             this._retiring = { surface, promise };
             await promise;
@@ -2895,7 +2910,7 @@ const module = undefined;
                     if (created.Element && created.Element !== this.canvas) {
                         const previous = this.canvas;
                         this.canvas = created.Element;
-                        this.onCanvasReplaced?.(this.canvas, previous);
+                        this.notifyCanvasReplaced(this.canvas, previous);
                     }
                     if (this.canvas.dataset) {
                         this.canvas.dataset.skiaBackend = this.negotiatedBackend;
@@ -2938,8 +2953,13 @@ const module = undefined;
                 if (this.pending || id !== this.requestId || epoch !== this.generation) continue;
                 const surface = this.surface;
                 try {
-                    const stats = this.painter.draw(surface.Canvas, frame, options);
-                    await surface.FlushAsync();
+                    const stats = await this.surfaceOperation(surface, async () => {
+                        // The request may have changed while an export held the surface.
+                        if (this.disposed || this.suspended || epoch !== this.generation || id !== this.requestId || this.surface !== surface) return null;
+                        const result = this.painter.draw(surface.Canvas, frame, options);
+                        await surface.FlushAsync();
+                        return result;
+                    });
                     if (this.disposed || this.suspended || epoch !== this.generation || id !== this.requestId || this.surface !== surface) continue;
                     this.error = null; this._reportedError = '';
                     this.presentedFrame = frame;
@@ -2950,6 +2970,16 @@ const module = undefined;
                     } catch (error) { this.callbackError = error; } // A UI callback is not a GPU failure.
                 } catch (error) {
                     if (this.disposed) return;
+                    if (epoch !== this.generation) {
+                        // A late flush rejection belongs to the retired generation.
+                        // In particular it must not re-quarantine a backend that the
+                        // user has just explicitly retried. Device-loss notifications
+                        // already record their own failures before changing generation.
+                        await this.releaseSurface(surface);
+                        this._replaceBeforeCreate = true;
+                        this.negotiatedBackend = null;
+                        continue;
+                    }
                     const mode = surface.Backend || this.negotiatedBackend;
                     this.recordFailure(mode, error);
                     await this.releaseSurface(surface);
@@ -2987,18 +3017,28 @@ const module = undefined;
             return entry;
         }
         async exportPng() {
+            if (this.disposed) throw new Error('Surface host is disposed.');
             if (this.suspended) throw new Error('Resume the drawing before exporting.');
-            await this.whenIdle();
-            const surface = this.surface, epoch = this.generation;
+            // whenIdle may have resolved just before another request scheduled a
+            // drain. Recheck after the await before taking the readback transaction.
+            do { await this.whenIdle(); } while (this._running);
+            const surface = this.surface, epoch = this.generation, id = this.requestId;
             if (!surface) throw new Error('No rendered surface.');
-            const image = await surface.SnapshotAsync();
-            try {
-                if (this.disposed || this.suspended || epoch !== this.generation || this.surface !== surface)
+            const assertCurrent = () => {
+                if (this.disposed || this.suspended || epoch !== this.generation || id !== this.requestId || this.surface !== surface)
                     throw new Error('Drawing changed while exporting.');
-                const data = image.Encode(this.S.SKEncodedImageFormat.Png, 100);
-                if (!data) throw new Error('PNG encoding failed.');
-                try { return data.ToArray(); } finally { data.Dispose(); }
-            } finally { image.Dispose(); }
+            };
+            return this.surfaceOperation(surface, async () => {
+                assertCurrent();
+                const image = await surface.SnapshotAsync();
+                if (!image) throw new Error('Native snapshot failed.');
+                try {
+                    assertCurrent();
+                    const data = image.Encode(this.S.SKEncodedImageFormat.Png, 100);
+                    if (!data) throw new Error('PNG encoding failed.');
+                    try { return data.ToArray(); } finally { data.Dispose(); }
+                } finally { image.Dispose(); }
+            });
         }
         async exportPdf({ width = 842, height = 595, background = '#ffffff' } = {}) {
             await this.ensureRuntime();

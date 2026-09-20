@@ -1,6 +1,6 @@
 {
   "name": "@wieslawsoltes/dxf-skia",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Independent retained DXF geometry compiler and native SkiaSharpWeb renderer",
   "license": "MIT",
   "main": "index.js",

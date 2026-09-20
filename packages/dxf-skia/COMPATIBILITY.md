@@ -1,4 +1,4 @@
-# Rendering compatibility contract — 0.2.0
+# Rendering compatibility contract — 0.2.1
 
 “Implemented” below describes actual code paths, not exhaustive CAD behavioral
 parity. Entity attributes not covered by those paths can still require work. The
@@ -69,3 +69,25 @@ independently of the surface. This cannot make an unsupported native/driver feat
 work; it makes that failure observable and recoverable.
 Old-renderer snapshots and their two previously known SVG mismatches are not the
 new acceptance gate. No unchanged-baseline or complete-AutoCAD-parity claim is made.
+
+## Surface transactions and exports (0.2.1)
+
+Drawing/flush, PNG snapshot/encode, and surface retirement run in a FIFO per native
+surface. Resize, explicit backend retry and disposal cannot retire a surface while
+its snapshot or encoding operation still owns native state. Concurrent PNG exports
+are serialized; errors release the queue. The queue is independent for each host.
+`whenIdle()` waits for requested presentation; it is not an export-completion fence.
+Await the returned export promise, or `dispose()` to join pending readbacks.
+
+A PNG export waits for current drawing work and then captures the request and
+backend generation. A subsequent redraw, suspension, backend change or disposal
+rejects it with `Drawing changed while exporting.` rather than returning an image
+of an unrelated/currently superseded drawing. Queued exports invalidated before
+their turn never enter native readback. A failed readback does not by itself mark
+a working presentation backend as failed; presentation retains its existing checked
+flush/device-loss recovery. Late submission errors from explicitly retired
+generations cannot contaminate a newly requested backend recovery cycle.
+
+This guarantees operation ordering, not device survival: an external device loss
+can still reject a native snapshot, and a native promise that never settles has no
+host-level timeout. No geometry/typography/physical-driver parity claim is added.

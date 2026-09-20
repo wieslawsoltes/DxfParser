@@ -93,4 +93,54 @@ class NativeGpuTests(unittest.TestCase):
             result=self.page.evaluate("""async text=>{const scene=makeScene(text);frame=DxfSkia.prepareFrame(scene,{width:640,height:480});host.request(frame);await host.whenIdle();return {backend:host.surface.Backend,primitives:scene.primitives.length,errors:host.painter.diagnostics.items.filter(d=>d.severity==='error')};}""",file.read_text())
             self.assertEqual('webgpu',result['backend']);self.assertEqual([],result['errors']);results.append({'file':file.name,**result})
         (OUT/'fixtures.json').write_text(json.dumps(results,indent=2))
+    def test_08_graphite_snapshot_fences_resize_and_rejects_stale_export(self):
+        self.page.evaluate('(text)=>start(text)',dxf(LINE+CIRCLE))
+        result=self.page.evaluate("""async()=>{
+            const old=host.surface, snapshot=old.SnapshotAsync.bind(old);
+            let release,started=false;
+            const gate=new Promise(resolve=>release=resolve);
+            old.SnapshotAsync=async()=>{started=true;await gate;if(old.IsDisposed)throw Error('premature disposal');return snapshot();};
+            const exporting=host.exportPng().then(()=>({ok:true}),e=>({error:e.message}));
+            while(!started)await new Promise(r=>setTimeout(r,0));
+            frame=DxfSkia.prepareFrame(frame.scene,{width:672,height:512});host.request(frame);
+            await new Promise(r=>setTimeout(r,30));const premature=old.IsDisposed;
+            release();const output=await exporting;await host.whenIdle();
+            return {premature,output,retired:old.IsDisposed,width:host.surface.Width,backend:host.surface.Backend};
+        }""")
+        self.assertFalse(result['premature']);self.assertTrue(result['retired'])
+        self.assertIn('Drawing changed',result['output']['error']);self.assertEqual(672,result['width']);self.assertEqual('webgpu',result['backend'])
+    def test_09_graphite_concurrent_png_exports_serialize_real_native_readbacks(self):
+        self.page.evaluate('(text)=>start(text)',dxf(SOLID+CIRCLE))
+        result=self.page.evaluate("""async()=>{
+            const snapshot=host.surface.SnapshotAsync.bind(host.surface);let release,started=0,active=0,maximum=0;
+            const gate=new Promise(r=>release=r);
+            host.surface.SnapshotAsync=async()=>{started++;maximum=Math.max(maximum,++active);try{if(started===1)await gate;return await snapshot();}finally{active--;}};
+            const a=host.exportPng(),b=host.exportPng();while(!started)await new Promise(r=>setTimeout(r,0));
+            await new Promise(r=>setTimeout(r,30));const before=started;release();
+            const pngs=await Promise.all([a,b]);return {before,maximum,headers:pngs.map(x=>[...x.slice(0,8)]),backend:host.surface.Backend};
+        }""")
+        self.assertEqual(1,result['before']);self.assertEqual(1,result['maximum']);self.assertEqual('webgpu',result['backend'])
+        self.assertEqual([[137,80,78,71,13,10,26,10]]*2,result['headers'])
+    def test_10_ganesh_dispose_joins_pending_native_png_readback(self):
+        self.page.evaluate('(text)=>start(text,"webgl")',dxf(LINE+CIRCLE))
+        result=self.page.evaluate("""async()=>{
+            const old=host.surface,snapshot=old.SnapshotAsync.bind(old);let release,started=false;
+            const gate=new Promise(r=>release=r);old.SnapshotAsync=async()=>{started=true;await gate;if(old.IsDisposed)throw Error('premature disposal');return snapshot();};
+            const exporting=host.exportPng().then(()=>({ok:true}),e=>({error:e.message}));
+            while(!started)await new Promise(r=>setTimeout(r,0));
+            const disposing=host.dispose();await new Promise(r=>setTimeout(r,30));const premature=old.IsDisposed;
+            release();const output=await exporting;await disposing;return {premature,retired:old.IsDisposed,output};
+        }""")
+        self.assertFalse(result['premature']);self.assertTrue(result['retired']);self.assertIn('Drawing changed',result['output']['error'])
+    def test_11_graphite_retry_ignores_the_retired_generations_submission_error(self):
+        self.page.evaluate('(text)=>start(text)',dxf(LINE+CIRCLE))
+        result=self.page.evaluate("""async()=>{
+            const old=host.surface,flush=old.FlushAsync.bind(old),resources=host.resources;let fail,started=false;
+            const gate=new Promise((_,reject)=>fail=reject);
+            old.FlushAsync=async()=>{await flush();started=true;return gate;};host.request(frame);
+            while(!started)await new Promise(r=>setTimeout(r,0));
+            host.retryBackend('webgpu');fail(Error('retired generation submission'));
+            await host.whenIdle();return {retired:old.IsDisposed,backend:host.surface.Backend,sameResources:host.resources===resources,failures:host.recoveryEvents};
+        }""")
+        self.assertTrue(result['retired']);self.assertTrue(result['sameResources']);self.assertEqual('webgpu',result['backend']);self.assertEqual([],result['failures'])
 if __name__=='__main__':unittest.main(verbosity=2)
