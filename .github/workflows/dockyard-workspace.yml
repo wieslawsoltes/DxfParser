@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   regression:
-    name: Existing suite and base-frame comparison
+    name: Analytical geometry and native Skia regression
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,21 +19,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install pinned TypeScript declaration checker
+        run: npm install --global typescript@5.8.3
       - name: Validate the pinned local dependency
         run: cd vendor/dockyard && sha256sum -c SHA256SUMS
       - name: Verify generated rendering bundle
         run: |
           node scripts/build-rendering-bundle.js
           git diff --exit-code -- dist/dxf-rendering.global.js
-      - name: Prepare comparison baseline
-        env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          BASE="${PR_BASE:-origin/main}"
-          if [ "${{ github.ref }}" = refs/heads/main ] && [ -z "$PR_BASE" ]; then BASE=HEAD^; fi
-          git worktree add --detach "$RUNNER_TEMP/dxf-base" "$BASE"
-      - name: Gate existing tests and unchanged baseline debt
-        run: python tests/check-docking-regressions.py --baseline "$RUNNER_TEMP/dxf-base"
+      - name: Gate the new renderer, native pixels and installed consumers
+        run: python tests/check-docking-regressions.py
   browser:
     name: Chromium workspace integration
     runs-on: ubuntu-latest

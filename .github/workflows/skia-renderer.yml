@@ -1,0 +1,46 @@
+name: Native Skia DXF renderer
+on:
+  pull_request:
+  push:
+    branches: [main, feat/skia-dxf-renderer]
+permissions:
+  contents: read
+concurrency:
+  group: skia-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualification:
+    name: Native pixels, package and CAD interaction
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned consumer and browser tooling
+        run: |
+          npm install --global typescript@5.8.3
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Verify compiler, native Skia pixels and packed consumers
+        run: python tests/check-docking-regressions.py
+      - name: Verify real HTTP CAD renderer, exports and resource lifetime
+        run: python tests/skia-workspace.py
+      - name: Verify retained application workflows
+        run: |
+          python tests/docking-workspace.py
+          python tests/ribbon-workspace.py
+          python tests/gridweb-previews.py
+          python tests/analysis-views.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-skia-renderer-evidence
+          path: test-results/
+          retention-days: 14
