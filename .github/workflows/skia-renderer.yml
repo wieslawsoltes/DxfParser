@@ -30,6 +30,8 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Verify compiler, native Skia pixels and packed consumers
         run: python tests/check-docking-regressions.py
+      - name: Require native WebGPU and WebGL pipelines on SwiftShader
+        run: xvfb-run -a python tests/skia-gpu.py
       - name: Verify real HTTP CAD renderer, exports and resource lifetime
         run: python tests/skia-workspace.py
       - name: Verify retained application workflows
