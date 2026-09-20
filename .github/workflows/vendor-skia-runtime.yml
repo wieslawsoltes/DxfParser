@@ -1,0 +1,34 @@
+name: Vendor native Skia runtime
+on:
+  push:
+    branches: [feat/skia-dxf-renderer]
+    paths: [.github/workflows/vendor-skia-runtime.yml]
+permissions:
+  contents: write
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/skia-dxf-renderer
+      - uses: actions/checkout@v4
+        with:
+          repository: wieslawsoltes/SkiaSharpWeb
+          ref: 1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3
+          path: .skia-runtime-source
+          persist-credentials: false
+      - name: Copy audited runtime, without gallery or font files
+        run: |
+          mkdir -p vendor/skiasharpweb/dist
+          cp -r .skia-runtime-source/dist/{lib,package,vendor,licenses} vendor/skiasharpweb/dist/
+          cp .skia-runtime-source/{LICENSE,COMPATIBILITY.md} vendor/skiasharpweb/
+          printf '%s\n' 'Repository: https://github.com/wieslawsoltes/SkiaSharpWeb' 'Commit: 1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3' 'Version: 0.5.0' 'Unmodified font-free runtime: dist/lib, dist/package, dist/vendor, dist/licenses.' > vendor/skiasharpweb/UPSTREAM.txt
+          (cd vendor/skiasharpweb && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
+          test -z "$(find vendor/skiasharpweb -type f \( -iname '*.ttf' -o -iname '*.otf' -o -iname '*.woff' -o -iname '*.woff2' -o -iname '*.shx' \))"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vendor/skiasharpweb
+          git diff --cached --quiet || git commit -m 'build: include native SkiaSharpWeb WASM, backend modules and notices'
+          git push origin HEAD:feat/skia-dxf-renderer
