@@ -1,0 +1,82 @@
+name: Publish verified native Skia source
+on:
+  push:
+    branches: [publish/skia-renderer-9098e239]
+    paths: [.github/workflows/publish-skia-source.yml]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: publish/skia-renderer-9098e239
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Decode and verify the delivered source patch
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.skia-publish').glob('*.b64'))
+          assert [p.name for p in chunks] == [f'{i:02}.b64' for i in range(8)]
+          encoded = ''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded) == 115324, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert len(patch) == 387896, len(patch)
+          assert hashlib.sha256(patch).hexdigest() == '5888c55c66af48f25f614632c9beeff97657cb93536ce2b19f35b755a3ed7f38'
+          Path('/tmp/skia-source.patch').write_bytes(patch)
+          PY
+      - name: Apply replacement and remove the old renderer
+        run: |
+          git apply --check /tmp/skia-source.patch
+          git apply --index /tmp/skia-source.patch
+          git rm -- \
+            components/acis-parser.js \
+            components/catmull-clark-subdivision.js \
+            components/point-cloud-loader.js \
+            components/procedural-surfaces.js \
+            components/rendering-data-controller.js \
+            components/rendering-document-builder.js \
+            components/rendering-entities.js \
+            components/rendering-renderer.js \
+            components/rendering-scene-graph.js \
+            components/rendering-surface-canvas.js \
+            components/rendering-surface-webgl.js \
+            components/rendering-tessellation.js \
+            components/rendering-text-layout.js \
+            components/shx-font-loader.js \
+            tests/check-advanced-features.js \
+            tests/check-dimensions.js \
+            tests/check-environment.js \
+            tests/check-materials.js \
+            tests/check-matrix-utils.js \
+            tests/check-mtext.js \
+            tests/check-parser-utils.js \
+            tests/check-plot-styles.js \
+            tests/check-solid-wipeout.js \
+            tests/check-visual-styles.js \
+            tests/rendering-parity.js \
+            tests/smoke-bundle.js
+          node scripts/build-rendering-bundle.js
+          rm -rf .skia-publish
+          git add -A
+      - name: Verify the exact delivered tree and distribution
+        run: |
+          cp .git/index /tmp/skia-verification-index
+          GIT_INDEX_FILE=/tmp/skia-verification-index git rm --cached .github/workflows/publish-skia-source.yml
+          ACTUAL="$(GIT_INDEX_FILE=/tmp/skia-verification-index git write-tree)"
+          echo "Complete source tree after temporary workflow cleanup: $ACTUAL"
+          test "$ACTUAL" = '3754ebd32c8c0d692c90cd6797a223676f40f2e6'
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git diff --cached --check
+          node scripts/check-skia-distribution.js
+      - name: Commit verified source changes on the publication branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: publish complete native Skia DXF renderer and remove legacy engine'
+          git push origin HEAD:publish/skia-renderer-9098e239
