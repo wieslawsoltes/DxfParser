@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # Paragraph & Column Layout Execution Notes
 
 ## Task 2.1 – Honour DXF Paragraph & Column Codes

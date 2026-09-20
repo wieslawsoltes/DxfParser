@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # Milestone 5 Execution Notes
 
 ## Task 5.1 – Text, MText, and Tolerance Rendering Parity

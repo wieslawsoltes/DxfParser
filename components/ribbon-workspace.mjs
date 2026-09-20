@@ -52,6 +52,7 @@ class RibbonWorkspace {
     }
     const tabs = mode === 'parser' ? this.parserTabs() : this.editorTabs();
     tabs.push(this.layoutTab(), this.reportTab(), this.officeTab());
+    if (app.cadWorkspace) tabs.push({ id: "native-cad", header: "CAD View", keyTip: "N", groups: app.cadWorkspace.ribbonGroups(this) });
     this.ribbon.model = new RibbonModel({ id: `dxf-${mode}-ribbon`, title: workspace.options.title,
       tabs, backstage: this.backstage(), selectedTab: 'home', theme: mode === 'editor' ? 'dark' : 'light',
       quickAccessToolbar: [] });
@@ -329,6 +330,7 @@ class RibbonWorkspace {
 
   refresh() {
     const w = this.workspace, app = this.app, activeModel = w.manager.ActiveModel;
+    app.cadWorkspace?.updateRibbon(this);
     const theme = String(w.manager.Theme?.Name || w.manager.Theme || 'light').toLowerCase();
     if (this.ribbon.theme !== (theme === 'dark' ? 'dark' : 'light')) this.ribbon.theme = theme === 'dark' ? 'dark' : 'light';
     this.ribbon.dataset.contrast = String(theme === 'contrast');

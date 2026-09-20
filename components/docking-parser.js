@@ -104,14 +104,25 @@
       return new A.LayoutDocumentPane({ Id: `dxf-pane-${side}`, DockWidth: width,
         DockMinWidth: 120, DockMinHeight: 100, Children: [...(ids.length ? ids : [`tree-${side}`]), ...extra].map(id => w.make(id)) });
     };
+    if (global.DxfCad) panels.push(...global.DxfCad.create(app, 'parser').panels());
     if (global.DxfOffice) panels.push(global.DxfOffice.createPanel(app));
     const workspace = new Workspace({
       id: 'parser', title: 'DXF Parser', shell, panels, deferRestore: true,
-      presets: ['Compare', 'Review', 'Focus'],
+      presets: ['Compare', 'Review', 'Focus', 'CAD'],
       defaultPreset: global.matchMedia('(max-width: 700px)').matches ? 'Focus' : 'Compare',
       layout(w, preset) {
         let main;
-        if (preset === 'Focus') {
+        if (preset === 'CAD') {
+          const ids = [...w.definitions.values()].filter(d => d.fileSide).map(d => d.id);
+          main = new A.LayoutPanel({ Orientation: 'Vertical', Children: [
+            new A.LayoutPanel({ Orientation: 'Horizontal', Children: [
+              new A.LayoutAnchorablePane({ DockWidth: 250, DockMinWidth: 180, Children: ['render-layers','render-blocks','render-resources'].map(id => w.make(id)) }),
+              new A.LayoutDocumentPane({ Id: 'dxf-pane-left', DockWidth: '3*', Children: ['rendering',...ids].map(id => w.make(id)) }),
+              new A.LayoutAnchorablePane({ DockWidth: 320, DockMinWidth: 200, Children: ['render-properties','render-diagnostics','render-info'].map(id => w.make(id)) })
+            ] }),
+            new A.LayoutAnchorablePane({ DockHeight: 140, DockMinHeight: 80, Children: [w.make('render-console')] })
+          ] });
+        } else if (preset === 'Focus') {
           const ids = [...w.definitions.values()].filter(d => d.fileSide).map(d => d.id);
           main = new A.LayoutDocumentPane({ Id: 'dxf-pane-left', Children: [...(ids.length ? ids : ['tree-left']), 'rendering'].map(id => w.make(id)) });
         } else if (preset === 'Review') {
@@ -136,6 +147,7 @@
       onRestore: w => w.refreshData?.()
     });
     app.dockingWorkspace = workspace;
+    app.cadWorkspace?.attach(workspace);
     workspace.legacyCommandSources = { commands, sidebar, viewControls };
     workspace.parking.append(commands, sidebar, viewControls);
     app.documentWorkspace = new global.DxfDocking.DocumentWorkspace(app, workspace);

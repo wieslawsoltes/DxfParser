@@ -1,0 +1,73 @@
+{
+  "dateUtc": "2026-09-20T11:39:58.709420+00:00",
+  "repository": "wieslawsoltes/DxfParser",
+  "branch": "feat/skia-dxf-renderer",
+  "baseCommit": "a21f103eef26e529b464d42dc933d4ef6d08241e",
+  "nativeDependency": "wieslawsoltes/SkiaSharpWeb@1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3",
+  "verification": "local execution; no GitHub Actions run for this change",
+  "environment": {
+    "node": "v22.16.0",
+    "typescript": "Version 5.8.3",
+    "python": "3.13.5",
+    "browser": "143.0.7499.4",
+    "http": true,
+    "injected": false,
+    "backend": "Skia raster canvas presentation",
+    "physicalGPUQualified": false
+  },
+  "results": [
+    {
+      "suite": "Node geometry and native Skia",
+      "testCount": 75,
+      "exitCode": 0,
+      "logSha256": "7632b2325a4bc751048b7ada9afd175dcba970cc81df11a0acbdb9996b444ddf"
+    },
+    {
+      "suite": "Native CAD browser",
+      "testCount": 16,
+      "exitCode": 0,
+      "logSha256": "6a725636b9b284d157c4aa1492e9b9a846026bb8bc0efdae97a7dc571988648e"
+    },
+    {
+      "suite": "Dockyard browser",
+      "testCount": 18,
+      "exitCode": 0,
+      "logSha256": "1a17252bbb530bd321dd6d9f0e17e9e1a8e7386f7629936b2fa6f39d904860e7"
+    },
+    {
+      "suite": "Ribbon/document browser",
+      "testCount": 31,
+      "exitCode": 0,
+      "logSha256": "d7a0ba5a8e637679e731fab821673321e37ac84727f2eb59d5e9fac83ede3852"
+    },
+    {
+      "suite": "GridWeb/RichTextWeb browser",
+      "testCount": 20,
+      "exitCode": 0,
+      "logSha256": "f45497c82d6485ead2211659fa45a7c667bcc1c53238659e14e4419616e11a8e"
+    },
+    {
+      "suite": "Analysis workbench browser",
+      "testCount": 26,
+      "exitCode": 0,
+      "logSha256": "dbbd348a655d7a6b4bd015f5f349e5c04f0e478f304f7ea03021de33e145cf69"
+    }
+  ],
+  "totalTests": 186,
+  "additionalChecks": [
+    "installed tarball CJS/ESM identity",
+    "standalone ESM consumer",
+    "strict TypeScript consumer",
+    "native PNG from installed consumer",
+    "classic-script consumer",
+    "deterministic bundles",
+    "all vendored dependency checksums",
+    "absence of old engine files",
+    "font-free package/runtime asset scan"
+  ],
+  "coverageLimitations": [
+    "Not complete AutoCAD or all-DXF parity; see packages/dxf-skia/COMPATIBILITY.md.",
+    "Old internal-object/SVG snapshot tests were retired with their engine, not treated as passing.",
+    "No hardware GPU or deployed GitHub Pages qualification."
+  ]
+}
