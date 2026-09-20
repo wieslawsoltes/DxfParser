@@ -1,21 +1,69 @@
-name: Stage renderer lifetime audit
+name: Qualify renderer lifetime fixes
 on:
   push:
     branches: [work/skia-lifetime-audit]
     paths: [.github/workflows/stage-lifetime-audit.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
+  qualify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          ref: 120aa56cbe8ae458a2aa4b8f1ab8c1d947efbb43
-          persist-credentials: false
-      - run: git archive HEAD --format=tar.gz -o /tmp/renderer-audit-source.tar.gz
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed sources and verify exact final tree
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          encoded = Path('.renderer-lifetime.b64').read_text().strip()
+          assert len(encoded) == 11672, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '41df41bd76c63d98beec0ba63fd9bbd14e2056de9fedcbef9e9d7fb5e6742fe2'
+          Path('/tmp/lifetime.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/lifetime.patch
+          git apply --index /tmp/lifetime.patch
+          git rm .renderer-lifetime.b64
+          node scripts/build-rendering-bundle.js
+          git add dist/dxf-rendering.global.js packages/dxf-skia/dist/
+          git diff --cached --check
+          cp .git/index /tmp/lifetime-index
+          GIT_INDEX_FILE=/tmp/lifetime-index git rm --cached .github/workflows/stage-lifetime-audit.yml
+          test "$(GIT_INDEX_FILE=/tmp/lifetime-index git write-tree)" = adb65db8d79d622f015ef7ebc4a4a9c53d54dc4a
+      - name: Install qualification tooling
+        run: |
+          npm install --global typescript@5.8.3
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Check native pixels, unsigned ABI, deterministic races and installed package
+        run: python tests/check-docking-regressions.py
+      - name: Require real native Graphite and Ganesh pipelines including export and retry races
+        run: xvfb-run -a python tests/skia-gpu.py
+      - name: Verify normally served application workflows
+        run: |
+          python tests/skia-workspace.py
+          python tests/docking-workspace.py
+          python tests/ribbon-workspace.py
+          python tests/gridweb-previews.py
+          python tests/analysis-views.py
+      - name: Store tested source objects on audit branch only
+        run: |
+          git fetch origin work/skia-lifetime-audit
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/work/skia-lifetime-audit)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: serialize Skia surface exports and isolate retired backend generations'
+          git push origin HEAD:work/skia-lifetime-audit
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: renderer-audit-source
-          path: /tmp/renderer-audit-source.tar.gz
-          retention-days: 3
+          name: renderer-lifetime-evidence
+          path: test-results/
+          retention-days: 14
