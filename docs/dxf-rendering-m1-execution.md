@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # DXF Rendering Overlay – Milestone 1 Execution
 
 ## Outcome Overview

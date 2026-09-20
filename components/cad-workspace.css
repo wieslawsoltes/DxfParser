@@ -1,0 +1,19 @@
+.dxf-cad-viewport { background: #212830; position: relative; }
+.dxf-cad-status { position:absolute;left:0;right:0;bottom:0;z-index:8;display:flex;align-items:center;gap:14px;min-height:27px;padding:0 9px;background:#182029;color:#d0d9e2;border-top:1px solid #43505c;font-size:11px;pointer-events:auto;font-variant-numeric:tabular-nums }
+.dxf-cad-layouts { display:flex;gap:1px;overflow:auto;flex:1;min-width:50px;scrollbar-width:thin; }
+.dxf-cad-layouts button { padding:5px 13px;background:transparent;border:0;color:#c2ccd7;white-space:nowrap;font:inherit;cursor:pointer }
+.dxf-cad-layouts button[aria-selected=true] {background:#314351;color:#fff;box-shadow:inset 0 -2px #72bef1}
+.dxf-cad-coordinates {font-family:ui-monospace,monospace;white-space:nowrap}
+.dxf-cad-backend {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.dxf-cad-console {height:100%;display:flex;flex-direction:column;min-height:0;background:#1b222b;color:#d5e0ed;font:12px/1.5 ui-monospace,monospace}
+.dxf-cad-log {flex:1;overflow:auto;min-height:0;padding:6px 12px;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:thin}
+.dxf-cad-error {color:#ffa79f}
+.dxf-cad-command-form {display:flex;align-items:center;gap:8px;border-top:1px solid #465160;padding:4px 10px}
+.dxf-cad-command-form input {min-width:0;flex:1;border:0;border-radius:2px;padding:5px 8px;background:#2b3541;color:white;font:inherit;outline-offset:1px}
+.dxf-cad-command-form button {background:#34485b;color:#eaf5ff;border:1px solid #5b7185;padding:4px 12px;cursor:pointer}
+.dxf-cad-tool {display:flex;flex-direction:column;height:100%;min-height:0;overflow:auto;container-type:inline-size}
+.dxf-cad-note {font-size:12px;margin:8px 12px;line-height:1.4;overflow-wrap:anywhere}
+.dxf-cad-records {min-height:250px;flex:1;display:flex;flex-direction:column}
+.dxf-cad-records>.dxf-grid-view {flex:1;min-height:250px;margin:4px}
+.dxf-cad-tool>button {align-self:start;margin:4px 12px;padding:6px 12px}
+@media(max-width:700px){.dxf-cad-coordinates{display:none}.dxf-cad-backend{max-width:55%}.dxf-cad-status{gap:5px}}

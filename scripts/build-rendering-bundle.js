@@ -1,76 +1,22 @@
 #!/usr/bin/env node
-
-/**
- * Creates dist/dxf-rendering.global.js by concatenating the rendering modules.
- * Run with: node scripts/build-rendering-bundle.js
- */
-
-const fs = require('fs');
-const path = require('path');
-
-const projectRoot = path.resolve(__dirname, '..');
-const distDir = path.join(projectRoot, 'dist');
-const bundlePath = path.join(distDir, 'dxf-rendering.global.js');
-
-const componentsDir = path.join(projectRoot, 'components');
-const preferredOrder = [
-  'rendering-entities.js',
-  'rendering-data-controller.js',
-  'rendering-surface-canvas.js',
-  'rendering-surface-webgl.js',
-  'rendering-text-layout.js',
-  'rendering-document-builder.js',
-  'rendering-scene-graph.js',
-  'rendering-tessellation.js',
-  'rendering-renderer.js',
-  'rendering-overlay.js'
-];
-
-// Discover all rendering modules so new files are automatically picked up by the bundle.
-const availableRenderingModules = fs.readdirSync(componentsDir)
-  .filter((file) => /^rendering-.*\.js$/.test(file))
-  .sort();
-
-const modules = [
-  ...preferredOrder
-    .filter((file) => availableRenderingModules.includes(file))
-    .map((file) => path.join('components', file)),
-  ...availableRenderingModules
-    .filter((file) => !preferredOrder.includes(file))
-    .map((file) => path.join('components', file))
-];
-
-function ensureDistDirectory() {
-  if (!fs.existsSync(distDir)) {
-    fs.mkdirSync(distDir);
-  }
-}
-
-function buildBundle() {
-  ensureDistDirectory();
-
-  const bannerLines = [
-    '// Auto-generated convenience bundle.',
-    '// Concatenates core rendering modules for direct <script> inclusion.',
-    '// Source modules:',
-    ...modules.map((module) => `//   ${module}`),
-    '',
-    ''
-  ];
-
-  const chunks = [bannerLines.join('\n')];
-
-  modules.forEach((modulePath) => {
-    const absolutePath = path.join(projectRoot, modulePath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`Module not found: ${modulePath}`);
-    }
-    const source = fs.readFileSync(absolutePath, 'utf8');
-    chunks.push(`// ---- Begin: ${modulePath} ----\n${source}\n// ---- End: ${modulePath} ----\n`);
-  });
-
-  fs.writeFileSync(bundlePath, chunks.join('\n'));
-  console.log(`Bundle written to ${path.relative(projectRoot, bundlePath)}`);
-}
-
-buildBundle();
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const core = ['geometry', 'document', 'resources', 'proxy', 'text', 'compiler', 'renderer', 'surface-host']
+    .map(name => 'packages/dxf-skia/src/' + name + '.js');
+const modules = [...core, 'components/skia-rendering-adapter.js', 'components/rendering-property-grid.js', 'components/rendering-overlay.js'];
+const bundle = files => '// Deterministic DxfSkia bundle. Native SkiaSharpWeb is supplied by the host.\n' + files
+    .map(file => '\n// ' + file + '\n' + fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
+const exportsList = ['geometry', 'SpatialIndex', 'parseTags', 'DxfRecord', 'DxfDocument', 'Diagnostics', 'aciColor', 'colorObject', 'transparency', 'ResourceStore', 'resourceKey', 'ShapeFont', 'draftingGlyph', 'layoutText', 'fallbackTextWidth', 'SceneCompiler', 'plainText', 'decodeProxy', 'SkiaPainter', 'prepareFrame', 'projectedScene', 'hitTest', 'snap', 'nativeDash', 'clipInfiniteLine', 'SurfaceHost'];
+fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+fs.mkdirSync(path.join(root, 'packages/dxf-skia/dist'), { recursive: true });
+fs.writeFileSync(path.join(root, 'dist/dxf-rendering.global.js'), bundle(modules));
+fs.writeFileSync(path.join(root, 'packages/dxf-skia/dist/dxf-skia.global.js'), bundle(core));
+// Module consumers have a private namespace; importing does not mutate the host's
+// global object. Only the explicit classic-browser build registers window.DxfSkia.
+const isolated = 'const api = (() => {\nconst globalThis = Object.create(null);\nconst module = undefined;\n' + bundle(core) + '\nreturn globalThis.DxfSkia;\n})();\n';
+fs.writeFileSync(path.join(root, 'packages/dxf-skia/dist/dxf-skia.cjs'), "'use strict';\n" + isolated + '\nmodule.exports = api;\n');
+fs.writeFileSync(path.join(root, 'packages/dxf-skia/dist/dxf-skia.mjs'), isolated + '\nexport default api;\nexport const {' + exportsList.join(', ') + '} = api;\n');
+fs.writeFileSync(path.join(root, 'packages/dxf-skia/index.mjs'), "import api from './index.js';\nexport default api;\nexport const {" + exportsList.join(', ') + '} = api;\n');
+console.log('Built DxfSkia CJS/ESM/classic packages and app integration; no legacy engine is included.');

@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # Milestone 7 Execution Notes
 
 ## Task 7.1 – Layer Manager Overlay Panel

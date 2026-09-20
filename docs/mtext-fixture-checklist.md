@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # MTEXT Regression Fixture Checklist
 
 > Status: _capturing sample DXF files is blocked until MTEXT-rich drawings are available._

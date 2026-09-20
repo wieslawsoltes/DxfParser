@@ -522,179 +522,27 @@
     }
 
     zoomView(factor, options = {}) {
-      if (!Number.isFinite(factor) || factor <= 0) {
-        return;
-      }
-      const frame = this.surfaceManager ? this.surfaceManager.lastFrame : null;
-      if (!frame) {
-        return;
-      }
-      const context = this.ensureViewContext();
-      if (!context) {
-        return;
-      }
-      const current = this.getActiveViewState(frame) || this.getAutoViewState(frame);
-      if (!current) {
-        return;
-      }
-      const scale = Number.isFinite(current.scale) && current.scale > 0 ? current.scale : frame.scale || 1;
-      const targetScale = Math.max(1e-9, Math.min(scale * factor, 1e12));
-      const width = Number.isFinite(frame.width) && frame.width > 0
-        ? frame.width
-        : (this.viewportEl ? this.viewportEl.clientWidth : 0);
-      const height = Number.isFinite(frame.height) && frame.height > 0
-        ? frame.height
-        : (this.viewportEl ? this.viewportEl.clientHeight : 0);
-      const anchor = options.anchor || {
-        x: width * 0.5,
-        y: height * 0.5
-      };
-      const anchorWorld = this.screenToWorld(anchor, frame);
-      const rotation = Number.isFinite(current.rotationRad) ? current.rotationRad : 0;
-      const cos = Math.cos(rotation);
-      const sin = Math.sin(rotation);
-      const dx = ((anchor.x ?? (width * 0.5)) - width * 0.5) / targetScale;
-      const dy = (height * 0.5 - (anchor.y ?? (height * 0.5))) / targetScale;
-      const offsetX = cos * dx + sin * dy;
-      const offsetY = -sin * dx + cos * dy;
-      const baseCenter = current.center || frame.worldCenter || { x: 0, y: 0 };
-      const nextCenter = anchorWorld
-        ? { x: anchorWorld.x - offsetX, y: anchorWorld.y - offsetY }
-        : baseCenter;
-      this.applyViewState({
-        mode: 'custom',
-        center: nextCenter,
-        scale: targetScale,
-        rotationRad: rotation
-      });
+      const frame = this.surfaceManager?.lastFrame;
+      if (!frame || !(factor > 0) || !Number.isFinite(factor)) return;
+      const anchor = options.anchor || { x: frame.width / 2, y: frame.height / 2 };
+      const before = frame.toProjected(anchor), ratio = Math.max(1e-12, Math.min(1e12, frame.scale * factor)) / frame.scale;
+      const center = { x: before.x - (before.x - frame.worldCenter.x) / ratio, y: before.y - (before.y - frame.worldCenter.y) / ratio };
+      this.applyViewState({ mode: 'custom', center, scale: frame.scale * ratio, rotationRad: frame.rotationRad });
     }
 
     focusHandles(handlesIterable, options = {}) {
-      if (!handlesIterable) {
-        return false;
+      const frame=this.surfaceManager?.lastFrame;
+      if (!frame || !handlesIterable) return false;
+      const handles=new Set(Array.from(typeof handlesIterable==='string'?[handlesIterable]:handlesIterable, h=>this.normalizeHandle(h)));
+      const G=globalThis.DxfSkia.geometry, extent=G.emptyBounds();
+      for (const entry of frame.projection.entries) {
+        if (!entry.primitive.infinite && (handles.has(this.normalizeHandle(entry.primitive.handle)) || handles.has(this.normalizeHandle(entry.primitive.entityHandle)))) G.union(extent,entry.bounds);
       }
-      const normalized = new Set();
-      const pushHandle = (value) => {
-        const normalizedHandle = this.normalizeHandle(value);
-        if (normalizedHandle) {
-          normalized.add(normalizedHandle);
-        }
-      };
-      if (handlesIterable instanceof Set || Array.isArray(handlesIterable)) {
-        handlesIterable.forEach(pushHandle);
-      } else if (typeof handlesIterable[Symbol.iterator] === 'function') {
-        for (const value of handlesIterable) {
-          pushHandle(value);
-        }
-      } else {
-        pushHandle(handlesIterable);
-      }
-      if (!normalized.size) {
-        return false;
-      }
-      const frame = this.surfaceManager ? this.surfaceManager.lastFrame : null;
-      if (!frame || !Array.isArray(frame.pickables) || frame.pickables.length === 0) {
-        return false;
-      }
-
-      let bounds = null;
-      const mergeBounds = (sourceBounds) => {
-        if (!sourceBounds) {
-          return;
-        }
-        const minX = Number.isFinite(sourceBounds.minX) ? sourceBounds.minX : null;
-        const minY = Number.isFinite(sourceBounds.minY) ? sourceBounds.minY : null;
-        const maxX = Number.isFinite(sourceBounds.maxX) ? sourceBounds.maxX : null;
-        const maxY = Number.isFinite(sourceBounds.maxY) ? sourceBounds.maxY : null;
-        if (minX == null || minY == null || maxX == null || maxY == null) {
-          return;
-        }
-        if (!bounds) {
-          bounds = { minX, minY, maxX, maxY };
-          return;
-        }
-        bounds.minX = Math.min(bounds.minX, minX);
-        bounds.minY = Math.min(bounds.minY, minY);
-        bounds.maxX = Math.max(bounds.maxX, maxX);
-        bounds.maxY = Math.max(bounds.maxY, maxY);
-      };
-
-      const computeBoundsFromPoints = (points) => {
-        if (!Array.isArray(points) || points.length === 0) {
-          return null;
-        }
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        points.forEach((point) => {
-          if (!point) {
-            return;
-          }
-          const x = Number.isFinite(point.x) ? point.x : (Array.isArray(point) && Number.isFinite(point[0]) ? point[0] : null);
-          const y = Number.isFinite(point.y) ? point.y : (Array.isArray(point) && Number.isFinite(point[1]) ? point[1] : null);
-          if (x == null || y == null) {
-            return;
-          }
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-        });
-        if (minX === Infinity || minY === Infinity || maxX === -Infinity || maxY === -Infinity) {
-          return null;
-        }
-        return { minX, minY, maxX, maxY };
-      };
-
-      frame.pickables.forEach((pickable) => {
-        const handle = this.normalizeHandle(pickable && pickable.handle);
-        if (!handle || !normalized.has(handle)) {
-          return;
-        }
-        if (pickable.worldBounds) {
-          mergeBounds(pickable.worldBounds);
-        } else if (pickable.worldPoints) {
-          mergeBounds(computeBoundsFromPoints(pickable.worldPoints));
-        }
-      });
-
-      if (!bounds) {
-        return false;
-      }
-
-      const viewportWidth = Number.isFinite(frame.width) && frame.width > 0
-        ? frame.width
-        : (this.viewportEl ? this.viewportEl.clientWidth : 0);
-      const viewportHeight = Number.isFinite(frame.height) && frame.height > 0
-        ? frame.height
-        : (this.viewportEl ? this.viewportEl.clientHeight : 0);
-      if (!viewportWidth || !viewportHeight) {
-        return false;
-      }
-
-      const padding = Number.isFinite(options.padding)
-        ? Math.max(0, options.padding)
-        : Math.max(20, Math.min(viewportWidth, viewportHeight) * (Number.isFinite(options.paddingFactor) ? options.paddingFactor : 0.08));
-      const widthAvailable = Math.max(1e-6, viewportWidth - padding * 2);
-      const heightAvailable = Math.max(1e-6, viewportHeight - padding * 2);
-      const spanX = Math.max(1e-6, bounds.maxX - bounds.minX);
-      const spanY = Math.max(1e-6, bounds.maxY - bounds.minY);
-      const targetScale = Math.max(1e-6, Math.min(widthAvailable / spanX, heightAvailable / spanY));
-      const center = {
-        x: (bounds.minX + bounds.maxX) / 2,
-        y: (bounds.minY + bounds.maxY) / 2
-      };
-      const current = this.getActiveViewState(frame) || this.getAutoViewState(frame) || { rotationRad: 0 };
-      const rotation = Number.isFinite(current.rotationRad) ? current.rotationRad : 0;
-
-      this.applyViewState({
-        mode: 'custom',
-        center,
-        scale: targetScale,
-        rotationRad: rotation
-      });
-
+      if (G.isEmpty(extent)) return false;
+      const c=G.center(extent),padding=options.padding??48,dx=Math.max(.001,extent.maxX-extent.minX),dy=Math.max(.001,extent.maxY-extent.minY);
+      const projectedWidth=Math.abs(frame.cos)*dx+Math.abs(frame.sin)*dy,projectedHeight=Math.abs(frame.sin)*dx+Math.abs(frame.cos)*dy;
+      const scale=Math.max(1e-12,Math.min((frame.width-padding*2)/projectedWidth,(frame.height-padding*2)/projectedHeight));
+      this.applyViewState({mode:'custom',center:c,scale,rotationRad:frame.rotationRad});
       return true;
     }
 
@@ -844,60 +692,12 @@
     }
 
     onViewCubeOrientation(orientation) {
-      if (!orientation) {
-        return;
-      }
-      if (orientation === 'home') {
-        this.resetViewNavigation();
-        return;
-      }
-      const frame = this.surfaceManager ? this.surfaceManager.lastFrame : null;
-      if (!frame) {
-        return;
-      }
-      const current = this.getActiveViewState(frame) || this.getAutoViewState(frame);
-      if (!current) {
-        return;
-      }
-      const scale = Number.isFinite(current.scale) && current.scale > 0 ? current.scale : frame.scale || 1;
-      const center = current.center || frame.worldCenter || { x: 0, y: 0 };
-      let rotationDeg = 0;
-      switch (orientation) {
-        case 'top':
-          rotationDeg = 0;
-          break;
-        case 'bottom':
-        case 'back':
-          rotationDeg = 180;
-          break;
-        case 'left':
-          rotationDeg = 90;
-          break;
-        case 'right':
-          rotationDeg = -90;
-          break;
-        case 'iso':
-        case 'isometric':
-          rotationDeg = 45;
-          break;
-        case 'iso-left':
-          rotationDeg = 135;
-          break;
-        case 'iso-right':
-          rotationDeg = -45;
-          break;
-        case 'front':
-        default:
-          rotationDeg = 0;
-          break;
-      }
-      const rotationRad = this.normalizeAngle(rotationDeg * Math.PI / 180);
-      this.applyViewState({
-        mode: 'custom',
-        center,
-        scale,
-        rotationRad
-      });
+      const directions={home:[0,0,1],top:[0,0,1],bottom:[0,0,-1],front:[0,-1,0],back:[0,1,0],left:[-1,0,0],right:[1,0,0],iso:[1,-1,1],isometric:[1,-1,1],'iso-left':[-1,-1,1],'iso-right':[1,1,1]};
+      const direction=directions[String(orientation).toLowerCase()];
+      if (!direction || !this.surfaceManager?.sceneGraph) return;
+      this.viewState={mode:'auto',rotationRad:0};
+      this.surfaceManager.setViewDirection({x:direction[0],y:direction[1],z:direction[2]});
+      this.updateViewNavigationUi();
     }
 
     handleNavigationWheelAction(action) {
@@ -1182,6 +982,8 @@
         try {
           this.surfaceManager = new namespace.RenderingSurfaceManager();
           this.surfaceManager.initialize(this.canvas);
+          this.surfaceManager.onPaint = stats => { if (this.currentDoc) this.refreshViewportOverlays(stats.frame); };
+          this.surfaceManager.onError = error => { this.overlayEl?.dispatchEvent(new CustomEvent('dxf-skia-error', { detail: error, bubbles: true })); };
           this.surfaceManager.setCanvasReplacementCallback((replacementCanvas) => {
             this.canvas = replacementCanvas;
             this.viewportEl = this.canvas ? this.canvas.parentElement : null;
@@ -1368,9 +1170,7 @@
       this.clearInteractionOverlay();
       this.clearSnapIndicator({ silent: true });
       this.resetMeasurementState({ silent: true });
-      if (this.surfaceManager && typeof this.surfaceManager.clear === 'function') {
-        this.surfaceManager.clear();
-      }
+      if (this.surfaceManager) this.surfaceManager.dispose();
       this.surfaceManager = null;
       this.refreshViewportOverlays(null);
       this.overlayRoot = null;
@@ -3437,114 +3237,24 @@
     }
 
     renderBlockThumbnail(canvas, entry, blockDefinition) {
-      if (!canvas || !blockDefinition || !this.currentDoc || !this.currentDoc.sceneGraph || typeof namespace.RenderingSurfaceManager !== 'function') {
-        return false;
-      }
-      let manager = null;
-      try {
-        const devicePixelRatio = (this.surfaceManager && this.surfaceManager.devicePixelRatio)
-          || (this.global && this.global.devicePixelRatio)
-          || (typeof window !== 'undefined' ? window.devicePixelRatio : 1)
-          || 1;
-        const fallbackWidth = 200;
-        const fallbackHeight = 140;
-        const displayWidth = Math.max(fallbackWidth, Math.floor(canvas.clientWidth || canvas.width || fallbackWidth));
-        const displayHeight = Math.max(fallbackHeight, Math.floor(canvas.clientHeight || canvas.height || fallbackHeight));
-        canvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
-        canvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
-        canvas.style.width = `${displayWidth}px`;
-        canvas.style.height = `${displayHeight}px`;
-
-        manager = new namespace.RenderingSurfaceManager();
-        const originalWebGLSurface = namespace.WebGLSurface;
-        namespace.WebGLSurface = null;
-        try {
-          manager.initialize(canvas);
-        } finally {
-          namespace.WebGLSurface = originalWebGLSurface;
-        }
-        manager.resize(canvas.width, canvas.height, devicePixelRatio);
-
-        const previewScene = this.buildBlockPreviewScene(entry && entry.name, blockDefinition, this.currentDoc.sceneGraph, entry);
-        if (!previewScene) {
-          this.destroyRenderingSurface(manager);
-          return false;
-        }
-
-        manager.renderScene(previewScene, { viewState: { mode: 'auto' } });
-        this.destroyRenderingSurface(manager);
-        return true;
-      } catch (error) {
-        console.warn('RenderingOverlay: block preview rendering failed', error);
-        this.destroyRenderingSurface(manager);
-        return false;
-      }
+      if (!canvas || !this.currentDoc || !blockDefinition) return false;
+      const scene = this.buildBlockPreviewScene(entry.name, blockDefinition, this.currentDoc.sceneGraph, entry);
+      const manager = new namespace.RenderingSurfaceManager({ backend: 'canvas', lineweights: false });
+      manager.initialize(canvas); manager.resize(180, 110, 1);
+      manager.renderScene(scene); manager.resume();
+      manager.ready.catch(error => { canvas.title = 'Preview unavailable: ' + error.message; })
+        .finally(() => manager.dispose());
+      return true;
     }
 
     drawBlockFallback(canvas, entry) {
-      if (!canvas || typeof canvas.getContext !== 'function') {
-        return;
-      }
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        return;
-      }
-      const devicePixelRatio = (this.surfaceManager && this.surfaceManager.devicePixelRatio)
-        || (this.global && this.global.devicePixelRatio)
-        || (typeof window !== 'undefined' ? window.devicePixelRatio : 1)
-        || 1;
-      const displayWidth = Math.max(120, Math.floor(canvas.clientWidth || canvas.width || 160));
-      const displayHeight = Math.max(90, Math.floor(canvas.clientHeight || canvas.height || 120));
-      canvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
-      canvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
-      canvas.style.width = `${displayWidth}px`;
-      canvas.style.height = `${displayHeight}px`;
-
-      const width = canvas.width;
-      const height = canvas.height;
-      ctx.clearRect(0, 0, width, height);
-
-      ctx.fillStyle = '#f1f5ff';
-      ctx.fillRect(0, 0, width, height);
-      const colors = this.computeBlockColor(entry && entry.name);
-      const gradient = ctx.createLinearGradient(0, 0, width, height);
-      gradient.addColorStop(0, colors.primary);
-      gradient.addColorStop(1, colors.secondary);
-      ctx.fillStyle = gradient;
-      const margin = Math.round(6 * devicePixelRatio);
-      ctx.fillRect(margin, margin, width - margin * 2, height - margin * 2);
-
-      ctx.strokeStyle = 'rgba(15, 23, 42, 0.12)';
-      ctx.lineWidth = Math.max(1, Math.round(2 * devicePixelRatio));
-      const borderMargin = Math.round(10 * devicePixelRatio);
-      ctx.strokeRect(borderMargin, borderMargin, width - borderMargin * 2, height - borderMargin * 2);
-
-      const initials = entry && entry.name ? String(entry.name).trim().slice(0, 3).toUpperCase() : 'BLK';
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
-      ctx.font = `${Math.round(18 * devicePixelRatio)}px "Inter", "Segoe UI", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(initials, width / 2, height / 2);
-
-      const instanceCount = Number(entry && entry.instanceCount) || 0;
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
-      ctx.font = `${Math.round(12 * devicePixelRatio)}px "Inter", "Segoe UI", sans-serif`;
-      ctx.fillText(`${instanceCount} inst`, width / 2, height - 14 * devicePixelRatio);
+      // Unsupported thumbnails are clearly identified, not fabricated geometry.
+      canvas.setAttribute('aria-label', 'No preview geometry for ' + (entry?.name || 'block'));
+      canvas.title = 'Block has no supported preview geometry.';
     }
 
     destroyRenderingSurface(manager) {
-      try {
-        if (!manager) {
-          return;
-        }
-        manager.suspend();
-        if (manager.activeSurface && typeof manager.activeSurface.destroy === 'function') {
-          manager.activeSurface.destroy();
-        }
-        manager.clear();
-      } catch (error) {
-        console.warn('RenderingOverlay: unable to dispose preview surface', error);
-      }
+      return manager?.dispose();
     }
 
     computeBlockColor(name) {
@@ -3560,113 +3270,16 @@
     }
 
     buildBlockPreviewScene(blockName, blockDefinition, sceneGraph, metadataEntry) {
-      if (!blockDefinition || !sceneGraph) {
-        return null;
-      }
-      const previewBlockName = blockDefinition.name || blockName || 'BLOCK';
-      const clonedDefinition = this.cloneBlockDefinition(blockDefinition);
-      if (!clonedDefinition) {
-        return null;
-      }
-      const basePoint = (clonedDefinition.header && clonedDefinition.header.basePoint) || { x: 0, y: 0, z: 0 };
-      const insertEntity = {
-        id: `${previewBlockName}_PREVIEW`,
-        type: 'INSERT',
-        space: 'model',
-        layer: '0',
-        linetype: null,
-        lineweight: null,
-        linetypeScale: 1,
-        color: { type: 'byLayer', value: null },
-        trueColor: null,
-        transparency: null,
-        layout: null,
-        textStyle: null,
-        thickness: null,
-        elevation: null,
-        extrusion: null,
-        flags: {},
-        owner: null,
-        handle: `${previewBlockName}_PREVIEW_HANDLE`,
-        blockName: null,
-        material: null,
-        plotStyle: null,
-        visualStyle: null,
-        shadowMode: null,
-        spaceFlag: 0,
-        colorBook: null,
-        dimensionStyle: null,
-        dimensionStyleHandle: null,
-        geometry: {
-          type: 'insert',
-          blockName: previewBlockName,
-          position: {
-            x: -Number(basePoint.x || 0),
-            y: -Number(basePoint.y || 0),
-            z: -Number(basePoint.z || 0)
-          },
-          scale: { x: 1, y: 1, z: 1 },
-          rotation: 0,
-          columnCount: 1,
-          rowCount: 1,
-          columnSpacing: 0,
-          rowSpacing: 0,
-          hasAttributes: !!(metadataEntry && metadataEntry.attributeCount)
-        },
-        rawTags: [],
-        resolved: {}
-      };
-
-      const clonedBlocks = {};
-      clonedBlocks[previewBlockName] = clonedDefinition;
-
-      return {
-        modelSpace: [insertEntity],
-        paperSpaces: {},
-        blocks: clonedBlocks,
-        tables: sceneGraph.tables || {},
-        materials: sceneGraph.materials || null,
-        backgrounds: sceneGraph.backgrounds || null,
-        suns: sceneGraph.suns || null,
-        units: sceneGraph.units || null,
-        imageDefinitions: sceneGraph.imageDefinitions || null,
-        underlayDefinitions: sceneGraph.underlayDefinitions || null,
-        pointClouds: sceneGraph.pointClouds || null,
-        sectionViewStyles: sceneGraph.sectionViewStyles || null,
-        detailViewStyles: sceneGraph.detailViewStyles || null,
-        sectionObjects: sceneGraph.sectionObjects || null,
-        sectionGeometries: sceneGraph.sectionGeometries || null,
-        detailViewObjects: sceneGraph.detailViewObjects || null,
-        rasterVariables: sceneGraph.rasterVariables || null,
-        proxyObjects: sceneGraph.proxyObjects || null,
-        datalinks: sceneGraph.datalinks || null,
-        dictionaryVariables: sceneGraph.dictionaryVariables || null,
-        lightLists: sceneGraph.lightLists || null,
-        entityDefaults: sceneGraph.entityDefaults || null,
-        displaySettings: sceneGraph.displaySettings || null,
-        coordinateDefaults: sceneGraph.coordinateDefaults || null,
-        environment: sceneGraph.environment || null,
-        stats: Object.assign({}, sceneGraph.stats || {}, { renderableEntities: 1, blockDefinitions: 1 })
-      };
+      const document = Object.create(sceneGraph.document);
+      const insert = new root.DxfSkia.DxfRecord([{code:0,value:'INSERT'}, {code:2,value:blockName}, {code:5,value:'PREVIEW'}]);
+      document.getEntities = () => [insert];
+      document.sceneGraph = { ...sceneGraph, modelSpace: [insert] };
+      Object.defineProperty(document.sceneGraph, 'document', { value: document });
+      return document.sceneGraph;
     }
 
     cloneBlockDefinition(definition) {
-      if (!definition) {
-        return null;
-      }
-      if (typeof structuredClone === 'function') {
-        try {
-          return structuredClone(definition);
-        } catch (error) {
-          // Fallback to JSON clone
-        }
-      }
-      try {
-        return JSON.parse(JSON.stringify(definition));
-      } catch (error) {
-        console.warn('RenderingOverlay: failed to clone block definition', error);
-        return null;
-      }
+      return definition; // Immutable-by-contract document geometry is shared by previews.
     }
 
     getBlockDefinition(blockName) {
@@ -4350,7 +3963,7 @@
         return;
       }
       if (event.target && typeof event.target.closest === 'function') {
-        if (event.target.closest('.rendering-measurement-toolbar') || event.target.closest('.rendering-selection-toolbar')) {
+        if (event.target.closest('.rendering-measurement-toolbar') || event.target.closest('.rendering-selection-toolbar') || event.target.closest('.dxf-cad-status,button,input,select,a')) {
           return;
         }
         const attributeNode = event.target.closest('.rendering-text-attribute');
@@ -4491,7 +4104,7 @@
         return;
       }
       if (event.target && typeof event.target.closest === 'function') {
-        if (event.target.closest('.rendering-measurement-toolbar') || event.target.closest('.rendering-selection-toolbar')) {
+        if (event.target.closest('.rendering-measurement-toolbar') || event.target.closest('.rendering-selection-toolbar') || event.target.closest('.dxf-cad-status,button,input,select,a')) {
           return;
         }
       }
@@ -4533,7 +4146,7 @@
         return;
       }
       if (event.target && typeof event.target.closest === 'function') {
-        if (event.target.closest('.rendering-measurement-toolbar') || event.target.closest('.rendering-selection-toolbar')) {
+        if (event.target.closest('.rendering-measurement-toolbar') || event.target.closest('.rendering-selection-toolbar') || event.target.closest('.dxf-cad-status,button,input,select,a')) {
           return;
         }
       }
@@ -4834,26 +4447,7 @@
     }
 
     hitTestPickable(point) {
-      const pickables = this.getPickables();
-      let candidate = null;
-      let bestScore = Infinity;
-      pickables.forEach((pickable) => {
-        if (!pickable || !pickable.handle || !pickable.screenBounds) {
-          return;
-        }
-        const bounds = pickable.screenBounds;
-        const tolerance = Math.max(3, (pickable.weight || 1.5) * 1.6);
-        if (!this.pointInsideBounds(point, bounds, tolerance)) {
-          return;
-        }
-        const area = Math.max(1, (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY));
-        const score = area;
-        if (score < bestScore) {
-          bestScore = score;
-          candidate = pickable;
-        }
-      });
-      return candidate;
+      return this.surfaceManager?.lastFrame?.hitTest(point, 6) || null;
     }
 
     pointInsideBounds(point, bounds, padding = 0) {
@@ -5692,39 +5286,9 @@
     }
 
     findSnapCandidate(screenPoint, frame, options = {}) {
-      if (!screenPoint || !frame) {
-        return null;
-      }
-      const candidates = this.getSnapCandidates(frame);
-      if (!candidates.length) {
-        return null;
-      }
-      const dpr = Number.isFinite(frame.devicePixelRatio) ? frame.devicePixelRatio : ((this.global && this.global.devicePixelRatio) || 1);
-      const threshold = Math.max(6, (options.thresholdPixels || 14) * Math.max(1, dpr * 0.75));
-      let bestCandidate = null;
-      let bestDistance = Infinity;
-      candidates.forEach((candidate) => {
-        const screen = candidate.screen;
-        if (!screen) {
-          return;
-        }
-        const dx = screen.x - screenPoint.x;
-        const dy = screen.y - screenPoint.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance > threshold) {
-          return;
-        }
-        if (!bestCandidate ||
-          distance < bestDistance - 0.25 ||
-          (Math.abs(distance - bestDistance) < 0.25 && candidate.priority < bestCandidate.priority)) {
-          bestCandidate = candidate;
-          bestDistance = distance;
-        }
-      });
-      if (!bestCandidate) {
-        return null;
-      }
-      return Object.assign({}, bestCandidate, { distance: bestDistance });
+      if (this.surfaceManager?.snapEnabled === false) return null;
+      const hit = frame?.snap(screenPoint, options.thresholdPixels || 14);
+      return hit ? { world: hit.point, screen: hit.screenPoint, type: hit.type, handle: hit.handle, priority: 0, distance: hit.distance } : null;
     }
 
     getSnapCandidates(frame) {
@@ -6012,67 +5576,11 @@
     }
 
     screenToWorld(point, frameOverride) {
-      const frame = frameOverride || (this.surfaceManager ? this.surfaceManager.lastFrame : null);
-      if (!frame || !point) {
-        return null;
-      }
-      const scale = Number.isFinite(frame.scale) && Math.abs(frame.scale) > 1e-9 ? frame.scale : 1;
-      const center = frame.worldCenter || { x: 0, y: 0 };
-      let width = Number.isFinite(frame.width) ? frame.width : null;
-      let height = Number.isFinite(frame.height) ? frame.height : null;
-      if (!Number.isFinite(width) || !Number.isFinite(height)) {
-        const rect = this.viewportEl ? this.viewportEl.getBoundingClientRect() : null;
-        if (rect) {
-          width = rect.width;
-          height = rect.height;
-        }
-      }
-      if (!Number.isFinite(width) || !Number.isFinite(height)) {
-        return null;
-      }
-      const rotation = Number.isFinite(frame.rotationRad) ? frame.rotationRad : 0;
-      const cos = Math.cos(rotation);
-      const sin = Math.sin(rotation);
-      const dx = (point.x - width / 2) / scale;
-      const dy = (height / 2 - point.y) / scale;
-      const worldDx = cos * dx + sin * dy;
-      const worldDy = -sin * dx + cos * dy;
-      return {
-        x: center.x + worldDx,
-        y: center.y + worldDy
-      };
+      return (frameOverride || this.surfaceManager?.lastFrame)?.screenToWorld(point) || null;
     }
 
     worldToScreen(world, frameOverride) {
-      const frame = frameOverride || (this.surfaceManager ? this.surfaceManager.lastFrame : null);
-      if (!frame || !world) {
-        return null;
-      }
-      const scale = Number.isFinite(frame.scale) && Math.abs(frame.scale) > 1e-9 ? frame.scale : 1;
-      const center = frame.worldCenter || { x: 0, y: 0 };
-      let width = Number.isFinite(frame.width) ? frame.width : null;
-      let height = Number.isFinite(frame.height) ? frame.height : null;
-      if (!Number.isFinite(width) || !Number.isFinite(height)) {
-        const rect = this.viewportEl ? this.viewportEl.getBoundingClientRect() : null;
-        if (rect) {
-          width = rect.width;
-          height = rect.height;
-        }
-      }
-      if (!Number.isFinite(width) || !Number.isFinite(height)) {
-        return null;
-      }
-      const rotation = Number.isFinite(frame.rotationRad) ? frame.rotationRad : 0;
-      const cos = Math.cos(rotation);
-      const sin = Math.sin(rotation);
-      const dx = world.x - center.x;
-      const dy = world.y - center.y;
-      const rx = cos * dx - sin * dy;
-      const ry = sin * dx + cos * dy;
-      return {
-        x: rx * scale + width / 2,
-        y: height / 2 - ry * scale
-      };
+      return (frameOverride || this.surfaceManager?.lastFrame)?.worldToScreen(world) || null;
     }
 
     ensureMeasurementSummaryElement() {
@@ -6349,647 +5857,9 @@
     }
 
     updateTextLayer(frame) {
-      if (!this.textLayer) {
-        return;
-      }
-      while (this.textLayer.firstChild) {
-        this.textLayer.removeChild(this.textLayer.firstChild);
-      }
-      if (!frame || !frame.texts || !frame.texts.length) {
-        return;
-      }
-      frame.texts.forEach((text) => {
-        if (!text || !text.screenPosition) return;
-        const span = this.createElement('div');
-        span.className = 'rendering-text-run';
-        const interaction = text.interaction || text.rawText?.interaction || null;
-        const isAttribute = interaction && interaction.type === 'attribute';
-        const paragraphLayouts = Array.isArray(text.paragraphLayouts) ? text.paragraphLayouts : null;
-        const richRuns = (text.richRuns && text.richRuns.length)
-          ? text.richRuns
-          : (text.rawText && text.rawText.decodedMText && Array.isArray(text.rawText.decodedMText.runs)
-              ? text.rawText.decodedMText.runs
-              : null);
-        const clampByte = (n) => Math.max(0, Math.min(255, Math.round(n)));
-        const colorSpecToCss = (spec) => {
-          if (!spec) {
-            return null;
-          }
-          if (spec.type === 'rgb' && Number.isFinite(spec.r) && Number.isFinite(spec.g) && Number.isFinite(spec.b)) {
-            return `rgb(${clampByte(spec.r)}, ${clampByte(spec.g)}, ${clampByte(spec.b)})`;
-          }
-          if (spec.type === 'aci' && Number.isFinite(spec.index)) {
-            const rgb = this.lookupAciColor(Math.abs(spec.index));
-            return `rgb(${clampByte(rgb.r)}, ${clampByte(rgb.g)}, ${clampByte(rgb.b)})`;
-          }
-          if (spec.css) {
-            return spec.css;
-          }
-          return null;
-        };
-        const applyRunStyle = (node, runStyle) => {
-          if (!node || !runStyle) {
-            return;
-          }
-          node.style.fontWeight = runStyle.bold ? 'bold' : 'inherit';
-          node.style.fontStyle = runStyle.italic ? 'italic' : 'inherit';
-          const decorations = [];
-          if (runStyle.underline) {
-            decorations.push('underline');
-          }
-          if (runStyle.overline) {
-            decorations.push('overline');
-          }
-          if (runStyle.strike) {
-            decorations.push('line-through');
-          }
-          node.style.textDecoration = decorations.length ? decorations.join(' ') : 'none';
-          if (runStyle.font) {
-            node.style.fontFamily = `${runStyle.font}, ${span.style.fontFamily || ''}`;
-          } else {
-            node.style.fontFamily = '';
-          }
-          if (Number.isFinite(runStyle.heightScale) && runStyle.heightScale > 0 && runStyle.heightScale !== 1) {
-            node.style.fontSize = `${(runStyle.heightScale * 100).toFixed(1)}%`;
-          } else {
-            node.style.fontSize = '';
-          }
-          if (runStyle.color) {
-            const textColor = colorSpecToCss(runStyle.color);
-            node.style.color = textColor || '';
-          } else {
-            node.style.color = '';
-          }
-          if (Number.isFinite(runStyle.tracking) && runStyle.tracking !== 0) {
-            node.style.letterSpacing = `${runStyle.tracking}em`;
-          } else {
-            node.style.letterSpacing = '';
-          }
-          const transforms = [];
-          if (Number.isFinite(runStyle.widthScale) && runStyle.widthScale > 0 && runStyle.widthScale !== 1) {
-            transforms.push(`scaleX(${runStyle.widthScale})`);
-          }
-          if (Number.isFinite(runStyle.oblique) && runStyle.oblique !== 0) {
-            transforms.push(`skewX(${runStyle.oblique}deg)`);
-          }
-          if (transforms.length) {
-            node.style.display = 'inline-block';
-            node.style.transformOrigin = '0 0';
-            node.style.transform = transforms.join(' ');
-          } else {
-            node.style.display = '';
-            node.style.transformOrigin = '';
-            node.style.transform = '';
-          }
-          if (runStyle.background && runStyle.background.enabled) {
-            const bgColor = colorSpecToCss(runStyle.background.color);
-            node.style.backgroundColor = bgColor || 'rgba(0, 0, 0, 0.25)';
-            node.style.padding = node.style.padding || '0.05em 0.1em';
-            node.style.borderRadius = node.style.borderRadius || '2px';
-          } else {
-            node.style.backgroundColor = '';
-            node.style.padding = '';
-            node.style.borderRadius = '';
-          }
-        };
-        const ensureBackgroundNode = () => {
-          span.style.background = '';
-          span.style.backgroundColor = '';
-          span.style.padding = '';
-          span.style.borderRadius = '';
-          if (!text.backgroundCss) {
-            return null;
-          }
-          const metrics = text.backgroundMetrics || null;
-          if (!metrics) {
-            span.style.backgroundColor = text.backgroundCss;
-            span.style.padding = '0.1em 0.2em';
-            span.style.borderRadius = '2px';
-            return null;
-          }
-          const backgroundNode = this.createElement('div');
-          if (!backgroundNode) {
-            return null;
-          }
-          backgroundNode.style.position = 'absolute';
-          backgroundNode.style.left = `${metrics.x}px`;
-          backgroundNode.style.top = `${metrics.y}px`;
-          backgroundNode.style.width = `${metrics.width}px`;
-          backgroundNode.style.height = `${metrics.height}px`;
-          backgroundNode.style.backgroundColor = text.backgroundCss;
-          backgroundNode.style.pointerEvents = 'none';
-          backgroundNode.style.zIndex = '0';
-          span.appendChild(backgroundNode);
-          return backgroundNode;
-        };
-        const computeBounds = (primary) => {
-          const result = { width: null, height: null };
-          const metrics = text.backgroundMetrics || null;
-          const widthCandidates = [];
-          const heightCandidates = [];
-          if (primary && Number.isFinite(primary.width)) {
-            widthCandidates.push(primary.width);
-          }
-          if (primary && Number.isFinite(primary.height)) {
-            heightCandidates.push(primary.height);
-          }
-          if (Number.isFinite(text.widthPx)) {
-            widthCandidates.push(text.widthPx);
-          }
-          if (Number.isFinite(text.baseWidthPx)) {
-            widthCandidates.push(text.baseWidthPx);
-          }
-          if (Number.isFinite(text.maxWidth)) {
-            widthCandidates.push(text.maxWidth);
-          }
-          if (metrics) {
-            const widthExtent = Math.max(0, metrics.x + metrics.width);
-            const heightExtent = Math.max(0, metrics.y + metrics.height);
-            if (widthExtent > 0) {
-              widthCandidates.push(widthExtent);
-            }
-            if (heightExtent > 0) {
-              heightCandidates.push(heightExtent);
-            }
-          }
-          const defaultHeight = Number.isFinite(text.heightPx)
-            ? text.heightPx
-            : Math.max(text.lineHeight || text.fontSize || 10, 1);
-          if (defaultHeight > 0) {
-            heightCandidates.push(defaultHeight);
-          }
-          const defaultWidth = Number.isFinite(text.widthPx)
-            ? text.widthPx
-            : Math.max(text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4, 1);
-          if (defaultWidth > 0) {
-            widthCandidates.push(defaultWidth);
-          }
-          if (widthCandidates.length) {
-            result.width = Math.max(...widthCandidates);
-          }
-          if (heightCandidates.length) {
-            result.height = Math.max(...heightCandidates);
-          }
-          return result;
-        };
-        const renderParagraphLayout = () => {
-          const backgroundMetrics = text.backgroundMetrics || null;
-          ensureBackgroundNode();
-          const applyFractionTextStyle = (node, runStyle) => {
-            if (!node) {
-              return;
-            }
-            const style = runStyle || {};
-            node.style.fontWeight = style.bold ? 'bold' : 'normal';
-            node.style.fontStyle = style.italic ? 'italic' : 'normal';
-            const decorations = [];
-            if (style.underline) {
-              decorations.push('underline');
-            }
-            if (style.overline) {
-              decorations.push('overline');
-            }
-            if (style.strike) {
-              decorations.push('line-through');
-            }
-            node.style.textDecoration = decorations.join(' ');
-            const textColor = colorSpecToCss(style.color, text.colorCss || '#e8f1ff');
-            if (textColor) {
-              node.style.color = textColor;
-            }
-            node.style.fontFamily = text.fontFamily || 'Arial, "Helvetica Neue", Helvetica, sans-serif';
-          };
-          const createFractionNode = (segment) => {
-            if (!segment || !segment.numerator || !segment.denominator) {
-              return null;
-            }
-            const container = this.createElement('span');
-            if (!container) {
-              return null;
-            }
-            container.style.display = 'inline-block';
-            container.style.position = 'relative';
-            container.style.width = `${segment.widthPx || 0}px`;
-            container.style.height = `${segment.heightPx
-              || (segment.numerator.fontSizePx || 0)
-              + (segment.denominator.fontSizePx || 0)
-              + (segment.gapPx || 0) * 2
-              + (segment.barThicknessPx || 0)}px`;
-            container.style.verticalAlign = 'top';
-            container.style.boxSizing = 'border-box';
-            container.style.whiteSpace = 'normal';
-            container.style.pointerEvents = isAttribute ? 'auto' : 'none';
-            const background = segment.style && segment.style.background;
-            if (background && background.enabled) {
-              const bgColor = colorSpecToCss(background.color, 'rgba(0, 0, 0, 0.25)');
-              container.style.backgroundColor = bgColor || 'rgba(0, 0, 0, 0.25)';
-              container.style.padding = container.style.padding || '0.05em 0.1em';
-              container.style.borderRadius = container.style.borderRadius || '2px';
-            }
-            const content = this.createElement('span');
-            if (!content) {
-              return container;
-            }
-            content.style.display = 'flex';
-            content.style.flexDirection = 'column';
-            content.style.alignItems = 'center';
-            content.style.justifyContent = 'center';
-            content.style.width = `${segment.baseWidthPx || segment.widthPx || 0}px`;
-            content.style.height = '100%';
-            content.style.transformOrigin = '0 0';
-            const widthScale = Number.isFinite(segment.style && segment.style.widthScale) && segment.style.widthScale > 0
-              ? segment.style.widthScale
-              : 1;
-            const oblique = Number.isFinite(segment.style && segment.style.oblique)
-              ? segment.style.oblique
-              : 0;
-            if (widthScale !== 1 || oblique !== 0) {
-              content.style.transform = `scaleX(${widthScale}) skewX(${oblique}deg)`;
-            }
-            const padding = Number.isFinite(segment.basePaddingPx) ? segment.basePaddingPx : (segment.paddingPx || 0);
-            if (padding > 0) {
-              content.style.paddingLeft = `${padding}px`;
-              content.style.paddingRight = `${padding}px`;
-            }
-            const numeratorNode = this.createElement('span');
-            if (numeratorNode) {
-              numeratorNode.textContent = segment.numerator.text;
-              numeratorNode.style.display = 'block';
-              numeratorNode.style.lineHeight = '1';
-              numeratorNode.style.textAlign = 'center';
-              numeratorNode.style.marginBottom = `${segment.gapPx || 0}px`;
-              numeratorNode.style.fontSize = `${Math.max(1, segment.numerator.fontSizePx || 0)}px`;
-              applyFractionTextStyle(numeratorNode, segment.style);
-              content.appendChild(numeratorNode);
-            }
-            const barNode = this.createElement('span');
-            if (barNode) {
-              barNode.style.display = 'block';
-              barNode.style.width = '100%';
-              barNode.style.height = `${segment.barThicknessPx || 1}px`;
-              barNode.style.backgroundColor = colorSpecToCss(segment.style && segment.style.color, text.colorCss || '#e8f1ff') || text.colorCss || '#e8f1ff';
-              content.appendChild(barNode);
-            }
-            const denominatorNode = this.createElement('span');
-            if (denominatorNode) {
-              denominatorNode.textContent = segment.denominator.text;
-              denominatorNode.style.display = 'block';
-              denominatorNode.style.lineHeight = '1';
-              denominatorNode.style.textAlign = 'center';
-              denominatorNode.style.marginTop = `${segment.gapPx || 0}px`;
-              denominatorNode.style.fontSize = `${Math.max(1, segment.denominator.fontSizePx || 0)}px`;
-              applyFractionTextStyle(denominatorNode, segment.style);
-              content.appendChild(denominatorNode);
-            }
-            container.appendChild(content);
-            return container;
-          };
-          const computeLineSpacing = (lineHeightPx, spacingValue, spacingStyle, frameScaleValue) => {
-            const base = lineHeightPx || Math.max(text.lineHeight || text.fontSize || 10, 1);
-            if (Number.isFinite(spacingValue) && spacingValue > 0) {
-              const scaled = spacingValue * (frameScaleValue || 1);
-              if (spacingStyle === 2) {
-                return scaled;
-              }
-              return Math.max(base, scaled);
-            }
-            return base;
-          };
-          const columnLayouts = text.columnLayouts && Array.isArray(text.columnLayouts.layouts)
-            ? text.columnLayouts
-            : null;
-          const hasColumns = columnLayouts && columnLayouts.layouts.length > 0;
-          const columnCount = hasColumns
-            ? Math.max(columnLayouts.count || columnLayouts.layouts.length, 1)
-            : 1;
-          const defaultWidthSource = Math.max(
-            text.widthPx || text.baseWidthPx || text.maxWidth || (text.fontSize || 10) * 4,
-            1
-          );
-          const defaultColumnWidth = defaultWidthSource / Math.max(columnCount, 1);
-          const widthsSource = Array.isArray(columnLayouts && columnLayouts.widthsPx)
-            ? columnLayouts.widthsPx
-            : null;
-          const columnWidths = new Array(columnCount).fill(0).map((_, idx) => {
-            const metadataWidth = widthsSource && Number.isFinite(widthsSource[idx]) ? widthsSource[idx] : 0;
-            return metadataWidth > 0 ? metadataWidth : defaultColumnWidth;
-          });
-          const resolveColumnGutter = () => {
-            if (!hasColumns) {
-              return 0;
-            }
-            const fallback = Math.max(2, (text.fontSize || 10) * 0.5);
-            if (!columnLayouts || !columnLayouts.raw) {
-              return fallback;
-            }
-            const extractNumeric = (value) => {
-              if (Array.isArray(value)) {
-                for (let i = 0; i < value.length; i += 1) {
-                  const candidate = value[i];
-                  if (typeof candidate === 'number' && Number.isFinite(candidate)) {
-                    return candidate;
-                  }
-                }
-              } else if (typeof value === 'number' && Number.isFinite(value)) {
-                return value;
-              }
-              return null;
-            };
-            const raw = columnLayouts.raw || {};
-            const candidateKeys = ['79', '178', '179'];
-            for (let i = 0; i < candidateKeys.length; i += 1) {
-              const key = candidateKeys[i];
-              const candidate = extractNumeric(raw[key]);
-              if (candidate != null) {
-                return Math.max(fallback, Math.abs(candidate) * (text.frameScale || 1));
-              }
-            }
-            if (raw.columnsMeta) {
-              const nested = raw.columnsMeta;
-              for (let i = 0; i < candidateKeys.length; i += 1) {
-                const key = candidateKeys[i];
-                const candidate = extractNumeric(nested[key]);
-                if (candidate != null) {
-                  return Math.max(fallback, Math.abs(candidate) * (text.frameScale || 1));
-                }
-              }
-            }
-            return fallback;
-          };
-          const columnGutter = resolveColumnGutter();
-          const columnOffsets = new Array(columnCount).fill(0);
-          for (let i = 1; i < columnCount; i += 1) {
-            columnOffsets[i] = columnOffsets[i - 1] + columnWidths[i - 1] + columnGutter;
-          }
-          const columnNodes = new Array(columnCount);
-          for (let i = 0; i < columnCount; i += 1) {
-            const node = this.createElement('div');
-            node.style.position = 'absolute';
-            node.style.top = '0px';
-            node.style.left = `${columnOffsets[i]}px`;
-            node.style.width = `${columnWidths[i]}px`;
-            node.style.whiteSpace = 'nowrap';
-            node.style.pointerEvents = isAttribute ? 'auto' : 'none';
-            node.style.display = 'block';
-             node.style.zIndex = '1';
-            columnNodes[i] = node;
-            span.appendChild(node);
-          }
-          const columnCursorY = new Array(columnCount).fill(0);
-          const allLines = [];
-          paragraphLayouts.forEach((paragraph) => {
-            const lines = Array.isArray(paragraph.lines) ? paragraph.lines : [];
-            lines.forEach((line) => {
-              allLines.push({ line, paragraph });
-            });
-          });
-          allLines.sort((a, b) => {
-            const aIdx = Number.isFinite(a.line.globalIndex) ? a.line.globalIndex : 0;
-            const bIdx = Number.isFinite(b.line.globalIndex) ? b.line.globalIndex : 0;
-            return aIdx - bIdx;
-          });
-          allLines.forEach(({ line, paragraph }) => {
-            if (!line) {
-              return;
-            }
-            const alignment = (paragraph && paragraph.alignment) || { horizontal: 'left' };
-            const spacingValue = paragraph ? paragraph.lineSpacing : null;
-            const spacingStyle = paragraph ? paragraph.lineSpacingStyle : null;
-            const columnIndex = Number.isFinite(line.columnIndex)
-              ? Math.max(0, Math.min(columnCount - 1, line.columnIndex))
-              : 0;
-            const columnWidth = columnWidths[columnIndex] || defaultColumnWidth;
-            const baseX = columnOffsets[columnIndex] || 0;
-            const baseY = columnCursorY[columnIndex];
-            const lineHeight = Math.max(line.heightPx || text.lineHeight || text.fontSize || 10, 1);
-            const lineWidth = line.widthPx || 0;
-            const rightIndent = line.rightIndentPx || 0;
-            let startX = baseX;
-            if (alignment.horizontal === 'center') {
-              startX = baseX + (columnWidth - lineWidth) / 2;
-            } else if (alignment.horizontal === 'right') {
-              startX = baseX + Math.max(0, columnWidth - (lineWidth + rightIndent));
-            }
-            const lineNode = this.createElement('div');
-            lineNode.style.position = 'absolute';
-            lineNode.style.left = `${Math.max(0, startX - baseX)}px`;
-            lineNode.style.top = `${baseY}px`;
-            lineNode.style.height = `${lineHeight}px`;
-            lineNode.style.whiteSpace = 'nowrap';
-            lineNode.style.display = 'block';
-            lineNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
-            const segments = Array.isArray(line.segments) ? line.segments : [];
-            segments.forEach((segment) => {
-              let segmentNode = null;
-              if (segment.type === 'fraction') {
-                segmentNode = createFractionNode(segment);
-              } else {
-                segmentNode = this.createElement('span');
-                if (!segmentNode) {
-                  return;
-                }
-                if (segment.type === 'indent' || segment.type === 'tab' || segment.type === 'markerSpacing') {
-                  segmentNode.textContent = '';
-                  segmentNode.style.display = 'inline-block';
-                  segmentNode.style.width = `${Math.max(0, segment.widthPx || 0)}px`;
-                } else {
-                  segmentNode.textContent = segment.text || '';
-                  applyRunStyle(segmentNode, segment.style || null);
-                  if (segment.style && segment.style.background && segment.style.background.enabled) {
-                    const bgColor = colorSpecToCss(segment.style.background.color);
-                    if (bgColor) {
-                      segmentNode.style.backgroundColor = bgColor;
-                      segmentNode.style.padding = segmentNode.style.padding || '0.05em 0.1em';
-                      segmentNode.style.borderRadius = segmentNode.style.borderRadius || '2px';
-                    }
-                  }
-                }
-              }
-              if (!segmentNode) {
-                return;
-              }
-              segmentNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
-              lineNode.appendChild(segmentNode);
-            });
-            if (rightIndent > 0) {
-              const rightSpacer = this.createElement('span');
-              rightSpacer.textContent = '';
-              rightSpacer.style.display = 'inline-block';
-              rightSpacer.style.width = `${rightIndent}px`;
-              rightSpacer.style.pointerEvents = 'none';
-              lineNode.appendChild(rightSpacer);
-            }
-            columnNodes[columnIndex].appendChild(lineNode);
-            const spacing = computeLineSpacing(lineHeight, spacingValue, spacingStyle, text.frameScale || 1);
-            columnCursorY[columnIndex] += spacing;
-          });
-          const totalWidth = columnOffsets[columnCount - 1] + columnWidths[columnCount - 1];
-          const totalHeight = columnCursorY.reduce((acc, value) => Math.max(acc, value), 0);
-          const widthCandidates = [
-            totalWidth,
-            text.widthPx || defaultWidthSource,
-            backgroundMetrics ? Math.max(0, backgroundMetrics.x + backgroundMetrics.width) : 0
-          ].filter((value) => Number.isFinite(value) && value > 0);
-          const heightCandidates = [
-            totalHeight,
-            text.heightPx || text.lineHeight || text.fontSize || 10,
-            backgroundMetrics ? Math.max(0, backgroundMetrics.y + backgroundMetrics.height) : 0
-          ].filter((value) => Number.isFinite(value) && value > 0);
-          const widthValue = widthCandidates.length ? Math.max(...widthCandidates) : Math.max(defaultWidthSource, 0);
-          const heightValue = heightCandidates.length ? Math.max(...heightCandidates) : Math.max(text.lineHeight || text.fontSize || 10, 0);
-          return { width: widthValue, height: heightValue };
-        };
-        let contentBounds = null;
-        if (paragraphLayouts && paragraphLayouts.length) {
-          span.textContent = '';
-          const paragraphBounds = renderParagraphLayout();
-          contentBounds = computeBounds(paragraphBounds);
-        } else if (richRuns && richRuns.length) {
-          span.textContent = '';
-          ensureBackgroundNode();
-          const flowRoot = this.createElement('div');
-          if (flowRoot) {
-            flowRoot.style.position = 'absolute';
-            flowRoot.style.left = '0px';
-            flowRoot.style.top = '0px';
-            flowRoot.style.whiteSpace = 'pre';
-            flowRoot.style.pointerEvents = isAttribute ? 'auto' : 'none';
-            flowRoot.style.zIndex = '1';
-            span.appendChild(flowRoot);
-            richRuns.forEach((run) => {
-              if (run && run.type === 'paragraphBreak') {
-                const br = this.createElement('br');
-                if (br) {
-                  flowRoot.appendChild(br);
-                }
-                return;
-              }
-              const segments = String(run.text || '').split('\n');
-              segments.forEach((segment, segmentIndex) => {
-                const runNode = this.createElement('span');
-                if (!runNode) {
-                  return;
-                }
-                runNode.textContent = segment;
-                applyRunStyle(runNode, run.style || null);
-                runNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
-                flowRoot.appendChild(runNode);
-                if (segmentIndex < segments.length - 1) {
-                  const br = this.createElement('br');
-                  if (br) {
-                    flowRoot.appendChild(br);
-                  }
-                }
-              });
-            });
-          }
-          contentBounds = computeBounds(null);
-        } else {
-          span.textContent = '';
-          ensureBackgroundNode();
-          const content = Array.isArray(text.lines) ? text.lines.join('\n') : (text.rawContent || '');
-          const contentNode = this.createElement('div');
-          if (contentNode) {
-            contentNode.textContent = content;
-            contentNode.style.position = 'absolute';
-            contentNode.style.left = '0px';
-            contentNode.style.top = '0px';
-            contentNode.style.whiteSpace = 'pre';
-            contentNode.style.pointerEvents = isAttribute ? 'auto' : 'none';
-            contentNode.style.zIndex = '1';
-            span.appendChild(contentNode);
-          }
-          contentBounds = computeBounds(null);
-        }
-        span.style.position = 'absolute';
-        span.style.left = '0px';
-        span.style.top = '0px';
-        const widthFactor = text.widthFactor || 1;
-        const rotationRad = text.rotationRad != null ? text.rotationRad : (text.rotationDeg || 0) * Math.PI / 180;
-        const cos = Math.cos(rotationRad);
-        const sin = Math.sin(rotationRad);
-        const anchorX = text.anchor && typeof text.anchor.x === 'number' ? text.anchor.x : 0;
-        const anchorY = text.anchor && typeof text.anchor.y === 'number' ? text.anchor.y : 0;
-        const a = widthFactor * cos;
-        const b = widthFactor * sin;
-        const c = -sin;
-        const d = cos;
-        const e = text.screenPosition[0] + widthFactor * cos * anchorX - sin * anchorY;
-        const f = text.screenPosition[1] + widthFactor * sin * anchorX + cos * anchorY;
-        span.style.transform = `matrix(${a.toFixed(6)}, ${b.toFixed(6)}, ${c.toFixed(6)}, ${d.toFixed(6)}, ${e.toFixed(2)}, ${f.toFixed(2)})`;
-        span.style.transformOrigin = '0 0';
-        span.style.fontFamily = text.fontFamily || 'Arial, "Helvetica Neue", Helvetica, sans-serif';
-        span.style.fontSize = `${Math.max(6, text.fontSize || 10)}px`;
-        span.style.lineHeight = `${Math.max(6, text.lineHeight || text.fontSize || 10)}px`;
-        span.style.fontStyle = text.fontStyle || 'normal';
-        span.style.fontWeight = text.fontWeight || '400';
-        span.style.color = text.colorCss || '#e8f1ff';
-        span.style.whiteSpace = paragraphLayouts && paragraphLayouts.length ? 'normal' : 'pre';
-        if (isAttribute) {
-          span.classList.add('rendering-text-attribute');
-          span.dataset.attributeTag = interaction.tag || '';
-          span.dataset.attributeKind = interaction.attributeKind || '';
-          span.dataset.visibility = interaction.visibility || text.attributeVisibility || 'visible';
-          span.dataset.constant = interaction.isConstant ? 'true' : 'false';
-          const valueSummary = interaction.attributeKind === 'reference'
-            ? (interaction.value ?? '')
-            : (interaction.defaultValue ?? '');
-          if (!span.textContent && interaction.tag) {
-            span.textContent = `<${interaction.tag}>`;
-          }
-          const labelParts = [];
-          if (interaction.tag) {
-            labelParts.push(`Tag ${interaction.tag}`);
-          }
-          if (interaction.attributeKind === 'definition') {
-            labelParts.push('definition');
-          } else {
-            labelParts.push('reference');
-          }
-          if (interaction.visibility === 'hidden' || interaction.isInvisible) {
-            labelParts.push('hidden');
-          }
-          if (interaction.isConstant) {
-            labelParts.push('constant');
-          }
-          const ariaLabel = labelParts.join(', ');
-          if (ariaLabel) {
-            span.setAttribute('aria-label', ariaLabel);
-          }
-          if (interaction.tag) {
-            span.title = `${interaction.tag}${valueSummary ? `: ${valueSummary}` : ''}`;
-          }
-          span.style.pointerEvents = 'auto';
-          span.style.userSelect = 'text';
-          span.style.cursor = 'pointer';
-          span.tabIndex = 0;
-          const activate = (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            this.handleAttributeInteraction(interaction);
-          };
-          span.addEventListener('click', activate);
-          span.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              activate(event);
-            }
-          });
-        } else {
-          span.style.pointerEvents = 'none';
-          span.style.userSelect = 'none';
-        }
-        span.style.textAlign = text.textAlign || 'left';
-        const boundsForSizing = contentBounds || computeBounds(null);
-        if (boundsForSizing) {
-          if (Number.isFinite(boundsForSizing.width) && boundsForSizing.width > 0) {
-            span.style.width = `${boundsForSizing.width}px`;
-          }
-          if (Number.isFinite(boundsForSizing.height) && boundsForSizing.height > 0) {
-            span.style.height = `${boundsForSizing.height}px`;
-          }
-        }
-        this.textLayer.appendChild(span);
-      });
+      // Glyphs, shaping, SHX strokes and text masks are rendered by native Skia.
+      // This retained DOM layer is intentionally empty: no parallel SVG text renderer.
+      this.textLayer?.replaceChildren();
     }
 
     handleAttributeInteraction(interaction) {

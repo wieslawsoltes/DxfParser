@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 **Parser Review**
 - components/dxf-parser.js:314 calls `isHandleCode`, but the helper lives in components/utils.js:82 and is only reachable today because `utils.js` is loaded first. As soon as you package the parser, that implicit global disappears—inline the helper or import it explicitly.  
 - components/dxf-parser.js:13 never resets `this.nextId`, so reusing one parser instance yields drifting IDs across parses. Reset the counter at the start of `parse()` (or generate IDs from the local stack) to keep results deterministic for a stand-alone API.  

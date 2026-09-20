@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # Milestone 4 Execution Notes
 
 ## Task 4.5 – Block Browser, Isolation, and Highlight Workflow

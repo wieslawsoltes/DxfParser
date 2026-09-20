@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # Milestone 6 Execution Notes
 
 ## Task 6.1 – HATCH Rendering with Patterns, Gradients, and Associativity

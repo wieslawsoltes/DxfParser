@@ -145,6 +145,13 @@ class DockingTests(unittest.TestCase):
 
     def settle(self):
         self.page.wait_for_timeout(100)
+        # Native WASM initialization and FlushAsync are asynchronous. Assert the
+        # presented frame, not a CSS background or an uninitialized canvas.
+        self.page.evaluate("""async () => {
+          const app = window.app || window.DxfEditorApp;
+          const manager = app?.renderingOverlayController?.surfaceManager || app?.getSurfaceManager?.();
+          if (manager?.lastFrame && !manager.suspended) await manager.ready;
+        }""")
 
     def sample(self, right=False):
         self.page.locator('#fileInput' + ('Right' if right else 'Left')).set_input_files(str(ROOT / 'tests/data/sample.dxf'))
@@ -163,7 +170,7 @@ class DockingTests(unittest.TestCase):
 
     def test_01_main_registry_and_connected_retained_nodes(self):
         self.load()
-        self.assertJS('w.definitions.size === 26')
+        self.assertJS('w.definitions.size === 29')
         self.assertJS("['tree-left','tree-right'].every(id=>w.isOpen(id)) && ['commands','tools','render-controls'].every(id=>!w.definitions.has(id)) && !!rb.shadowRoot")
         self.assertJS('[...w.definitions.values()].every(d=>d.node.isConnected)')
         self.assertJS("new Set([...document.querySelectorAll('[id]')].map(n=>n.id)).size === document.querySelectorAll('[id]').length")
@@ -372,7 +379,7 @@ class DockingTests(unittest.TestCase):
 
     def test_16_editor_layout_palette_and_rendering_retention(self):
         self.load('editor/index.html')
-        self.assertJS('w.definitions.size===6')
+        self.assertJS('w.definitions.size===9')
         self.page.locator('#editorOpenFileInput').set_input_files(str(ROOT/'tests/data/sample.dxf'))
         self.page.wait_for_function('!!DxfEditorApp.getActiveDocument()'); self.settle()
         self.page.evaluate('window.record=DxfEditorApp.getActiveDocument();window.canvas=document.getElementById("editorCanvas2D")')

@@ -1,3 +1,5 @@
+> Historical document for the removed rendering engine. Current behavior, qualification and limits are documented in [skia-renderer.md](skia-renderer.md).
+
 # DXF 2018 Rendering Overlay Plan
 
 1. [x] **Milestone 1: Core Rendering Overlay Infrastructure**

@@ -1,0 +1,42 @@
+{
+  "name": "@wieslawsoltes/dxf-skia",
+  "version": "0.1.0",
+  "description": "Independent retained DXF geometry compiler and native SkiaSharpWeb renderer",
+  "license": "MIT",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "browser": "./dist/dxf-skia.mjs",
+      "import": "./index.mjs",
+      "require": "./index.js"
+    },
+    "./browser": {
+      "types": "./index.d.ts",
+      "default": "./dist/dxf-skia.mjs"
+    },
+    "./global": "./dist/dxf-skia.global.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "COMPATIBILITY.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "types": "index.d.ts",
+  "module": "dist/dxf-skia.mjs",
+  "sideEffects": [
+    "./dist/dxf-skia.global.js"
+  ]
+}
