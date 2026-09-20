@@ -96,7 +96,8 @@ Paths use a bounded LRU. The host serializes native initialization/flush/disposa
 and coalesces pending camera/size requests. Disposing during initialization prevents
 later surface attachment. Browser context negotiation may replace the initial
 canvas once; all app/controller references are updated. Normal resize reuses the
-successful backend. Native surface allocation limits fail explicitly and a later
+successful backend. Runtime GPU failures use a bounded fallback chain with explicit
+user retry; retained resources and the latest frame survive backend replacement. Native surface allocation limits fail explicitly and a later
 valid-size request can recover.
 
 PNG exports the presented native surface. PDF recompiles against white paper,
@@ -132,12 +133,18 @@ Full AutoCAD/all-DXF fidelity remains outside this candidate's current scope; co
 
 ## Provenance
 
-The native runtime is unmodified SkiaSharpWeb at
+The native runtime is pinned to SkiaSharpWeb at
 `1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3`. Its source identity, notices and SHA-256
-manifest are under `vendor/skiasharpweb`. Dockyard, RibbonWeb, TreeDataGridWeb, GridWeb
+manifest are under `vendor/skiasharpweb`. Release 0.2.0 adds documented local JavaScript
+patches for the WebGPU ABI and checked submission; the native WASM is unchanged.
+See [the improvement review](skia-renderer-improvements.md) and the vendor patch manifest. Dockyard, RibbonWeb, TreeDataGridWeb, GridWeb
 and RichTextWeb retain their existing pinned distributions and licenses.
 
 This implementation was prepared against DxfParser feature commit
 `a21f103eef26e529b464d42dc933d4ef6d08241e`, whose exact Git tree was reconstructed and
 verified before applying the change set. Publishing status belongs in the handoff
 report, not in an unverified “merged” statement.
+
+## 0.2.0 follow-up
+
+[WebGPU failure analysis, new rendering features and recovery controls](skia-renderer-improvements.md).

@@ -1,73 +1,87 @@
 {
-  "dateUtc": "2026-09-20T11:39:58.709420+00:00",
+  "dateUtc": "2026-09-20T21:07:58.519943+00:00",
   "repository": "wieslawsoltes/DxfParser",
-  "branch": "feat/skia-dxf-renderer",
-  "baseCommit": "a21f103eef26e529b464d42dc933d4ef6d08241e",
+  "branch": "main",
+  "baseCommit": "cb388c742ad16381a6a0235d44e713465ef7abc0",
+  "packageVersion": "0.2.0",
   "nativeDependency": "wieslawsoltes/SkiaSharpWeb@1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3",
-  "verification": "local execution; no GitHub Actions run for this change",
+  "nativeWasmUnchanged": true,
+  "verification": "Local execution of final code; GitHub CI is reported separately after publication.",
   "environment": {
     "node": "v22.16.0",
-    "typescript": "Version 5.8.3",
+    "typescript": "5.8.3",
     "python": "3.13.5",
     "browser": "143.0.7499.4",
     "http": true,
     "injected": false,
-    "backend": "Skia raster canvas presentation",
+    "gpu": {
+      "browser": "143.0.7499.4",
+      "adapter": {
+        "vendor": "google",
+        "architecture": "swiftshader",
+        "description": ""
+      },
+      "renderer": "skia-graphite-webgpu",
+      "fallback": false,
+      "physicalGpuQualified": false
+    },
     "physicalGPUQualified": false
   },
   "results": [
     {
-      "suite": "Node geometry and native Skia",
-      "testCount": 75,
-      "exitCode": 0,
-      "logSha256": "7632b2325a4bc751048b7ada9afd175dcba970cc81df11a0acbdb9996b444ddf"
+      "suite": "Node analytical, native Skia, ABI and recovery",
+      "testCount": 129,
+      "exitCode": 0
     },
     {
       "suite": "Native CAD browser",
-      "testCount": 16,
-      "exitCode": 0,
-      "logSha256": "6a725636b9b284d157c4aa1492e9b9a846026bb8bc0efdae97a7dc571988648e"
+      "testCount": 19,
+      "exitCode": 0
     },
     {
       "suite": "Dockyard browser",
       "testCount": 18,
-      "exitCode": 0,
-      "logSha256": "1a17252bbb530bd321dd6d9f0e17e9e1a8e7386f7629936b2fa6f39d904860e7"
+      "exitCode": 0
     },
     {
       "suite": "Ribbon/document browser",
       "testCount": 31,
-      "exitCode": 0,
-      "logSha256": "d7a0ba5a8e637679e731fab821673321e37ac84727f2eb59d5e9fac83ede3852"
+      "exitCode": 0
     },
     {
       "suite": "GridWeb/RichTextWeb browser",
       "testCount": 20,
-      "exitCode": 0,
-      "logSha256": "f45497c82d6485ead2211659fa45a7c667bcc1c53238659e14e4419616e11a8e"
+      "exitCode": 0
     },
     {
       "suite": "Analysis workbench browser",
       "testCount": 26,
-      "exitCode": 0,
-      "logSha256": "dbbd348a655d7a6b4bd015f5f349e5c04f0e478f304f7ea03021de33e145cf69"
+      "exitCode": 0
+    },
+    {
+      "suite": "Real Graphite/WebGPU and Ganesh/WebGL SwiftShader",
+      "testCount": 7,
+      "exitCode": 0
     }
   ],
-  "totalTests": 186,
+  "totalTests": 250,
+  "skippedTests": 0,
+  "logSha256": {
+    "regression.log": "6926529c8dd93eb15bcabf13c96185e1f9d6fdbece18fdd883885c36ced43fdf",
+    "full-browser.log": "d3e38a53ebb6f898afcb8f9e6c9299940fb8c9a2a9e17ab9a8db72eabec8a0d4"
+  },
   "additionalChecks": [
-    "installed tarball CJS/ESM identity",
-    "standalone ESM consumer",
-    "strict TypeScript consumer",
-    "native PNG from installed consumer",
-    "classic-script consumer",
-    "deterministic bundles",
-    "all vendored dependency checksums",
-    "absence of old engine files",
-    "font-free package/runtime asset scan"
+    "Installed npm package CJS/ESM and strict TypeScript consumer",
+    "Native PNG from installed consumer",
+    "Deterministic generated bundles",
+    "All vendor checksums, native manifest and local patch identities",
+    "Native WASM unchanged",
+    "No old rendering engine or bundled font files"
   ],
-  "coverageLimitations": [
-    "Not complete AutoCAD or all-DXF parity; see packages/dxf-skia/COMPATIBILITY.md.",
-    "Old internal-object/SVG snapshot tests were retired with their engine, not treated as passing.",
-    "No hardware GPU or deployed GitHub Pages qualification."
+  "limitations": [
+    "Software GPU tests are not physical-hardware qualification.",
+    "No exact user drawing/device trace was supplied.",
+    "Not complete AutoCAD/all-DXF rendering parity; see COMPATIBILITY.md.",
+    "Malformed historical advanced-geometry.dxf explicitly rejected at line 97; last valid frame preserved."
   ]
 }

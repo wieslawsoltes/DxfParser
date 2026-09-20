@@ -1,43 +1,46 @@
-# Local Skia renderer qualification
+# Skia renderer 0.2.0 qualification
 
-The following were executed against the new source and native SkiaSharpWeb runtime,
-not mocked graphics or the removed rendering engine. All recorded processes returned
-zero. These are **local results, not a GitHub Actions or merge result**.
+All following tests passed locally against the final code over normal HTTP and
+native SkiaSharpWeb. No tests in this recorded run were skipped. GitHub Actions
+results are separate from this local record and are checked after publication.
 
 | Suite | Passing tests |
 | --- | ---: |
-| Node geometry and native Skia | 75 |
-| Native CAD browser | 16 |
+| Analytical geometry, compiler, binary resources, native Skia pixels, unsigned WebGPU ABI and bounded surface recovery | 129 |
+| Native CAD browser | 19 |
 | Dockyard browser | 18 |
 | Ribbon/document browser | 31 |
 | GridWeb/RichTextWeb browser | 20 |
 | Analysis workbench browser | 26 |
-| **Total** | **186** |
+| Required native Graphite/WebGPU and Ganesh/WebGL on SwiftShader | 7 |
+| **Total** | **250** |
 
-The 75 Node cases consist of 59 analytical/compiler/binary-resource tests and 16
-actual native-WASM pixel/resource/export tests. The 111 browser cases ran over
-normal HTTP with real modules, file inputs and browser storage. No test in the
-recorded run was skipped. The font test used an installed system font; those font
-bytes are not included in any delivered artifact.
+The 129 Node cases include analytical tests, 21 real native raster pixel/resource
+cases, five tests of the exact generated WASM→WebGPU imports, and twelve controlled
+surface-lifetime/failure tests. The last twelve use deterministic mocked native
+objects to cover races, not to claim GPU rendering. The seven GPU browser cases
+separately use real WebGPU/Ganesh APIs and native Skia, actual pixel readbacks,
+validation scopes and GPUDevice destruction; raster fallback cannot pass their
+strict backend checks. The other 114 browser tests exercise the real application.
 
-Additional checks passed for the installed npm tarball, Node CJS/ESM constructor
-identity, standalone ESM, strict TypeScript consumers, a native PNG drawn from the
-installed package, deterministic bundles, all vendor checksums and absence of old
-renderer modules and bundled font files.
+The required GPU environment is Chromium 143.0.7499.4 with its SwiftShader Vulkan
+ICD under Xvfb. Graphite reports `skia-graphite-webgpu`; the separate Ganesh case
+requires `webgl`. This is software-device qualification, not physical hardware.
+Node v22.16.0, TypeScript 5.8.3 and Python 3.13.5 ran the local gates.
 
-Environment: Node v22.16.0, TypeScript 5.8.3, Python 3.13.5,
-Chromium 143.0.7499.4. Native browser fallback selected **Skia raster canvas
-presentation**. This does not qualify physical WebGPU/WebGL devices.
+Additional passing checks cover the installed npm tarball, CommonJS/ESM identity,
+strict public declarations including the new API, native PNG from an outside
+consumer, deterministic generated bundles, all vendor hashes, patched native-loader
+manifest, unchanged WASM, old-engine removal and absence of bundled font binaries.
+The native font case uses a local system font; its bytes are never distributed.
 
-The compatibility contract deliberately records missing or approximate behavior,
-including ACIS/proprietary entities, full materials/3D visibility, arbitrary rich
-MTEXT, complete dimensions/linetypes, non-normal hatch islands and gradients.
+The pre-existing malformed `advanced-geometry.dxf` fixture is explicitly rejected
+at line 97 in the GPU fixture test, with last-valid-frame retention asserted.
+This is not a skipped test, repaired golden file or a claim of rendering invalid
+syntax. All other repository DXF fixtures are submitted to the actual Graphite
+pipeline, retaining unsupported-content diagnostics where applicable.
 
-The prior SVG snapshots belonged to the deleted engine. Their two known failures
-are not waived here, nor claimed to be unchanged; those internal-API tests were
-retired and replaced by the new geometry/native-pixel gate. Historical reference
-files are labeled and not executed as acceptance tests.
-
-Machine-readable results, exact base/dependency identity and log hashes are in
-[verification/skia-renderer.json](verification/skia-renderer.json). The downloadable
-evidence archive includes the corresponding logs and real browser/native outputs.
+See [the implementation review](skia-renderer-improvements.md), [coverage contract](../packages/dxf-skia/COMPATIBILITY.md)
+and [machine-readable results/log hashes](verification/skia-renderer.json).
+No complete AutoCAD parity, physical-driver certification or user-file reproduction
+is claimed. The old renderer's SVG snapshots remain historical, not acceptance tests.

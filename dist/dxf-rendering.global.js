@@ -16,7 +16,7 @@
     const dot = (a, b) => a.x * b.x + a.y * b.y + (a.z || 0) * (b.z || 0);
     const cross = (a, b) => vec(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
     const length = a => Math.hypot(a.x, a.y, a.z || 0);
-    const normal = a => { const n = length(a); if (!(n > EPS))
+    const normal = a => { const n = length(a); if (!(n > EPS) || !Number.isFinite(n))
         throw new RangeError('Zero length direction.'); return mul(a, 1 / n); };
     const distance = (a, b) => length(sub(a, b));
     const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
@@ -269,6 +269,106 @@
                 recurse(knots[i], knots[i + 1], evalAt(knots[i]), evalAt(knots[i + 1]), 0);
         return out;
     }
+    function quadraticRoots(a, b, c) {
+        const scale = Math.max(Math.abs(a), Math.abs(b), Math.abs(c));
+        if (!Number.isFinite(scale)) throw new RangeError('Curve derivative overflow.');
+        if (!scale) return [];
+        a /= scale; b /= scale; c /= scale;
+        if (Math.abs(a) <= Number.EPSILON * Math.max(Math.abs(b), Math.abs(c))) return b ? [-c / b] : [];
+        const d = b * b - 4 * a * c;
+        if (d < 0) return [];
+        const q = -.5 * (b + (b < 0 ? -1 : 1) * Math.sqrt(d));
+        return q ? [q / a, c / q] : [-b / (2 * a)];
+    }
+    /** Exact axis extrema for positive-weight quadratic conics and polynomial
+     * Beziers, also after arbitrary affine projection. Not tessellation bounds. */
+    function pathBounds(path, convert = p => p) {
+        const box = emptyBounds();
+        let last = null, first = null;
+        for (const [op, rawA, rawB, rawC] of path) {
+            if (op === 'Z') { if (first) extend(box, first); last = first; continue; }
+            const a = convert(rawA);
+            if (!validPoint(a)) throw new RangeError('Nonfinite path bound.');
+            if (op === 'M' || op === 'L') { extend(box, a); if (op === 'M') first = a; last = a; continue; }
+            if (!last) throw new RangeError('Curve requires a start point.');
+            const b = convert(rawB), c = op === 'C' ? convert(rawC) : null, p = last;
+            if (!validPoint(b) || (c && !validPoint(c))) throw new RangeError('Nonfinite curve bound.');
+            const end = c || b;
+            const at = t => {
+                const u = 1 - t;
+                if (op === 'C') return add(p, add(mul(sub(a, p), 3*u*u*t), add(mul(sub(b, p), 3*u*t*t), mul(sub(c, p), t*t*t))));
+                const w = op === 'K' ? rawC : 1;
+                if (!(w > 0 && Number.isFinite(w))) throw new RangeError('Invalid conic weight.');
+                return add(p, mul(add(mul(sub(a, p), 2*w*u*t), mul(sub(b, p), t*t)), 1/(u*u+2*w*u*t+t*t)));
+            };
+            extend(box, p); extend(box, end);
+            for (const axis of ['x', 'y', 'z']) {
+                const v0 = p[axis] || 0, v1 = (a[axis] || 0)-v0, v2 = (b[axis] || 0)-v0;
+                let roots;
+                if (op === 'C') {
+                    const d0=v1, d1=v2-v1, d2=(c[axis] || 0)-v0-v2;
+                    roots=quadraticRoots(d0-2*d1+d2, 2*(d1-d0), d0);
+                } else {
+                    const w=op==='K'?rawC:1, n1=2*w*v1, n2=v2-n1, d1=2*(w-1), d2=-d1;
+                    roots=quadraticRoots(n2*d1-n1*d2, 2*n2, n1);
+                }
+                for (const t of roots) if (t>0 && t<1) extend(box,at(t));
+            }
+            last=end;
+        }
+        return box;
+    }
+    /** Chord-length C2 cubic interpolation, O(n) memory/time. Optional endpoint
+     * tangent directions become clamped derivatives; closed data is periodic.
+     * The original fit points remain interpolation constraints, not a polygon. */
+    function interpolateFitPoints(input, { closed = false, startTangent, endTangent, maxPoints = 10000 } = {}) {
+        if (!Number.isSafeInteger(maxPoints) || maxPoints < 2) throw new RangeError('Invalid fit-point budget.');
+        if (!Array.isArray(input) || input.length > maxPoints || input.some(p => !validPoint(p))) throw new RangeError('Invalid or over-budget spline fit points.');
+        const points=[];
+        for (const p of input) if (!points.length || distance(points.at(-1),p)>0) points.push(p);
+        if (closed && points.length>1 && distance(points[0],points.at(-1))===0) points.pop();
+        const n=points.length;
+        if (n<2 || (closed && n<3)) throw new RangeError('Too few distinct spline fit points.');
+        const count=closed?n:n-1, lengths=Array.from({length:count},(_,i)=>distance(points[i],points[(i+1)%n]));
+        const total=lengths.reduce((a,b)=>a+b,0);
+        if (!(total>0 && Number.isFinite(total))) throw new RangeError('Invalid fit parameter range.');
+        const h=lengths.map(x=>x/total), lower=new Float64Array(n), diag=new Float64Array(n), upper=new Float64Array(n);
+        for(let i=0;i<n;i++) {
+            if(!closed && (i===0||i===n-1)) {diag[i]=1;continue;}
+            const prev=h[(i-1+count)%count],next=h[i%count];lower[i]=prev;diag[i]=2*(prev+next);upper[i]=next;
+        }
+        if(!closed && startTangent){normal(startTangent);diag[0]=2*h[0];upper[0]=h[0];}
+        if(!closed && endTangent){normal(endTangent);lower[n-1]=h[n-2];diag[n-1]=2*h[n-2];}
+        const solve=(rhs,diagonal=diag)=>{
+            const b=Float64Array.from(diagonal),x=Float64Array.from(rhs);
+            for(let i=1;i<n;i++){if(!b[i-1])throw new RangeError('Singular spline fit.');const q=lower[i]/b[i-1];b[i]-=q*upper[i-1];x[i]-=q*x[i-1];}
+            x[n-1]/=b[n-1];for(let i=n-2;i>=0;i--)x[i]=(x[i]-upper[i]*x[i+1])/b[i];
+            if([...x].some(v=>!Number.isFinite(v)))throw new RangeError('Ill-conditioned spline fit.');return x;
+        };
+        let cyclicDiag, z, beta, gamma;
+        if(closed){beta=h.at(-1);gamma=-diag[0];cyclicDiag=Float64Array.from(diag);cyclicDiag[0]-=gamma;cyclicDiag[n-1]-=beta*beta/gamma;
+            const u=new Float64Array(n);u[0]=gamma;u[n-1]=beta;z=solve(u,cyclicDiag);}
+        const second=Array.from({length:n},()=>vec());
+        for(const axis of ['x','y','z']) {
+            const slopes=h.map((dt,i)=>((points[(i+1)%n][axis]||0)-(points[i][axis]||0))/dt),rhs=new Float64Array(n);
+            for(let i=closed?0:1;i<(closed?n:n-1);i++)rhs[i]=6*(slopes[i%count]-slopes[(i-1+count)%count]);
+            if(!closed&&startTangent)rhs[0]=6*(slopes[0]-normal(startTangent)[axis]*total);
+            if(!closed&&endTangent)rhs[n-1]=6*(normal(endTangent)[axis]*total-slopes.at(-1));
+            const x=solve(rhs,cyclicDiag||diag);
+            if(closed){const factor=(x[0]+beta*x[n-1]/gamma)/(1+z[0]+beta*z[n-1]/gamma);for(let i=0;i<n;i++)x[i]-=factor*z[i];}
+            for(let i=0;i<n;i++)second[i][axis]=x[i];
+        }
+        const path=[['M',points[0]]];
+        for(let i=0;i<count;i++){
+            const j=(i+1)%n,delta=sub(points[j],points[i]),dt=h[i];
+            const a=add(points[i],sub(mul(delta,1/3),mul(add(mul(second[i],2),second[j]),dt*dt/18)));
+            const b=sub(points[j],add(mul(delta,1/3),mul(add(second[i],mul(second[j],2)),dt*dt/18)));
+            if(!validPoint(a)||!validPoint(b))throw new RangeError('Spline fit overflow.');
+            path.push(['C',a,b,points[j]]);
+        }
+        if(closed)path.push(['Z']);
+        return path;
+    }
     class SpatialIndex {
         constructor(items = [], leafSize = 16) { if (!Number.isInteger(leafSize) || leafSize < 1)
             throw new RangeError('Positive integer leaf size required.'); this.leafSize = leafSize; this.root = this.build(items.filter(x => !isEmpty(x.bounds))); }
@@ -296,7 +396,7 @@
                 stack.push(n.left, n.right);
         } return found; }
     }
-    Object.assign(api, { geometry: Object.freeze({ TAU, EPS, finite, clamp, vec, add, sub, mul, dot, cross, length, normal, distance, lerp, validPoint, identity, multiply, translation, scaling, rotation, transform, direction, inverse, ocs, viewBasis, project, emptyBounds, isEmpty, extend, bounds, union, intersects, inBounds, center, segmentDistance, pointInPolygon, inLoops, segmentIntersection, pathFromPoints, transformPath, arcPath, bulgePath, flatten, evaluateNurbs, createNurbsEvaluator, sampleNurbs }), SpatialIndex });
+    Object.assign(api, { geometry: Object.freeze({ TAU, EPS, finite, clamp, vec, add, sub, mul, dot, cross, length, normal, distance, lerp, validPoint, identity, multiply, translation, scaling, rotation, transform, direction, inverse, ocs, viewBasis, project, emptyBounds, isEmpty, extend, bounds, union, intersects, inBounds, center, segmentDistance, pointInPolygon, inLoops, segmentIntersection, pathFromPoints, transformPath, arcPath, bulgePath, flatten, evaluateNurbs, createNurbsEvaluator, sampleNurbs, pathBounds, interpolateFitPoints }), SpatialIndex });
     if (typeof module === 'object' && module.exports)
         module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -325,6 +425,8 @@
         }
     }
     function parseTags(text, { maxBytes = 64 * 1024 * 1024, maxTags = 4000000 } = {}) {
+        if (!Number.isSafeInteger(maxTags) || maxTags < 1 || !Number.isSafeInteger(maxBytes) || maxBytes < 1)
+            throw new RangeError('Positive integer DXF text/tag budgets required.');
         if (typeof text !== 'string')
             throw new TypeError('DXF source must be a string.');
         if (text.length > maxBytes)
@@ -405,6 +507,8 @@
         return layer; const n = Number(value) >>> 0; return n === 0 ? layer : n === 0x1000000 ? parent : (n & 0xff000000) === 0x2000000 ? (n & 255) / 255 : layer; }
     class DxfDocument {
         constructor(input, options = {}) {
+            if (options.maxTags !== undefined && (!Number.isSafeInteger(options.maxTags) || options.maxTags < 1))
+                throw new RangeError('Positive integer DXF tag budget required.');
             this.diagnostics = new Diagnostics(options.maxDiagnostics);
             this.records = [];
             this.entities = [];
@@ -1218,16 +1322,50 @@
     const mapGet = (map, name) => map instanceof Map ? map.get(A.key(name)) || map.get(name) : map?.[A.key(name)] || map?.[name];
     const coordFields = ['x', 'y', 'z'];
     const casedFrozen = (set, name) => set?.has(A.key(name)) || false;
-    function plainText(value) { return String(value ?? '').replace(/\\U\+([0-9a-f]{4,8})/gi, (_, h) => { const n = parseInt(h, 16); return n <= 0x10ffff ? String.fromCodePoint(n) : '\ufffd'; }).replace(/%%d/gi, '°').replace(/%%p/gi, '±').replace(/%%c/gi, 'Ø').replace(/\\P/g, '\n').replace(/\\~/g, ' ').replace(/\\[LlOoKk]/g, '').replace(/\\[ACHQWTFf][^;]*;/g, '').replace(/\\S([^;]*);/g, (_, v) => v.replace(/[\^#]/g, '/')).replace(/[{}]/g, '').replace(/\\([\\{}])/g, '$1'); }
+    // Decode DXF escapes in one pass: escaped braces are characters, not scope
+    // delimiters, and a Unicode escape consumes exactly four hexadecimal digits.
+    function plainText(value) {
+        const input = String(value ?? '');
+        if (input.length > 1000000) throw new RangeError('Text budget exceeded.');
+        let out = '';
+        for (let i = 0; i < input.length;) {
+            const ch = input[i++];
+            if (ch === '{' || ch === '}') continue;
+            if (ch === '%' && input[i] === '%') {
+                const code = input[i + 1]?.toLowerCase(), symbol = { d: '°', p: '±', c: 'Ø' }[code];
+                if (symbol) { out += symbol; i += 2; continue; }
+            }
+            if (ch !== '\\') { out += ch; continue; }
+            const code = input[i++];
+            if (code === undefined) { out += '\\'; break; }
+            if ('\\{}'.includes(code)) { out += code; continue; }
+            if (code === 'U' && input[i] === '+' && /^[0-9a-f]{4}$/i.test(input.slice(i + 1, i + 5))) {
+                out += String.fromCharCode(parseInt(input.slice(i + 1, i + 5), 16)); i += 5; continue;
+            }
+            if (code === 'P' || code === 'X') { out += '\n'; continue; }
+            if (code === '~') { out += '\u00a0'; continue; }
+            if ('LlOoKk'.includes(code)) continue;
+            if ('ACHQWTFfcptS'.includes(code)) {
+                const end = input.indexOf(';', i);
+                if (end >= 0) {
+                    if (code === 'S') out += input.slice(i, end).replace(/[\^#]/g, '/');
+                    i = end + 1; continue;
+                }
+            }
+            // A malformed/unknown escape remains visible rather than swallowing text.
+            out += '\\' + code;
+        }
+        return out;
+    }
     class SceneCompiler {
         constructor(document, options = {}) {
             if (!(document instanceof A.DxfDocument))
                 throw new TypeError('SceneCompiler requires a DxfDocument.');
             this.document = document;
-            this.options = { tolerance: .02, maxPrimitives: 500000, maxVertices: 3000000, maxDepth: 48, maxInstances: 100000, maxPatternLines: 20000, background: '#212830', ...options };
+            this.options = { tolerance: .02, maxPrimitives: 500000, maxVertices: 3000000, maxDepth: 48, maxInstances: 100000, maxPatternLines: 20000, maxHatchLoops: 4096, background: '#212830', ...options };
             if (!(this.options.tolerance > 0) || !Number.isFinite(this.options.tolerance))
                 throw new RangeError('Positive finite tessellation tolerance required.');
-            for (const name of ['maxPrimitives', 'maxVertices', 'maxDepth', 'maxInstances', 'maxPatternLines'])
+            for (const name of ['maxPrimitives', 'maxVertices', 'maxDepth', 'maxInstances', 'maxPatternLines', 'maxHatchLoops'])
                 if (!Number.isSafeInteger(this.options[name]) || this.options[name] < 1)
                     throw new RangeError('Positive integer ' + name + ' required.');
             this.plugins = new Map(options.plugins || []);
@@ -1356,6 +1494,10 @@
                 data.u = direction(matrix, data.u);
             if (data.v)
                 data.v = direction(matrix, data.v);
+            if (data.curve) data.curve = { ...data.curve, center: transform(matrix, data.curve.center),
+                u: direction(matrix, data.curve.u), v: direction(matrix, data.curve.v) };
+            if (data.gradient) data.gradient = { ...data.gradient, origin: transform(matrix, data.gradient.origin),
+                u: direction(matrix, data.gradient.u), v: direction(matrix, data.gradient.v) };
             if (data.text) {
                 const layout = A.layoutText(data, this.options.textMeasurer ? t => this.options.textMeasurer(data, t) : A.fallbackTextWidth);
                 data.textLayout = layout;
@@ -1368,7 +1510,7 @@
             this.vertices += points.length;
             if (this.vertices > this.options.maxVertices)
                 throw new RangeError('Vertex budget exceeded.');
-            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: bounds(points) };
+            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
             delete primitive.matrix;
             if (data.infinite)
                 primitive.bounds = { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 };
@@ -1421,7 +1563,7 @@
                 if (!(r > 0))
                     throw new RangeError('Arc radius must be positive.');
                 const p = e.point(10), start = type === 'ARC' ? radians(e.num(50)) : 0, sweep = type === 'ARC' ? positiveSweep(start, radians(e.num(51))) : TAU;
-                this.emit(e, localOCS(), s, { kind: 'path', path: arcPath(p, vec(r, 0), vec(0, r), start, sweep), closed: type === 'CIRCLE', center: transform(multiply(c.matrix, ocs(e.extrusion)), p), radius: r, fill: false });
+                this.emit(e, localOCS(), s, { kind: 'path', path: arcPath(p, vec(r, 0), vec(0, r), start, sweep), closed: type === 'CIRCLE', curve: { center: p, u: vec(r, 0), v: vec(0, r), start, sweep }, center: transform(multiply(c.matrix, ocs(e.extrusion)), p), radius: r, fill: false });
                 return;
             }
             if (type === 'ELLIPSE') {
@@ -1429,7 +1571,7 @@
                 if (!(length(u) > 0 && ratio > 0))
                     throw new RangeError('Invalid ellipse axes.');
                 const v = mul(normal(cross(normal(e.extrusion), u)), length(u) * ratio), start = e.num(41), end = e.num(42, TAU);
-                this.emit(e, c, s, { kind: 'path', path: arcPath(center, u, v, start, positiveSweep(start, end)), closed: Math.abs(end - start - TAU) < 1e-9, center: transform(c.matrix, center) });
+                this.emit(e, c, s, { kind: 'path', path: arcPath(center, u, v, start, positiveSweep(start, end)), closed: Math.abs(positiveSweep(start, end) - TAU) < 1e-9, curve: { center, u, v, start, sweep: positiveSweep(start, end) }, center: transform(c.matrix, center) });
                 return;
             }
             if (type === 'LWPOLYLINE' || type === 'POLYLINE') {
@@ -1452,8 +1594,10 @@
                     const points = spline.points(11);
                     if (points.length < 2)
                         throw new RangeError('Spline contains neither control points nor fit points.');
-                    this.path(e, c, s, points);
-                    this.diagnostic('spline-fit-fallback', 'Fit-point-only spline is represented by its fit polygon, not an inferred exact spline.', e);
+                    const path = G.interpolateFitPoints(points, { closed: !!(spline.num(70) & 3),
+                        startTangent: spline.get(12) == null ? null : spline.point(12), endTangent: spline.get(13) == null ? null : spline.point(13) });
+                    this.emit(e, c, s, { kind: 'path', path, closed: !!(spline.num(70) & 3) });
+                    this.diagnostic('spline-fit-interpolated', 'Fit-only SPLINE uses chord-length C2 cubic interpolation with supplied tangent directions or natural endpoints; periodic when closed.', e, 'info');
                 }
                 return;
             }
@@ -1545,16 +1689,26 @@
             const projection = [basis.x.x, basis.x.y, basis.x.z, -dot(target, basis.x), basis.y.x, basis.y.y, basis.y.z, -dot(target, basis.y), basis.z.x, basis.z.y, basis.z.z, -dot(target, basis.z), 0, 0, 0, 1];
             const transformMatrix = multiply(multiply(multiply(translation(paper), scaling(scale, scale, 1)), translation(mul(view, -1))), projection);
             let boundary = [vec(paper.x - width / 2, paper.y - height / 2), vec(paper.x + width / 2, paper.y - height / 2), vec(paper.x + width / 2, paper.y + height / 2), vec(paper.x - width / 2, paper.y + height / 2)];
-            const clipEntity = this.document.byHandle.get(A.key(e.get(340)));
-            if (clipEntity) {
-                const points = clipEntity.points(10);
-                if (points.length >= 3 && clipEntity.type === 'LWPOLYLINE' && !clipEntity.all(42).some(Number))
-                    boundary = points;
-                else
-                    this.diagnostic('viewport-boundary', 'Complex nonrectangular viewport clip uses rectangular viewport bounds.', e);
-            }
+            let clip = { points: boundary.map(p => transform(c.matrix, p)), inverse: false };
+            const clipHandle = A.key(e.get(340)), clipEntity = this.document.byHandle.get(clipHandle);
+            if (clipEntity && ['CIRCLE', 'ELLIPSE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE'].includes(clipEntity.type)) {
+                try {
+                    const helper = new SceneCompiler(this.document, { ...this.options, printing: false,
+                        blockIsolation: null, entityIsolation: null, layerState: null });
+                    const record = new A.DxfRecord([{ code: 0, value: clipEntity.type },
+                        ...clipEntity.tags.filter(t => ![39, 40, 41, 43].includes(t.code) || !['LWPOLYLINE', 'POLYLINE'].includes(clipEntity.type))]);
+                    record.vertices = clipEntity.vertices.map(v => new A.DxfRecord([{ code: 0, value: 'VERTEX' }, ...v.tags.filter(t => ![40, 41].includes(t.code))]));
+                    helper.style = () => s; // Geometry-only clip: ignore display/plot visibility.
+                    helper.compileEntity(record, { ...c, matrix: c.matrix, thicknessVector: null, clips: [] });
+                    const primitive = helper.primitives.find(p => p.path && p.closed);
+                    if (primitive) clip = { path: primitive.path, loops: primitive.rings, inverse: false };
+                    else this.diagnostic('viewport-boundary', 'Viewport boundary is not a supported closed curve; rectangular bounds used.', e);
+                } catch (error) {
+                    this.diagnostic('viewport-boundary', `Invalid viewport boundary (${error.message}); rectangular bounds used.`, e);
+                }
+            } else if (clipHandle) this.diagnostic('viewport-boundary', 'Viewport boundary handle is missing or unsupported; rectangular bounds used.', e);
             const frozen = new Set(e.all(331).map(handle => A.key(this.document.byHandle.get(A.key(handle))?.get(2))));
-            this.compileList(this.document.sceneGraph.modelSpace, { ...c, matrix: multiply(c.matrix, transformMatrix), layout: 'Model', viewportFrozen: frozen, clips: [...c.clips, { points: boundary.map(p => transform(c.matrix, p)), inverse: false }] });
+            this.compileList(this.document.sceneGraph.modelSpace, { ...c, matrix: multiply(c.matrix, transformMatrix), layout: 'Model', viewportFrozen: frozen, clips: [...c.clips, clip] });
         }
         insert(e, c, s) {
             const name = String(e.get(2, '')), block = this.document.getBlock(name), normalized = A.key(name);
@@ -1777,66 +1931,115 @@
                 this.compileList(block.entities, { ...c, blocks: [...c.blocks, block.name], handles: [...c.handles, e.handle || e.id], layer: s.layer, color: s.color, alpha: s.alpha });
                 return;
             }
-            const d = e.num(70) & 7, style = this.document.tables.dimstyles[e.get(3)]?.record;
+            const d = e.num(70) & 7;
+            const style = Object.values(this.document.tables.dimstyles).find(x => A.key(x.name) === A.key(e.get(3, 'STANDARD')))?.record;
             const setting = (code, name, fallback) => style?.num(code, this.document.headerNumber(name, fallback)) ?? this.document.headerNumber(name, fallback);
             const scale = setting(40, '$DIMSCALE', 1) || 1, h = setting(140, '$DIMTXT', 2.5) * scale, arrow = setting(41, '$DIMASZ', 2.5) * scale;
-            let a, b, measure, at = e.point(11), angle = 0;
-            if (d === 0 || d === 1) {
-                const p = e.point(13), q = e.point(14), loc = e.point(10);
-                angle = d === 1 ? Math.atan2(q.y - p.y, q.x - p.x) : radians(e.num(50));
-                const dir = vec(Math.cos(angle), Math.sin(angle)), n = vec(-dir.y, dir.x);
-                a = add(p, mul(n, dot(sub(loc, p), n)));
-                b = add(q, mul(n, dot(sub(loc, q), n)));
-                measure = Math.abs(dot(sub(q, p), dir));
-                this.path(e, c, s, [p, a]);
-                this.path(e, c, s, [q, b]);
-                if (!e.get(11))
-                    at = add(mul(add(a, b), .5), mul(n, h * .4));
+            if (!(h > 0 && arrow >= 0 && Number.isFinite(h) && Number.isFinite(arrow))) throw new RangeError('Invalid dimension text/arrow size.');
+            const basis = ocs(e.extrusion), inverse = G.inverse(basis), point = code => transform(inverse, e.point(code));
+            const ctx = { ...c, matrix: multiply(c.matrix, basis) }; // Definition points WCS; text/arc location 11/16 OCS.
+            const textSpecified = e.get(11) !== null;
+            let a, b, measure, at = e.point(11), angle = 0, angular = d === 2 || d === 5;
+            const extension = (p, q, index) => {
+                if (setting(index === 0 ? 75 : 76, index === 0 ? '$DIMSE1' : '$DIMSE2', 0)) return;
+                const delta = sub(q, p), n = length(delta) > EPS ? normal(delta) : vec(0, 1);
+                const start = add(p, mul(n, setting(42, '$DIMEXO', .625) * scale));
+                const end = add(q, mul(n, setting(44, '$DIMEXE', 1.25) * scale));
+                this.path(e, ctx, s, [start, end]);
+            };
+            if (angular) {
+                let origin, p, q, arcPoint;
+                if (d === 5) { origin = point(15); p = point(13); q = point(14); arcPoint = point(10); }
+                else {
+                    const p0 = point(13), p1 = point(14), q0 = point(10), q1 = point(15), u = sub(p1, p0), v = sub(q1, q0);
+                    const det = u.x*v.y-u.y*v.x;
+                    if (Math.abs(det) < EPS * Math.max(1, length(u)*length(v))) throw new RangeError('Angular dimension lines are parallel or degenerate.');
+                    origin = add(p0, mul(u, ((q0.x-p0.x)*v.y-(q0.y-p0.y)*v.x)/det));
+                    p = p1; q = q1; arcPoint = e.point(16);
+                    if (distance(p, origin) < EPS) p = p0;
+                    if (distance(q, origin) < EPS) q = q0;
+                }
+                const u = sub(p, origin), v = sub(q, origin);
+                if (length(u) < EPS || length(v) < EPS) throw new RangeError('Angular dimension requires distinct definition points.');
+                const first = Math.atan2(u.y,u.x), second = Math.atan2(v.y,v.x), through = Math.atan2(arcPoint.y-origin.y,arcPoint.x-origin.x);
+                const choices = d === 2 ? [first, first+Math.PI].flatMap(x => [second,second+Math.PI].map(y => [x,positiveSweep(x,y)])) : [[first,positiveSweep(first,second)],[second,positiveSweep(second,first)]];
+                const sector = choices.filter(([start,sweep]) => ((through-start)%TAU+TAU)%TAU <= sweep+1e-10).sort((x,y)=>x[1]-y[1])[0] || choices[0];
+                const [start,sweep] = sector, radius = Math.hypot(arcPoint.x-origin.x,arcPoint.y-origin.y);
+                if (!(radius>EPS)) throw new RangeError('Angular dimension arc radius must be positive.');
+                const atAngle=t=>add(origin,vec(Math.cos(t)*radius,Math.sin(t)*radius));
+                a=atAngle(start);b=atAngle(start+sweep);measure=sweep;
+                this.emit(e,ctx,s,{kind:'path',path:arcPath(origin,vec(radius,0),vec(0,radius),start,sweep),fill:false});
+                extension(p,a,0);extension(q,b,1);
+                if (arrow) {
+                    const size=Math.min(arrow,radius*sweep/4);
+                    this.arrow(e,ctx,s,a,add(a,vec(-Math.sin(start),Math.cos(start))),size);
+                    this.arrow(e,ctx,s,b,add(b,vec(Math.sin(start+sweep),-Math.cos(start+sweep))),size);
+                }
+                if(!textSpecified) at=add(origin,vec(Math.cos(start+sweep/2)*(radius+h*.6),Math.sin(start+sweep/2)*(radius+h*.6)));
+                angle=0;
+            } else if (d === 0 || d === 1) {
+                const p=point(13),q=point(14),loc=point(10);
+                angle=d===1?Math.atan2(q.y-p.y,q.x-p.x):radians(e.num(50));
+                const dir=vec(Math.cos(angle),Math.sin(angle)),n=vec(-dir.y,dir.x);
+                a=add(p,mul(n,dot(sub(loc,p),n)));b=add(q,mul(n,dot(sub(loc,q),n)));
+                measure=Math.abs(dot(sub(q,p),dir));extension(p,a,0);extension(q,b,1);
+                if(!textSpecified) at=add(mul(add(a,b),.5),mul(n,h*.6));
+            } else if (d === 3 || d === 4) {
+                a=point(10);b=point(15);measure=distance(a,b);angle=Math.atan2(b.y-a.y,b.x-a.x);
+                if(!textSpecified)at=mul(add(a,b),.5);
+            } else if (d === 6) {
+                a=point(13);b=point(14);const origin=point(10);measure=(e.num(70)&64)?a.x-origin.x:a.y-origin.y;
+                if(!textSpecified)at=b;
+            } else { this.diagnostic('dimension-fallback','Unsupported generated dimension type '+d+'.',e);return; }
+            if (!angular) {
+                this.path(e,ctx,s,[a,b]);
+                if(arrow && distance(a,b)>EPS && d!==6) {
+                    const size=Math.min(arrow,distance(a,b)/4);
+                    if(d!==4)this.arrow(e,ctx,s,a,b,size);
+                    this.arrow(e,ctx,s,b,a,size);
+                }
             }
-            else if (d === 3 || d === 4) {
-                a = e.point(10);
-                b = e.point(15);
-                measure = distance(a, b);
-                if (d === 4)
-                    measure *= 1;
-                angle = Math.atan2(b.y - a.y, b.x - a.x);
-                if (!e.get(11))
-                    at = mul(add(a, b), .5);
+            let precision=setting(angular?179:271,angular?'$DIMADEC':'$DIMDEC',2);
+            if(precision<0)precision=setting(271,'$DIMDEC',2);precision=Math.max(0,Math.min(8,Math.trunc(precision)));
+            let numeric=angular?measure:measure*setting(144,'$DIMLFAC',1), suffix='';
+            if(angular){
+                const unit=setting(275,'$DIMAUNIT',0);
+                if(unit===2){numeric=measure*200/Math.PI;suffix='g';}else if(unit===3){suffix='r';}else{numeric=measure*180/Math.PI;suffix='°';}
+                if(unit===1 || unit===4)this.diagnostic('dimension-angle-format','DMS/surveyor formatting shown as decimal degrees.',e);
+            } else {
+                const rounding=setting(45,'$DIMRND',0);if(rounding>0)numeric=Math.round(numeric/rounding)*rounding;
+                if(![2,6].includes(setting(277,'$DIMLUNIT',2)))this.diagnostic('dimension-linear-format','Nondecimal dimension units shown as decimal drawing units.',e);
             }
-            else if (d === 6) {
-                a = e.point(13);
-                b = e.point(14);
-                measure = (e.num(70) & 64) ? a.x : a.y;
-                if (!e.get(11))
-                    at = b;
-            }
-            else {
-                this.diagnostic('dimension-fallback', 'Angular dimension without its anonymous block requires an angular dimension provider.', e);
-                return;
-            }
-            this.path(e, c, s, [a, b]);
-            if (distance(a, b) > 1e-9) {
-                this.arrow(e, c, s, a, b, Math.min(arrow, distance(a, b) / 4));
-                this.arrow(e, c, s, b, a, Math.min(arrow, distance(a, b) / 4));
-            }
-            const value = (measure * setting(144, '$DIMLFAC', 1)).toFixed(Math.min(8, Math.max(0, setting(271, '$DIMDEC', 2))));
-            let label = String(e.get(1, '<>'));
-            if (label === ' ')
-                return;
-            label = label.replace(/<>/g, value);
-            this.emit(e, c, s, { kind: 'text', text: label, position: at, u: vec(Math.cos(angle) * h, Math.sin(angle) * h), v: vec(-Math.sin(angle) * h, Math.cos(angle) * h), align: 1, vertical: 0, font: '', fontName: '', mtext: false });
-            this.diagnostic('dimension-generated', 'Dimension anonymous block missing: generated basic dimension geometry; advanced style overrides are not applied.', e);
+            if(!Number.isFinite(numeric))throw new RangeError('Dimension measurement overflow.');
+            let value=numeric.toFixed(precision);
+            const suppress=setting(angular?79:78,angular?'$DIMAZIN':'$DIMZIN',0);
+            if(suppress&(angular?2:8))value=value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/,'');
+            if(suppress&(angular?1:4))value=value.replace(/^(-?)0\./,'$1.');
+            if(Number(value)===0)value=value.replace(/^-/, '');
+            const separator=setting(278,'$DIMDSEP',46);if(Number.isInteger(separator)&&separator>=32&&separator<127)value=value.replace('.',String.fromCharCode(separator));
+            value=(d===3?'Ø':d===4?'R':'')+value+suffix;
+            const post=style?.get(3,'');if(!angular && post)value=String(post).replace(/<>/g,value);
+            let label=String(e.get(1,'<>'));if(label===' ')return;if(label==='')label='<>';
+            label=plainText(label.replace(/<>/g,value));angle+=radians(e.num(53));
+            const textStyle=this.document.byHandle.get(A.key(style?.get(340))),font=this.document.textStyle(textStyle?.get(2,'STANDARD'));
+            this.emit(e,ctx,s,{kind:'text',text:label,position:at,u:vec(Math.cos(angle)*h,Math.sin(angle)*h),v:vec(-Math.sin(angle)*h,Math.cos(angle)*h),align:1,vertical:0,font:font?.font||'',fontName:font?.name||'',mtext:false});
+            this.diagnostic('dimension-generated','Stored dimension block absent: generated definition-point geometry; advanced overrides/arrow blocks remain unsupported.',e,'info');
         }
         hatch(e, c, s) {
-            if (e.num(450))
-                this.diagnostic('hatch-gradient', 'Gradient hatch paint is not implemented; the solid boundary fill uses the entity color.', e);
             const tags = e.tags, starts = [];
             for (let i = 0; i < tags.length; i++)
                 if (tags[i].code === 92)
                     starts.push(i);
+            if (starts.length > this.options.maxHatchLoops) throw new RangeError('Hatch loop budget exceeded.');
+            const islandStyle = e.num(75);
+            if (![0, 1, 2].includes(islandStyle)) throw new RangeError('Unknown hatch island style.');
+            const boundaryEnd = tags.findIndex((t, i) => i > (starts.at(-1) ?? 0) && [75, 76, 78, 98, 450].includes(t.code));
             const commands = [], loops = [], ctx = { ...c, matrix: multiply(c.matrix, ocs(e.extrusion)) }, elevation = e.num(30);
             for (let i = 0; i < starts.length; i++) {
-                const part = tags.slice(starts[i], starts[i + 1] ?? tags.length), flags = Number(part[0].value), path = [];
+                const part = tags.slice(starts[i], starts[i + 1] ?? (boundaryEnd < 0 ? tags.length : boundaryEnd)), flags = Number(part[0].value), path = [];
+                // DXF style filters are defined by EXTERNAL/OUTERMOST flags, not
+                // winding direction. Normal uses all loops; outer stops at first islands.
+                if (islandStyle === 2 && !(flags & 1) || islandStyle === 1 && !(flags & 17)) continue;
                 if (flags & 2) {
                     let vs = [], v = null;
                     const stop = part.findIndex(t => t.code === 97);
@@ -1901,11 +2104,24 @@
                 this.diagnostic('empty-hatch', 'Hatch has no usable boundary loops.', e);
                 return;
             }
-            const style = e.num(75);
-            if (style !== 0)
-                this.diagnostic('hatch-island-style', 'Non-normal hatch island style currently uses even-odd loop filling.', e);
-            if (e.num(70) === 1) {
-                this.emit(e, ctx, s, { kind: 'path', path: commands, fill: true, closed: true, fillRule: 'evenodd' });
+            if (e.num(70) === 1 || e.num(450) === 1) {
+                let gradient = null;
+                if (e.num(450) === 1) {
+                    const name = A.key(e.get(470, 'LINEAR')), colors = e.all(421).map(rgb);
+                    if (!colors.length) colors.push(...e.all(63).map(n => A.aciColor(Number(n), this.options.background)));
+                    if (['LINEAR', 'CYLINDER', 'INVCYLINDER', 'SPHERICAL', 'INVSPHERICAL'].includes(name) && colors.length) {
+                        if (e.num(452)) {
+                            const tint = G.clamp(e.num(462), 0, 1), value = parseInt(colors[0].slice(1),16);
+                            colors[1] = rgb([16,8,0].reduce((n,shift) => n | Math.round(((value>>>shift)&255)*(1-tint)+255*tint)<<shift,0));
+                        }
+                        if (!colors[1]) colors[1]='#ffffff';
+                        const box=G.pathBounds(commands), cx=(box.minX+box.maxX)/2, cy=(box.minY+box.maxY)/2, angle=e.num(460), ux=Math.cos(angle), uy=Math.sin(angle);
+                        const rx=Math.max(EPS,(Math.abs(ux)*(box.maxX-box.minX)+Math.abs(uy)*(box.maxY-box.minY))/2);
+                        const ry=Math.max(EPS,(Math.abs(uy)*(box.maxX-box.minX)+Math.abs(ux)*(box.maxY-box.minY))/2);
+                        gradient={name,colors:colors.slice(0,2),origin:vec(cx,cy,elevation),u:vec(ux*rx,uy*rx),v:vec(-uy*ry,ux*ry),shift:G.clamp(e.num(461),0,1)};
+                    } else this.diagnostic('hatch-gradient', 'Gradient family or colors unavailable; solid entity color is shown for '+name+'.', e);
+                }
+                this.emit(e, ctx, s, { kind: 'path', path: commands, fill: true, closed: true, fillRule: 'evenodd', gradient });
                 return;
             }
             const pattern = [];
@@ -1943,14 +2159,15 @@
                     continue;
                 }
                 const offsets = corners.map(q => dot(sub(q, p.base), v) / spacing), min = Math.floor(Math.min(...offsets)) - 1, max = Math.ceil(Math.max(...offsets)) + 1;
-                if (max - min > this.options.maxPatternLines - emitted) {
+                if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || max - min + 1 > this.options.maxPatternLines - emitted) {
                     this.diagnostic('hatch-density', 'Hatch pattern exceeds the line budget; pattern family was omitted.', e);
                     continue;
                 }
                 for (let i = min; i <= max; i++) {
                     const base = add(p.base, mul(p.offset, i)), ts = corners.map(q => dot(sub(q, base), u)), a = add(base, mul(u, Math.min(...ts) - 1)), end = add(base, mul(u, Math.max(...ts) + 1));
                     a.z = end.z = elevation;
-                    this.path(e, clipContext, { ...s, dash: p.dashes, dashScale: 1 }, [a, end]);
+                    const lineScale=length(direction(ctx.matrix,u));
+                    this.path(e, clipContext, { ...s, dash: p.dashes, dashScale: lineScale, dashOffset: dot(sub(a,base),u)*lineScale }, [a, end]);
                     emitted++;
                 }
             }
@@ -1980,7 +2197,7 @@
             return cache.get(key);
         const entries = scene.primitives.map((primitive, index) => {
             const points = (primitive.points || []).map(p => project(p, basis)), rings = (primitive.rings || [primitive.points || []]).map(r => r.map(p => project(p, basis)));
-            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : bounds(points);
+            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : primitive.path ? G.pathBounds(primitive.path, p => project(p, basis)) : bounds(points);
             for (const clip of primitive.clips || [])
                 if (!clip.inverse) {
                     const cb = bounds((clip.loops?.flat() || clip.points || []).map(p => project(p, basis)));
@@ -2027,13 +2244,14 @@
     function nativeDash(pattern, scale = 1, dotLength = .01) {
         if (!pattern?.length)
             return { intervals: [], phase: 0 };
-        if (pattern.length > 1024 || !(scale > 0) || !Number.isFinite(scale))
+        if (pattern.length > 1024 || !(scale > 0) || !Number.isFinite(scale) || !(dotLength > 0) || !Number.isFinite(dotLength))
             throw new RangeError('Invalid linetype pattern.');
         const runs = [];
         for (const n of pattern) {
             if (!Number.isFinite(n))
                 throw new RangeError('Nonfinite dash length.');
             const ink = n >= 0, len = n === 0 ? dotLength : Math.abs(n) * scale;
+            if (!Number.isFinite(Math.fround(len))) throw new RangeError('Native dash length overflow.');
             const last = runs.at(-1);
             if (last?.ink === ink)
                 last.length += len;
@@ -2049,7 +2267,9 @@
             runs.pop();
         }
         const pivot = runs[0].ink ? 0 : 1, prefix = pivot ? runs[0].length : 0;
-        const cycle = runs.reduce((n, r) => n + r.length, 0), ordered = [...runs.slice(pivot), ...runs.slice(0, pivot)];
+        const cycle = runs.reduce((n, r) => n + r.length, 0);
+        if (!Number.isFinite(Math.fround(cycle))) throw new RangeError('Native dash cycle overflow.');
+        const ordered = [...runs.slice(pivot), ...runs.slice(0, pivot)];
         return { intervals: ordered.map(r => r.length), phase: ((offset - prefix) % cycle + cycle) % cycle };
     }
     function prepareFrame(scene, { width = 800, height = 600, devicePixelRatio = 1, viewState = {}, viewDirection = vec(0, 0, 1), padding = 32, visualStyle = '2dwireframe', background = '#212830' } = {}) {
@@ -2057,6 +2277,8 @@
             throw new TypeError('Expected a compiled scene.');
         if (!(width > 0 && height > 0 && width <= 32768 && height <= 32768))
             throw new RangeError('Invalid viewport size.');
+        if (!Number.isFinite(devicePixelRatio) || devicePixelRatio <= 0 || !Number.isFinite(padding) || padding < 0 || (viewState.rotationRad !== undefined && !Number.isFinite(viewState.rotationRad)))
+            throw new RangeError('Invalid device pixel ratio, padding or view rotation.');
         const basis = viewBasis(viewDirection, 0), projection = projectedScene(scene, basis), b = projection.bounds, isEmpty = G.isEmpty(b);
         const autoCenter = isEmpty ? vec() : center(b), dx = isEmpty ? 100 : Math.max(1e-6, b.maxX - b.minX), dy = isEmpty ? 100 : Math.max(1e-6, b.maxY - b.minY);
         const angle = Number(viewState.rotationRad) || 0, cos = Math.cos(angle), sin = Math.sin(angle);
@@ -2078,7 +2300,12 @@
                     return null;
             }
             const screenPoints = points.map(screen);
-            return { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer, worldBounds: p.bounds, screenBounds: bounds(screenPoints), worldPoints: p.points, screenPoints, isClosed: !!p.closed, weight: entry.index, primitive: p, entry, clips: p.clips };
+            // A conservative exact bound must not depend on pick-tessellation density.
+            const b = entry.bounds;
+            const screenBounds = p.infinite ? bounds(screenPoints) : bounds([
+                vec(b.minX,b.minY), vec(b.maxX,b.minY), vec(b.maxX,b.maxY), vec(b.minX,b.maxY)
+            ].map(screen));
+            return { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer, worldBounds: p.bounds, screenBounds, worldPoints: p.points, screenPoints, isClosed: !!p.closed, weight: entry.index, primitive: p, entry, clips: p.clips };
         }).filter(Boolean);
         const frame = { scene, width, height, devicePixelRatio, scale, worldCenter: c, rotationRad: Number(viewState.rotationRad) || 0, rotationDeg: (Number(viewState.rotationRad) || 0) * 180 / Math.PI,
             worldBounds: scene.bounds, bounds: b, isEmpty, autoViewState: { mode: 'auto', center: autoCenter, scale: autoScale, rotationRad: Number(viewState.rotationRad) || 0 }, viewState: { mode: custom ? 'custom' : 'auto', center: c, scale, rotationRad: Number(viewState.rotationRad) || 0 },
@@ -2137,32 +2364,46 @@
         } };
         for (const pick of frame.pickables) {
             const p = pick.primitive;
-            if (!G.inBounds(screenPoint, pick.screenBounds, tolerance))
-                continue;
-            if (p.center)
-                consider(p.center, 'center', pick);
-            if (p.kind === 'point')
-                consider(p.points[0], 'node', pick);
-            if (p.path) {
+            if (p.style.alpha <= 0) continue;
+            // Arc centers can lie outside the arc's bounding box.
+            if (p.center) consider(p.center, 'center', pick);
+            if (!G.inBounds(screenPoint, pick.screenBounds, tolerance)) continue;
+            if (p.kind === 'point') consider(p.points[0], 'node', pick);
+            if (p.curve) {
+                const { center, u, v, start, sweep } = p.curve;
+                const at = t => add(center, add(mul(u, Math.cos(t)), mul(v, Math.sin(t))));
+                if (!p.closed) {
+                    consider(at(start), 'endpoint', pick); consider(at(start + sweep), 'endpoint', pick);
+                    consider(at(start + sweep / 2), 'midpoint', pick);
+                }
+                for (let i = 0; i < 4; i++) {
+                    const angle = i * Math.PI / 2, delta = ((angle - start) % G.TAU + G.TAU) % G.TAU;
+                    if (delta <= sweep + 1e-10) consider(at(angle), 'quadrant', pick);
+                }
+            } else if (p.path) {
                 let previous = null, first = null;
                 for (const cmd of p.path) {
-                    let end = cmd[0] === 'K' || cmd[0] === 'Q' ? cmd[2] : cmd[0] === 'C' ? cmd[3] : cmd[1];
-                    if (cmd[0] === 'Z')
-                        end = first;
-                    if (!end)
-                        continue;
-                    if (cmd[0] === 'M') {
-                        first = end;
-                        consider(end, p.closed && p.center ? 'quadrant' : 'endpoint', pick);
+                    const op = cmd[0];
+                    const end = op === 'Z' ? first : op === 'K' || op === 'Q' ? cmd[2] : op === 'C' ? cmd[3] : cmd[1];
+                    if (!end) continue;
+                    if (op === 'M') first = end;
+                    consider(end, 'endpoint', pick);
+                    if (previous && (op === 'L' || op === 'Z')) consider(G.lerp(previous, end, .5), 'midpoint', pick);
+                    if (previous && (op === 'K' || op === 'Q')) {
+                        const weight = op === 'K' ? cmd[3] : 1;
+                        const middle = add(previous, mul(add(mul(sub(cmd[1], previous), 2 * weight), sub(end, previous)), 1 / (2 + 2 * weight)));
+                        consider(middle, 'midpoint', pick);
                     }
-                    else if (cmd[0] === 'L') {
-                        consider(end, 'endpoint', pick);
-                        if (previous)
-                            consider(G.lerp(previous, end, .5), 'midpoint', pick);
-                    }
-                    else if (cmd[0] === 'K' && p.center)
-                        consider(end, 'quadrant', pick);
                     previous = end;
+                }
+            }
+            if (modes.has('nearest')) {
+                const q = frame.toProjected(screenPoint);
+                for (const ring of pick.entry.rings) for (let i = 1; i < ring.length; i++) {
+                    const nearest = G.segmentDistance(q, ring[i - 1], ring[i]);
+                    // Rings and primitive geometry have corresponding sample indices.
+                    const world = add(add(mul(frame.basis.x, nearest.point.x), mul(frame.basis.y, nearest.point.y)), mul(frame.basis.z, nearest.point.z));
+                    consider(world, 'nearest', pick);
                 }
             }
         }
@@ -2170,17 +2411,25 @@
     }
     function nativePath(S, commands, convert = p => p) {
         const path = new S.SKPath();
+        const checked = point => {
+            const p = convert(point);
+            if (!p || !Number.isFinite(Math.fround(p.x)) || !Number.isFinite(Math.fround(p.y)))
+                throw new RangeError('Native path coordinate exceeds finite float32 range.');
+            return p;
+        };
         try {
             for (const [op, a, b, c] of commands) {
-                const p = a && convert(a), q = b && typeof b !== 'number' ? convert(b) : b;
+                const p = a && checked(a), q = b && typeof b !== 'number' ? checked(b) : b;
                 if (op === 'M')
                     path.MoveTo(p.x, p.y);
                 else if (op === 'L')
                     path.LineTo(p.x, p.y);
-                else if (op === 'K')
+                else if (op === 'K') {
+                    if (!(c > 0) || !Number.isFinite(Math.fround(c))) throw new RangeError('Positive finite native conic weight required.');
                     path.ConicTo(p.x, p.y, q.x, q.y, c);
+                }
                 else if (op === 'C') {
-                    const r = convert(c);
+                    const r = checked(c);
                     path.CubicTo(p.x, p.y, q.x, q.y, r.x, r.y);
                 }
                 else if (op === 'Q')
@@ -2201,6 +2450,7 @@
             if (!S?.SKPath || !S?.SKPaint)
                 throw new TypeError('An initialized SkiaSharpWeb namespace is required.');
             this.S = S;
+            if (!Number.isSafeInteger(cacheLimit) || cacheLimit < 1) throw new RangeError('Positive integer path cache limit required.');
             this.resources = resources || new A.ResourceStore(S);
             this.ownsResources = !resources;
             this.cacheLimit = cacheLimit;
@@ -2243,15 +2493,18 @@
             if (clear)
                 canvas.Clear(S.SKColor.Parse(background));
             const save = canvas.Save();
+            let drawn = 0;
             try {
                 canvas.Scale(frame.devicePixelRatio, frame.devicePixelRatio);
                 if (grid)
                     this.drawGrid(canvas, frame);
                 for (const pick of frame.pickables) {
                     try {
-                        this.drawPrimitive(canvas, frame, pick, false);
+                        if (pick.primitive.style.alpha <= 0) continue;
+                        this.drawPrimitive(canvas, frame, pick, false); drawn++;
                     }
                     catch (error) {
+                        if (/GPURenderPassEncoder|GPUDevice|WebGPU|Graphite|device lost|context lost/i.test(error.message)) throw error;
                         this.diagnostics.add('skia-primitive', error.message, pick.primitive.source, 'error');
                     }
                 }
@@ -2261,6 +2514,7 @@
                             this.drawPrimitive(canvas, frame, pick, true);
                         }
                         catch (error) {
+                            if (/GPURenderPassEncoder|GPUDevice|WebGPU|Graphite|device lost|context lost/i.test(error.message)) throw error;
                             this.diagnostics.add('skia-selection', error.message, pick.primitive.source);
                         }
                     }
@@ -2268,9 +2522,9 @@
             finally {
                 canvas.RestoreToCount(save);
             }
-            return { drawn: frame.pickables.length, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
+            return { drawn, visible: frame.pickables.length, omitted: frame.pickables.length - drawn, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
         }
-        configure(p, selected = false) { const S = this.S, paint = this.paint; paint.PathEffect = null; paint.ColorFilter = null; paint.Color = S.SKColor.Parse(selected ? '#63c9ff' : p.style.color); paint.Alpha = Math.round(255 * (selected ? 1 : p.style.alpha)); paint.Style = p.fill && !selected ? S.SKPaintStyle.Fill : S.SKPaintStyle.Stroke; paint.StrokeWidth = 1; return paint; }
+        configure(p, selected = false) { const S = this.S, paint = this.paint; paint.PathEffect = null; paint.ColorFilter = null; paint.Shader = null; paint.Color = S.SKColor.Parse(selected ? '#63c9ff' : p.style.color); paint.Alpha = Math.round(255 * (selected ? 1 : p.style.alpha)); paint.Style = p.fill && !selected ? S.SKPaintStyle.Fill : S.SKPaintStyle.Stroke; paint.StrokeWidth = 1; return paint; }
         drawPrimitive(canvas, frame, pick, selected) {
             const p = pick.primitive, S = this.S, paint = this.configure(p, selected), save = canvas.Save();
             try {
@@ -2333,7 +2587,8 @@
                     if (dash.empty)
                         return;
                     if (dash.intervals.length) {
-                        const effect = S.SKPathEffect.CreateDash(dash.intervals, dash.phase);
+                        const cycle=dash.intervals.reduce((a,b)=>a+b,0);
+                        const effect = S.SKPathEffect.CreateDash(dash.intervals, ((dash.phase+(p.style.dashOffset||0))%cycle+cycle)%cycle);
                         try {
                             paint.PathEffect = effect;
                         }
@@ -2341,6 +2596,20 @@
                             effect?.Dispose();
                         }
                     }
+                }
+                if (p.gradient && !selected) {
+                    const g=p.gradient, q=sub(project(g.origin,frame.basis),entry.origin), u=project(g.u,frame.basis), v=project(g.v,frame.basis);
+                    const matrix=[u.x,v.x,q.x,u.y,v.y,q.y,0,0,1], colors=g.colors.map(c=>S.SKColor.Parse(c));
+                    let shader;
+                    const shift=g.shift, center=shift; // normalized CAD gradient-space translation
+                    if(g.name.includes('SPHERICAL')) {
+                        const cs=g.name.startsWith('INV')?colors.slice().reverse():colors;
+                        shader=S.SKShader.CreateRadialGradient([center,0],1,cs,[0,1],S.SKShaderTileMode.Clamp,matrix);
+                    } else {
+                        const cylinder=g.name.includes('CYLINDER'), cs=cylinder?(g.name.startsWith('INV')?[colors[1],colors[0],colors[1]]:[colors[0],colors[1],colors[0]]):colors;
+                        shader=S.SKShader.CreateLinearGradient([-1+center,0],[1+center,0],cs,cylinder?[0,.5,1]:[0,1],S.SKShaderTileMode.Clamp,matrix);
+                    }
+                    try { paint.Shader=shader; } finally { shader?.Dispose(); }
                 }
                 if (p.face && p.edgeFlags && paint.Style === S.SKPaintStyle.Stroke) {
                     for (let i = 0; i < p.points.length - 1; i++)
@@ -2355,6 +2624,7 @@
             finally {
                 paint.PathEffect = null;
                 paint.ColorFilter = null;
+                paint.Shader = null;
                 canvas.RestoreToCount(save);
             }
         }
@@ -2462,7 +2732,8 @@
         }
         drawGrid(canvas, frame) {
             const S = this.S, paint = this.paint, raw = 50 / frame.scale, base = 10 ** Math.floor(Math.log10(raw)), spacing = raw / base > 5 ? 10 * base : raw / base > 2 ? 5 * base : 2 * base;
-            paint.Color = S.SKColor.Parse('#394550');
+            paint.Shader = null; paint.PathEffect = null; paint.ColorFilter = null;
+            paint.Color = S.SKColor.Parse('#394550'); paint.Alpha = 255;
             paint.Alpha = 170;
             paint.Style = S.SKPaintStyle.Stroke;
             paint.StrokeWidth = 1;
@@ -2488,135 +2759,244 @@
 
 
 // packages/dxf-skia/src/surface-host.js
-/* Coalesced, generation-safe native surface lifetime. Initialization is injected;
- * a host can use a package, vendored runtime, or an already initialized namespace. */
+/* Coalesced native surface lifetime with bounded, observable backend recovery.
+ * DXF documents/resources are authoritative; a failed GPU surface is disposable.
+ * Never retry a failed backend implicitly, or publish a stale completed frame. */
 (function (root) {
     'use strict';
     const A = root.DxfSkia;
+    const MODES = ['webgpu', 'webgl', 'canvas'];
     class SurfaceHost {
-        constructor({ initialize, Skia, backend = 'auto', resources, maxPixels = 32000000, onPaint, onError, onCanvasReplaced } = {}) {
-            if (!Skia && typeof initialize !== 'function')
-                throw new TypeError('Inject Skia or an asynchronous initialize function.');
-            Object.assign(this, { initializer: initialize, S: Skia, backend, resources, maxPixels, onPaint, onError, onCanvasReplaced });
-            this.canvas = null;
-            this.surface = null;
-            this.painter = null;
-            this.pending = null;
-            this.lastFrame = null;
+        constructor({ initialize, Skia, backend = 'auto', allowFallback = true, resources,
+            maxPixels = 32000000, onPaint, onError, onCanvasReplaced, onRecovery } = {}) {
+            if (!Skia && typeof initialize !== 'function') throw new TypeError('Inject Skia or an asynchronous initialize function.');
+            if (backend !== 'auto' && !MODES.includes(backend)) throw new RangeError('Unknown rendering backend.');
+            if (!Number.isSafeInteger(maxPixels) || maxPixels < 1) throw new RangeError('Positive integer pixel budget required.');
+            Object.assign(this, { initializer: initialize, S: Skia, backend, allowFallback, resources, maxPixels, onPaint, onError, onCanvasReplaced, onRecovery });
+            this.canvas = this.surface = this.painter = this.pending = this.lastFrame = this.presentedFrame = null;
             this.paintOptions = {};
-            this.suspended = false;
-            this.disposed = false;
-            this.generation = 0;
-            this.error = null;
-            this._running = null;
-            this._init = null;
-            this.paintCount = 0;
+            this.suspended = this.disposed = this.faulted = false;
+            this.generation = this.requestId = this.paintCount = 0;
+            this.error = this._running = this._init = null;
+            this.failedBackends = new Set();
+            this.recoveryEvents = [];
+            this._reportedError = '';
+            this._disposePromise = null;
+            this._retirements = new WeakMap();
         }
-        initialize(canvas) { if (this.disposed)
-            throw new Error('Surface host is disposed.'); if (!canvas || typeof canvas.getContext !== 'function')
-            throw new TypeError('An HTML canvas is required.'); this.canvas = canvas; return this; }
+        initialize(canvas) {
+            if (this.disposed) throw new Error('Surface host is disposed.');
+            if (!canvas || typeof canvas.getContext !== 'function') throw new TypeError('An HTML canvas is required.');
+            if (this.surface && this.canvas !== canvas) throw new Error('Cannot change an active canvas; dispose the host first.');
+            this.canvas = canvas;
+            return this;
+        }
         async ensureRuntime() {
-            if (this.disposed)
-                throw new Error('Surface host is disposed.');
+            if (this.disposed) throw new Error('Surface host is disposed.');
             this.S = await (this._init ||= (this.S ? Promise.resolve(this.S) : Promise.resolve().then(this.initializer)).catch(error => { this._init = null; throw error; }));
-            if (this.disposed)
-                throw new Error('Surface host disposed during initialization.');
+            if (this.disposed) throw new Error('Surface host disposed during initialization.');
             if (!this.painter) {
                 this.painter = new A.SkiaPainter(this.S, { resources: this.resources });
                 this.resources = this.painter.resources;
             }
             return this.S;
         }
-        request(frame, options = {}) { if (this.disposed)
-            return; this.lastFrame = frame; this.paintOptions = options; this.pending = frame; if (!this.suspended)
-            this.schedule(); }
+        request(frame, options = {}) {
+            if (this.disposed) return;
+            this.lastFrame = this.pending = frame;
+            this.paintOptions = options;
+            this.requestId++;
+            if (!this.suspended && !this.faulted) this.schedule();
+        }
+        reportError(error) {
+            this.error = error;
+            const signature = error.name + ':' + error.message;
+            if (signature !== this._reportedError) {
+                this._reportedError = signature;
+                try { this.onError?.(error); } catch { /* Consumer callbacks cannot start a rejection loop. */ }
+            }
+        }
         schedule() {
-            if (this._running || this.disposed || this.suspended)
-                return;
-            this._running = Promise.resolve().then(() => this.drain()).catch(error => { this.pending = null; this.error = error; this.onError?.(error); }).finally(() => { this._running = null; if (this.pending && !this.suspended && !this.disposed)
-                this.schedule(); });
+            if (this._running || this.disposed || this.suspended || this.faulted) return;
+            this._running = Promise.resolve().then(() => this.drain()).catch(error => {
+                this.pending = null;
+                if (!this.disposed) this.reportError(error);
+            }).finally(() => {
+                this._running = null;
+                if (this.pending && !this.suspended && !this.disposed && !this.faulted) this.schedule();
+            });
+        }
+        candidates() {
+            const start = this.backend === 'auto' ? 0 : MODES.indexOf(this.backend);
+            return MODES.slice(start, this.allowFallback ? undefined : start + 1).filter(mode => !this.failedBackends.has(mode));
+        }
+        replaceCanvas() {
+            const previous = this.canvas;
+            if (!previous?.cloneNode) throw new Error('Backend recovery requires a replaceable HTML canvas.');
+            const next = previous.cloneNode(false);
+            previous.replaceWith?.(next);
+            this.canvas = next;
+            this.onCanvasReplaced?.(next, previous);
+        }
+        async releaseSurface(surface = this.surface) {
+            if (!surface) return;
+            if (this.surface === surface) this.surface = null;
+            // All disposal callers join the same promise, including a loss during flush.
+            if (this._retirements.has(surface)) return this._retirements.get(surface);
+            const promise = (async () => {
+                try { if (surface.DisposeAsync) await surface.DisposeAsync(); else surface.Dispose(); }
+                catch (error) { this.disposalError = error; } // Native teardown failed; do not reuse it.
+            })();
+            this._retirements.set(surface, promise);
+            this._retiring = { surface, promise };
+            await promise;
+        }
+        recordFailure(mode, error) {
+            if (this.failedBackends.has(mode)) return;
+            this.failedBackends.add(mode);
+            const event = Object.freeze({ backend: mode, message: String(error?.message || error).slice(0, 2048) });
+            this.recoveryEvents.push(event);
+            this.painter?.clearCache();
+            try { this.onRecovery?.(event); } catch { /* Notification only. */ }
+        }
+        async ensureSurface(width, height) {
+            const epoch = this.generation;
+            if (this.surface && this.surface.Width === width && this.surface.Height === height) return;
+            await this.releaseSurface();
+            if (this.disposed || this.suspended || epoch !== this.generation) return;
+            const choices = this.negotiatedBackend && !this.failedBackends.has(this.negotiatedBackend)
+                ? [this.negotiatedBackend, ...this.candidates().filter(x => x !== this.negotiatedBackend)] : this.candidates();
+            for (const mode of choices) {
+                if (this.disposed || this.suspended || epoch !== this.generation) return;
+                if (this._replaceBeforeCreate) { this.replaceCanvas(); this._replaceBeforeCreate = false; }
+                this.canvas.width = width; this.canvas.height = height;
+                let created = null, loss = null;
+                try {
+                    created = await this.S.SKSurface.Create(this.canvas, { backend: mode, allowFallback: false, onDeviceLost: info => {
+                        loss = new Error('WebGPU device lost: ' + (info?.message || info?.reason || 'unknown reason'));
+                        if (this.disposed || this.surface !== created || !created) return;
+                        this.generation++;
+                        this.recordFailure(mode, loss);
+                        this._lostSurface = created;
+                        this.pending = this.lastFrame;
+                        this.schedule();
+                    } });
+                    if (this.disposed || this.suspended || epoch !== this.generation) {
+                        await this.releaseSurface(created);
+                        this._replaceBeforeCreate = true;
+                        return;
+                    }
+                    if (loss) { await this.releaseSurface(created); throw loss; }
+                    this.surface = created;
+                    this.negotiatedBackend = created.Backend || mode;
+                    if (created.Element && created.Element !== this.canvas) {
+                        const previous = this.canvas;
+                        this.canvas = created.Element;
+                        this.onCanvasReplaced?.(this.canvas, previous);
+                    }
+                    if (this.canvas.dataset) {
+                        this.canvas.dataset.skiaBackend = this.negotiatedBackend;
+                        this.canvas.dataset.renderer = 'DxfSkia';
+                    }
+                    return;
+                } catch (error) {
+                    if (this.disposed || epoch !== this.generation) { this._replaceBeforeCreate = true; return; }
+                    this.recordFailure(mode, error);
+                    this._replaceBeforeCreate = true;
+                }
+            }
+            this.faulted = true;
+            throw new Error('All permitted rendering backends failed. ' + this.recoveryEvents.map(e => e.backend + ': ' + e.message).join(' | '));
+        }
+        dimensions(frame) {
+            const { width, height, devicePixelRatio = 1 } = frame;
+            if (![width, height, devicePixelRatio].every(Number.isFinite) || width <= 0 || height <= 0 || devicePixelRatio <= 0)
+                throw new RangeError('Finite positive frame dimensions and device pixel ratio required.');
+            const w = Math.max(1, Math.round(width * devicePixelRatio)), h = Math.max(1, Math.round(height * devicePixelRatio));
+            if (!Number.isSafeInteger(w) || !Number.isSafeInteger(h) || w * h > this.maxPixels || w > 16384 || h > 16384)
+                throw new RangeError('Native surface pixel budget exceeded.');
+            return [w, h];
         }
         async drain() {
             await this.ensureRuntime();
-            while (this.pending && !this.suspended && !this.disposed) {
-                const frame = this.pending;
-                this.pending = null;
-                const width = Math.max(1, Math.round(frame.width * frame.devicePixelRatio)), height = Math.max(1, Math.round(frame.height * frame.devicePixelRatio));
-                if (width * height > this.maxPixels || width > 16384 || height > 16384)
-                    throw new RangeError('Native surface pixel budget exceeded.');
-                if (!this.canvas)
-                    throw new Error('Canvas is not attached.');
-                const epoch = this.generation;
-                if (!this.surface || this.surface.Width !== width || this.surface.Height !== height) {
-                    const old = this.surface;
-                    this.surface = null;
-                    if (old)
-                        await old.DisposeAsync();
-                    if (this.disposed)
-                        return;
-                    this.canvas.width = width;
-                    this.canvas.height = height;
-                    const canvas = this.canvas, surface = await this.S.SKSurface.Create(canvas, { backend: this.negotiatedBackend || this.backend, allowFallback: true, onDeviceLost: () => {
-                            if (!this.disposed && this.surface === surface) {
-                                this.generation++;
-                                this.negotiatedBackend = null;
-                                this.surface = null;
-                                surface.Dispose();
-                                this.pending = this.lastFrame;
-                                this.schedule();
-                            }
-                        } });
-                    if (this.disposed || epoch !== this.generation) {
-                        await surface.DisposeAsync();
-                        if (!this.disposed)
-                            this.pending = this.lastFrame;
-                        continue;
-                    }
-                    this.surface = surface;
-                    this.negotiatedBackend = surface.Backend;
-                    if (surface.Element && surface.Element !== this.canvas) {
-                        const previous = this.canvas;
-                        this.canvas = surface.Element;
-                        this.onCanvasReplaced?.(this.canvas, previous);
-                    }
-                    this.canvas.dataset.skiaBackend = surface.Backend;
-                    this.canvas.dataset.renderer = 'DxfSkia';
+            while (this.pending && !this.suspended && !this.disposed && !this.faulted) {
+                if (this._lostSurface) {
+                    await this.releaseSurface(this._lostSurface);
+                    this._lostSurface = null;
+                    this._replaceBeforeCreate = true;
+                    this.negotiatedBackend = null;
                 }
-                if (this.pending)
-                    continue; // Newer camera/size arrived during native initialization.
-                const stats = this.painter.draw(this.surface.Canvas, frame, this.paintOptions);
-                await this.surface.FlushAsync();
-                if (this.disposed)
-                    return;
-                this.error = null;
-                this.paintCount++;
-                this.onPaint?.({ ...stats, frame, paintCount: this.paintCount, backend: this.surface.Backend, fallbackReasons: this.surface.FallbackReasons || [] });
+                const frame = this.pending, options = this.paintOptions, id = this.requestId, epoch = this.generation;
+                this.pending = null;
+                const [width, height] = this.dimensions(frame); // Invalid input is NOT a GPU failure.
+                if (!this.canvas) throw new Error('Canvas is not attached.');
+                await this.ensureSurface(width, height);
+                if (this.disposed || this.suspended) return;
+                if (this.pending || id !== this.requestId || epoch !== this.generation) continue;
+                const surface = this.surface;
+                try {
+                    const stats = this.painter.draw(surface.Canvas, frame, options);
+                    await surface.FlushAsync();
+                    if (this.disposed || this.suspended || epoch !== this.generation || id !== this.requestId || this.surface !== surface) continue;
+                    this.error = null; this._reportedError = '';
+                    this.presentedFrame = frame;
+                    this.paintCount++;
+                    try {
+                        this.onPaint?.({ ...stats, frame, paintCount: this.paintCount, backend: surface.Backend,
+                            fallbackReasons: [...this.recoveryEvents.map(e => e.backend + ': ' + e.message), ...(surface.FallbackReasons || [])] });
+                    } catch (error) { this.callbackError = error; } // A UI callback is not a GPU failure.
+                } catch (error) {
+                    if (this.disposed) return;
+                    const mode = surface.Backend || this.negotiatedBackend;
+                    this.recordFailure(mode, error);
+                    await this.releaseSurface(surface);
+                    this._replaceBeforeCreate = true;
+                    this.negotiatedBackend = null;
+                    if (!this.allowFallback || !this.candidates().length) { this.faulted = true; throw error; }
+                    if (!this.suspended) this.pending ||= this.lastFrame;
+                }
             }
         }
-        async whenIdle() { while (this._running) {
-            await this._running;
-        } if (this.error)
-            throw this.error; return this.lastFrame; }
-        resume() { if (this.disposed)
-            return; this.suspended = false; if (this.lastFrame)
-            this.pending = this.lastFrame; this.schedule(); }
-        suspend() { this.suspended = true; this.pending = null; }
-        async registerResource(name, bytes, options) { await this.ensureRuntime(); const entry = this.resources.register(name, bytes, options); if (this.lastFrame)
-            this.request(this.lastFrame, this.paintOptions); await this.whenIdle(); return entry; }
-        async exportPng() { if (this.suspended)
-            throw new Error('Resume the drawing before exporting.'); await this.whenIdle(); if (!this.surface)
-            throw new Error('No rendered surface.'); const image = await this.surface.SnapshotAsync(); try {
-            const data = image.Encode(this.S.SKEncodedImageFormat.Png, 100);
+        async whenIdle() {
+            while (this._running) await this._running;
+            if (this.error) throw this.error;
+            return this.presentedFrame;
+        }
+        retryBackend(backend = this.backend) {
+            if (backend !== 'auto' && !MODES.includes(backend)) throw new RangeError('Unknown rendering backend.');
+            if (this.disposed) throw new Error('Surface host is disposed.');
+            this.backend = backend;
+            this.failedBackends.clear(); this.recoveryEvents = [];
+            this.error = null; this._reportedError = ''; this.faulted = false;
+            this.generation++;
+            this._lostSurface = this.surface;
+            this.negotiatedBackend = null;
+            this.pending = this.lastFrame;
+            this.schedule();
+        }
+        resume() { if (this.disposed) return; this.suspended = false; if (this.lastFrame) this.pending = this.lastFrame; this.schedule(); }
+        suspend() { this.suspended = true; this.generation++; this.pending = null; }
+        async registerResource(name, bytes, options) {
+            await this.ensureRuntime();
+            const entry = this.resources.register(name, bytes, options);
+            if (this.lastFrame) this.request(this.lastFrame, this.paintOptions);
+            await this.whenIdle();
+            return entry;
+        }
+        async exportPng() {
+            if (this.suspended) throw new Error('Resume the drawing before exporting.');
+            await this.whenIdle();
+            const surface = this.surface, epoch = this.generation;
+            if (!surface) throw new Error('No rendered surface.');
+            const image = await surface.SnapshotAsync();
             try {
-                return data.ToArray();
-            }
-            finally {
-                data.Dispose();
-            }
+                if (this.disposed || this.suspended || epoch !== this.generation || this.surface !== surface)
+                    throw new Error('Drawing changed while exporting.');
+                const data = image.Encode(this.S.SKEncodedImageFormat.Png, 100);
+                if (!data) throw new Error('PNG encoding failed.');
+                try { return data.ToArray(); } finally { data.Dispose(); }
+            } finally { image.Dispose(); }
         }
-        finally {
-            image.Dispose();
-        } }
         async exportPdf({ width = 842, height = 595, background = '#ffffff' } = {}) {
             await this.ensureRuntime();
             if (!this.lastFrame)
@@ -2641,13 +3021,19 @@
                 document.Dispose();
             }
         }
-        async dispose() { if (this.disposed)
-            return; this.disposed = true; this.generation++; this.pending = null; await this._running; const surface = this.surface; this.surface = null; if (surface)
-            await surface.DisposeAsync(); this.painter?.dispose(); this.painter = null; this.resources = null; this.canvas = null; }
+        dispose() {
+            if (this._disposePromise) return this._disposePromise;
+            this.disposed = true; this.generation++; this.pending = null;
+            return this._disposePromise = (async () => {
+                await this._running;
+                await this.releaseSurface();
+                await this._retiring?.promise;
+                this.painter?.dispose(); this.painter = null; this.resources = null; this.canvas = null;
+            })();
+        }
     }
     A.SurfaceHost = SurfaceHost;
-    if (typeof module === 'object' && module.exports)
-        module.exports = A;
+    if (typeof module === 'object' && module.exports) module.exports = A;
 })(globalThis);
 
 

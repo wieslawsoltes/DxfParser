@@ -13,7 +13,7 @@
     const dot = (a, b) => a.x * b.x + a.y * b.y + (a.z || 0) * (b.z || 0);
     const cross = (a, b) => vec(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
     const length = a => Math.hypot(a.x, a.y, a.z || 0);
-    const normal = a => { const n = length(a); if (!(n > EPS))
+    const normal = a => { const n = length(a); if (!(n > EPS) || !Number.isFinite(n))
         throw new RangeError('Zero length direction.'); return mul(a, 1 / n); };
     const distance = (a, b) => length(sub(a, b));
     const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
@@ -266,6 +266,106 @@
                 recurse(knots[i], knots[i + 1], evalAt(knots[i]), evalAt(knots[i + 1]), 0);
         return out;
     }
+    function quadraticRoots(a, b, c) {
+        const scale = Math.max(Math.abs(a), Math.abs(b), Math.abs(c));
+        if (!Number.isFinite(scale)) throw new RangeError('Curve derivative overflow.');
+        if (!scale) return [];
+        a /= scale; b /= scale; c /= scale;
+        if (Math.abs(a) <= Number.EPSILON * Math.max(Math.abs(b), Math.abs(c))) return b ? [-c / b] : [];
+        const d = b * b - 4 * a * c;
+        if (d < 0) return [];
+        const q = -.5 * (b + (b < 0 ? -1 : 1) * Math.sqrt(d));
+        return q ? [q / a, c / q] : [-b / (2 * a)];
+    }
+    /** Exact axis extrema for positive-weight quadratic conics and polynomial
+     * Beziers, also after arbitrary affine projection. Not tessellation bounds. */
+    function pathBounds(path, convert = p => p) {
+        const box = emptyBounds();
+        let last = null, first = null;
+        for (const [op, rawA, rawB, rawC] of path) {
+            if (op === 'Z') { if (first) extend(box, first); last = first; continue; }
+            const a = convert(rawA);
+            if (!validPoint(a)) throw new RangeError('Nonfinite path bound.');
+            if (op === 'M' || op === 'L') { extend(box, a); if (op === 'M') first = a; last = a; continue; }
+            if (!last) throw new RangeError('Curve requires a start point.');
+            const b = convert(rawB), c = op === 'C' ? convert(rawC) : null, p = last;
+            if (!validPoint(b) || (c && !validPoint(c))) throw new RangeError('Nonfinite curve bound.');
+            const end = c || b;
+            const at = t => {
+                const u = 1 - t;
+                if (op === 'C') return add(p, add(mul(sub(a, p), 3*u*u*t), add(mul(sub(b, p), 3*u*t*t), mul(sub(c, p), t*t*t))));
+                const w = op === 'K' ? rawC : 1;
+                if (!(w > 0 && Number.isFinite(w))) throw new RangeError('Invalid conic weight.');
+                return add(p, mul(add(mul(sub(a, p), 2*w*u*t), mul(sub(b, p), t*t)), 1/(u*u+2*w*u*t+t*t)));
+            };
+            extend(box, p); extend(box, end);
+            for (const axis of ['x', 'y', 'z']) {
+                const v0 = p[axis] || 0, v1 = (a[axis] || 0)-v0, v2 = (b[axis] || 0)-v0;
+                let roots;
+                if (op === 'C') {
+                    const d0=v1, d1=v2-v1, d2=(c[axis] || 0)-v0-v2;
+                    roots=quadraticRoots(d0-2*d1+d2, 2*(d1-d0), d0);
+                } else {
+                    const w=op==='K'?rawC:1, n1=2*w*v1, n2=v2-n1, d1=2*(w-1), d2=-d1;
+                    roots=quadraticRoots(n2*d1-n1*d2, 2*n2, n1);
+                }
+                for (const t of roots) if (t>0 && t<1) extend(box,at(t));
+            }
+            last=end;
+        }
+        return box;
+    }
+    /** Chord-length C2 cubic interpolation, O(n) memory/time. Optional endpoint
+     * tangent directions become clamped derivatives; closed data is periodic.
+     * The original fit points remain interpolation constraints, not a polygon. */
+    function interpolateFitPoints(input, { closed = false, startTangent, endTangent, maxPoints = 10000 } = {}) {
+        if (!Number.isSafeInteger(maxPoints) || maxPoints < 2) throw new RangeError('Invalid fit-point budget.');
+        if (!Array.isArray(input) || input.length > maxPoints || input.some(p => !validPoint(p))) throw new RangeError('Invalid or over-budget spline fit points.');
+        const points=[];
+        for (const p of input) if (!points.length || distance(points.at(-1),p)>0) points.push(p);
+        if (closed && points.length>1 && distance(points[0],points.at(-1))===0) points.pop();
+        const n=points.length;
+        if (n<2 || (closed && n<3)) throw new RangeError('Too few distinct spline fit points.');
+        const count=closed?n:n-1, lengths=Array.from({length:count},(_,i)=>distance(points[i],points[(i+1)%n]));
+        const total=lengths.reduce((a,b)=>a+b,0);
+        if (!(total>0 && Number.isFinite(total))) throw new RangeError('Invalid fit parameter range.');
+        const h=lengths.map(x=>x/total), lower=new Float64Array(n), diag=new Float64Array(n), upper=new Float64Array(n);
+        for(let i=0;i<n;i++) {
+            if(!closed && (i===0||i===n-1)) {diag[i]=1;continue;}
+            const prev=h[(i-1+count)%count],next=h[i%count];lower[i]=prev;diag[i]=2*(prev+next);upper[i]=next;
+        }
+        if(!closed && startTangent){normal(startTangent);diag[0]=2*h[0];upper[0]=h[0];}
+        if(!closed && endTangent){normal(endTangent);lower[n-1]=h[n-2];diag[n-1]=2*h[n-2];}
+        const solve=(rhs,diagonal=diag)=>{
+            const b=Float64Array.from(diagonal),x=Float64Array.from(rhs);
+            for(let i=1;i<n;i++){if(!b[i-1])throw new RangeError('Singular spline fit.');const q=lower[i]/b[i-1];b[i]-=q*upper[i-1];x[i]-=q*x[i-1];}
+            x[n-1]/=b[n-1];for(let i=n-2;i>=0;i--)x[i]=(x[i]-upper[i]*x[i+1])/b[i];
+            if([...x].some(v=>!Number.isFinite(v)))throw new RangeError('Ill-conditioned spline fit.');return x;
+        };
+        let cyclicDiag, z, beta, gamma;
+        if(closed){beta=h.at(-1);gamma=-diag[0];cyclicDiag=Float64Array.from(diag);cyclicDiag[0]-=gamma;cyclicDiag[n-1]-=beta*beta/gamma;
+            const u=new Float64Array(n);u[0]=gamma;u[n-1]=beta;z=solve(u,cyclicDiag);}
+        const second=Array.from({length:n},()=>vec());
+        for(const axis of ['x','y','z']) {
+            const slopes=h.map((dt,i)=>((points[(i+1)%n][axis]||0)-(points[i][axis]||0))/dt),rhs=new Float64Array(n);
+            for(let i=closed?0:1;i<(closed?n:n-1);i++)rhs[i]=6*(slopes[i%count]-slopes[(i-1+count)%count]);
+            if(!closed&&startTangent)rhs[0]=6*(slopes[0]-normal(startTangent)[axis]*total);
+            if(!closed&&endTangent)rhs[n-1]=6*(normal(endTangent)[axis]*total-slopes.at(-1));
+            const x=solve(rhs,cyclicDiag||diag);
+            if(closed){const factor=(x[0]+beta*x[n-1]/gamma)/(1+z[0]+beta*z[n-1]/gamma);for(let i=0;i<n;i++)x[i]-=factor*z[i];}
+            for(let i=0;i<n;i++)second[i][axis]=x[i];
+        }
+        const path=[['M',points[0]]];
+        for(let i=0;i<count;i++){
+            const j=(i+1)%n,delta=sub(points[j],points[i]),dt=h[i];
+            const a=add(points[i],sub(mul(delta,1/3),mul(add(mul(second[i],2),second[j]),dt*dt/18)));
+            const b=sub(points[j],add(mul(delta,1/3),mul(add(second[i],mul(second[j],2)),dt*dt/18)));
+            if(!validPoint(a)||!validPoint(b))throw new RangeError('Spline fit overflow.');
+            path.push(['C',a,b,points[j]]);
+        }
+        if(closed)path.push(['Z']);
+        return path;
+    }
     class SpatialIndex {
         constructor(items = [], leafSize = 16) { if (!Number.isInteger(leafSize) || leafSize < 1)
             throw new RangeError('Positive integer leaf size required.'); this.leafSize = leafSize; this.root = this.build(items.filter(x => !isEmpty(x.bounds))); }
@@ -293,7 +393,7 @@
                 stack.push(n.left, n.right);
         } return found; }
     }
-    Object.assign(api, { geometry: Object.freeze({ TAU, EPS, finite, clamp, vec, add, sub, mul, dot, cross, length, normal, distance, lerp, validPoint, identity, multiply, translation, scaling, rotation, transform, direction, inverse, ocs, viewBasis, project, emptyBounds, isEmpty, extend, bounds, union, intersects, inBounds, center, segmentDistance, pointInPolygon, inLoops, segmentIntersection, pathFromPoints, transformPath, arcPath, bulgePath, flatten, evaluateNurbs, createNurbsEvaluator, sampleNurbs }), SpatialIndex });
+    Object.assign(api, { geometry: Object.freeze({ TAU, EPS, finite, clamp, vec, add, sub, mul, dot, cross, length, normal, distance, lerp, validPoint, identity, multiply, translation, scaling, rotation, transform, direction, inverse, ocs, viewBasis, project, emptyBounds, isEmpty, extend, bounds, union, intersects, inBounds, center, segmentDistance, pointInPolygon, inLoops, segmentIntersection, pathFromPoints, transformPath, arcPath, bulgePath, flatten, evaluateNurbs, createNurbsEvaluator, sampleNurbs, pathBounds, interpolateFitPoints }), SpatialIndex });
     if (typeof module === 'object' && module.exports)
         module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

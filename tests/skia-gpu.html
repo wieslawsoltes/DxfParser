@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Native Skia graphics qualification</title>
+<style>body{margin:0;background:#212830}canvas{display:block;width:640px;height:480px}</style>
+<canvas id="drawing" width="640" height="480"></canvas>
+<script src="../dist/dxf-rendering.global.js"></script>
+<script type="module">
+window.S = await DxfRendering.initializeSkia();
+window.makeScene = text => new DxfSkia.SceneCompiler(new DxfSkia.DxfDocument(text)).compile();
+window.start = async (text, backend='webgpu', allowFallback=false) => {
+ window.host = new DxfSkia.SurfaceHost({Skia:S,backend,allowFallback});
+ host.initialize(document.querySelector('canvas'));
+ window.frame = DxfSkia.prepareFrame(makeScene(text),{width:640,height:480});
+ host.request(frame); await host.whenIdle(); return host.surface.RenderMode;
+};
+window.ready = true;
+</script></html>

@@ -44,7 +44,20 @@
             this.issuePanel = el('section', 'dxf-cad-tool');
             this.issueSummary = el('p', 'dxf-cad-note', 'Unsupported, missing-resource and malformed-geometry reports appear here.');
             this.issueRows = el('div', 'dxf-cad-records');
-            this.issuePanel.append(this.issueSummary, this.issueRows);
+            this.graphicsControls = el('div', 'dxf-cad-graphics-controls');
+            const graphicsLabel = el('label', '', 'Graphics backend');
+            this.backendSelect = el('select');
+            this.backendSelect.setAttribute('aria-label', 'Graphics backend');
+            for (const [value, text] of [['auto', 'Automatic'], ['webgpu', 'WebGPU / Graphite'], ['webgl', 'WebGL / Ganesh'], ['canvas', 'Skia raster']]) {
+                const option = el('option', '', text); option.value = value; this.backendSelect.append(option);
+            }
+            this.backendSelect.value = this.manager.host.backend;
+            this.retryGraphics = el('button', '', 'Retry graphics'); this.retryGraphics.type = 'button';
+            this.graphicsNote = el('p', 'dxf-cad-note'); this.graphicsNote.setAttribute('role', 'status');
+            this.backendSelect.addEventListener('change', () => this.setBackend(this.backendSelect.value), { signal: this.abort.signal });
+            this.retryGraphics.addEventListener('click', () => this.setBackend(this.backendSelect.value), { signal: this.abort.signal });
+            graphicsLabel.append(this.backendSelect); this.graphicsControls.append(graphicsLabel, this.retryGraphics);
+            this.issuePanel.append(this.graphicsControls, this.graphicsNote, this.issueSummary, this.issueRows);
             this.resourcePanel = el('section', 'dxf-cad-tool');
             this.fileInput = el('input');
             this.fileInput.type = 'file';
@@ -80,7 +93,7 @@
             const paint = this.manager.onPaint;
             this.manager.onPaint = stats => { paint?.(stats); this.refresh(stats); };
             const error = this.manager.onError;
-            this.manager.onError = e => { error?.(e); this.status.textContent = 'Skia error: ' + e.message; this.write(e.message, true); };
+            this.manager.onError = e => { error?.(e); this.status.textContent = 'Skia error: ' + e.message; this.graphicsNote.textContent = e.message + ' — choose a backend or Retry graphics.'; this.write(e.message, true); };
             this.previousPaint = paint;
             this.previousError = error;
             this.write('Native Skia drawing. Type HELP for available view commands.');
@@ -91,6 +104,16 @@
         write(message, error = false) { if (this.disposed)
             return; const line = el('div', error ? 'dxf-cad-error' : '', message); this.log.append(line); while (this.log.children.length > 150)
             this.log.firstChild.remove(); this.log.scrollTop = this.log.scrollHeight; }
+        async setBackend(backend) {
+            if (this.graphicsChanging) return;
+            this.graphicsChanging = true; this.retryGraphics.disabled = true; this.backendSelect.disabled = true;
+            try {
+                this.manager.host.retryBackend(backend);
+                await this.manager.ready;
+                this.refresh(); this.write('Graphics backend: ' + (this.manager.activeSurface?.Backend || backend));
+            } catch (error) { this.write(error.message, true); }
+            finally { this.graphicsChanging = false; this.retryGraphics.disabled = false; this.backendSelect.disabled = false; }
+        }
         active() { return !!this.manager.sceneGraph; }
         layout(name) { const frame = this.manager.setLayout(name); this.overlay?.applyViewState({ mode: 'auto' }); this.refresh(); return frame; }
         view(name) { const entry = Object.entries(views).find(([key]) => key.toUpperCase() === String(name).toUpperCase()); if (!entry)
@@ -109,9 +132,10 @@
                     throw new RangeError('Command length limit exceeded.');
                 const args = (text.match(/"[^"]*"|'[^']*'|\S+/g) || []).map(v => v.replace(/^["']|["']$/g, '')), command = args.shift().toUpperCase(), m = this.manager;
                 if (command === 'HELP') {
-                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | PNG | PDF. These are view commands; tree editing remains in Home.');
+                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF. These are view commands; tree editing remains in Home.');
                     return;
                 }
+                if (command === 'RENDERER') { await this.setBackend((args[0] || this.manager.host.backend).toLowerCase()); return; }
                 if (!this.active())
                     throw new Error('Open a DXF drawing and choose Render DXF first.');
                 if (command === 'ZOOM' || command === 'Z') {
@@ -223,6 +247,9 @@
                 }
             }
             const s = stats || m.stats;
+            this.backendSelect.value = m.host.backend;
+            this.graphicsNote.textContent = m.host.error ? m.host.error.message :
+                (s?.fallbackReasons?.length ? 'Recovered: ' + s.fallbackReasons.join(' | ') : 'Native backend: ' + (s?.backend || m.host.backend));
             this.status.textContent = s ? `Skia ${s.backend} · ${(s.drawn || 0).toLocaleString()} visible · ${m.diagnostics.length} notices` : 'Skia · preparing';
             const stamp = JSON.stringify([document?.tabId, m.diagnostics]);
             if (stamp !== this.issueStamp) {
@@ -256,6 +283,8 @@
                     cmd('skia-snap', 'Object snaps', () => { this.manager.snapEnabled = this.manager.snapEnabled === false; this.repaint(); }, { type: 'toggle', enabled })
                 ]),
                 group('skia-tools', 'Rendering Tools', [
+                    cmd('skia-backend', 'Graphics backend', value => this.setBackend(value), { type: 'dropdown', value: this.manager.host.backend, items: [{value:'auto',label:'Automatic'},{value:'webgpu',label:'WebGPU / Graphite'},{value:'webgl',label:'WebGL / Ganesh'},{value:'canvas',label:'Skia raster'}] }),
+                    cmd('skia-retry', 'Retry graphics', () => this.setBackend(this.manager.host.backend), { icon: 'refresh' }),
                     cmd('skia-command', 'Command line', () => { this.workspace.show('render-console'); this.input.focus(); }, { icon: 'code' }),
                     cmd('skia-diagnostics', 'Rendering diagnostics', () => this.workspace.show('render-diagnostics'), { icon: 'check' }),
                     cmd('skia-resources', 'Fonts / images', () => { this.workspace.show('render-resources'); this.refreshResources(); }, { icon: 'font' }),
@@ -263,7 +292,7 @@
                 ])
             ];
         }
-        updateRibbon(r) { const m = this.manager; r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
+        updateRibbon(r) { const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
         dispose() { if (this.disposed)
             return; this.disposed = true; this.abort.abort(); for (const v of this.views)
             v.dispose(); this.views = []; this.footer.remove(); this.manager.onPaint = this.previousPaint; this.manager.onError = this.previousError; this.manager.dispose(); }

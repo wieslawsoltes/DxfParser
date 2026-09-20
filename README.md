@@ -1,4 +1,4 @@
-# DxfParser — native Skia rendering candidate
+# DxfParser — native Skia rendering
 
 DXF inspection, independent dock documents, analysis records, spreadsheet/document
 previews and a CAD-oriented native SkiaSharpWeb rendering workspace.
@@ -16,6 +16,7 @@ No build or CDN is required to run the checked-in browser assets.
 ## Core guides
 
 [New renderer and migration](docs/skia-renderer.md) ·
+[0.2.0 WebGPU fixes and rendering improvements](docs/skia-renderer-improvements.md) ·
 [Reusable DxfSkia package](packages/dxf-skia/README.md) ·
 [Rendering compatibility and limits](packages/dxf-skia/COMPATIBILITY.md) ·
 [Ribbon and dock documents](docs/ribbon-document-workspace.md) ·
@@ -37,6 +38,7 @@ npm install --global typescript@5.8.3
 python -m pip install -r tests/requirements-browser.txt
 python -m playwright install --with-deps chromium
 bash tests/run-all.sh
+xvfb-run -a python tests/skia-gpu.py
 ```
 
 An existing Chromium executable may be supplied through `CHROMIUM_EXECUTABLE`.
@@ -44,4 +46,5 @@ The native font test uses an installed system font or `SKIA_TEST_FONT`; it skips
 with an explicit reason when neither exists. It never packages those bytes.
 
 The workflow `skia-renderer.yml` runs native pixels, package consumers and all
-application integration suites. Local qualification is not a GitHub Actions result.
+application integration suites, plus required real Graphite/WebGPU and Ganesh/WebGL
+checks on software Vulkan/SwiftShader. Local qualification is not a GitHub Actions result.

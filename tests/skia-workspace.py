@@ -138,4 +138,21 @@ class SkiaWorkspaceTests(unittest.TestCase):
         self.assertIn('Unknown command',self.page.locator('.dxf-cad-log').inner_text())
         self.command('PAN NaN 0');self.assertIn('finite',self.page.locator('.dxf-cad-log').inner_text())
 
-if __name__=='__main__':unittest.main(verbosity=2)
+    def test_17_graphics_backend_selection_keeps_drawing_camera_selection_and_resources(self):
+        self.render();self.command('ZOOM 2');self.command('SELECT AB')
+        self.page.evaluate('window.before={scene:m.compiled,resources:m.resources,scale:m.lastFrame.scale};w.show("render-diagnostics")');self.settle()
+        self.page.get_by_label('Graphics backend',exact=True).select_option('canvas')
+        self.page.wait_for_function('!cad.graphicsChanging && m.host.backend==="canvas"');self.settle()
+        self.assertJS('m.activeSurface.Backend==="canvas" && m.compiled===before.scene && m.resources===before.resources && m.lastFrame.scale===before.scale && m.selectionHandles.has("AB")')
+        self.assertIn('canvas',self.page.locator('.dxf-cad-graphics-controls + .dxf-cad-note').inner_text())
+    def test_18_retry_graphics_recreates_surface_without_replacing_document(self):
+        self.render();self.command('RENDERER canvas')
+        self.page.evaluate('window.old=m.activeSurface;window.documentBefore=m.sceneGraph;w.show("render-diagnostics")');self.settle()
+        self.page.get_by_role('button',name='Retry graphics',exact=True).click();self.page.wait_for_function('!cad.graphicsChanging && m.activeSurface!==old');self.settle()
+        self.assertJS('old.IsDisposed && m.sceneGraph===documentBefore && !m.host.error && !m.host.faulted')
+    def test_19_renderer_command_rejects_unknown_backend_without_losing_the_surface(self):
+        self.render();self.page.evaluate('window.old=m.activeSurface')
+        self.command('RENDERER unknown');self.assertIn('Unknown rendering backend',self.page.locator('.dxf-cad-log').inner_text())
+        self.assertJS('m.activeSurface===old && !old.IsDisposed && !cad.graphicsChanging')
+
+if __name__=='__main__' :unittest.main(verbosity=2)

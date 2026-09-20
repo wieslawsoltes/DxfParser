@@ -168,3 +168,35 @@ test('all representative DXF fixtures compile and draw with explicit error accou
     records.push({ name, entities: doc.entities.length, primitives: scene.primitives.length, diagnostics: result.stats.diagnostics });
     fs.writeFileSync(path.join(out, name + '.png'), result.png);
 } fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ backend: 'native Skia raster', records }, null, 2)); });
+function gradientHatch(name='LINEAR',angle=0,more=[]) { return [...hatch(),[450,1],[470,name],[453,2],[421,0xff0000],[421,0x0000ff],[460,angle],...more]; }
+test('native linear hatch shader interpolates colors and preserves the island mask',()=>{
+    const r=draw(compile(gradientHatch()));noErrors(r);
+    const left=rgbAt(r,vec(-8,5)),right=rgbAt(r,vec(8,5));
+    assert.ok(left[0]>200 && left[2]<60,JSON.stringify(left));assert.ok(right[2]>200 && right[0]<60,JSON.stringify(right));
+    assert.deepEqual(rgbAt(r,vec()),[33,40,48]);fs.writeFileSync(path.join(out,'gradient-linear.png'),r.png);
+});
+test('native cylindrical and radial gradient families differ and survive rotated INSERT transforms',()=>{
+    const images=[];
+    for(const name of ['CYLINDER','INVCYLINDER','SPHERICAL','INVSPHERICAL']) {
+        const r=draw(compile(gradientHatch(name)));noErrors(r);images.push(r.png);fs.writeFileSync(path.join(out,'gradient-'+name.toLowerCase()+'.png'),r.png);
+    }
+    for(let i=1;i<images.length;i++)assert.notDeepEqual(images[i],images[i-1]);
+    const r=draw(compile([[0,'INSERT'],[2,'GRADIENT'],[41,-2],[42,3],[50,30],[10,100],[20,80]],{}, {blocks:block('GRADIENT',gradientHatch())}));
+    noErrors(r);assert.ok(r.stats.drawn>0);
+});
+test('native outer and ignore island styles visibly differ from normal nesting',()=>{
+    const loops=[[-10,10,3],[-6,6,18],[-2,2,2]],records=style=>[[0,'HATCH'],[70,1],[420,0x00ff00],[91,3],...loops.flatMap(([lo,hi,flag])=>[[92,flag],[72,0],[73,1],[93,4],[10,lo],[20,lo],[10,hi],[20,lo],[10,hi],[20,hi],[10,lo],[20,hi],[97,0]]),[75,style]];
+    const n=draw(compile(records(0))),o=draw(compile(records(1))),i=draw(compile(records(2)));for(const r of [n,o,i])noErrors(r);
+    assert.deepEqual(rgbAt(n,vec()),[0,255,0]);assert.deepEqual(rgbAt(o,vec()),[33,40,48]);assert.deepEqual(rgbAt(i,vec(4,0)),[0,255,0]);
+});
+test('rotated hatch gradient follows its entity-space angle rather than the screen axes',()=>{
+    const r=draw(compile(gradientHatch('LINEAR',Math.PI/2)));noErrors(r);
+    const bottom=rgbAt(r,vec(5,-8)),top=rgbAt(r,vec(5,8));assert.ok(bottom[0]>200);assert.ok(top[2]>200);
+});
+test('native circular paper viewport clips model lines at curve boundaries',()=>{
+    const viewport=[[0,'VIEWPORT'],[5,'V'],[67,1],[410,'Sheet'],[69,2],[68,1],[10,0],[20,0],[40,20],[41,20],[45,20],[340,'CLIP']];
+    const doc=new A.DxfDocument(file([...line('L',-10,8,10,8),[420,0xff0000],...viewport,...circle('CLIP'),[67,1],[410,'Sheet']]));
+    const r=draw(new A.SceneCompiler(doc).compile('Sheet'));noErrors(r);
+    assert.deepEqual(rgbAt(r,vec(8,8)),[33,40,48]);assert.ok(rgbAt(r,vec(0,8))[0]>80);
+    fs.writeFileSync(path.join(out,'circular-viewport.png'),r.png);
+});

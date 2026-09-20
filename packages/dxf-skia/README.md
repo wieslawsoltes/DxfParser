@@ -142,3 +142,21 @@ Skia pixels, package installation, strict TypeScript consumers, vendor checksums
 and deterministic distribution. Existing application integration suites separately
 exercise Dockyard, RibbonWeb, analysis records and Office previews. Hardware GPU
 qualification and AutoCAD-authored golden-image comparisons are separate work.
+
+## 0.2.0 GPU recovery and geometry additions
+
+`SurfaceHost` accepts `allowFallback` and `onRecovery`, exposes failure/recovery state,
+and provides `retryBackend('auto' | 'webgpu' | 'webgl' | 'canvas')`. Each failed backend
+is retired at most once per explicit retry cycle. No failed native frame is reported
+as presented. The application adds backend selection/retry without discarding files.
+
+`geometry.pathBounds()` computes exact path extrema. `geometry.interpolateFitPoints()`
+constructs chord-length C2 native cubic paths with natural/clamped/periodic endpoints.
+`maxHatchLoops` bounds hatch boundary processing. `snap()` accepts a fourth iterable
+of modes, including optional `nearest`; native curve endpoint/midpoint/quadrant modes
+avoid artificial tessellation endpoints. See COMPATIBILITY.md for the expanded
+hatch, clipping and dimension coverage and the remaining fidelity limits.
+
+In DxfParser, `xvfb-run -a python tests/skia-gpu.py` additionally requires actual
+Graphite/WebGPU and Ganesh/WebGL on SwiftShader. A missing adapter fails the suite;
+software GPU execution is not physical-hardware certification.

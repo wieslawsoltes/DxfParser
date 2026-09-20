@@ -15,7 +15,7 @@
             return cache.get(key);
         const entries = scene.primitives.map((primitive, index) => {
             const points = (primitive.points || []).map(p => project(p, basis)), rings = (primitive.rings || [primitive.points || []]).map(r => r.map(p => project(p, basis)));
-            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : bounds(points);
+            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : primitive.path ? G.pathBounds(primitive.path, p => project(p, basis)) : bounds(points);
             for (const clip of primitive.clips || [])
                 if (!clip.inverse) {
                     const cb = bounds((clip.loops?.flat() || clip.points || []).map(p => project(p, basis)));
@@ -62,13 +62,14 @@
     function nativeDash(pattern, scale = 1, dotLength = .01) {
         if (!pattern?.length)
             return { intervals: [], phase: 0 };
-        if (pattern.length > 1024 || !(scale > 0) || !Number.isFinite(scale))
+        if (pattern.length > 1024 || !(scale > 0) || !Number.isFinite(scale) || !(dotLength > 0) || !Number.isFinite(dotLength))
             throw new RangeError('Invalid linetype pattern.');
         const runs = [];
         for (const n of pattern) {
             if (!Number.isFinite(n))
                 throw new RangeError('Nonfinite dash length.');
             const ink = n >= 0, len = n === 0 ? dotLength : Math.abs(n) * scale;
+            if (!Number.isFinite(Math.fround(len))) throw new RangeError('Native dash length overflow.');
             const last = runs.at(-1);
             if (last?.ink === ink)
                 last.length += len;
@@ -84,7 +85,9 @@
             runs.pop();
         }
         const pivot = runs[0].ink ? 0 : 1, prefix = pivot ? runs[0].length : 0;
-        const cycle = runs.reduce((n, r) => n + r.length, 0), ordered = [...runs.slice(pivot), ...runs.slice(0, pivot)];
+        const cycle = runs.reduce((n, r) => n + r.length, 0);
+        if (!Number.isFinite(Math.fround(cycle))) throw new RangeError('Native dash cycle overflow.');
+        const ordered = [...runs.slice(pivot), ...runs.slice(0, pivot)];
         return { intervals: ordered.map(r => r.length), phase: ((offset - prefix) % cycle + cycle) % cycle };
     }
     function prepareFrame(scene, { width = 800, height = 600, devicePixelRatio = 1, viewState = {}, viewDirection = vec(0, 0, 1), padding = 32, visualStyle = '2dwireframe', background = '#212830' } = {}) {
@@ -92,6 +95,8 @@
             throw new TypeError('Expected a compiled scene.');
         if (!(width > 0 && height > 0 && width <= 32768 && height <= 32768))
             throw new RangeError('Invalid viewport size.');
+        if (!Number.isFinite(devicePixelRatio) || devicePixelRatio <= 0 || !Number.isFinite(padding) || padding < 0 || (viewState.rotationRad !== undefined && !Number.isFinite(viewState.rotationRad)))
+            throw new RangeError('Invalid device pixel ratio, padding or view rotation.');
         const basis = viewBasis(viewDirection, 0), projection = projectedScene(scene, basis), b = projection.bounds, isEmpty = G.isEmpty(b);
         const autoCenter = isEmpty ? vec() : center(b), dx = isEmpty ? 100 : Math.max(1e-6, b.maxX - b.minX), dy = isEmpty ? 100 : Math.max(1e-6, b.maxY - b.minY);
         const angle = Number(viewState.rotationRad) || 0, cos = Math.cos(angle), sin = Math.sin(angle);
@@ -113,7 +118,12 @@
                     return null;
             }
             const screenPoints = points.map(screen);
-            return { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer, worldBounds: p.bounds, screenBounds: bounds(screenPoints), worldPoints: p.points, screenPoints, isClosed: !!p.closed, weight: entry.index, primitive: p, entry, clips: p.clips };
+            // A conservative exact bound must not depend on pick-tessellation density.
+            const b = entry.bounds;
+            const screenBounds = p.infinite ? bounds(screenPoints) : bounds([
+                vec(b.minX,b.minY), vec(b.maxX,b.minY), vec(b.maxX,b.maxY), vec(b.minX,b.maxY)
+            ].map(screen));
+            return { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer, worldBounds: p.bounds, screenBounds, worldPoints: p.points, screenPoints, isClosed: !!p.closed, weight: entry.index, primitive: p, entry, clips: p.clips };
         }).filter(Boolean);
         const frame = { scene, width, height, devicePixelRatio, scale, worldCenter: c, rotationRad: Number(viewState.rotationRad) || 0, rotationDeg: (Number(viewState.rotationRad) || 0) * 180 / Math.PI,
             worldBounds: scene.bounds, bounds: b, isEmpty, autoViewState: { mode: 'auto', center: autoCenter, scale: autoScale, rotationRad: Number(viewState.rotationRad) || 0 }, viewState: { mode: custom ? 'custom' : 'auto', center: c, scale, rotationRad: Number(viewState.rotationRad) || 0 },
@@ -172,32 +182,46 @@
         } };
         for (const pick of frame.pickables) {
             const p = pick.primitive;
-            if (!G.inBounds(screenPoint, pick.screenBounds, tolerance))
-                continue;
-            if (p.center)
-                consider(p.center, 'center', pick);
-            if (p.kind === 'point')
-                consider(p.points[0], 'node', pick);
-            if (p.path) {
+            if (p.style.alpha <= 0) continue;
+            // Arc centers can lie outside the arc's bounding box.
+            if (p.center) consider(p.center, 'center', pick);
+            if (!G.inBounds(screenPoint, pick.screenBounds, tolerance)) continue;
+            if (p.kind === 'point') consider(p.points[0], 'node', pick);
+            if (p.curve) {
+                const { center, u, v, start, sweep } = p.curve;
+                const at = t => add(center, add(mul(u, Math.cos(t)), mul(v, Math.sin(t))));
+                if (!p.closed) {
+                    consider(at(start), 'endpoint', pick); consider(at(start + sweep), 'endpoint', pick);
+                    consider(at(start + sweep / 2), 'midpoint', pick);
+                }
+                for (let i = 0; i < 4; i++) {
+                    const angle = i * Math.PI / 2, delta = ((angle - start) % G.TAU + G.TAU) % G.TAU;
+                    if (delta <= sweep + 1e-10) consider(at(angle), 'quadrant', pick);
+                }
+            } else if (p.path) {
                 let previous = null, first = null;
                 for (const cmd of p.path) {
-                    let end = cmd[0] === 'K' || cmd[0] === 'Q' ? cmd[2] : cmd[0] === 'C' ? cmd[3] : cmd[1];
-                    if (cmd[0] === 'Z')
-                        end = first;
-                    if (!end)
-                        continue;
-                    if (cmd[0] === 'M') {
-                        first = end;
-                        consider(end, p.closed && p.center ? 'quadrant' : 'endpoint', pick);
+                    const op = cmd[0];
+                    const end = op === 'Z' ? first : op === 'K' || op === 'Q' ? cmd[2] : op === 'C' ? cmd[3] : cmd[1];
+                    if (!end) continue;
+                    if (op === 'M') first = end;
+                    consider(end, 'endpoint', pick);
+                    if (previous && (op === 'L' || op === 'Z')) consider(G.lerp(previous, end, .5), 'midpoint', pick);
+                    if (previous && (op === 'K' || op === 'Q')) {
+                        const weight = op === 'K' ? cmd[3] : 1;
+                        const middle = add(previous, mul(add(mul(sub(cmd[1], previous), 2 * weight), sub(end, previous)), 1 / (2 + 2 * weight)));
+                        consider(middle, 'midpoint', pick);
                     }
-                    else if (cmd[0] === 'L') {
-                        consider(end, 'endpoint', pick);
-                        if (previous)
-                            consider(G.lerp(previous, end, .5), 'midpoint', pick);
-                    }
-                    else if (cmd[0] === 'K' && p.center)
-                        consider(end, 'quadrant', pick);
                     previous = end;
+                }
+            }
+            if (modes.has('nearest')) {
+                const q = frame.toProjected(screenPoint);
+                for (const ring of pick.entry.rings) for (let i = 1; i < ring.length; i++) {
+                    const nearest = G.segmentDistance(q, ring[i - 1], ring[i]);
+                    // Rings and primitive geometry have corresponding sample indices.
+                    const world = add(add(mul(frame.basis.x, nearest.point.x), mul(frame.basis.y, nearest.point.y)), mul(frame.basis.z, nearest.point.z));
+                    consider(world, 'nearest', pick);
                 }
             }
         }
@@ -205,17 +229,25 @@
     }
     function nativePath(S, commands, convert = p => p) {
         const path = new S.SKPath();
+        const checked = point => {
+            const p = convert(point);
+            if (!p || !Number.isFinite(Math.fround(p.x)) || !Number.isFinite(Math.fround(p.y)))
+                throw new RangeError('Native path coordinate exceeds finite float32 range.');
+            return p;
+        };
         try {
             for (const [op, a, b, c] of commands) {
-                const p = a && convert(a), q = b && typeof b !== 'number' ? convert(b) : b;
+                const p = a && checked(a), q = b && typeof b !== 'number' ? checked(b) : b;
                 if (op === 'M')
                     path.MoveTo(p.x, p.y);
                 else if (op === 'L')
                     path.LineTo(p.x, p.y);
-                else if (op === 'K')
+                else if (op === 'K') {
+                    if (!(c > 0) || !Number.isFinite(Math.fround(c))) throw new RangeError('Positive finite native conic weight required.');
                     path.ConicTo(p.x, p.y, q.x, q.y, c);
+                }
                 else if (op === 'C') {
-                    const r = convert(c);
+                    const r = checked(c);
                     path.CubicTo(p.x, p.y, q.x, q.y, r.x, r.y);
                 }
                 else if (op === 'Q')
@@ -236,6 +268,7 @@
             if (!S?.SKPath || !S?.SKPaint)
                 throw new TypeError('An initialized SkiaSharpWeb namespace is required.');
             this.S = S;
+            if (!Number.isSafeInteger(cacheLimit) || cacheLimit < 1) throw new RangeError('Positive integer path cache limit required.');
             this.resources = resources || new A.ResourceStore(S);
             this.ownsResources = !resources;
             this.cacheLimit = cacheLimit;
@@ -278,15 +311,18 @@
             if (clear)
                 canvas.Clear(S.SKColor.Parse(background));
             const save = canvas.Save();
+            let drawn = 0;
             try {
                 canvas.Scale(frame.devicePixelRatio, frame.devicePixelRatio);
                 if (grid)
                     this.drawGrid(canvas, frame);
                 for (const pick of frame.pickables) {
                     try {
-                        this.drawPrimitive(canvas, frame, pick, false);
+                        if (pick.primitive.style.alpha <= 0) continue;
+                        this.drawPrimitive(canvas, frame, pick, false); drawn++;
                     }
                     catch (error) {
+                        if (/GPURenderPassEncoder|GPUDevice|WebGPU|Graphite|device lost|context lost/i.test(error.message)) throw error;
                         this.diagnostics.add('skia-primitive', error.message, pick.primitive.source, 'error');
                     }
                 }
@@ -296,6 +332,7 @@
                             this.drawPrimitive(canvas, frame, pick, true);
                         }
                         catch (error) {
+                            if (/GPURenderPassEncoder|GPUDevice|WebGPU|Graphite|device lost|context lost/i.test(error.message)) throw error;
                             this.diagnostics.add('skia-selection', error.message, pick.primitive.source);
                         }
                     }
@@ -303,9 +340,9 @@
             finally {
                 canvas.RestoreToCount(save);
             }
-            return { drawn: frame.pickables.length, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
+            return { drawn, visible: frame.pickables.length, omitted: frame.pickables.length - drawn, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
         }
-        configure(p, selected = false) { const S = this.S, paint = this.paint; paint.PathEffect = null; paint.ColorFilter = null; paint.Color = S.SKColor.Parse(selected ? '#63c9ff' : p.style.color); paint.Alpha = Math.round(255 * (selected ? 1 : p.style.alpha)); paint.Style = p.fill && !selected ? S.SKPaintStyle.Fill : S.SKPaintStyle.Stroke; paint.StrokeWidth = 1; return paint; }
+        configure(p, selected = false) { const S = this.S, paint = this.paint; paint.PathEffect = null; paint.ColorFilter = null; paint.Shader = null; paint.Color = S.SKColor.Parse(selected ? '#63c9ff' : p.style.color); paint.Alpha = Math.round(255 * (selected ? 1 : p.style.alpha)); paint.Style = p.fill && !selected ? S.SKPaintStyle.Fill : S.SKPaintStyle.Stroke; paint.StrokeWidth = 1; return paint; }
         drawPrimitive(canvas, frame, pick, selected) {
             const p = pick.primitive, S = this.S, paint = this.configure(p, selected), save = canvas.Save();
             try {
@@ -368,7 +405,8 @@
                     if (dash.empty)
                         return;
                     if (dash.intervals.length) {
-                        const effect = S.SKPathEffect.CreateDash(dash.intervals, dash.phase);
+                        const cycle=dash.intervals.reduce((a,b)=>a+b,0);
+                        const effect = S.SKPathEffect.CreateDash(dash.intervals, ((dash.phase+(p.style.dashOffset||0))%cycle+cycle)%cycle);
                         try {
                             paint.PathEffect = effect;
                         }
@@ -376,6 +414,20 @@
                             effect?.Dispose();
                         }
                     }
+                }
+                if (p.gradient && !selected) {
+                    const g=p.gradient, q=sub(project(g.origin,frame.basis),entry.origin), u=project(g.u,frame.basis), v=project(g.v,frame.basis);
+                    const matrix=[u.x,v.x,q.x,u.y,v.y,q.y,0,0,1], colors=g.colors.map(c=>S.SKColor.Parse(c));
+                    let shader;
+                    const shift=g.shift, center=shift; // normalized CAD gradient-space translation
+                    if(g.name.includes('SPHERICAL')) {
+                        const cs=g.name.startsWith('INV')?colors.slice().reverse():colors;
+                        shader=S.SKShader.CreateRadialGradient([center,0],1,cs,[0,1],S.SKShaderTileMode.Clamp,matrix);
+                    } else {
+                        const cylinder=g.name.includes('CYLINDER'), cs=cylinder?(g.name.startsWith('INV')?[colors[1],colors[0],colors[1]]:[colors[0],colors[1],colors[0]]):colors;
+                        shader=S.SKShader.CreateLinearGradient([-1+center,0],[1+center,0],cs,cylinder?[0,.5,1]:[0,1],S.SKShaderTileMode.Clamp,matrix);
+                    }
+                    try { paint.Shader=shader; } finally { shader?.Dispose(); }
                 }
                 if (p.face && p.edgeFlags && paint.Style === S.SKPaintStyle.Stroke) {
                     for (let i = 0; i < p.points.length - 1; i++)
@@ -390,6 +442,7 @@
             finally {
                 paint.PathEffect = null;
                 paint.ColorFilter = null;
+                paint.Shader = null;
                 canvas.RestoreToCount(save);
             }
         }
@@ -497,7 +550,8 @@
         }
         drawGrid(canvas, frame) {
             const S = this.S, paint = this.paint, raw = 50 / frame.scale, base = 10 ** Math.floor(Math.log10(raw)), spacing = raw / base > 5 ? 10 * base : raw / base > 2 ? 5 * base : 2 * base;
-            paint.Color = S.SKColor.Parse('#394550');
+            paint.Shader = null; paint.PathEffect = null; paint.ColorFilter = null;
+            paint.Color = S.SKColor.Parse('#394550'); paint.Alpha = 255;
             paint.Alpha = 170;
             paint.Style = S.SKPaintStyle.Stroke;
             paint.StrokeWidth = 1;

@@ -1,6 +1,8 @@
 0a61666f7cbfd05a3916da448c33203bc6e45cee11a72e27591723d5b46991dc  ./COMPATIBILITY.md
 36dd2f8d95807eba722516eedfce31971d76ec2291100f7074fc4dbd53c8386b  ./LICENSE
-9282ffd66ed19d4b2fa211be809b1f912dbf02e5aefb75334324aeeb6fe4b80c  ./UPSTREAM.txt
+ad8549bd0fa372a0f21ed376506e6efbcc059f358e66f07011f985bd9e104f13  ./LOCAL-PATCHES.json
+e4e68ea9f3e5f60dc2f70d80615772e237c3f811449bcea430ca0146e95d4215  ./PATCHES.md
+1351ca042b3654cee9722626834f2bbf9a8b3cd6e5bcd97e9ac69012f98df925  ./UPSTREAM.txt
 f464c4e8b38f41d1461d8dd95f20277f0ceee95ce66e2424da769371cd7ca48e  ./dist/lib/animation.js
 841a6dc6a72e71fe67df414c6713b6eb5a8ce3722cb00530b016d173fb05a460  ./dist/lib/asset-codecs.js
 132db9182e81a701316ce97928ffbe1020c010a318539ed07f754f6d37b496ec  ./dist/lib/asset-pixels.js
@@ -8,7 +10,7 @@ be2d7fa910c686ee3cbcb94d3e36066d5f0fb9c2f0a96a4ca95e59cd18b46ce5  ./dist/lib/ass
 b5de699167fd6ddbc557a12873d7f7bce8e8fc1d57977350fcbcf1929f594d28  ./dist/lib/asset-textblobs.js
 68595e40d273f6f7a9969af25b8fcea389bc2517ae8f644187dba7fc453c39e6  ./dist/lib/assets.js
 8c75a3dd315b21b7906e9f934b50eb3cd2d2b913ff521ef342f7eb36e62aaac7  ./dist/lib/canvas-effects.js
-55d3ed701fb15e246b6985e8e5221f3b975e232044907c6fa0b87674184ae123  ./dist/lib/canvas.js
+abfdee22ac64b7782f84d2b38c73a302a5a8f267bd10cd53972a3891b83ee10e  ./dist/lib/canvas.js
 2792eec45fdd6ad70acd31e194a001c8ebed0c3a256c5e9eb9d27ed76aeecec2  ./dist/lib/color-space.js
 183977cd499c3d6b26df2c8c0473cc85707c9746e261b4e92a3edc1e25c29a4e  ./dist/lib/conformance.js
 3fab6c486701bc6edd750021efb4256cde6390fb4592fd50ce0444a0a51077fe  ./dist/lib/core.js
@@ -49,7 +51,7 @@ bf1dba6413ca8acac6dfc8ef9b0392a4898a7728de3e15541d45d682809f0db8  ./dist/lib/sur
 a66ac6f219f00131f798135cebb37c7336cc2a07d04e48216546218c2206a179  ./dist/lib/text-measure-completion.js
 c6cc6c402004a1ff81eba6c7b3d0a0f902751a86d5cb202418b10a1bebe90dd5  ./dist/lib/text-path-completion.js
 a6210aa9f6a978c36c2a38b67e156c096688bb2416de4be178e597c1c5a35d9c  ./dist/lib/web-component.js
-953e6f29a63fb805fc500458a0e61685c13c92802a3083a2a3cbb2e5b0008565  ./dist/lib/webgpu.js
+9f72833e0fe1489a677640e1a95d8c7dba91c104c68bfc6cb5fb99c6cf63d70e  ./dist/lib/webgpu.js
 2c2dbe91cdf29250e91cfe293e963f0686cba83afb193e2e5cbee15da48b08a5  ./dist/licenses/FONTKIT-THIRD-PARTY.md
 a04665b3b2de56c66730c1f720f528175739e4104f79073614aa611da1e85539  ./dist/licenses/Pako-LICENSE.txt
 9d1e34d7081410f85bc1bf4805ce076a16fb1a2306661aef9a7bee72fffb5e23  ./dist/licenses/RobotoFlex-OFL.txt
@@ -94,11 +96,11 @@ eb33e0489aa6cf0fe79f18e214278eb4b55d6a4008056e2690329a3f7135bc66  ./dist/package
 73047a71c2b760b8093c8a1846fbe805f79c324bd4a9b2348c4eb1a89c5114ec  ./dist/package/node.js
 29100224633662ae8d24a883da4ac07e1a49c39b015db2dcb7b73754d75b4f81  ./dist/package/version.js
 d27678cba0d529e77201e2d2a053628143e986aad8f1e77f7039ad4366c8f978  ./dist/vendor/LICENSE-canvaskit
-ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81  ./dist/vendor/canvaskit.cjs
-ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81  ./dist/vendor/canvaskit.js
+49da4a6e1a6a796783dc5df8b79bcc3ee8b7332c88628f1fad17adfd6ffaafde  ./dist/vendor/canvaskit.cjs
+49da4a6e1a6a796783dc5df8b79bcc3ee8b7332c88628f1fad17adfd6ffaafde  ./dist/vendor/canvaskit.js
 698921da1c2d684dc52b9607cb2031aee9d9f4ddb06a6dca107265d684a73505  ./dist/vendor/canvaskit.wasm
 71c17ec2d062c784ec912d30945f24c2855107b36a3fd30ef74de8aab9d6c737  ./dist/vendor/font-instance.js
 180077d8e3f77fad31d0f640112264e02a3f8a1e04e3c72023ccd4f3fe78978a  ./dist/vendor/fontkit.js
-302bb69a09b3776008bf7863a1453b19fc7cb6897347ecf3fe4ecd154b0ef8fb  ./dist/vendor/native-build-manifest.json
+32fddc5501aeabfc681d8d0e8ef99e1aace1c37ae0090069c7b27f6813affe89  ./dist/vendor/native-build-manifest.json
 81f789aed667e7954779ace6f1a8efe98b327f6989c91261014ee884608ce136  ./dist/vendor/pako-deflate.js
 0d5f0fa679f3c6f68eb2157e8041c543dd17c2c2f56be30169273944db6d331a  ./dist/vendor/woff2.js

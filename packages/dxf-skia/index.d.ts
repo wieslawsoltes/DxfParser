@@ -19,7 +19,7 @@ export interface Primitive {
 }
 export interface CompileOptions {
   tolerance?: number; maxPrimitives?: number; maxVertices?: number; maxDepth?: number;
-  maxInstances?: number; maxPatternLines?: number; maxDiagnostics?: number; lineweights?: boolean; background?: string; printing?: boolean;
+  maxInstances?: number; maxPatternLines?: number; maxHatchLoops?: number; maxDiagnostics?: number; lineweights?: boolean; background?: string; printing?: boolean;
   showDefinitions?: boolean; showReferences?: boolean; showInvisible?: boolean;
   layerState?: Record<string, { isOn?: boolean; isFrozen?: boolean; [property: string]: unknown }>;
   blockIsolation?: Set<string>; entityIsolation?: Set<string>;
@@ -37,7 +37,7 @@ export interface Frame {
   [property: string]: unknown;
 }
 export interface PaintOptions { selection?: Set<string>; blockHighlights?: Set<string>; grid?: boolean; background?: string; }
-export interface PaintStatistics { drawn: number; diagnostics: Diagnostic[]; backend?: string; frame?: Frame; paintCount?: number; [property: string]: unknown; }
+export interface PaintStatistics { drawn: number; visible?: number; omitted?: number; fallbackReasons?: string[]; diagnostics: Diagnostic[]; backend?: string; frame?: Frame; paintCount?: number; [property: string]: unknown; }
 export interface ResourceEntry { name: string; key: string; kind: 'font' | 'image' | 'shape'; size: number; native: unknown; shape: ShapeFont | null; }
 export class DxfRecord {
   constructor(tags: Tag[], index?: number); readonly type: string; readonly handle: string; readonly id: string;
@@ -69,8 +69,13 @@ export class SkiaPainter {
   readonly resources: ResourceStore; draw(nativeCanvas: unknown, frame: Frame, options?: PaintOptions): PaintStatistics;
   clearCache(): void; dispose(): void;
 }
+export type RenderingBackend = 'auto' | 'webgpu' | 'webgl' | 'canvas';
+export interface BackendRecovery { readonly backend: Exclude<RenderingBackend, 'auto'>; readonly message: string; }
 export class SurfaceHost {
-  constructor(options: {initialize?: () => Promise<unknown>; Skia?: unknown; backend?: 'auto' | 'webgpu' | 'webgl' | 'canvas'; resources?: ResourceStore; maxPixels?: number; onPaint?: (statistics: PaintStatistics) => void; onError?: (error: Error) => void; onCanvasReplaced?: (canvas: HTMLCanvasElement, previous: HTMLCanvasElement) => void });
+  constructor(options: {initialize?: () => Promise<unknown>; Skia?: unknown; backend?: RenderingBackend; allowFallback?: boolean; onRecovery?: (event: BackendRecovery) => void; resources?: ResourceStore; maxPixels?: number; onPaint?: (statistics: PaintStatistics) => void; onError?: (error: Error) => void; onCanvasReplaced?: (canvas: HTMLCanvasElement, previous: HTMLCanvasElement) => void });
+  backend: RenderingBackend; readonly faulted: boolean; readonly error: Error | null;
+  readonly recoveryEvents: readonly BackendRecovery[]; readonly failedBackends: ReadonlySet<Exclude<RenderingBackend, 'auto'>>;
+  readonly presentedFrame: Frame | null; retryBackend(backend?: RenderingBackend): void;
   resources: ResourceStore | null; readonly disposed: boolean; readonly paintCount: number;
   lastFrame: Frame | null; initialize(canvas: HTMLCanvasElement): this; ensureRuntime(): Promise<unknown>;
   request(frame: Frame, options?: PaintOptions): void; whenIdle(): Promise<Frame | null>;
@@ -81,7 +86,7 @@ export class SurfaceHost {
 export function parseTags(text: string, options?: { maxTags?: number; maxBytes?: number; maxDiagnostics?: number }): Tag[];
 export function prepareFrame(scene: Scene, options?: FrameOptions): Frame;
 export function hitTest(frame: Frame, point: Pick<Point, 'x' | 'y'>, tolerance?: number): Pickable | null;
-export function snap(frame: Frame, point: Pick<Point, 'x' | 'y'>, tolerance?: number): {type: string; point: Point; handle?: string; [field: string]: unknown} | null;
+export function snap(frame: Frame, point: Pick<Point, 'x' | 'y'>, tolerance?: number, modes?: Iterable<'endpoint' | 'midpoint' | 'center' | 'node' | 'quadrant' | 'nearest'>): {type: string; point: Point; handle?: string; [field: string]: unknown} | null;
 export function resourceKey(name: string): string;
 export function aciColor(index: number, background?: string): string;
 export function transparency(value: number | null, inherited?: number, layer?: number): number;
@@ -105,6 +110,8 @@ export interface Geometry {
   bulgePath(a: Point,b: Point,bulge: number): PathCommand[];
   pathFromPoints(points: Point[],closed?: boolean): PathCommand[];
   transformPath(path: PathCommand[],matrix: Matrix): PathCommand[];
+  pathBounds(path: PathCommand[],convert?: (point: Point) => Point): Bounds;
+  interpolateFitPoints(points: Point[],options?: {closed?: boolean; startTangent?: Point; endTangent?: Point; maxPoints?: number}): PathCommand[];
   flatten(path: PathCommand[],tolerance?: number,maxPoints?: number): {points: Point[]; rings: Point[][]; truncated: boolean};
   evaluateNurbs(points: Point[],degree: number,knots: number[],weights: number[],t: number): Point;
   sampleNurbs(points: Point[],degree: number,knots: number[],weights: number[],tolerance?: number): Point[];

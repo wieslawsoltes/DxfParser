@@ -20,6 +20,8 @@
         }
     }
     function parseTags(text, { maxBytes = 64 * 1024 * 1024, maxTags = 4000000 } = {}) {
+        if (!Number.isSafeInteger(maxTags) || maxTags < 1 || !Number.isSafeInteger(maxBytes) || maxBytes < 1)
+            throw new RangeError('Positive integer DXF text/tag budgets required.');
         if (typeof text !== 'string')
             throw new TypeError('DXF source must be a string.');
         if (text.length > maxBytes)
@@ -100,6 +102,8 @@
         return layer; const n = Number(value) >>> 0; return n === 0 ? layer : n === 0x1000000 ? parent : (n & 0xff000000) === 0x2000000 ? (n & 255) / 255 : layer; }
     class DxfDocument {
         constructor(input, options = {}) {
+            if (options.maxTags !== undefined && (!Number.isSafeInteger(options.maxTags) || options.maxTags < 1))
+                throw new RangeError('Positive integer DXF tag budget required.');
             this.diagnostics = new Diagnostics(options.maxDiagnostics);
             this.records = [];
             this.entities = [];

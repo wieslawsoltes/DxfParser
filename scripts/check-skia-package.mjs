@@ -35,7 +35,10 @@ console.log('Installed CJS/ESM identity, standalone ESM, isolated namespace, com
 const doc=new DxfDocument(''); const scene=new SceneCompiler(doc,{maxVertices:1000}).compile();
 const point:Point=geometry.vec(1,2,3); const frame=prepareFrame(scene,{viewDirection:point});
 const host=new SurfaceHost({initialize:async()=>({}),onPaint:s=>console.log(s.drawn)});
-host.request(frame); const result:Promise<Uint8Array>=host.exportPng();
+const fitting=geometry.interpolateFitPoints([geometry.vec(),geometry.vec(1,2),geometry.vec(3,0)],{startTangent:geometry.vec(1,0)});
+const exactBounds=geometry.pathBounds(fitting);host.retryBackend('canvas');const failed:ReadonlySet<string>=host.failedBackends;
+const policy=new SurfaceHost({initialize:async()=>({}),backend:'webgpu',allowFallback:false,onRecovery:e=>console.log(e.backend)});
+void [exactBounds,failed,policy];host.request(frame); const result:Promise<Uint8Array>=host.exportPng();
 const m=geometry.translation(point); const transformed:Point=geometry.transform(m,point);
 void [A.DxfDocument, transformed, result];\n`);
     process.stdout.write(run(process.env.TSC || 'tsc', ['--noEmit', '--strict', '--module', 'nodenext', '--moduleResolution', 'nodenext', '--target', 'es2022', '--lib', 'es2022,dom', 'consumer.ts']));

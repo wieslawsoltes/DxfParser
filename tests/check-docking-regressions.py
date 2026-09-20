@@ -13,7 +13,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def main():
     commands=[['node','scripts/check-skia-distribution.js'],
-              ['node','--test',*[str(p.relative_to(ROOT)) for p in sorted((ROOT/'packages/dxf-skia/tests').glob('*.test.js'))],'tests/skia-native.test.mjs'],
+              ['node','--test',*[str(p.relative_to(ROOT)) for p in sorted((ROOT/'packages/dxf-skia/tests').glob('*.test.js'))],'tests/skia-native.test.mjs','tests/skia-recovery.test.mjs','tests/skia-webgpu-abi.test.mjs'],
               ['node','scripts/check-skia-package.mjs']]
     failed=False
     for command in commands:

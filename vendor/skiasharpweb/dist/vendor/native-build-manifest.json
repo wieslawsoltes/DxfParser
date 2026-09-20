@@ -8,8 +8,8 @@
     "Skia raster"
   ],
   "artifacts": {
-    "canvaskit.js": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
-    "canvaskit.cjs": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+    "canvaskit.js": "49da4a6e1a6a796783dc5df8b79bcc3ee8b7332c88628f1fad17adfd6ffaafde",
+    "canvaskit.cjs": "49da4a6e1a6a796783dc5df8b79bcc3ee8b7332c88628f1fad17adfd6ffaafde",
     "canvaskit.wasm": "698921da1c2d684dc52b9607cb2031aee9d9f4ddb06a6dca107265d684a73505"
   },
   "extensionSources": {
@@ -37,5 +37,15 @@
     "verify_gpu_images.mjs": "bb7d417c4635ef88f63a1bf61fc6d31444e53ae17475e57ffb24b79254e16a60",
     "verify_gpu_records.mjs": "d70468cca9b2a14b44b61cdf7e4d20510c93f035b282e76fdbba2127c2cc3940",
     "verify_native.mjs": "f6c255d3b10eda64d64dbf9c18036c1ae057bd8d4650c17c8eb888c4072d94f8"
+  },
+  "upstreamArtifacts": {
+    "canvaskit.js": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+    "canvaskit.cjs": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+    "canvaskit.wasm": "698921da1c2d684dc52b9607cb2031aee9d9f4ddb06a6dca107265d684a73505"
+  },
+  "localPatches": {
+    "manifest": "../../LOCAL-PATCHES.json",
+    "wasmRecompiled": false,
+    "description": "Unsigned WebGPU i32 ABI arguments; balanced validation scopes and device error propagation."
   }
 }

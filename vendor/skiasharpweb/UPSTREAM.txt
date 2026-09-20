@@ -1,4 +1,5 @@
 Repository: https://github.com/wieslawsoltes/SkiaSharpWeb
 Commit: 1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3
-Version: 0.5.0
-Unmodified font-free runtime: dist/lib, dist/package, dist/vendor, dist/licenses.
+Upstream version: 0.5.0
+Font-free runtime with documented local JavaScript patches; native WASM unchanged.
+See PATCHES.md and LOCAL-PATCHES.json for exact upstream/patched identities.

@@ -1,0 +1,27 @@
+{
+  "upstreamCommit": "1f26ba6e5ab8731bdbd08d18a45e65c9763a57d3",
+  "patchSet": "dxf-skia-0.2.0-webgpu-recovery",
+  "wasmUnchanged": true,
+  "files": [
+    {
+      "path": "dist/lib/canvas.js",
+      "upstreamSha256": "55d3ed701fb15e246b6985e8e5221f3b975e232044907c6fa0b87674184ae123",
+      "patchedSha256": "abfdee22ac64b7782f84d2b38c73a302a5a8f267bd10cd53972a3891b83ee10e"
+    },
+    {
+      "path": "dist/lib/webgpu.js",
+      "upstreamSha256": "953e6f29a63fb805fc500458a0e61685c13c92802a3083a2a3cbb2e5b0008565",
+      "patchedSha256": "9f72833e0fe1489a677640e1a95d8c7dba91c104c68bfc6cb5fb99c6cf63d70e"
+    },
+    {
+      "path": "dist/vendor/canvaskit.js",
+      "upstreamSha256": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+      "patchedSha256": "49da4a6e1a6a796783dc5df8b79bcc3ee8b7332c88628f1fad17adfd6ffaafde"
+    },
+    {
+      "path": "dist/vendor/canvaskit.cjs",
+      "upstreamSha256": "ab5e415bb40d5a76ac20bf529dfe843d9eb0808bbb7aefa350f478330ee1df81",
+      "patchedSha256": "49da4a6e1a6a796783dc5df8b79bcc3ee8b7332c88628f1fad17adfd6ffaafde"
+    }
+  ]
+}

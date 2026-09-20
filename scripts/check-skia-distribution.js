@@ -44,4 +44,12 @@ const scan = dir => { for (const entry of fs.readdirSync(dir, { withFileTypes: t
 } };
 scan(path.join(root, 'vendor/skiasharpweb'));
 scan(path.join(root, 'packages/dxf-skia'));
+const nativeManifest = JSON.parse(fs.readFileSync(path.join(root, 'vendor/skiasharpweb/dist/vendor/native-build-manifest.json')));
+for (const [name, expected] of Object.entries(nativeManifest.artifacts))
+    assert.equal(hash('vendor/skiasharpweb/dist/vendor/' + name), expected, 'Native artifact identity: ' + name);
+const localPatches = JSON.parse(fs.readFileSync(path.join(root, 'vendor/skiasharpweb/LOCAL-PATCHES.json')));
+assert.equal(localPatches.wasmUnchanged, true);
+assert.equal(nativeManifest.artifacts['canvaskit.wasm'], nativeManifest.upstreamArtifacts['canvaskit.wasm']);
+for (const entry of localPatches.files)
+    assert.equal(hash('vendor/skiasharpweb/' + entry.path), entry.patchedSha256, 'Local patch identity: ' + entry.path);
 console.log('Removed-engine, deterministic bundle, classic consumer, all vendor checksum and font-free checks PASSED.');

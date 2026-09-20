@@ -164,7 +164,7 @@ export function createCanvasAPI(K, api, createWebGPUBackend) {
       }else this._native.flush();
     }
     Snapshot(bounds){this.ThrowIfDisposed();this.Canvas._materialize();return SKImage._fromNative(this._native.makeImageSnapshot(bounds?rect(bounds):undefined));}
-    async FlushAsync(){this.Flush();await this._presenter?.waitForCompletion();}
+    async FlushAsync(){if(this._presenter?.runChecked)await this._presenter.runChecked(()=>this.Flush());else{this.Flush();await this._presenter?.waitForCompletion();}}
     async SnapshotAsync(bounds){return this.Snapshot(bounds);}
     Draw(canvas,x=0,y=0,paint=null){const image=this.Snapshot();try{canvas.DrawImage(image,x,y,paint);}finally{image.Dispose();}}
     Dispose(){if(this.IsDisposed)return;this.Canvas.Dispose();this._presenter?.dispose();this._native.dispose();this._grContext?.delete();if(this._glHandle)K.deleteContext(this._glHandle);this._ownsNative=false;super.Dispose();}
@@ -180,9 +180,9 @@ export function createCanvasAPI(K, api, createWebGPUBackend) {
       surface.Backend='webgpu';surface.Element=element;surface._graphitePresenter=presenter;surface.GraphiteContext=context;surface.GPUTexture=texture;
       const flush=surface.Flush.bind(surface),dispose=surface.Dispose.bind(surface);
       surface.Flush=()=>{surface.ThrowIfDisposed();flush();presenter.presentTexture(texture,element.width,element.height);};
-      surface.FlushAsync=async()=>{surface.Flush();await presenter.waitForCompletion();context.CheckAsyncWorkCompletion();};
+      surface.FlushAsync=async()=>{await presenter.runChecked(()=>surface.Flush());context.CheckAsyncWorkCompletion();};
       surface.SnapshotAsync=async(bounds)=>{
-        surface.ThrowIfDisposed();surface.Flush();
+        surface.ThrowIfDisposed();await surface.FlushAsync();
         const b=bounds?rect(bounds):[0,0,element.width,element.height];
         const result=await api.ReadWebGPUTexture(presenter.device,texture,{x:b[0],y:b[1],width:b[2]-b[0],height:b[3]-b[1]});
         try{return SKImage.FromPixels(new api.SKImageInfo(result.Width,result.Height,K.ColorType.RGBA_8888,K.AlphaType.Premul),result.GetData(),result.RowBytes);}finally{result.Dispose();}

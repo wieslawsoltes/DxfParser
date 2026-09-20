@@ -10,16 +10,50 @@
     const mapGet = (map, name) => map instanceof Map ? map.get(A.key(name)) || map.get(name) : map?.[A.key(name)] || map?.[name];
     const coordFields = ['x', 'y', 'z'];
     const casedFrozen = (set, name) => set?.has(A.key(name)) || false;
-    function plainText(value) { return String(value ?? '').replace(/\\U\+([0-9a-f]{4,8})/gi, (_, h) => { const n = parseInt(h, 16); return n <= 0x10ffff ? String.fromCodePoint(n) : '\ufffd'; }).replace(/%%d/gi, '°').replace(/%%p/gi, '±').replace(/%%c/gi, 'Ø').replace(/\\P/g, '\n').replace(/\\~/g, ' ').replace(/\\[LlOoKk]/g, '').replace(/\\[ACHQWTFf][^;]*;/g, '').replace(/\\S([^;]*);/g, (_, v) => v.replace(/[\^#]/g, '/')).replace(/[{}]/g, '').replace(/\\([\\{}])/g, '$1'); }
+    // Decode DXF escapes in one pass: escaped braces are characters, not scope
+    // delimiters, and a Unicode escape consumes exactly four hexadecimal digits.
+    function plainText(value) {
+        const input = String(value ?? '');
+        if (input.length > 1000000) throw new RangeError('Text budget exceeded.');
+        let out = '';
+        for (let i = 0; i < input.length;) {
+            const ch = input[i++];
+            if (ch === '{' || ch === '}') continue;
+            if (ch === '%' && input[i] === '%') {
+                const code = input[i + 1]?.toLowerCase(), symbol = { d: '°', p: '±', c: 'Ø' }[code];
+                if (symbol) { out += symbol; i += 2; continue; }
+            }
+            if (ch !== '\\') { out += ch; continue; }
+            const code = input[i++];
+            if (code === undefined) { out += '\\'; break; }
+            if ('\\{}'.includes(code)) { out += code; continue; }
+            if (code === 'U' && input[i] === '+' && /^[0-9a-f]{4}$/i.test(input.slice(i + 1, i + 5))) {
+                out += String.fromCharCode(parseInt(input.slice(i + 1, i + 5), 16)); i += 5; continue;
+            }
+            if (code === 'P' || code === 'X') { out += '\n'; continue; }
+            if (code === '~') { out += '\u00a0'; continue; }
+            if ('LlOoKk'.includes(code)) continue;
+            if ('ACHQWTFfcptS'.includes(code)) {
+                const end = input.indexOf(';', i);
+                if (end >= 0) {
+                    if (code === 'S') out += input.slice(i, end).replace(/[\^#]/g, '/');
+                    i = end + 1; continue;
+                }
+            }
+            // A malformed/unknown escape remains visible rather than swallowing text.
+            out += '\\' + code;
+        }
+        return out;
+    }
     class SceneCompiler {
         constructor(document, options = {}) {
             if (!(document instanceof A.DxfDocument))
                 throw new TypeError('SceneCompiler requires a DxfDocument.');
             this.document = document;
-            this.options = { tolerance: .02, maxPrimitives: 500000, maxVertices: 3000000, maxDepth: 48, maxInstances: 100000, maxPatternLines: 20000, background: '#212830', ...options };
+            this.options = { tolerance: .02, maxPrimitives: 500000, maxVertices: 3000000, maxDepth: 48, maxInstances: 100000, maxPatternLines: 20000, maxHatchLoops: 4096, background: '#212830', ...options };
             if (!(this.options.tolerance > 0) || !Number.isFinite(this.options.tolerance))
                 throw new RangeError('Positive finite tessellation tolerance required.');
-            for (const name of ['maxPrimitives', 'maxVertices', 'maxDepth', 'maxInstances', 'maxPatternLines'])
+            for (const name of ['maxPrimitives', 'maxVertices', 'maxDepth', 'maxInstances', 'maxPatternLines', 'maxHatchLoops'])
                 if (!Number.isSafeInteger(this.options[name]) || this.options[name] < 1)
                     throw new RangeError('Positive integer ' + name + ' required.');
             this.plugins = new Map(options.plugins || []);
@@ -148,6 +182,10 @@
                 data.u = direction(matrix, data.u);
             if (data.v)
                 data.v = direction(matrix, data.v);
+            if (data.curve) data.curve = { ...data.curve, center: transform(matrix, data.curve.center),
+                u: direction(matrix, data.curve.u), v: direction(matrix, data.curve.v) };
+            if (data.gradient) data.gradient = { ...data.gradient, origin: transform(matrix, data.gradient.origin),
+                u: direction(matrix, data.gradient.u), v: direction(matrix, data.gradient.v) };
             if (data.text) {
                 const layout = A.layoutText(data, this.options.textMeasurer ? t => this.options.textMeasurer(data, t) : A.fallbackTextWidth);
                 data.textLayout = layout;
@@ -160,7 +198,7 @@
             this.vertices += points.length;
             if (this.vertices > this.options.maxVertices)
                 throw new RangeError('Vertex budget exceeded.');
-            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: bounds(points) };
+            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
             delete primitive.matrix;
             if (data.infinite)
                 primitive.bounds = { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 };
@@ -213,7 +251,7 @@
                 if (!(r > 0))
                     throw new RangeError('Arc radius must be positive.');
                 const p = e.point(10), start = type === 'ARC' ? radians(e.num(50)) : 0, sweep = type === 'ARC' ? positiveSweep(start, radians(e.num(51))) : TAU;
-                this.emit(e, localOCS(), s, { kind: 'path', path: arcPath(p, vec(r, 0), vec(0, r), start, sweep), closed: type === 'CIRCLE', center: transform(multiply(c.matrix, ocs(e.extrusion)), p), radius: r, fill: false });
+                this.emit(e, localOCS(), s, { kind: 'path', path: arcPath(p, vec(r, 0), vec(0, r), start, sweep), closed: type === 'CIRCLE', curve: { center: p, u: vec(r, 0), v: vec(0, r), start, sweep }, center: transform(multiply(c.matrix, ocs(e.extrusion)), p), radius: r, fill: false });
                 return;
             }
             if (type === 'ELLIPSE') {
@@ -221,7 +259,7 @@
                 if (!(length(u) > 0 && ratio > 0))
                     throw new RangeError('Invalid ellipse axes.');
                 const v = mul(normal(cross(normal(e.extrusion), u)), length(u) * ratio), start = e.num(41), end = e.num(42, TAU);
-                this.emit(e, c, s, { kind: 'path', path: arcPath(center, u, v, start, positiveSweep(start, end)), closed: Math.abs(end - start - TAU) < 1e-9, center: transform(c.matrix, center) });
+                this.emit(e, c, s, { kind: 'path', path: arcPath(center, u, v, start, positiveSweep(start, end)), closed: Math.abs(positiveSweep(start, end) - TAU) < 1e-9, curve: { center, u, v, start, sweep: positiveSweep(start, end) }, center: transform(c.matrix, center) });
                 return;
             }
             if (type === 'LWPOLYLINE' || type === 'POLYLINE') {
@@ -244,8 +282,10 @@
                     const points = spline.points(11);
                     if (points.length < 2)
                         throw new RangeError('Spline contains neither control points nor fit points.');
-                    this.path(e, c, s, points);
-                    this.diagnostic('spline-fit-fallback', 'Fit-point-only spline is represented by its fit polygon, not an inferred exact spline.', e);
+                    const path = G.interpolateFitPoints(points, { closed: !!(spline.num(70) & 3),
+                        startTangent: spline.get(12) == null ? null : spline.point(12), endTangent: spline.get(13) == null ? null : spline.point(13) });
+                    this.emit(e, c, s, { kind: 'path', path, closed: !!(spline.num(70) & 3) });
+                    this.diagnostic('spline-fit-interpolated', 'Fit-only SPLINE uses chord-length C2 cubic interpolation with supplied tangent directions or natural endpoints; periodic when closed.', e, 'info');
                 }
                 return;
             }
@@ -337,16 +377,26 @@
             const projection = [basis.x.x, basis.x.y, basis.x.z, -dot(target, basis.x), basis.y.x, basis.y.y, basis.y.z, -dot(target, basis.y), basis.z.x, basis.z.y, basis.z.z, -dot(target, basis.z), 0, 0, 0, 1];
             const transformMatrix = multiply(multiply(multiply(translation(paper), scaling(scale, scale, 1)), translation(mul(view, -1))), projection);
             let boundary = [vec(paper.x - width / 2, paper.y - height / 2), vec(paper.x + width / 2, paper.y - height / 2), vec(paper.x + width / 2, paper.y + height / 2), vec(paper.x - width / 2, paper.y + height / 2)];
-            const clipEntity = this.document.byHandle.get(A.key(e.get(340)));
-            if (clipEntity) {
-                const points = clipEntity.points(10);
-                if (points.length >= 3 && clipEntity.type === 'LWPOLYLINE' && !clipEntity.all(42).some(Number))
-                    boundary = points;
-                else
-                    this.diagnostic('viewport-boundary', 'Complex nonrectangular viewport clip uses rectangular viewport bounds.', e);
-            }
+            let clip = { points: boundary.map(p => transform(c.matrix, p)), inverse: false };
+            const clipHandle = A.key(e.get(340)), clipEntity = this.document.byHandle.get(clipHandle);
+            if (clipEntity && ['CIRCLE', 'ELLIPSE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE'].includes(clipEntity.type)) {
+                try {
+                    const helper = new SceneCompiler(this.document, { ...this.options, printing: false,
+                        blockIsolation: null, entityIsolation: null, layerState: null });
+                    const record = new A.DxfRecord([{ code: 0, value: clipEntity.type },
+                        ...clipEntity.tags.filter(t => ![39, 40, 41, 43].includes(t.code) || !['LWPOLYLINE', 'POLYLINE'].includes(clipEntity.type))]);
+                    record.vertices = clipEntity.vertices.map(v => new A.DxfRecord([{ code: 0, value: 'VERTEX' }, ...v.tags.filter(t => ![40, 41].includes(t.code))]));
+                    helper.style = () => s; // Geometry-only clip: ignore display/plot visibility.
+                    helper.compileEntity(record, { ...c, matrix: c.matrix, thicknessVector: null, clips: [] });
+                    const primitive = helper.primitives.find(p => p.path && p.closed);
+                    if (primitive) clip = { path: primitive.path, loops: primitive.rings, inverse: false };
+                    else this.diagnostic('viewport-boundary', 'Viewport boundary is not a supported closed curve; rectangular bounds used.', e);
+                } catch (error) {
+                    this.diagnostic('viewport-boundary', `Invalid viewport boundary (${error.message}); rectangular bounds used.`, e);
+                }
+            } else if (clipHandle) this.diagnostic('viewport-boundary', 'Viewport boundary handle is missing or unsupported; rectangular bounds used.', e);
             const frozen = new Set(e.all(331).map(handle => A.key(this.document.byHandle.get(A.key(handle))?.get(2))));
-            this.compileList(this.document.sceneGraph.modelSpace, { ...c, matrix: multiply(c.matrix, transformMatrix), layout: 'Model', viewportFrozen: frozen, clips: [...c.clips, { points: boundary.map(p => transform(c.matrix, p)), inverse: false }] });
+            this.compileList(this.document.sceneGraph.modelSpace, { ...c, matrix: multiply(c.matrix, transformMatrix), layout: 'Model', viewportFrozen: frozen, clips: [...c.clips, clip] });
         }
         insert(e, c, s) {
             const name = String(e.get(2, '')), block = this.document.getBlock(name), normalized = A.key(name);
@@ -569,66 +619,115 @@
                 this.compileList(block.entities, { ...c, blocks: [...c.blocks, block.name], handles: [...c.handles, e.handle || e.id], layer: s.layer, color: s.color, alpha: s.alpha });
                 return;
             }
-            const d = e.num(70) & 7, style = this.document.tables.dimstyles[e.get(3)]?.record;
+            const d = e.num(70) & 7;
+            const style = Object.values(this.document.tables.dimstyles).find(x => A.key(x.name) === A.key(e.get(3, 'STANDARD')))?.record;
             const setting = (code, name, fallback) => style?.num(code, this.document.headerNumber(name, fallback)) ?? this.document.headerNumber(name, fallback);
             const scale = setting(40, '$DIMSCALE', 1) || 1, h = setting(140, '$DIMTXT', 2.5) * scale, arrow = setting(41, '$DIMASZ', 2.5) * scale;
-            let a, b, measure, at = e.point(11), angle = 0;
-            if (d === 0 || d === 1) {
-                const p = e.point(13), q = e.point(14), loc = e.point(10);
-                angle = d === 1 ? Math.atan2(q.y - p.y, q.x - p.x) : radians(e.num(50));
-                const dir = vec(Math.cos(angle), Math.sin(angle)), n = vec(-dir.y, dir.x);
-                a = add(p, mul(n, dot(sub(loc, p), n)));
-                b = add(q, mul(n, dot(sub(loc, q), n)));
-                measure = Math.abs(dot(sub(q, p), dir));
-                this.path(e, c, s, [p, a]);
-                this.path(e, c, s, [q, b]);
-                if (!e.get(11))
-                    at = add(mul(add(a, b), .5), mul(n, h * .4));
+            if (!(h > 0 && arrow >= 0 && Number.isFinite(h) && Number.isFinite(arrow))) throw new RangeError('Invalid dimension text/arrow size.');
+            const basis = ocs(e.extrusion), inverse = G.inverse(basis), point = code => transform(inverse, e.point(code));
+            const ctx = { ...c, matrix: multiply(c.matrix, basis) }; // Definition points WCS; text/arc location 11/16 OCS.
+            const textSpecified = e.get(11) !== null;
+            let a, b, measure, at = e.point(11), angle = 0, angular = d === 2 || d === 5;
+            const extension = (p, q, index) => {
+                if (setting(index === 0 ? 75 : 76, index === 0 ? '$DIMSE1' : '$DIMSE2', 0)) return;
+                const delta = sub(q, p), n = length(delta) > EPS ? normal(delta) : vec(0, 1);
+                const start = add(p, mul(n, setting(42, '$DIMEXO', .625) * scale));
+                const end = add(q, mul(n, setting(44, '$DIMEXE', 1.25) * scale));
+                this.path(e, ctx, s, [start, end]);
+            };
+            if (angular) {
+                let origin, p, q, arcPoint;
+                if (d === 5) { origin = point(15); p = point(13); q = point(14); arcPoint = point(10); }
+                else {
+                    const p0 = point(13), p1 = point(14), q0 = point(10), q1 = point(15), u = sub(p1, p0), v = sub(q1, q0);
+                    const det = u.x*v.y-u.y*v.x;
+                    if (Math.abs(det) < EPS * Math.max(1, length(u)*length(v))) throw new RangeError('Angular dimension lines are parallel or degenerate.');
+                    origin = add(p0, mul(u, ((q0.x-p0.x)*v.y-(q0.y-p0.y)*v.x)/det));
+                    p = p1; q = q1; arcPoint = e.point(16);
+                    if (distance(p, origin) < EPS) p = p0;
+                    if (distance(q, origin) < EPS) q = q0;
+                }
+                const u = sub(p, origin), v = sub(q, origin);
+                if (length(u) < EPS || length(v) < EPS) throw new RangeError('Angular dimension requires distinct definition points.');
+                const first = Math.atan2(u.y,u.x), second = Math.atan2(v.y,v.x), through = Math.atan2(arcPoint.y-origin.y,arcPoint.x-origin.x);
+                const choices = d === 2 ? [first, first+Math.PI].flatMap(x => [second,second+Math.PI].map(y => [x,positiveSweep(x,y)])) : [[first,positiveSweep(first,second)],[second,positiveSweep(second,first)]];
+                const sector = choices.filter(([start,sweep]) => ((through-start)%TAU+TAU)%TAU <= sweep+1e-10).sort((x,y)=>x[1]-y[1])[0] || choices[0];
+                const [start,sweep] = sector, radius = Math.hypot(arcPoint.x-origin.x,arcPoint.y-origin.y);
+                if (!(radius>EPS)) throw new RangeError('Angular dimension arc radius must be positive.');
+                const atAngle=t=>add(origin,vec(Math.cos(t)*radius,Math.sin(t)*radius));
+                a=atAngle(start);b=atAngle(start+sweep);measure=sweep;
+                this.emit(e,ctx,s,{kind:'path',path:arcPath(origin,vec(radius,0),vec(0,radius),start,sweep),fill:false});
+                extension(p,a,0);extension(q,b,1);
+                if (arrow) {
+                    const size=Math.min(arrow,radius*sweep/4);
+                    this.arrow(e,ctx,s,a,add(a,vec(-Math.sin(start),Math.cos(start))),size);
+                    this.arrow(e,ctx,s,b,add(b,vec(Math.sin(start+sweep),-Math.cos(start+sweep))),size);
+                }
+                if(!textSpecified) at=add(origin,vec(Math.cos(start+sweep/2)*(radius+h*.6),Math.sin(start+sweep/2)*(radius+h*.6)));
+                angle=0;
+            } else if (d === 0 || d === 1) {
+                const p=point(13),q=point(14),loc=point(10);
+                angle=d===1?Math.atan2(q.y-p.y,q.x-p.x):radians(e.num(50));
+                const dir=vec(Math.cos(angle),Math.sin(angle)),n=vec(-dir.y,dir.x);
+                a=add(p,mul(n,dot(sub(loc,p),n)));b=add(q,mul(n,dot(sub(loc,q),n)));
+                measure=Math.abs(dot(sub(q,p),dir));extension(p,a,0);extension(q,b,1);
+                if(!textSpecified) at=add(mul(add(a,b),.5),mul(n,h*.6));
+            } else if (d === 3 || d === 4) {
+                a=point(10);b=point(15);measure=distance(a,b);angle=Math.atan2(b.y-a.y,b.x-a.x);
+                if(!textSpecified)at=mul(add(a,b),.5);
+            } else if (d === 6) {
+                a=point(13);b=point(14);const origin=point(10);measure=(e.num(70)&64)?a.x-origin.x:a.y-origin.y;
+                if(!textSpecified)at=b;
+            } else { this.diagnostic('dimension-fallback','Unsupported generated dimension type '+d+'.',e);return; }
+            if (!angular) {
+                this.path(e,ctx,s,[a,b]);
+                if(arrow && distance(a,b)>EPS && d!==6) {
+                    const size=Math.min(arrow,distance(a,b)/4);
+                    if(d!==4)this.arrow(e,ctx,s,a,b,size);
+                    this.arrow(e,ctx,s,b,a,size);
+                }
             }
-            else if (d === 3 || d === 4) {
-                a = e.point(10);
-                b = e.point(15);
-                measure = distance(a, b);
-                if (d === 4)
-                    measure *= 1;
-                angle = Math.atan2(b.y - a.y, b.x - a.x);
-                if (!e.get(11))
-                    at = mul(add(a, b), .5);
+            let precision=setting(angular?179:271,angular?'$DIMADEC':'$DIMDEC',2);
+            if(precision<0)precision=setting(271,'$DIMDEC',2);precision=Math.max(0,Math.min(8,Math.trunc(precision)));
+            let numeric=angular?measure:measure*setting(144,'$DIMLFAC',1), suffix='';
+            if(angular){
+                const unit=setting(275,'$DIMAUNIT',0);
+                if(unit===2){numeric=measure*200/Math.PI;suffix='g';}else if(unit===3){suffix='r';}else{numeric=measure*180/Math.PI;suffix='°';}
+                if(unit===1 || unit===4)this.diagnostic('dimension-angle-format','DMS/surveyor formatting shown as decimal degrees.',e);
+            } else {
+                const rounding=setting(45,'$DIMRND',0);if(rounding>0)numeric=Math.round(numeric/rounding)*rounding;
+                if(![2,6].includes(setting(277,'$DIMLUNIT',2)))this.diagnostic('dimension-linear-format','Nondecimal dimension units shown as decimal drawing units.',e);
             }
-            else if (d === 6) {
-                a = e.point(13);
-                b = e.point(14);
-                measure = (e.num(70) & 64) ? a.x : a.y;
-                if (!e.get(11))
-                    at = b;
-            }
-            else {
-                this.diagnostic('dimension-fallback', 'Angular dimension without its anonymous block requires an angular dimension provider.', e);
-                return;
-            }
-            this.path(e, c, s, [a, b]);
-            if (distance(a, b) > 1e-9) {
-                this.arrow(e, c, s, a, b, Math.min(arrow, distance(a, b) / 4));
-                this.arrow(e, c, s, b, a, Math.min(arrow, distance(a, b) / 4));
-            }
-            const value = (measure * setting(144, '$DIMLFAC', 1)).toFixed(Math.min(8, Math.max(0, setting(271, '$DIMDEC', 2))));
-            let label = String(e.get(1, '<>'));
-            if (label === ' ')
-                return;
-            label = label.replace(/<>/g, value);
-            this.emit(e, c, s, { kind: 'text', text: label, position: at, u: vec(Math.cos(angle) * h, Math.sin(angle) * h), v: vec(-Math.sin(angle) * h, Math.cos(angle) * h), align: 1, vertical: 0, font: '', fontName: '', mtext: false });
-            this.diagnostic('dimension-generated', 'Dimension anonymous block missing: generated basic dimension geometry; advanced style overrides are not applied.', e);
+            if(!Number.isFinite(numeric))throw new RangeError('Dimension measurement overflow.');
+            let value=numeric.toFixed(precision);
+            const suppress=setting(angular?79:78,angular?'$DIMAZIN':'$DIMZIN',0);
+            if(suppress&(angular?2:8))value=value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/,'');
+            if(suppress&(angular?1:4))value=value.replace(/^(-?)0\./,'$1.');
+            if(Number(value)===0)value=value.replace(/^-/, '');
+            const separator=setting(278,'$DIMDSEP',46);if(Number.isInteger(separator)&&separator>=32&&separator<127)value=value.replace('.',String.fromCharCode(separator));
+            value=(d===3?'Ø':d===4?'R':'')+value+suffix;
+            const post=style?.get(3,'');if(!angular && post)value=String(post).replace(/<>/g,value);
+            let label=String(e.get(1,'<>'));if(label===' ')return;if(label==='')label='<>';
+            label=plainText(label.replace(/<>/g,value));angle+=radians(e.num(53));
+            const textStyle=this.document.byHandle.get(A.key(style?.get(340))),font=this.document.textStyle(textStyle?.get(2,'STANDARD'));
+            this.emit(e,ctx,s,{kind:'text',text:label,position:at,u:vec(Math.cos(angle)*h,Math.sin(angle)*h),v:vec(-Math.sin(angle)*h,Math.cos(angle)*h),align:1,vertical:0,font:font?.font||'',fontName:font?.name||'',mtext:false});
+            this.diagnostic('dimension-generated','Stored dimension block absent: generated definition-point geometry; advanced overrides/arrow blocks remain unsupported.',e,'info');
         }
         hatch(e, c, s) {
-            if (e.num(450))
-                this.diagnostic('hatch-gradient', 'Gradient hatch paint is not implemented; the solid boundary fill uses the entity color.', e);
             const tags = e.tags, starts = [];
             for (let i = 0; i < tags.length; i++)
                 if (tags[i].code === 92)
                     starts.push(i);
+            if (starts.length > this.options.maxHatchLoops) throw new RangeError('Hatch loop budget exceeded.');
+            const islandStyle = e.num(75);
+            if (![0, 1, 2].includes(islandStyle)) throw new RangeError('Unknown hatch island style.');
+            const boundaryEnd = tags.findIndex((t, i) => i > (starts.at(-1) ?? 0) && [75, 76, 78, 98, 450].includes(t.code));
             const commands = [], loops = [], ctx = { ...c, matrix: multiply(c.matrix, ocs(e.extrusion)) }, elevation = e.num(30);
             for (let i = 0; i < starts.length; i++) {
-                const part = tags.slice(starts[i], starts[i + 1] ?? tags.length), flags = Number(part[0].value), path = [];
+                const part = tags.slice(starts[i], starts[i + 1] ?? (boundaryEnd < 0 ? tags.length : boundaryEnd)), flags = Number(part[0].value), path = [];
+                // DXF style filters are defined by EXTERNAL/OUTERMOST flags, not
+                // winding direction. Normal uses all loops; outer stops at first islands.
+                if (islandStyle === 2 && !(flags & 1) || islandStyle === 1 && !(flags & 17)) continue;
                 if (flags & 2) {
                     let vs = [], v = null;
                     const stop = part.findIndex(t => t.code === 97);
@@ -693,11 +792,24 @@
                 this.diagnostic('empty-hatch', 'Hatch has no usable boundary loops.', e);
                 return;
             }
-            const style = e.num(75);
-            if (style !== 0)
-                this.diagnostic('hatch-island-style', 'Non-normal hatch island style currently uses even-odd loop filling.', e);
-            if (e.num(70) === 1) {
-                this.emit(e, ctx, s, { kind: 'path', path: commands, fill: true, closed: true, fillRule: 'evenodd' });
+            if (e.num(70) === 1 || e.num(450) === 1) {
+                let gradient = null;
+                if (e.num(450) === 1) {
+                    const name = A.key(e.get(470, 'LINEAR')), colors = e.all(421).map(rgb);
+                    if (!colors.length) colors.push(...e.all(63).map(n => A.aciColor(Number(n), this.options.background)));
+                    if (['LINEAR', 'CYLINDER', 'INVCYLINDER', 'SPHERICAL', 'INVSPHERICAL'].includes(name) && colors.length) {
+                        if (e.num(452)) {
+                            const tint = G.clamp(e.num(462), 0, 1), value = parseInt(colors[0].slice(1),16);
+                            colors[1] = rgb([16,8,0].reduce((n,shift) => n | Math.round(((value>>>shift)&255)*(1-tint)+255*tint)<<shift,0));
+                        }
+                        if (!colors[1]) colors[1]='#ffffff';
+                        const box=G.pathBounds(commands), cx=(box.minX+box.maxX)/2, cy=(box.minY+box.maxY)/2, angle=e.num(460), ux=Math.cos(angle), uy=Math.sin(angle);
+                        const rx=Math.max(EPS,(Math.abs(ux)*(box.maxX-box.minX)+Math.abs(uy)*(box.maxY-box.minY))/2);
+                        const ry=Math.max(EPS,(Math.abs(uy)*(box.maxX-box.minX)+Math.abs(ux)*(box.maxY-box.minY))/2);
+                        gradient={name,colors:colors.slice(0,2),origin:vec(cx,cy,elevation),u:vec(ux*rx,uy*rx),v:vec(-uy*ry,ux*ry),shift:G.clamp(e.num(461),0,1)};
+                    } else this.diagnostic('hatch-gradient', 'Gradient family or colors unavailable; solid entity color is shown for '+name+'.', e);
+                }
+                this.emit(e, ctx, s, { kind: 'path', path: commands, fill: true, closed: true, fillRule: 'evenodd', gradient });
                 return;
             }
             const pattern = [];
@@ -735,14 +847,15 @@
                     continue;
                 }
                 const offsets = corners.map(q => dot(sub(q, p.base), v) / spacing), min = Math.floor(Math.min(...offsets)) - 1, max = Math.ceil(Math.max(...offsets)) + 1;
-                if (max - min > this.options.maxPatternLines - emitted) {
+                if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || max - min + 1 > this.options.maxPatternLines - emitted) {
                     this.diagnostic('hatch-density', 'Hatch pattern exceeds the line budget; pattern family was omitted.', e);
                     continue;
                 }
                 for (let i = min; i <= max; i++) {
                     const base = add(p.base, mul(p.offset, i)), ts = corners.map(q => dot(sub(q, base), u)), a = add(base, mul(u, Math.min(...ts) - 1)), end = add(base, mul(u, Math.max(...ts) + 1));
                     a.z = end.z = elevation;
-                    this.path(e, clipContext, { ...s, dash: p.dashes, dashScale: 1 }, [a, end]);
+                    const lineScale=length(direction(ctx.matrix,u));
+                    this.path(e, clipContext, { ...s, dash: p.dashes, dashScale: lineScale, dashOffset: dot(sub(a,base),u)*lineScale }, [a, end]);
                     emitted++;
                 }
             }

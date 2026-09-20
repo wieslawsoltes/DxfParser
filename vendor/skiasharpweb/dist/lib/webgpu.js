@@ -116,6 +116,15 @@ export async function createWebGPUBackend(canvas, { onDeviceLost } = {}) {
   let context;
   let disposed = false;
   let deviceLoss = null;
+  let uncapturedError = null;
+  // Device-local reporting: never silence the browser globally. A failed frame
+  // rejects FlushAsync so the owning host can retire this backend and replay.
+  const onUncapturedError = event => {
+    if (disposed) return;
+    uncapturedError ||= new Error('WebGPU: ' + (event.error?.message || 'uncaptured device error'));
+    event.preventDefault?.();
+  };
+  device.addEventListener?.('uncapturederror', onUncapturedError);
   let mode = 'ready';
   let width = 0;
   let height = 0;
@@ -147,6 +156,7 @@ export async function createWebGPUBackend(canvas, { onDeviceLost } = {}) {
 
   function assertUsable() {
     if (disposed) throw new Error('The WebGPU backend has been disposed.');
+    if (uncapturedError) throw uncapturedError;
     if (deviceLoss) throw new Error(`The WebGPU device was lost: ${deviceLoss.message || deviceLoss.reason || 'unknown reason'}`);
   }
 
@@ -171,6 +181,7 @@ export async function createWebGPUBackend(canvas, { onDeviceLost } = {}) {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    device.removeEventListener?.('uncapturederror', onUncapturedError);
     mode = 'disposed';
     uploadTexture?.destroy();
     vertexBuffer?.destroy();
@@ -386,7 +397,28 @@ export async function createWebGPUBackend(canvas, { onDeviceLost } = {}) {
     statistics.frames++;statistics.primitiveCount=cursor/FLOATS_PER_INSTANCE;statistics.lastUploadBytes=byteLength;statistics.uploadedBytes+=byteLength;
   }
 
+  async function runChecked(action) {
+    assertUsable();
+    device.pushErrorScope('out-of-memory');
+    device.pushErrorScope('internal');
+    device.pushErrorScope('validation');
+    let value, failure;
+    try { value = await action(); await device.queue.onSubmittedWorkDone(); }
+    catch (error) { failure = error; }
+    // Always balance scopes, even after a synchronous WASM import exception.
+    for (let i = 0; i < 3; i++) {
+      try {
+        const error = await device.popErrorScope();
+        if (error && !failure) failure = new Error('WebGPU: ' + error.message);
+      } catch (error) { failure ||= error; }
+    }
+    if (failure) throw failure;
+    assertUsable();
+    return value;
+  }
+
   return {
+    runChecked,
     device, context, kind: 'webgpu', format,
     get mode() { return mode; },
     get width() { return width; },

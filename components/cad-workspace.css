@@ -17,3 +17,7 @@
 .dxf-cad-records>.dxf-grid-view {flex:1;min-height:250px;margin:4px}
 .dxf-cad-tool>button {align-self:start;margin:4px 12px;padding:6px 12px}
 @media(max-width:700px){.dxf-cad-coordinates{display:none}.dxf-cad-backend{max-width:55%}.dxf-cad-status{gap:5px}}
+
+.dxf-cad-graphics-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:end; padding:8px; }
+.dxf-cad-graphics-controls label { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
+.dxf-cad-graphics-controls select { min-width:0; width:100%; }
