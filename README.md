@@ -17,6 +17,7 @@ No build or CDN is required to run the checked-in browser assets.
 
 [New renderer and migration](docs/skia-renderer.md) ·
 [0.2.0 WebGPU fixes and rendering improvements](docs/skia-renderer-improvements.md) ·
+[0.2.1 export and backend lifetime fixes](docs/skia-renderer-lifetime.md) ·
 [Reusable DxfSkia package](packages/dxf-skia/README.md) ·
 [Rendering compatibility and limits](packages/dxf-skia/COMPATIBILITY.md) ·
 [Ribbon and dock documents](docs/ribbon-document-workspace.md) ·

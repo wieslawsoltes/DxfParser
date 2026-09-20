@@ -160,3 +160,17 @@ hatch, clipping and dimension coverage and the remaining fidelity limits.
 In DxfParser, `xvfb-run -a python tests/skia-gpu.py` additionally requires actual
 Graphite/WebGPU and Ganesh/WebGL on SwiftShader. A missing adapter fails the suite;
 software GPU execution is not physical-hardware certification.
+
+## 0.2.1 export and backend lifetime fixes
+
+PNG readback, drawing/flush and retirement are serialized per surface. Resize,
+backend retry and disposal wait for in-flight native snapshots. Queued exports
+cancel before native entry when invalidated, and a newer frame invalidates an
+in-flight export instead of returning an image of the wrong drawing. Rejected
+readbacks release the queue; successful PNG data and native image objects have
+explicit ownership/cleanup. A late flush failure from a retired generation no
+longer cancels a newly requested retry. Canvas-replacement notifications cannot
+misclassify consumer callback exceptions as graphics-driver failures.
+
+`await host.dispose()` joins pending native readbacks. `await host.whenIdle()`
+remains the presentation fence; await `host.exportPng()` for its export result.

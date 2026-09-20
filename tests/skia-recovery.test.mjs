@@ -17,10 +17,11 @@ function harness(hooks = {}, options = {}) {
     const scope={DxfSkia:{SkiaPainter:Painter}};
     vm.runInNewContext(code,scope);
     function canvas() { return {width:1,height:1,dataset:{},getContext(){},cloneNode(){return canvas();},replaceWith(next){replaced.push(next);}}; }
-    const S={SKSurface:{async Create(element, config) {
+    const S={SKEncodedImageFormat:{Png:'png'},SKSurface:{async Create(element, config) {
         calls.push(config.backend);
         const surface={Element:element,Backend:config.backend,Width:element.width,Height:element.height,Canvas:{},config,disposeCount:0,
             async FlushAsync(){return hooks.flush?.(surface);},
+            async SnapshotAsync(){return hooks.snapshot?.(surface);},
             async DisposeAsync(){surface.disposeCount++; await hooks.dispose?.(surface);}};
         surfaces.push(surface);
         await hooks.create?.(surface);
@@ -101,4 +102,146 @@ test('disposal during initialization is idempotent and releases native and paint
     h.host.request(frame(1)); await until(()=>h.calls.length===1); const painter=h.host.painter;
     const a=h.host.dispose(), b=h.host.dispose(); assert.equal(a,b); waiting.resolve(); await a;
     assert.equal(h.surfaces[0].disposeCount,1); assert.equal(painter.disposals,1); assert.equal(h.notifications.length,0); assert.equal(h.host.canvas,null);
+});
+
+function pngImage(counters = {}) {
+    return {
+        Encode() {
+            counters.encodes = (counters.encodes || 0) + 1;
+            return { ToArray: () => new Uint8Array([137,80,78,71]), Dispose() { counters.dataDisposals = (counters.dataDisposals || 0) + 1; } };
+        },
+        Dispose() { counters.imageDisposals = (counters.imageDisposals || 0) + 1; }
+    };
+}
+test('explicit retry during a failed flush is a new generation, not another failed backend', async () => {
+    const gate=deferred(); let flushes=0;
+    const h=harness({flush:()=>++flushes===1?gate.promise:undefined},{backend:'webgpu',allowFallback:false});
+    h.host.request(frame(1)); await until(()=>flushes===1);
+    h.host.retryBackend('webgpu'); gate.reject(new Error('old generation failure'));
+    try {
+        await h.host.whenIdle();
+        assert.deepEqual(h.calls,['webgpu','webgpu']);
+        assert.equal(h.host.failedBackends.size,0);
+        assert.equal(h.host.recoveryEvents.length,0);
+        assert.equal(h.surfaces[0].disposeCount,1);
+        assert.equal(h.notifications.length,1);
+    } finally { await h.host.dispose(); }
+});
+test('a throwing canvas-replacement notification does not poison a viable backend', async () => {
+    const h=harness({create:s=>{if(s.Backend==='webgpu')throw Error('unavailable');}},
+        {onCanvasReplaced:()=>{throw Error('consumer canvas callback');}});
+    try {
+        h.host.request(frame(1)); await h.host.whenIdle();
+        assert.deepEqual(h.calls,['webgpu','webgl']);
+        assert.equal(h.host.callbackError.message,'consumer canvas callback');
+        assert.equal(h.host.failedBackends.size,1);
+    } finally { await h.host.dispose(); }
+});
+test('PNG readbacks are serialized per surface and release native images and data exactly once', async () => {
+    const gate=deferred(), counts={}; let started=0, active=0, maximum=0;
+    const h=harness({snapshot:async()=>{started++;maximum=Math.max(maximum,++active);if(started===1)await gate.promise;active--;return pngImage(counts);}});
+    h.host.request(frame(1)); await h.host.whenIdle();
+    const first=h.host.exportPng(), second=h.host.exportPng();
+    await until(()=>started>=1); await tick(); const before=started;
+    gate.resolve();
+    try {
+        await Promise.all([first,second]);
+        assert.equal(before,1); assert.equal(maximum,1);
+        assert.equal(counts.imageDisposals,2); assert.equal(counts.dataDisposals,2);
+    } finally { await h.host.dispose(); }
+});
+test('surface disposal waits for an outstanding PNG readback, rejects stale export, and releases once', async () => {
+    const gate=deferred(), counts={}; let started=false;
+    const h=harness({snapshot:async()=>{started=true;await gate.promise;return pngImage(counts);}});
+    h.host.request(frame(1)); await h.host.whenIdle(); const painter=h.host.painter;
+    const exporting=assert.rejects(h.host.exportPng(),/Drawing changed/);
+    await until(()=>started); const disposing=h.host.dispose(); await tick();
+    const prematurelyDisposed=h.surfaces[0].disposeCount;
+    gate.resolve(); await exporting; await disposing;
+    assert.equal(prematurelyDisposed,0); assert.equal(h.surfaces[0].disposeCount,1);
+    assert.equal(counts.imageDisposals,1); assert.equal(counts.encodes,undefined); assert.equal(painter.disposals,1);
+});
+test('a camera redraw waits for PNG readback and cannot publish an export of the wrong frame', async () => {
+    const gate=deferred(), counts={}; let started=false;
+    const h=harness({snapshot:async()=>{started=true;await gate.promise;return pngImage(counts);}});
+    h.host.request(frame(1)); await h.host.whenIdle();
+    const exported=h.host.exportPng().then(()=>({ok:true}),error=>({error})); await until(()=>started);
+    h.host.request(frame(2)); await tick(); const paintsDuringReadback=h.drawn.length;
+    gate.resolve(); const outcome=await exported; await h.host.whenIdle();
+    try {
+        assert.equal(paintsDuringReadback,1);
+        assert.match(outcome.error?.message || '',/Drawing changed/);
+        assert.equal(h.host.presentedFrame.n,2); assert.equal(counts.imageDisposals,1);
+    } finally { await h.host.dispose(); }
+});
+test('resize retires the source surface only after pending snapshot completion', async () => {
+    const gate=deferred(); let started=false;
+    const h=harness({snapshot:async()=>{started=true;await gate.promise;return pngImage();}});
+    h.host.request(frame(1)); await h.host.whenIdle();
+    const exported=h.host.exportPng().catch(error=>error); await until(()=>started);
+    h.host.request({...frame(2),width:128}); await tick(); const premature=h.surfaces[0].disposeCount;
+    gate.resolve(); const error=await exported; await h.host.whenIdle();
+    try {
+        assert.equal(premature,0); assert.match(error.message,/Drawing changed/);
+        assert.equal(h.surfaces[0].disposeCount,1); assert.equal(h.host.surface.Width,128);
+    } finally { await h.host.dispose(); }
+});
+test('backend retry waits for a readback without dropping resources or reusing the old surface', async () => {
+    const gate=deferred(); let started=false;
+    const h=harness({snapshot:async()=>{started=true;await gate.promise;return pngImage();}});
+    h.host.request(frame(1)); await h.host.whenIdle(); const resources=h.host.resources;
+    const exported=h.host.exportPng().catch(error=>error); await until(()=>started);
+    h.host.retryBackend('canvas'); await tick(); const premature=h.surfaces[0].disposeCount;
+    gate.resolve(); const error=await exported; await h.host.whenIdle();
+    try {
+        assert.equal(premature,0); assert.match(error.message,/Drawing changed/);
+        assert.deepEqual(h.calls,['webgpu','canvas']); assert.equal(h.host.resources,resources);
+        assert.equal(h.host.recoveryEvents.length,0);
+    } finally { await h.host.dispose(); }
+});
+test('failed snapshot releases the surface queue and allows another export and redraw', async () => {
+    const counts={}; let attempts=0;
+    const h=harness({snapshot:()=>{if(++attempts===1)throw Error('readback failed');return pngImage(counts);}});
+    try {
+        h.host.request(frame(1)); await h.host.whenIdle(); await assert.rejects(h.host.exportPng(),/readback failed/);
+        const png=await h.host.exportPng(); assert.equal(png[0],137);
+        h.host.request(frame(2)); await h.host.whenIdle(); assert.equal(h.host.presentedFrame.n,2);
+        assert.equal(h.host.failedBackends.size,0); assert.equal(counts.imageDisposals,1);
+    } finally { await h.host.dispose(); }
+});
+
+test('queued PNG exports cancel before native entry when disposal invalidates the generation', async () => {
+    const gate=deferred(); let started=0;
+    const h=harness({snapshot:async()=>{started++;await gate.promise;return pngImage();}});
+    h.host.request(frame(1)); await h.host.whenIdle();
+    const a=h.host.exportPng().catch(e=>e),b=h.host.exportPng().catch(e=>e);
+    await until(()=>started===1); const disposing=h.host.dispose(); gate.resolve();
+    const errors=await Promise.all([a,b]); await disposing;
+    assert.equal(started,1); assert.ok(errors.every(e=>/Drawing changed/.test(e.message)));
+    assert.equal(h.surfaces[0].disposeCount,1);
+});
+test('native PNG encoder failures dispose the image and do not strand the next surface operation', async () => {
+    let disposals=0;
+    const h=harness({snapshot:()=>({Encode(){throw Error('codec failure');},Dispose(){disposals++;}})});
+    try {
+        h.host.request(frame(1));await h.host.whenIdle();await assert.rejects(h.host.exportPng(),/codec failure/);
+        h.host.request(frame(2));await h.host.whenIdle();assert.equal(h.host.presentedFrame.n,2);
+        assert.equal(disposals,1);assert.equal(h.host.failedBackends.size,0);
+    } finally {await h.host.dispose();}
+});
+test('a null native snapshot is an explicit export error and never poisons rendering', async () => {
+    const h=harness({snapshot:()=>null});
+    try {
+        h.host.request(frame(1));await h.host.whenIdle();await assert.rejects(h.host.exportPng(),/Native snapshot failed/);
+        h.host.request(frame(2));await h.host.whenIdle();assert.equal(h.host.failedBackends.size,0);
+    } finally {await h.host.dispose();}
+});
+test('a new frame queued immediately after export is painted before the snapshot is captured', async () => {
+    const captured=[];let h;
+    h=harness({snapshot:()=>{captured.push(h.drawn.at(-1).n);return pngImage();}});
+    try {
+        h.host.request(frame(1));await h.host.whenIdle();
+        const exported=h.host.exportPng();h.host.request(frame(2));await exported;await h.host.whenIdle();
+        assert.deepEqual(captured,[2]);
+    } finally {await h.host.dispose();}
 });

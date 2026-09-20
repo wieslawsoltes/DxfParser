@@ -80,6 +80,8 @@ export class SurfaceHost {
   lastFrame: Frame | null; initialize(canvas: HTMLCanvasElement): this; ensureRuntime(): Promise<unknown>;
   request(frame: Frame, options?: PaintOptions): void; whenIdle(): Promise<Frame | null>;
   suspend(): void; resume(): void; registerResource(name: string, bytes: Uint8Array | ArrayBuffer, options?: {kind?: ResourceEntry['kind']}): Promise<ResourceEntry>;
+  /** Serializes native readback. Rejects if a newer frame or lifecycle change
+   * supersedes the capture. Resize/retry/disposal join active readback work. */
   exportPng(): Promise<Uint8Array>; exportPdf(options?: { width?: number; height?: number; background?: string }): Promise<Uint8Array>;
   dispose(): Promise<void>;
 }
