@@ -1,0 +1,21 @@
+name: Skia performance qualification
+on:
+  push:
+    branches: [work/skia-performance-format]
+    paths: [.github/workflows/performance-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1342c38a5fb7f1a0944c37fb989bf3cba52b2ebc
+          persist-credentials: false
+      - run: git archive HEAD --format=tar.gz -o /tmp/skia-performance-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skia-performance-source
+          path: /tmp/skia-performance-source.tar.gz
+          retention-days: 3
