@@ -898,28 +898,16 @@
     return true;
   }
 
-  function loadDxfFile(file) {
-    if (!file) {
-      return;
-    }
-    if (!/\.dxf$/i.test(file.name)) {
-      updateStatus(`Unsupported file type: ${file.name}. Only DXF files are supported.`);
-      return;
-    }
+  async function loadDxfFile(file) {
+    if (!file) return;
+    if (!/\.dxf$/i.test(file.name)) { updateStatus(`Unsupported file type: ${file.name}. Only DXF files are supported.`); return; }
     updateStatus(`Loading ${file.name}...`);
-    const reader = new FileReader();
-    reader.onerror = () => {
-      updateStatus(`Failed to read ${file.name}.`);
-    };
-    reader.onload = () => {
-      const sourceText = reader.result;
-      if (typeof sourceText !== "string") {
-        updateStatus(`Unable to decode ${file.name}.`);
-        return;
-      }
-      ingestDxfDocument({ name: file.name, sourceText });
-    };
-    reader.readAsText(file);
+    try {
+      const maxInputBytes=128*1024*1024;
+      if(file.size>maxInputBytes)throw new RangeError('DXF byte budget exceeded.');
+      const sourceText=window.DxfSkia.dxfText(await file.arrayBuffer(),{maxInputBytes});
+      ingestDxfDocument({name:file.name,sourceText});
+    } catch(error) { updateStatus(`Unable to load ${file.name}: ${error.message}`); }
   }
 
   function ingestDxfDocument({ name, sourceText }) {

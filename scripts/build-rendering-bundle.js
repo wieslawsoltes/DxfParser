@@ -3,12 +3,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
-const core = ['geometry', 'document', 'resources', 'proxy', 'text', 'compiler', 'renderer', 'surface-host']
+const core = ['geometry', 'input', 'document', 'resources', 'proxy', 'text', 'compiler', 'renderer', 'surface-host']
     .map(name => 'packages/dxf-skia/src/' + name + '.js');
 const modules = [...core, 'components/skia-rendering-adapter.js', 'components/rendering-property-grid.js', 'components/rendering-overlay.js'];
 const bundle = files => '// Deterministic DxfSkia bundle. Native SkiaSharpWeb is supplied by the host.\n' + files
     .map(file => '\n// ' + file + '\n' + fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
-const exportsList = ['geometry', 'SpatialIndex', 'parseTags', 'DxfRecord', 'DxfDocument', 'Diagnostics', 'aciColor', 'colorObject', 'transparency', 'ResourceStore', 'resourceKey', 'ShapeFont', 'draftingGlyph', 'layoutText', 'fallbackTextWidth', 'SceneCompiler', 'plainText', 'decodeProxy', 'SkiaPainter', 'prepareFrame', 'projectedScene', 'hitTest', 'snap', 'nativeDash', 'clipInfiniteLine', 'SurfaceHost'];
+const exportsList = ['geometry', 'SpatialIndex', 'parseTags', 'iterateTags', 'decodeDxf', 'dxfText', 'binaryGroupType', 'DxfRecord', 'DxfDocument', 'Diagnostics', 'aciColor', 'colorObject', 'transparency', 'ResourceStore', 'resourceKey', 'ShapeFont', 'draftingGlyph', 'layoutText', 'fallbackTextWidth', 'SceneCompiler', 'plainText', 'decodeProxy', 'SkiaPainter', 'prepareFrame', 'projectedScene', 'hitTest', 'snap', 'nativeDash', 'clipInfiniteLine', 'SurfaceHost'];
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 fs.mkdirSync(path.join(root, 'packages/dxf-skia/dist'), { recursive: true });
 fs.writeFileSync(path.join(root, 'dist/dxf-rendering.global.js'), bundle(modules));

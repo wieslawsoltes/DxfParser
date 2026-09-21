@@ -14,8 +14,8 @@
         if (cache.has(key))
             return cache.get(key);
         const entries = scene.primitives.map((primitive, index) => {
-            const points = (primitive.points || []).map(p => project(p, basis)), rings = (primitive.rings || [primitive.points || []]).map(r => r.map(p => project(p, basis)));
-            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : primitive.path ? G.pathBounds(primitive.path, p => project(p, basis)) : bounds(points);
+            let points, rings; // Pick tessellation is transformed only when interaction needs it.
+            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : primitive.path ? G.pathBounds(primitive.path, p => project(p, basis)) : bounds((primitive.points || []).map(p => project(p, basis)));
             for (const clip of primitive.clips || [])
                 if (!clip.inverse) {
                     const cb = bounds((clip.loops?.flat() || clip.points || []).map(p => project(p, basis)));
@@ -26,10 +26,19 @@
                         box.maxY = Math.min(box.maxY, cb.maxY);
                     }
                 }
-            return { primitive, index, points, rings, bounds: box };
+            const entry = { primitive, index, bounds: box };
+            Object.defineProperties(entry, {
+                points: { get: () => points ||= (primitive.points || []).map(p => project(p, basis)) },
+                rings: { get: () => rings ||= primitive.rings ? primitive.rings.map(r => r.map(p => project(p, basis))) : [entry.points] }
+            });
+            return entry;
         });
         const extents = entries.filter(x => !x.primitive.infinite).reduce((b, x) => union(b, x.bounds), emptyBounds());
-        const result = { entries, bounds: extents, index: new A.SpatialIndex(entries), basis, key };
+        const centerEntries = entries.filter(e => e.primitive.center).map(entry => ({ entry, bounds: bounds([project(entry.primitive.center, basis)]) }));
+        const clipCache = new WeakMap();
+        const result = { entries, bounds: extents, index: new A.SpatialIndex(entries), centers: new A.SpatialIndex(centerEntries), basis, key,
+            clipLoops(clip) { let loops = clipCache.get(clip); if (!loops) { loops = (clip.loops || [clip.points || []]).map(r => r.map(p => project(p, basis))); clipCache.set(clip, loops); } return loops; }
+        };
         if (cache.size >= 4)
             cache.delete(cache.keys().next().value);
         cache.set(key, result);
@@ -109,32 +118,48 @@
         const screenDirection = p => { const v = project(p, basis); return vec((v.x * cos - v.y * sin) * scale, -(v.x * sin + v.y * cos) * scale); };
         const margin = 10 / scale, viewport = bounds([vec(-10, -10), vec(width + 10, -10), vec(width + 10, height + 10), vec(-10, height + 10)].map(toProjected));
         const entries = projection.index.search(viewport).sort((a, b) => a.index - b.index);
-        const pickables = entries.map(entry => {
+        const picks = new Map(), interactionStats = { pickablesCreated: 0, screenPointsTransformed: 0 };
+        const pick = entry => {
+            if (picks.has(entry)) return picks.get(entry);
             const p = entry.primitive;
-            let points = entry.points;
-            if (p.infinite) {
-                points = clipInfiniteLine(points[0], points[1], viewport, p.infinite === 'ray');
-                if (!points)
-                    return null;
-            }
-            const screenPoints = points.map(screen);
-            // A conservative exact bound must not depend on pick-tessellation density.
             const b = entry.bounds;
-            const screenBounds = p.infinite ? bounds(screenPoints) : bounds([
-                vec(b.minX,b.minY), vec(b.maxX,b.minY), vec(b.maxX,b.maxY), vec(b.minX,b.maxY)
-            ].map(screen));
-            return { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer, worldBounds: p.bounds, screenBounds, worldPoints: p.points, screenPoints, isClosed: !!p.closed, weight: entry.index, primitive: p, entry, clips: p.clips };
-        }).filter(Boolean);
+            let screenPoints;
+            const result = { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer,
+                worldBounds: p.bounds, worldPoints: p.points, isClosed: !!p.closed, weight: entry.index,
+                primitive: p, entry, clips: p.clips };
+            Object.defineProperties(result, {
+                screenPoints: { enumerable: true, get() {
+                    if (!screenPoints) {
+                        const points = p.infinite ? clipInfiniteLine(entry.points[0], entry.points[1], viewport, p.infinite === 'ray') || [] : entry.points;
+                        interactionStats.screenPointsTransformed += points.length;
+                        screenPoints = points.map(screen);
+                    }
+                    return screenPoints;
+                } },
+                screenBounds: { enumerable: true, get() {
+                    const box = p.infinite ? bounds(result.screenPoints) : bounds([
+                        vec(b.minX,b.minY), vec(b.maxX,b.minY), vec(b.maxX,b.maxY), vec(b.minX,b.maxY)
+                    ].map(screen));
+                    Object.defineProperty(result, 'screenBounds', { value: box, enumerable: true });
+                    return box;
+                }, configurable: true }
+            });
+            interactionStats.pickablesCreated++;
+            picks.set(entry, result);
+            return result;
+        };
+        let pickables;
         const frame = { scene, width, height, devicePixelRatio, scale, worldCenter: c, rotationRad: Number(viewState.rotationRad) || 0, rotationDeg: (Number(viewState.rotationRad) || 0) * 180 / Math.PI,
             worldBounds: scene.bounds, bounds: b, isEmpty, autoViewState: { mode: 'auto', center: autoCenter, scale: autoScale, rotationRad: Number(viewState.rotationRad) || 0 }, viewState: { mode: custom ? 'custom' : 'auto', center: c, scale, rotationRad: Number(viewState.rotationRad) || 0 },
-            basis, projection, viewport, screenDirection, cos, sin, pickables, entries, worldToScreen, screenToWorld, toProjected, screen, background, visualStyle: { name: visualStyle, category: visualStyle.includes('shad') ? 'shaded' : 'wireframe' }, polylines: [], fills: [], points: [], texts: [] };
+            basis, projection, viewport, screenDirection, cos, sin, pick, interactionStats, entries, worldToScreen, screenToWorld, toProjected, screen, background, visualStyle: { name: visualStyle, category: visualStyle.includes('shad') ? 'shaded' : 'wireframe' }, polylines: [], fills: [], points: [], texts: [] };
+        Object.defineProperty(frame, 'pickables', { enumerable: true, get: () => pickables ||= entries.map(pick).filter(p => !p.primitive.infinite || p.screenPoints.length) });
         frame.hitTest = (p, tolerance = 6) => hitTest(frame, p, tolerance);
         frame.snap = (p, tolerance = 12, modes) => snap(frame, p, tolerance, modes);
         return frame;
     }
     function unclipped(frame, primitive, point) {
         for (const clip of primitive.clips) {
-            const loops = clip.loops || [clip.points || []], inside = G.inLoops(point, loops.map(r => r.map(p => project(p, frame.basis))));
+            const inside = G.inLoops(point, frame.projection.clipLoops(clip));
             if (clip.inverse ? inside : !inside)
                 return false;
         }
@@ -143,8 +168,10 @@
     function hitTest(frame, screenPoint, tolerance = 6) {
         const p = frame.toProjected(screenPoint), t = tolerance / frame.scale;
         let winner = null, best = Infinity;
-        for (let i = frame.pickables.length - 1; i >= 0; i--) {
-            const pick = frame.pickables[i], item = pick.primitive;
+        const candidates = frame.projection.index.search({ minX:p.x-t,minY:p.y-t,maxX:p.x+t,maxY:p.y+t }).sort((a,b)=>b.index-a.index);
+        for (const entry of candidates) {
+            if (!G.intersects(entry.bounds, frame.viewport)) continue;
+            const pick = frame.pick(entry), item = entry.primitive;
             if (item.style.alpha <= 0 || !unclipped(frame, item, p))
                 continue;
             if (!item.infinite && !G.inBounds(p, pick.entry.bounds, t))
@@ -180,8 +207,13 @@
             best = d;
             result = { point, screenPoint: screen, type, kind: type, handle: pick.handle, pickable: pick, distance: d };
         } };
-        for (const pick of frame.pickables) {
-            const p = pick.primitive;
+        const projectedPoint = frame.toProjected(screenPoint), distance = tolerance / frame.scale;
+        const box = {minX:projectedPoint.x-distance,minY:projectedPoint.y-distance,maxX:projectedPoint.x+distance,maxY:projectedPoint.y+distance};
+        const candidates = new Set(frame.projection.index.search(box));
+        if (modes.has('center')) for (const center of frame.projection.centers.search(box)) candidates.add(center.entry);
+        for (const entry of [...candidates].sort((a,b)=>a.index-b.index)) {
+            if (!G.intersects(entry.bounds, frame.viewport)) continue;
+            const pick = frame.pick(entry), p = entry.primitive;
             if (p.style.alpha <= 0) continue;
             // Arc centers can lie outside the arc's bounding box.
             if (p.center) consider(p.center, 'center', pick);
@@ -264,38 +296,51 @@
         }
     }
     class SkiaPainter {
-        constructor(S, { resources, cacheLimit = 2048 } = {}) {
+        constructor(S, { resources, cacheLimit = 32768, cacheBytes = 32 * 1024 * 1024, textCacheLimit = 1024, textCacheBytes = 16 * 1024 * 1024 } = {}) {
             if (!S?.SKPath || !S?.SKPaint)
                 throw new TypeError('An initialized SkiaSharpWeb namespace is required.');
             this.S = S;
             if (!Number.isSafeInteger(cacheLimit) || cacheLimit < 1) throw new RangeError('Positive integer path cache limit required.');
             this.resources = resources || new A.ResourceStore(S);
             this.ownsResources = !resources;
-            this.cacheLimit = cacheLimit;
-            this.cache = new Map();
+            for (const value of [cacheBytes, textCacheLimit, textCacheBytes])
+                if (!Number.isSafeInteger(value) || value < 1) throw new RangeError('Positive integer native cache budgets required.');
+            Object.assign(this, {cacheLimit, cacheBytes, textCacheLimit, textCacheBytes});
+            this.cachedBytes = this.textBytes = 0;
+            this.cache = new Map(); this.textCache = new Map();
+            this.metrics = { pathBuilds: 0, pathHits: 0, textBuilds: 0, textHits: 0, clipBuilds: 0, clipHits: 0 };
             this.scene = null;
             this.disposed = false;
             this.diagnostics = new A.Diagnostics();
             this.paint = new S.SKPaint({ IsAntialias: true, StrokeCap: S.SKStrokeCap.Round, StrokeJoin: S.SKStrokeJoin.Round });
         }
-        clearCache() { for (const v of this.cache.values())
-            v.path.Dispose(); this.cache.clear(); }
+        clearCache() {
+            for (const v of this.cache.values()) v.path.Dispose();
+            for (const v of this.textCache.values()) v.dispose();
+            this.cache.clear(); this.textCache.clear(); this.cachedBytes = this.textBytes = 0;
+        }
         cachedPath(primitive, projection) {
             const key = primitive.id + '|' + projection.key;
             let entry = this.cache.get(key);
             if (entry) {
+                this.metrics.pathHits++;
                 this.cache.delete(key);
                 this.cache.set(key, entry);
                 return entry;
             }
             const origin = project(primitive.points[0] || vec(), projection.basis), path = nativePath(this.S, primitive.path, p => sub(project(p, projection.basis), origin));
-            entry = { path, origin };
-            if (this.cache.size >= this.cacheLimit) {
-                const first = this.cache.keys().next().value;
-                this.cache.get(first).path.Dispose();
-                this.cache.delete(first);
+            const bytes = 128 + primitive.path.length * 64;
+            entry = { path, origin, bytes, temporary: false };
+            this.metrics.pathBuilds++;
+            // Protect entries needed later in this pass. A drawing above the budget
+            // retains its hot subset rather than cyclically evicting every path.
+            while ((this.cache.size >= this.cacheLimit || this.cachedBytes + bytes > this.cacheBytes) && this.cache.size) {
+                const oldestKey = this.cache.keys().next().value, oldest = this.cache.get(oldestKey);
+                if (this.activePathKeys?.has(oldestKey)) break;
+                oldest.path.Dispose(); this.cachedBytes -= oldest.bytes; this.cache.delete(oldestKey);
             }
-            this.cache.set(key, entry);
+            if (this.cache.size >= this.cacheLimit || this.cachedBytes + bytes > this.cacheBytes) entry.temporary = true;
+            else { this.cache.set(key, entry); this.cachedBytes += bytes; }
             return entry;
         }
         draw(canvas, frame, { selection = new Set(), blockHighlights = new Set(), grid = false, background = frame.background, clear = true } = {}) {
@@ -310,13 +355,16 @@
             }
             if (clear)
                 canvas.Clear(S.SKColor.Parse(background));
+            this.frameClips = new Map();
+            this.activeTextIds = new Set(frame.entries.filter(e=>e.primitive.kind==='text').map(e=>e.primitive.id));
+            this.activePathKeys = new Set(frame.entries.filter(e=>e.primitive.path).map(e=>e.primitive.id+'|'+frame.projection.key));
             const save = canvas.Save();
             let drawn = 0;
             try {
                 canvas.Scale(frame.devicePixelRatio, frame.devicePixelRatio);
                 if (grid)
                     this.drawGrid(canvas, frame);
-                for (const pick of frame.pickables) {
+                for (const pick of frame.entries) {
                     try {
                         if (pick.primitive.style.alpha <= 0) continue;
                         this.drawPrimitive(canvas, frame, pick, false); drawn++;
@@ -326,8 +374,8 @@
                         this.diagnostics.add('skia-primitive', error.message, pick.primitive.source, 'error');
                     }
                 }
-                for (const pick of frame.pickables)
-                    if (selection.has(pick.handle) || pick.primitive.blockPath.some(b => blockHighlights.has(A.key(b)))) {
+                for (const pick of frame.entries)
+                    if (selection.has(pick.primitive.handle) || pick.primitive.blockPath.some(b => blockHighlights.has(A.key(b)))) {
                         try {
                             this.drawPrimitive(canvas, frame, pick, true);
                         }
@@ -339,21 +387,27 @@
             }
             finally {
                 canvas.RestoreToCount(save);
+                this.activePathKeys = null; this.activeTextIds = null;
+                for (const path of this.frameClips.values()) path.Dispose();
+                this.frameClips = null;
             }
-            return { drawn, visible: frame.pickables.length, omitted: frame.pickables.length - drawn, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
+            return { ...this.metrics, cachedBytes: this.cachedBytes, textBytes: this.textBytes, drawn, visible: frame.entries.length, omitted: frame.entries.length - drawn, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
         }
         configure(p, selected = false) { const S = this.S, paint = this.paint; paint.PathEffect = null; paint.ColorFilter = null; paint.Shader = null; paint.Color = S.SKColor.Parse(selected ? '#63c9ff' : p.style.color); paint.Alpha = Math.round(255 * (selected ? 1 : p.style.alpha)); paint.Style = p.fill && !selected ? S.SKPaintStyle.Fill : S.SKPaintStyle.Stroke; paint.StrokeWidth = 1; return paint; }
         drawPrimitive(canvas, frame, pick, selected) {
             const p = pick.primitive, S = this.S, paint = this.configure(p, selected), save = canvas.Save();
+            let pathEntry;
             try {
                 for (const clip of p.clips) {
-                    const path = nativePath(S, clip.path || ((clip.loops || [clip.points]).flatMap(r => G.pathFromPoints(r, true))), frame.worldToScreen);
-                    try {
-                        canvas.ClipPath(path, clip.inverse ? S.SKClipOperation.Difference : S.SKClipOperation.Intersect, true);
+                    let path = this.frameClips?.get(clip);
+                    const transient = !this.frameClips;
+                    if (path) this.metrics.clipHits++;
+                    else {
+                        path = nativePath(S, clip.path || ((clip.loops || [clip.points]).flatMap(r => G.pathFromPoints(r, true))), frame.worldToScreen);
+                        this.metrics.clipBuilds++; this.frameClips?.set(clip,path);
                     }
-                    finally {
-                        path.Dispose();
-                    }
+                    try { canvas.ClipPath(path, clip.inverse ? S.SKClipOperation.Difference : S.SKClipOperation.Intersect, true); }
+                    finally { if (transient) path.Dispose(); }
                 }
                 if (p.kind === 'text') {
                     this.drawText(canvas, frame, p, selected);
@@ -364,7 +418,7 @@
                     return;
                 }
                 if (p.kind === 'point') {
-                    const q = pick.screenPoints[0], size = Math.max(2, p.size > 0 ? p.size * frame.scale : p.size < 0 ? -p.size / 100 * frame.height : 5), mode = p.mode & 31;
+                    const q = frame.screen(pick.points[0]), size = Math.max(2, p.size > 0 ? p.size * frame.scale : p.size < 0 ? -p.size / 100 * frame.height : 5), mode = p.mode & 31;
                     paint.StrokeWidth = selected ? 2 : 1;
                     paint.Style = S.SKPaintStyle.Stroke;
                     if (mode === 0 || selected) {
@@ -389,12 +443,14 @@
                     return;
                 }
                 if (p.infinite) {
-                    const [a, b] = pick.screenPoints;
+                    const clipped = clipInfiniteLine(pick.points[0], pick.points[1], frame.viewport, p.infinite === 'ray');
+                    if (!clipped) return;
+                    const [a, b] = clipped.map(frame.screen);
                     paint.StrokeWidth = selected ? 2 : 1;
                     canvas.DrawLine(a.x, a.y, b.x, b.y, paint);
                     return;
                 }
-                const entry = this.cachedPath(p, frame.projection), origin = frame.screen(entry.origin);
+                const entry = pathEntry = this.cachedPath(p, frame.projection), origin = frame.screen(entry.origin);
                 canvas.Concat([frame.scale * frame.cos, -frame.scale * frame.sin, origin.x, -frame.scale * frame.sin, -frame.scale * frame.cos, origin.y, 0, 0, 1]);
                 const width = selected ? 2.5 : p.style.lineweightVisible ? Math.max(.7, p.style.lineweight / 100 * 96 / 25.4) : 1;
                 paint.StrokeWidth = width / frame.scale;
@@ -440,6 +496,7 @@
                     canvas.DrawPath(entry.path, paint);
             }
             finally {
+                if (pathEntry?.temporary) pathEntry.path.Dispose();
                 paint.PathEffect = null;
                 paint.ColorFilter = null;
                 paint.Shader = null;
@@ -449,60 +506,83 @@
         drawText(canvas, frame, p, selected) {
             const S = this.S, paint = this.paint, origin = frame.worldToScreen(p.position), u = frame.screenDirection(p.u), v = frame.screenDirection(p.v);
             const resource = this.resources.get(p.font, 'font') || this.resources.get(p.fontName, 'font'), shape = this.resources.get(p.font, 'shape');
-            const lines = p.text.split('\n'), lineSpacing = 1.25 * (p.lineSpacing || 1);
-            let font = null;
-            try {
-                if (resource)
-                    font = this.resources.createFont(resource);
-                else
-                    this.diagnostics.add(shape ? 'shape-font' : 'missing-font', shape ? 'Text uses explicitly registered SHX outlines.' : `Font ${p.font || p.fontName || '(unspecified)'} is not registered; original schematic fallback strokes are shown.`, p.source);
-                const width = text => font ? font.MeasureText(text) / font.DxfUnit : [...text].reduce((n, ch) => n + (shape?.shape.glyph(ch.codePointAt(0))?.advance / (shape?.shape.above || 1) || A.draftingGlyph(ch).advance), 0);
-                const layout = A.layoutText(p, width), units = font?.DxfUnit || 1;
-                const save = canvas.Save();
+            const stroke = Math.max(.02, Math.min(.15, 1 / Math.max(1, Math.hypot(u.x, u.y))));
+            const key = p.id + '|' + selected + '|' + (resource ? '' : stroke) + '|' + (p.backgroundMask ? frame.background : '');
+            let cached = this.textCache.get(key), temporary = false;
+            if (cached) {
+                this.metrics.textHits++; this.textCache.delete(key); this.textCache.set(key, cached);
+            } else {
+                this.metrics.textBuilds++;
+                if (!resource) this.diagnostics.add(shape ? 'shape-font' : 'missing-font', shape ? 'Text uses explicitly registered SHX outlines.' : `Font ${p.font || p.fontName || '(unspecified)'} is not registered; original schematic fallback strokes are shown.`, p.source);
+                const session = resource ? this.resources.fontSession(resource) : null, font = session?.font;
+                const layout = A.layoutText(p, text => this.resources.measureText(p, text)), units = font?.DxfUnit || 1;
+                const runs = [], box = emptyBounds(); let recorder, unownedPicture;
                 try {
-                    // Normalized glyph coordinates have y up. Skia text has y down; flip only
-                    // the glyph-local y, preserving mirrored/sheared DXF text transforms.
-                    canvas.Concat([u.x / units, -v.x / units, origin.x, u.y / units, -v.y / units, origin.y, 0, 0, 1]);
+                    // Record vector glyphs in text-local coordinates. There is no bitmap
+                    // cache or resolution downgrade: Skia rasterizes at the current CTM.
                     for (const line of layout.lines) {
-                        const { text } = line, x = line.x * units, y = line.y * units;
-                        if (p.backgroundMask && !selected) {
-                            paint.Style = S.SKPaintStyle.Fill;
-                            paint.Color = S.SKColor.Parse(frame.background);
-                            canvas.DrawRect(new S.SKRect(x - .1 * units, y - 1.1 * units, x + (line.width + .1) * units, y + .2 * units), paint);
-                            paint.Color = S.SKColor.Parse(p.style.color);
-                        }
-                        if (font) {
-                            paint.Style = selected ? S.SKPaintStyle.Stroke : S.SKPaintStyle.Fill;
-                            paint.StrokeWidth = .025 * units;
-                            canvas.DrawShapedText(text, x, y, font, paint);
-                        }
-                        else {
-                            paint.Style = S.SKPaintStyle.Stroke;
-                            paint.StrokeWidth = Math.max(.02, Math.min(.15, 1 / Math.max(1, Math.hypot(u.x, u.y))));
-                            let offset = x;
-                            for (const ch of text) {
+                        const x = line.x * units, y = line.y * units;
+                        if (p.backgroundMask) union(box, {minX:x-.1*units,minY:y-1.1*units,maxX:x+(line.width+.1)*units,maxY:y+.2*units,minZ:0,maxZ:0});
+                        if (font && line.text.length) {
+                            const run = session.shaper.Shape(line.text, x, y, font);
+                            runs.push({ run, line });
+                            const glyphBounds = font.GetGlyphBounds(run.Glyphs);
+                            for (let i=0;i<glyphBounds.length;i++) {
+                                const b=glyphBounds[i], q=run.Points[i];
+                                union(box, {minX:q.X+b.Left,minY:q.Y+b.Top,maxX:q.X+b.Right,maxY:q.Y+b.Bottom,minZ:0,maxZ:0});
+                            }
+                        } else if (!font) {
+                            const paths = []; let offset = x;
+                            for (const ch of line.text) {
                                 let glyph = shape?.shape.glyph(ch.codePointAt(0));
                                 const factor = glyph ? 1 / (shape.shape.above || 10) : 1;
-                                glyph = glyph || A.draftingGlyph(ch);
-                                const path = nativePath(S, glyph.path, q => vec(offset + q.x * factor, y - q.y * factor));
-                                try {
-                                    canvas.DrawPath(path, paint);
-                                }
-                                finally {
-                                    path.Dispose();
-                                }
-                                offset += glyph.advance * factor;
+                                glyph ||= A.draftingGlyph(ch);
+                                const commands = G.transformPath(glyph.path, [factor,0,0,offset, 0,-factor,0,y, 0,0,1,0, 0,0,0,1]);
+                                paths.push(commands); union(box, G.pathBounds(commands)); offset += glyph.advance * factor;
+                            }
+                            runs.push({paths, line});
+                        } else runs.push({line});
+                    }
+                    if (G.isEmpty(box)) Object.assign(box,{minX:0,minY:0,maxX:1,maxY:1,minZ:0,maxZ:0});
+                    const padding = Math.max(units*.1,stroke*2);
+                    recorder = new S.SKPictureRecorder();
+                    const recording = recorder.BeginRecording(new S.SKRect(box.minX-padding,box.minY-padding,box.maxX+padding,box.maxY+padding));
+                    for (const item of runs) {
+                        const {line} = item, x=line.x*units,y=line.y*units;
+                        if (p.backgroundMask && !selected) {
+                            paint.Style=S.SKPaintStyle.Fill;paint.Color=S.SKColor.Parse(frame.background);
+                            recording.DrawRect(new S.SKRect(x-.1*units,y-1.1*units,x+(line.width+.1)*units,y+.2*units),paint);
+                            paint.Color=S.SKColor.Parse(p.style.color);
+                        }
+                        if (font) {
+                            paint.Style=selected?S.SKPaintStyle.Stroke:S.SKPaintStyle.Fill;paint.StrokeWidth=.025*units;
+                            if (item.run) recording.DrawGlyphs(item.run.Glyphs,item.run.Points,new S.SKPoint(0,0),font,paint);
+                        } else {
+                            paint.Style=S.SKPaintStyle.Stroke;paint.StrokeWidth=stroke;
+                            for (const commands of item.paths || []) {
+                                const path=nativePath(S,commands);
+                                try { recording.DrawPath(path,paint); } finally { path.Dispose(); }
                             }
                         }
                     }
-                }
-                finally {
-                    canvas.RestoreToCount(save);
-                }
+                    const picture = unownedPicture = recorder.EndRecording();
+                    const bytes = picture.ApproximateBytesUsed + p.text.length * 32;
+                    cached = {picture, units, bytes, primitiveId: p.id, dispose() { picture.Dispose(); }};
+                    while (this.textCache.size && (this.textCache.size >= this.textCacheLimit || this.textBytes+bytes > this.textCacheBytes)) {
+                        const first=this.textCache.keys().next().value, old=this.textCache.get(first);
+                        if (this.activeTextIds?.has(old.primitiveId)) break;
+                        this.textCache.delete(first);this.textBytes-=old.bytes;old.dispose();
+                    }
+                    if (this.textCache.size < this.textCacheLimit && this.textBytes + bytes <= this.textCacheBytes) {this.textCache.set(key,cached);this.textBytes+=bytes;}
+                    else temporary=true;
+                    unownedPicture = null;
+                } finally { unownedPicture?.Dispose(); for (const item of runs) item.run?.Dispose(); recorder?.Dispose(); }
             }
-            finally {
-                font?.Dispose();
-            }
+            const save = canvas.Save();
+            try {
+                canvas.Concat([u.x/cached.units,-v.x/cached.units,origin.x,u.y/cached.units,-v.y/cached.units,origin.y,0,0,1]);
+                canvas.DrawPicture(cached.picture);
+            } finally { canvas.RestoreToCount(save); if(temporary)cached.dispose(); }
         }
         drawImage(canvas, frame, p, selected) {
             const S = this.S, paint = this.paint, resource = this.resources.get(p.resource, 'image'), origin = frame.worldToScreen(p.position), u = frame.screenDirection(p.u), v = frame.screenDirection(p.v), w = p.imageSize.x, h = p.imageSize.y;

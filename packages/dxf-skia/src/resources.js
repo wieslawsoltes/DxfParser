@@ -14,6 +14,8 @@
             this.bytes = 0;
             this.revision = 0;
             this.entries = new Map();
+            this.fontSessions = new Map(); this.measurements = new Map(); this.measurementCharacters = 0;
+            this.metrics = { fontCreates: 0, measurements: 0, measurementHits: 0 };
             this.disposed = false;
         }
         get(name, kind) { const e = this.entries.get(resourceKey(name)); return e && (!kind || e.kind === kind) ? e : null; }
@@ -55,6 +57,7 @@
                 this.entries.set(key, entry);
                 this.bytes += bytes.byteLength - (prior?.size || 0);
                 this.revision++;
+                this.clearTextCaches();
                 prior?.native?.Dispose();
                 return entry;
             }
@@ -78,24 +81,51 @@
             font.Size = font.DxfUnit / entry.capHeightAtUnit;
             return font;
         }
-        measureText(primitive, text) {
-            const entry = this.get(primitive.font, 'font') || this.get(primitive.fontName, 'font');
-            if (entry) {
-                const font = this.createFont(entry);
-                try {
-                    return font.MeasureText(text) / font.DxfUnit;
-                }
-                finally {
-                    font.Dispose();
-                }
+        fontSession(entry) {
+            if (this.disposed || this.entries.get(entry.key) !== entry || entry.kind !== 'font')
+                throw new Error('Font resource is no longer registered.');
+            let session = this.fontSessions.get(entry);
+            if (session) { this.fontSessions.delete(entry); this.fontSessions.set(entry, session); return session; }
+            const font = this.createFont(entry); let shaper;
+            try { shaper = new this.S.SKShaper(entry.native); }
+            catch (error) { font.Dispose(); throw error; }
+            session = { font, shaper }; this.metrics.fontCreates++;
+            if (this.fontSessions.size >= 64) {
+                const first = this.fontSessions.keys().next().value, old = this.fontSessions.get(first);
+                old.shaper.Dispose(); old.font.Dispose(); this.fontSessions.delete(first);
             }
+            this.fontSessions.set(entry, session); return session;
+        }
+        clearTextCaches() {
+            for (const session of this.fontSessions.values()) { session.shaper.Dispose(); session.font.Dispose(); }
+            this.fontSessions.clear(); this.measurements.clear(); this.measurementCharacters = 0;
+        }
+        measureText(primitive, text) {
+            if (this.disposed) throw new Error('Resource store has been disposed.');
+            text = String(text);
+            if (text.length > 100000) throw new RangeError('Text measurement budget exceeded.');
+            const entry = this.get(primitive.font, 'font') || this.get(primitive.fontName, 'font');
             const shape = this.get(primitive.font, 'shape');
-            return [...text].reduce((n, ch) => n + (shape?.shape.glyph(ch.codePointAt(0))?.advance / (shape?.shape.above || 1) || A.draftingGlyph(ch).advance), 0);
+            const cacheKey = (entry?.key || shape?.key || '') + '\0' + text;
+            if (this.measurements.has(cacheKey)) {
+                const value = this.measurements.get(cacheKey); this.metrics.measurementHits++;
+                this.measurements.delete(cacheKey); this.measurements.set(cacheKey, value); return value;
+            }
+            this.metrics.measurements++;
+            let width;
+            if (entry) { const { font } = this.fontSession(entry); width = font.MeasureText(text) / font.DxfUnit; }
+            else { width = 0; for (const ch of text) width += shape?.shape.glyph(ch.codePointAt(0))?.advance / (shape?.shape.above || 1) || A.draftingGlyph(ch).advance; }
+            // Both entry count and stored string volume are bounded.
+            while (this.measurements.size && (this.measurements.size >= 4096 || this.measurementCharacters + cacheKey.length > 1000000)) {
+                const first = this.measurements.keys().next().value; this.measurementCharacters -= first.length; this.measurements.delete(first);
+            }
+            if (cacheKey.length <= 1000000) { this.measurements.set(cacheKey, width); this.measurementCharacters += cacheKey.length; }
+            return width;
         }
         remove(name) { const key = resourceKey(name), e = this.entries.get(key); if (!e)
-            return false; this.entries.delete(key); this.bytes -= e.size; this.revision++; e.native?.Dispose(); return true; }
+            return false; this.clearTextCaches(); this.entries.delete(key); this.bytes -= e.size; this.revision++; e.native?.Dispose(); return true; }
         dispose() { if (this.disposed)
-            return; this.disposed = true; for (const e of this.entries.values())
+            return; this.disposed = true; this.clearTextCaches(); for (const e of this.entries.values())
             e.native?.Dispose(); this.entries.clear(); this.bytes = 0; this.revision++; }
     }
     class ByteReader {

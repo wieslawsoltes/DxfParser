@@ -9,12 +9,12 @@
     const initializeSkia = () => runtime ||= (runtimeUrl ? import(runtimeUrl).then(m => m.Initialize({ fonts: false })) : Promise.reject(new Error('Provide Skia initialization outside the browser.'))).catch(e => { runtime = null; throw e; });
     class RenderingDataController {
         constructor(options = {}) { this.options = options; this.documents = new Map(); }
-        ingestDocument({ tabId, fileName, sourceText } = {}) {
+        ingestDocument({ tabId, fileName, sourceText, sourceBytes } = {}) {
             if (!tabId)
                 return null;
             try {
-                const document = new A.DxfDocument(sourceText);
-                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceText.length });
+                const document = new A.DxfDocument(sourceBytes ?? sourceText, this.options);
+                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0 });
                 this.documents.set(tabId, document);
                 return document;
             }

@@ -18,7 +18,7 @@ import {DxfDocument, SceneCompiler, prepareFrame, SkiaPainter}
 import {Initialize} from '@wieslawsoltes/skiasharpweb';
 
 const S = await Initialize({fonts: false});
-const document = new DxfDocument(fs.readFileSync('drawing.dxf', 'utf8'));
+const document = new DxfDocument(fs.readFileSync('drawing.dxf'));
 const scene = new SceneCompiler(document, {tolerance: 0.02}).compile('Model');
 const surface = S.SKSurface.Create(new S.SKImageInfo(1200, 800));
 const painter = new SkiaPainter(S);
@@ -174,3 +174,20 @@ misclassify consumer callback exceptions as graphics-driver failures.
 
 `await host.dispose()` joins pending native readbacks. `await host.whenIdle()`
 remains the presentation fence; await `host.exportPng()` for its export result.
+
+## Performance and input (0.3.0)
+
+`new DxfDocument(bytes)` detects text or modern/R12 binary DXF. Typed slices retain
+byte offsets and lengths; version/codepage metadata drives text decoding. Use
+`decodeDxf(bytes, options)` to inspect the format and `dxfText(bytes, options)` when
+integrating with a line-based parser. Text remains available as a direct input.
+
+Camera frames lazily materialize picking geometry. Native paths, font/shaper
+sessions, width measurements and vector `SKPicture` text recordings are retained;
+zoom still rasterizes native vectors at full current resolution. `SkiaPainter`
+accepts `cacheLimit`, `cacheBytes`, `textCacheLimit` and `textCacheBytes`. Its
+`metrics` reports native builds/hits; `frame.interactionStats` reports lazy selection
+work. Scenes are immutable snapshots; recompile after source edits.
+
+See [the performance/input contract](../../docs/skia-renderer-performance.md) for
+cache accounting, exact baseline pixel tests, supported codepages and limitations.

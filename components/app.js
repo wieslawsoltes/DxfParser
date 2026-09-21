@@ -3257,30 +3257,11 @@
       }
 
       async parseFileStream(file) {
-        const reader = file.stream().getReader();
-        const decoder = new TextDecoder("ascii");
-        let leftover = "";
-        const lines = [];
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const chunkText = decoder.decode(value, { stream: true });
-          const text = leftover + chunkText;
-          const parts = text.split(/\r?\n/);
-          leftover = parts.pop();
-          // Use a loop instead of the spread operator to avoid call stack issues:
-          for (const part of parts) {
-            lines.push(part);
-          }
-        }
-        if (leftover) { lines.push(leftover); }
-        const tags = this.dxfParser.parseDxfLines(lines);
-        const grouped = this.dxfParser.groupObjectsIterative(tags, 0);
-        return {
-          objects: grouped.objects,
-          tags,
-          sourceText: lines.join("\n")
-        };
+        const sourceText = await this.readFile(file, true);
+        // Renderer input is decoded once. The tree remains the original parser,
+        // with canonical text line positions also used by binary DXF navigation.
+        const objects = this.dxfParser.parse(sourceText);
+        return { objects, sourceText };
       }
       
       handleFiles(files, panel = 'left') {
@@ -3344,12 +3325,10 @@
                 })
               .catch(err => {
                 console.error("Error during streamed parsing:", err);
-                alert("Error during streamed parsing.");
+                alert('Cannot load ' + file.name + ': ' + err.message);
               });
           } else {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const text = event.target.result;
+            this.readFile(file).then(text => {
               const objects = this.dxfParser.parse(text);
               const newTab = {
                 id: Date.now() + Math.random(),
@@ -3385,8 +3364,7 @@
                 this.saveCurrentState();
               }
               this.registerRenderingDocumentForTab(newTab, text);
-            };
-            reader.readAsText(file, "ascii");
+            }).catch(error => { console.error('DXF loading failed:', error); alert('Cannot load ' + file.name + ': ' + error.message); });
           }
         });
       }
@@ -6288,9 +6266,7 @@ EOF`;
           }, 300);
         } else {
           // File not loaded yet: load it as with manual file parsing.
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const text = event.target.result;
+          this.readFile(file).then(text => {
             const objects = this.dxfParser.parse(text);
             const newTab = {
               id: Date.now() + Math.random(),
@@ -6318,8 +6294,7 @@ EOF`;
               this.scrollToLineAfterTabOpen(targetLine);
             }, 300);
             this.registerRenderingDocumentForTab(newTab, text);
-          };
-          reader.readAsText(file, "ascii");
+          }).catch(error => alert('Cannot load ' + file.name + ': ' + error.message));
         }
       }
 
@@ -6915,14 +6890,25 @@ EOF`;
       // Updated Diff Handler Method (removed legacy overlay-based diff UI)
       // -------------------------------
 
-      // Helper to read a file as text.
-      readFile(file) {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = e => resolve(e.target.result);
-          reader.onerror = err => reject(err);
-          reader.readAsText(file, "ascii");
-        });
+      // Decode byte input with the renderer's codepage/binary contract. No
+      // browser "ascii" alias that silently maps UTF-8 drawings to Windows-1252.
+      async readFile(file, streamed = false) {
+        const maxInputBytes = 128 * 1024 * 1024;
+        if (file.size > maxInputBytes) throw new RangeError('DXF byte budget exceeded.');
+        let bytes;
+        if (streamed && file.stream) {
+          const reader = file.stream().getReader(), chunks = []; let length = 0;
+          try {
+            while (true) { const {value, done} = await reader.read(); if (done) break;
+              length += value.byteLength;
+              if (length > maxInputBytes) { await reader.cancel(); throw new RangeError('DXF byte budget exceeded.'); }
+              chunks.push(value);
+            }
+          } finally { reader.releaseLock(); }
+          bytes = new Uint8Array(length); let offset = 0;
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        } else bytes = new Uint8Array(await file.arrayBuffer());
+        return window.DxfSkia.dxfText(bytes, {maxInputBytes});
       }
 
       // handleDiff removed along with old overlay UI

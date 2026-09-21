@@ -4,7 +4,7 @@ export interface Point { x: number; y: number; z: number; }
 export interface Bounds { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number; }
 export type Matrix = number[];
 export type PathCommand = ['M' | 'L', Point] | ['K', Point, Point, number] | ['Q', Point, Point] | ['C', Point, Point, Point] | ['Z'];
-export interface Tag { code: number; value: string; line?: number; }
+export interface Tag { offset?: number; code: number; value: string; line?: number; }
 export interface Diagnostic { code: string; message: string; severity: 'error' | 'warning' | 'info'; handle?: string | null; type?: string | null; }
 export interface Style { color: string; layer: string; alpha: number; lineweight: number; dash?: number[]; dashScale?: number; }
 export interface Clip { points?: Point[]; loops?: Point[][]; path?: PathCommand[]; inverse: boolean; }
@@ -33,6 +33,7 @@ export interface Pickable { primitive: Primitive; handle: string; type: string; 
 export interface Frame {
   scene: Scene; width: number; height: number; devicePixelRatio: number; scale: number;
   worldCenter: Point; rotationRad: number; bounds: Bounds; basis: { x: Point; y: Point; z: Point };
+  readonly interactionStats: {pickablesCreated: number; screenPointsTransformed: number};
   pickables: Pickable[]; worldToScreen(point: Point): Point; screenToWorld(point: Pick<Point, 'x' | 'y'>): Point;
   [property: string]: unknown;
 }
@@ -41,12 +42,14 @@ export interface PaintStatistics { drawn: number; visible?: number; omitted?: nu
 export interface ResourceEntry { name: string; key: string; kind: 'font' | 'image' | 'shape'; size: number; native: unknown; shape: ShapeFont | null; }
 export class DxfRecord {
   constructor(tags: Tag[], index?: number); readonly type: string; readonly handle: string; readonly id: string;
-  readonly tags: Tag[]; readonly extrusion: Point;
+  readonly offset: number | null;
+  invalidateTagIndex(): void; readonly tags: Tag[]; readonly extrusion: Point;
   all(code: number): string[]; get(code: number, fallback?: string | null): string | null;
   num(code: number, fallback?: number): number; point(code: number, fallback?: Point): Point; points(code: number): Point[];
 }
 export class DxfDocument {
-  constructor(input: string | Tag[], options?: { maxTags?: number; maxBytes?: number; maxDiagnostics?: number });
+  constructor(input: string | Tag[] | ArrayBuffer | ArrayBufferView, options?: DxfInputOptions);
+  readonly inputFormat: 'text'|'tags'|'binary'|'binary-r12'; readonly inputEncoding: string | null;
   records: DxfRecord[]; entities: DxfRecord[]; blocks: DxfRecord[]; blockDefinitions: Map<string, unknown>; objects: DxfRecord[];
   byHandle: Map<string, DxfRecord>; layouts: Map<string, { name: string; [field: string]: unknown }>;
   diagnostics: Diagnostics; tables: Record<string, Record<string, unknown>>; sceneGraph: Record<string, unknown>;
@@ -65,7 +68,8 @@ export class ResourceStore {
   createFont(entry: ResourceEntry): unknown; dispose(): void;
 }
 export class SkiaPainter {
-  constructor(skia: unknown, options?: { resources?: ResourceStore; cacheLimit?: number });
+  constructor(skia: unknown, options?: { resources?: ResourceStore; cacheLimit?: number; cacheBytes?: number; textCacheLimit?: number; textCacheBytes?: number });
+  readonly metrics: {pathBuilds: number; pathHits: number; textBuilds: number; textHits: number; clipBuilds: number; clipHits: number};
   readonly resources: ResourceStore; draw(nativeCanvas: unknown, frame: Frame, options?: PaintOptions): PaintStatistics;
   clearCache(): void; dispose(): void;
 }
@@ -85,6 +89,16 @@ export class SurfaceHost {
   exportPng(): Promise<Uint8Array>; exportPdf(options?: { width?: number; height?: number; background?: string }): Promise<Uint8Array>;
   dispose(): Promise<void>;
 }
+export interface DxfInputOptions {
+  /** String code-unit limit, retained for API compatibility. */
+  maxBytes?: number; maxInputBytes?: number; maxTags?: number; maxDiagnostics?: number;
+  encoding?: string; fatalEncoding?: boolean; decodeString?: (bytes: Uint8Array, encoding: string) => string;
+}
+export interface DxfDecodedInput { format: 'text'|'binary'|'binary-r12'; encoding: string; version: string; text?: string; tags?: Tag[]; byteLength: number; }
+export function decodeDxf(input: ArrayBuffer | ArrayBufferView, options?: DxfInputOptions): DxfDecodedInput;
+export function dxfText(input: string | ArrayBuffer | ArrayBufferView, options?: DxfInputOptions): string;
+export function binaryGroupType(code: number): 'string'|'binary'|'bool'|'int16'|'int32'|'int64'|'double';
+export function iterateTags(text: string, options?: DxfInputOptions): IterableIterator<Tag>;
 export function parseTags(text: string, options?: { maxTags?: number; maxBytes?: number; maxDiagnostics?: number }): Tag[];
 export function prepareFrame(scene: Scene, options?: FrameOptions): Frame;
 export function hitTest(frame: Frame, point: Pick<Point, 'x' | 'y'>, tolerance?: number): Pickable | null;
@@ -127,7 +141,7 @@ declare const api: {
   geometry: typeof geometry; SpatialIndex: typeof SpatialIndex; DxfDocument: typeof DxfDocument;
   DxfRecord: typeof DxfRecord; Diagnostics: typeof Diagnostics; SceneCompiler: typeof SceneCompiler;
   SkiaPainter: typeof SkiaPainter; SurfaceHost: typeof SurfaceHost; ResourceStore: typeof ResourceStore;
-  ShapeFont: typeof ShapeFont; parseTags: typeof parseTags; prepareFrame: typeof prepareFrame;
+  ShapeFont: typeof ShapeFont; decodeDxf: typeof decodeDxf; dxfText: typeof dxfText; iterateTags: typeof iterateTags; binaryGroupType: typeof binaryGroupType; parseTags: typeof parseTags; prepareFrame: typeof prepareFrame;
   hitTest: typeof hitTest; snap: typeof snap; resourceKey: typeof resourceKey; aciColor: typeof aciColor;
   plainText: typeof plainText; draftingGlyph: typeof draftingGlyph; layoutText: typeof layoutText;
   nativeDash: typeof nativeDash; clipInfiniteLine: typeof clipInfiniteLine;

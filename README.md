@@ -49,3 +49,5 @@ with an explicit reason when neither exists. It never packages those bytes.
 The workflow `skia-renderer.yml` runs native pixels, package consumers and all
 application integration suites, plus required real Graphite/WebGPU and Ganesh/WebGL
 checks on software Vulkan/SwiftShader. Local qualification is not a GitHub Actions result.
+
+Renderer 0.3.0: [native-vector performance, byte-aware DXF input and reproducible comparison benchmarks](docs/skia-renderer-performance.md).

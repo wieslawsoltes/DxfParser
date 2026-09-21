@@ -1,4 +1,4 @@
-# Rendering compatibility contract — 0.2.1
+# Rendering compatibility contract — 0.3.0
 
 “Implemented” below describes actual code paths, not exhaustive CAD behavioral
 parity. Entity attributes not covered by those paths can still require work. The
@@ -7,7 +7,7 @@ modeler or a proprietary CAD object-enabler.
 
 | Area | Implemented path | Explicit boundary |
 | --- | --- | --- |
-| Input | ASCII DXF and decoded ordered tags; headers, tables, blocks, entities, objects, layouts | Binary DXF needs an upstream decoder; no DWG parser. |
+| Input | Text, typed byte slices, modern/R12 binary DXF and ordered tags; version/codepage-aware decoding; headers, tables, blocks, entities, objects, layouts | Unknown codepages require an explicit decoder. Binary strings containing literal newlines require direct renderer byte input, not canonical line-based tree conversion. No DWG parser. |
 | Curves | LINE, POINT modes, ARC/CIRCLE/ELLIPSE native conics, RAY/XLINE, bulges | Exact conic/cubic bounds; picking still uses bounded flattening. No complete analytic intersection snap. |
 | Polylines | Lightweight/classic sequences, closed paths, widths, OCS, 3D lines, polyface/polymesh | Wide joins are segment-based; no exhaustive curve-fit/spline-fit legacy polyline semantics. Wide-polyline thickness is not synthesized. |
 | Solids/mesh | SOLID/TRACE, 3DFACE, MESH control faces; ordinary extrusion thickness | Subdivision is not a solid model; native faces are unlit and draw-order based, not a depth-buffer renderer. |
@@ -25,6 +25,10 @@ modeler or a proprietary CAD object-enabler.
 | Export | Real native PNG and vector PDF; PDF recompiles for white paper/printing visibility | No promise of printer/plotter/AutoCAD-identical output, PDF/A/X compliance or color-managed print certification. |
 
 ## Resource and workload limits
+
+Byte decoding defaults to a 128 MiB input limit; unsupported/malformed encodings
+fail unless the caller explicitly requests replacement decoding. Modern 64-bit
+binary integers are preserved as exact decimal strings.
 
 The default text parser limits source length to 64 MiB code units and four million
 tags; the option is named `maxBytes` for compatibility but measures string length,
@@ -49,8 +53,13 @@ them. Built-in rendering diagnostics retain source identity and cap message volu
 Compilation/indexing are synchronous in-memory operations. Only presentation is
 coalesced; this candidate does not claim a worker-based/incremental document compiler.
 Exact conics remain native, while most picking, wide-polyline construction and
-spline geometry use bounded approximation. The BVH build uses recursive sorting;
-no claim of linear-time construction is made. Large-coordinate rebasing cannot
+spline geometry use bounded approximation. Camera interaction data is lazy and
+spatially queried; BVH construction uses in-place median partitions on a private
+array, with a bounded sort fallback. Native paths, clip paths, font measurements
+and vector text recordings are cached without lowering quality. Cache byte
+budgets are admission estimates, not total native allocator measurements. No claim
+of linear-time construction or worker-based compilation is made. See
+[performance and input contract](../../docs/skia-renderer-performance.md). Large-coordinate rebasing cannot
 recover precision already lost when a source coordinate became a JavaScript number.
 
 The native pixel tests run Skia raster WASM. The required GPU suite separately runs
