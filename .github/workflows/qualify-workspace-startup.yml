@@ -27,14 +27,17 @@ jobs:
           patch = lzma.decompress(base64.b64decode(encoded, validate=True))
           assert hashlib.sha256(patch).hexdigest() == '70ea74f80c7ce32b1cc2c3646e4a9093d776c4b5d585b09846d948f6a52286dd'
           Path('/tmp/startup.patch').write_bytes(patch)
+          assert hashlib.sha256(Path('.workspace-startup-final.patch').read_bytes()).hexdigest() == '04ecb743dfed6cd43cd481ac39214051267d64ec30d701b394692e1347659024'
           PY
           git apply --check /tmp/startup.patch
           git apply --index /tmp/startup.patch
-          git rm .workspace-startup.b64
+          git apply --check .workspace-startup-final.patch
+          git apply --index .workspace-startup-final.patch
+          git rm .workspace-startup.b64 .workspace-startup-final.patch
           git diff --cached --check
           cp .git/index /tmp/startup-index
           GIT_INDEX_FILE=/tmp/startup-index git rm --cached .github/workflows/qualify-workspace-startup.yml
-          test "$(GIT_INDEX_FILE=/tmp/startup-index git write-tree)" = 2f5d14db463e9d2c95edf22d6645c6923cbab335
+          test "$(GIT_INDEX_FILE=/tmp/startup-index git write-tree)" = 60b9ae3e4a960ff322917d8b23a972a1d5db4078
           test -z "$(git diff --cached --name-only -- .github/workflows)"
           node --check scripts/workspace-startup.js
       - name: Install pinned qualification tools
