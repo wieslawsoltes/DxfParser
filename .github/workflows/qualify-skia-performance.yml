@@ -4,18 +4,80 @@ on:
     branches: [work/skia-performance-qualification]
     paths: [.github/workflows/qualify-skia-performance.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
+  qualify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Check out immutable reference
+        uses: actions/checkout@v4
         with:
           ref: 1342c38a5fb7f1a0944c37fb989bf3cba52b2ebc
+          path: .performance-reference
           persist-credentials: false
-      - run: git archive HEAD --format=tar.gz -o /tmp/skia-performance-source.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: skia-performance-source
-          path: /tmp/skia-performance-source.tar.gz
-          retention-days: 3
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed sources and verify the exact target tree
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.skia-performance').glob('*.b64'))
+          assert [p.name for p in chunks] == [f'{i:02}.b64' for i in range(3)]
+          encoded = ''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded) == 46572, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert len(patch) == 135686, len(patch)
+          assert hashlib.sha256(patch).hexdigest() == '03a19598b98f287cdb9c140cca0d301bbd5c603ff532230eed64c29c36e64196'
+          Path('/tmp/performance.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/performance.patch
+          git apply --index /tmp/performance.patch
+          git rm -r .skia-performance
+          node scripts/build-rendering-bundle.js
+          git add -A
+          git diff --cached --check
+          cp .git/index /tmp/performance-index
+          GIT_INDEX_FILE=/tmp/performance-index git rm --cached .github/workflows/qualify-skia-performance.yml
+          test "$(GIT_INDEX_FILE=/tmp/performance-index git write-tree)" = d0dd768ab2fd6f0af033697fc8a7f70e62c25638
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+      - name: Install pinned qualification tools
+        run: |
+          npm install --global typescript@5.8.3
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Verify analytical geometry, native pixels, ABI, recovery and packed consumers
+        run: python tests/check-docking-regressions.py
+      - name: Require native WebGPU and WebGL lifetime tests
+        run: xvfb-run -a python tests/skia-gpu.py
+      - name: Compare native raster pixels and CPU performance with 0.2.1
+        run: node scripts/benchmark-skia.mjs .performance-reference
+      - name: Require unchanged Graphite pixels and measure real WebGPU workloads
+        run: xvfb-run -a python tests/skia-performance-gpu.py
+      - name: Verify real HTTP application and new byte-aware DXF file inputs
+        run: |
+          python tests/skia-workspace.py
+          python tests/docking-workspace.py
+          python tests/ribbon-workspace.py
+          python tests/gridweb-previews.py
+          python tests/analysis-views.py
+      - name: Store tested sources on the qualification branch only
+        run: |
+          git fetch origin work/skia-performance-qualification
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/work/skia-performance-qualification)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'perf: retain native vectors and decode DXF bytes without reducing rendering quality'
+          git push origin HEAD:work/skia-performance-qualification
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skia-performance-evidence
+          path: test-results/
+          retention-days: 14
