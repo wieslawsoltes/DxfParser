@@ -1,0 +1,37 @@
+name: Recover performance source
+on:
+  push:
+    branches: [work/skia-performance-qualification]
+    paths: [.github/workflows/recover-skia-performance.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6a3b5123492b05eef5119a9e33cff016d398e407
+          persist-credentials: false
+      - name: Recover exact reviewed patch and complete source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma
+          patch = lzma.decompress(base64.b64decode(''.join(p.read_text().strip() for p in sorted(Path('.skia-performance').glob('*.b64'))), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '03a19598b98f287cdb9c140cca0d301bbd5c603ff532230eed64c29c36e64196'
+          Path('/tmp/performance.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/performance.patch
+          git apply --index /tmp/performance.patch
+          git rm -r .skia-performance
+          git rm .github/workflows/qualify-skia-performance.yml
+          node scripts/build-rendering-bundle.js
+          git add -A
+          test "$(git write-tree)" = d0dd768ab2fd6f0af033697fc8a7f70e62c25638
+          git archive "$(git write-tree)" --format=tar.gz -o /tmp/skia-performance-working.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skia-performance-working
+          path: /tmp/skia-performance-working.tar.gz
+          retention-days: 3
