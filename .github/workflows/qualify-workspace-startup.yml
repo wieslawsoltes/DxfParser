@@ -1,0 +1,69 @@
+name: Qualify workspace first paint
+on:
+  push:
+    branches: [work/workspace-first-paint]
+    paths: [.github/workflows/qualify-workspace-startup.yml]
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed sources and verify exact target tree
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          encoded = Path('.workspace-startup.b64').read_text().strip()
+          assert len(encoded) == 11212, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '70ea74f80c7ce32b1cc2c3646e4a9093d776c4b5d585b09846d948f6a52286dd'
+          Path('/tmp/startup.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/startup.patch
+          git apply --index /tmp/startup.patch
+          git rm .workspace-startup.b64
+          git diff --cached --check
+          cp .git/index /tmp/startup-index
+          GIT_INDEX_FILE=/tmp/startup-index git rm --cached .github/workflows/qualify-workspace-startup.yml
+          test "$(GIT_INDEX_FILE=/tmp/startup-index git write-tree)" = 2f5d14db463e9d2c95edf22d6645c6923cbab335
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          node --check scripts/workspace-startup.js
+      - name: Install pinned qualification tools
+        run: |
+          npm install --global typescript@5.8.3
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Verify actual first paint and delayed or failed dependency loads
+        run: python tests/workspace-startup.py
+      - name: Verify retained native renderer and package consumers
+        run: python tests/check-docking-regressions.py
+      - name: Verify parser editor and docked controls over native HTTP
+        run: |
+          python tests/skia-workspace.py
+          python tests/docking-workspace.py
+          python tests/ribbon-workspace.py
+          python tests/gridweb-previews.py
+          python tests/analysis-views.py
+      - name: Store tested source on qualification branch only
+        run: |
+          git fetch origin work/workspace-first-paint
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/work/workspace-first-paint)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: hide legacy markup until ribbon and dock workspace are ready'
+          git push origin HEAD:work/workspace-first-paint
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-first-paint-qualification
+          path: test-results/
+          retention-days: 14
