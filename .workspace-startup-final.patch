@@ -1,0 +1,168 @@
+diff --git a/docs/workspace-startup.md b/docs/workspace-startup.md
+index 343cb9a..52a4902 100644
+--- a/docs/workspace-startup.md
++++ b/docs/workspace-startup.md
+@@ -48,7 +48,13 @@ then releases the requests. Cold parser/editor loads, refresh with saved drawing
+ and dark/high-contrast themes, delayed/missing CSS, failed modules/constructors,
+ missing startup script, disabled JavaScript, corrupt storage and post-ready
+ lifecycle behavior are covered. Pending/ready screenshots and frame observations
+-are uploaded by `.github/workflows/workspace-startup.yml`.
++are uploaded by `.github/workflows/workspace-startup.yml`. Pending screenshots use
++Chromium's compositor capture directly: Playwright's normal screenshot waits for
++font readiness, which cannot settle while a deliberately held module delays
++DOMContentLoaded. Requests are resumed before removing their handlers, even after
++failed assertions. No-JavaScript checks inspect the rendered noscript paragraph
++instead of text selectors that exclude noscript content. These harness fixes do
++not remove or relax the first-paint, focus, restoration or failure assertions.
+ 
+ The injected/offline harness is explicitly rejected by this suite: testing an
+ already constructed document cannot qualify network-dependent first-paint order.
+diff --git a/tests/workspace-startup.py b/tests/workspace-startup.py
+index 7157511..3cfe8e3 100644
+--- a/tests/workspace-startup.py
++++ b/tests/workspace-startup.py
+@@ -7,6 +7,8 @@ They must not be replaced with the injected/offline harness.
+ """
+ from __future__ import annotations
+ 
++import base64
++from contextlib import contextmanager
+ import importlib.util
+ import json
+ from pathlib import Path
+@@ -60,7 +62,7 @@ class StartupTests(unittest.TestCase):
+ 
+     def tearDown(self):
+         try:
+-            self.page.screenshot(path=str(ARTIFACTS / f'{self._testMethodName}.png'))
++            self.capture(self._testMethodName)
+             (ARTIFACTS / f'{self._testMethodName}.json').write_text(json.dumps(
+                 self.page.evaluate('window.startupFrames || []'), indent=2))
+         finally:
+@@ -68,6 +70,38 @@ class StartupTests(unittest.TestCase):
+         if not self.allow_errors:
+             self.assertEqual([], self.errors, 'Unexpected page errors')
+ 
++    def capture(self, name, page=None):
++        # Capture the current compositor frame, not an automatically settled page.
++        # Playwright's normal screenshot waits for document.fonts.ready, which
++        # itself waits for DOMContentLoaded: deliberately holding a module keeps
++        # that promise pending. CDP makes the first-paint evidence independent of
++        # document readiness without changing the app or its browser environment.
++        page = page or self.page
++        session = page.context.new_cdp_session(page)
++        try:
++            image = session.send('Page.captureScreenshot', {
++                'format': 'png', 'captureBeyondViewport': False
++            })
++            (ARTIFACTS / f'{name}.png').write_bytes(base64.b64decode(image['data']))
++        finally:
++            session.detach()
++
++    @contextmanager
++    def hold(self, resource):
++        pattern = '**/' + resource
++        pending = []
++        self.page.route(pattern, lambda route: pending.append(route))
++        try:
++            yield pending
++        finally:
++            # Resume before unroute: unregistering the handler can auto-resolve
++            # outstanding routes. Always release even if an assertion fails.
++            try:
++                for route in pending:
++                    route.continue_()
++            finally:
++                self.page.unroute(pattern)
++
+     def hidden_legacy(self):
+         for node in self.page.locator(LEGACY).all():
+             self.assertFalse(node.is_visible(), 'Retained legacy controls must never be painted')
+@@ -89,30 +123,26 @@ class StartupTests(unittest.TestCase):
+         self.hidden_legacy()
+ 
+     def delayed(self, path='index.html', *, reload=False):
+-        pending = []
+-        self.page.route('**/components/ribbon-workspace.mjs', lambda route: pending.append(route))
+-        if reload:
+-            self.page.reload(wait_until='commit')
+-        else:
+-            self.page.goto(self.base + path, wait_until='commit')
+-        self.page.locator('[data-startup-root]').wait_for(state='attached')
+-        self.page.wait_for_timeout(180)
+-        self.assertEqual(1, len(pending))
+-        self.assertTrue(self.page.locator('#workspaceStartup').is_visible())
+-        self.assertEqual('loading', self.page.locator('html').get_attribute('data-workspace-state'))
+-        self.hidden_legacy()
+-        self.assertTrue(self.page.evaluate('''() => {
+-            const root = document.querySelector('[data-startup-root]');
+-            return root.inert && root.getBoundingClientRect().width > 0;
+-        }'''))
+-        # The loading guard prevents focus, but must not use display:none: docking
+-        # initialization still requires the retained DOM and its dimensions.
+-        self.page.evaluate('document.querySelector("[data-startup-root] button")?.focus()')
+-        self.assertFalse(self.page.evaluate('document.querySelector("[data-startup-root]").contains(document.activeElement)'))
+-        self.page.screenshot(path=str(ARTIFACTS / f'{self._testMethodName}-pending.png'))
+-        self.page.unroute('**/components/ribbon-workspace.mjs')
+-        for route in pending:
+-            route.continue_()
++        with self.hold('components/ribbon-workspace.mjs') as pending:
++            if reload:
++                self.page.reload(wait_until='commit')
++            else:
++                self.page.goto(self.base + path, wait_until='commit')
++            self.page.locator('[data-startup-root]').wait_for(state='attached')
++            self.page.wait_for_timeout(180)
++            self.assertEqual(1, len(pending))
++            self.assertTrue(self.page.locator('#workspaceStartup').is_visible())
++            self.assertEqual('loading', self.page.locator('html').get_attribute('data-workspace-state'))
++            self.hidden_legacy()
++            self.assertTrue(self.page.evaluate('''() => {
++                const root = document.querySelector('[data-startup-root]');
++                return root.inert && root.getBoundingClientRect().width > 0;
++            }'''))
++            # The loading guard prevents focus, but must not use display:none: docking
++            # initialization still requires the retained DOM and its dimensions.
++            self.page.evaluate('document.querySelector("[data-startup-root] button")?.focus()')
++            self.assertFalse(self.page.evaluate('document.querySelector("[data-startup-root]").contains(document.activeElement)'))
++            self.capture(self._testMethodName + '-pending')
+         self.ready()
+ 
+     def failure(self, resource, path='index.html'):
+@@ -153,16 +183,12 @@ class StartupTests(unittest.TestCase):
+         self.delayed('editor/index.html', reload=True)
+ 
+     def test_05_required_stylesheet_delay_never_exposes_staging_markup(self):
+-        pending = []
+-        self.page.route('**/components/ribbon-workspace.css', lambda route: pending.append(route))
+-        self.page.goto(self.base + 'index.html', wait_until='commit')
+-        self.page.wait_for_timeout(300)
+-        self.assertEqual(1, len(pending))
+-        self.assertNotEqual('ready', self.page.locator('html').get_attribute('data-workspace-state'))
+-        self.hidden_legacy()
+-        self.page.unroute('**/components/ribbon-workspace.css')
+-        for route in pending:
+-            route.continue_()
++        with self.hold('components/ribbon-workspace.css') as pending:
++            self.page.goto(self.base + 'index.html', wait_until='commit')
++            self.page.wait_for_timeout(300)
++            self.assertEqual(1, len(pending))
++            self.assertNotEqual('ready', self.page.locator('html').get_attribute('data-workspace-state'))
++            self.hidden_legacy()
+         self.ready()
+ 
+     def test_06_failed_parser_module_shows_reload_not_legacy_ui(self):
+@@ -186,7 +212,12 @@ class StartupTests(unittest.TestCase):
+                 try:
+                     page = context.new_page()
+                     page.goto(self.base + path)
+-                    self.assertTrue(page.get_by_text('JavaScript is required', exact=False).is_visible())
++                    # Text selectors omit noscript content even when scripting is
++                    # disabled. Inspect the actual rendered paragraph and pixels.
++                    notice = page.locator('#workspaceStartup noscript p')
++                    self.assertTrue(notice.is_visible())
++                    self.assertIn('JavaScript is required', notice.inner_text())
++                    self.capture('no-js-' + path.replace('/', '-'), page)
+                     self.assertTrue(page.get_by_role('link', name='Reload page').is_visible())
+                     for node in page.locator(LEGACY).all():
+                         self.assertFalse(node.is_visible())
