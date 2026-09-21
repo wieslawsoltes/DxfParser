@@ -1,0 +1,88 @@
+diff --git a/components/app.js b/components/app.js
+index 71d350b..96677ee 100644
+--- a/components/app.js
++++ b/components/app.js
+@@ -3325,7 +3325,7 @@
+                 })
+               .catch(err => {
+                 console.error("Error during streamed parsing:", err);
+-                alert("Error during streamed parsing.");
++                alert('Cannot load ' + file.name + ': ' + err.message);
+               });
+           } else {
+             this.readFile(file).then(text => {
+diff --git a/docs/skia-renderer-performance.md b/docs/skia-renderer-performance.md
+index c23bbb6..88b1703 100644
+--- a/docs/skia-renderer-performance.md
++++ b/docs/skia-renderer-performance.md
+@@ -159,3 +159,16 @@ https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F
+ Interoperability cross-check: ezdxf's binary loader and numeric type definitions,
+ `src/ezdxf/lldxf/tagger.py` and `types.py` in https://github.com/mozman/ezdxf.
+ The implementation here is JavaScript and does not copy the Python loader.
++
++## Import failure regression qualification
++
++The first qualification run passed native-pixel equivalence, both GPU suites and
++all 169 analytical/native tests, but the malformed-input browser test timed out.
++Its `page.evaluate` expression ended in assigning an alert function; Playwright
++invoked that function, creating an extra undefined notification before the import.
++The corrected check observes the actual browser dialog without replacing alert.
++Direct and streamed inputs now require one actionable filename/decoder error and
++preservation of the original document, native scene, resources and canvas. A
++truncated binary file must also leave the file input ready for a successful retry.
++Streamed parsing includes the decoder detail instead of a generic error message.
++These checks do not skip malformed input or relax the strict decoder.
+diff --git a/tests/skia-workspace.py b/tests/skia-workspace.py
+index 45c5ed1..9cc3214 100644
+--- a/tests/skia-workspace.py
++++ b/tests/skia-workspace.py
+@@ -190,13 +190,29 @@ class SkiaWorkspaceTests(unittest.TestCase):
+         self.page.locator('#fileInputLeft').set_input_files({'name':'legacy.dxf','mimeType':'application/dxf','buffer':legacy.encode('cp1250')})
+         self.page.wait_for_function('app.tabs.length===2')
+         self.assertJS("app.tabs[1].renderingSourceText.includes('Zażółć €')")
++    def reject_bytes(self, data, expected, *, streamed=False, side='Left'):
++        self.render()
++        self.page.evaluate("""(streamed) => {
++            window.originalDocument=app.tabs[0];window.originalScene=m.compiled;
++            window.originalResource=m.resources;window.originalCanvas=m.canvas;
++            document.getElementById('useStreamCheckbox').checked=streamed;
++        }""", streamed)
++        # Observe the native dialog. An evaluate expression ending in an assigned
++        # function is invoked by Playwright and would itself manufacture an alert.
++        messages=[]
++        self.page.on('dialog',lambda dialog: messages.append(dialog.message))
++        with self.page.expect_event('dialog') as pending:
++            self.page.locator('#fileInput'+side).set_input_files({'name':'invalid.dxf','mimeType':'application/dxf','buffer':data})
++        message=pending.value.message
++        self.settle()
++        self.assertEqual([message],messages,'One actionable failure notification per import')
++        self.assertIn('invalid.dxf',message)
++        self.assertIn(expected,message)
++        self.assertJS('app.tabs.length===1 && app.tabsRight.length===0 && app.tabs[0]===originalDocument && m.compiled===originalScene && m.resources===originalResource && m.canvas===originalCanvas && !m.error')
++        self.assertEqual('',self.page.locator('#fileInput'+side).input_value())
++
+     def test_23_malformed_encoding_does_not_replace_the_open_drawing(self):
+-        self.render();self.page.evaluate('window.originalDocument=app.tabs[0];window.originalScene=m.compiled;window.alertMessages=[];window.alert=message=>alertMessages.push(message)')
+-        invalid=b'0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n\xc3(\n0\nENDSEC\n0\nEOF\n'
+-        self.page.locator('#fileInputLeft').set_input_files({'name':'invalid.dxf','mimeType':'application/dxf','buffer':invalid})
+-        self.page.wait_for_function('alertMessages.length===1')
+-        self.assertJS('app.tabs.length===1 && app.tabs[0]===originalDocument && m.compiled===originalScene')
+-        self.assertIn('Cannot decode DXF',self.page.evaluate('alertMessages[0]'))
++        self.reject_bytes(b'0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n\xc3(\n0\nENDSEC\n0\nEOF\n','Cannot decode DXF')
+     def test_24_editor_file_input_supports_native_binary_dxf(self):
+         self.load('editor/index.html')
+         self.page.locator('#editorOpenFileInput').set_input_files({'name':'binary-editor.dxf','mimeType':'application/dxf','buffer':binary_drawing()})
+@@ -204,4 +220,13 @@ class SkiaWorkspaceTests(unittest.TestCase):
+         self.page.wait_for_function('DxfEditorApp.getSurfaceManager().host.paintCount>0')
+         self.assertJS("DxfEditorApp.getActiveDocument().sourceText.includes('Valve 123') && DxfEditorApp.getSurfaceManager().compiled.primitives.some(p=>p.handle==='AB')")
+ 
++    def test_25_streamed_right_input_reports_decode_error_without_losing_left_drawing(self):
++        self.reject_bytes(b'0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n\xc3(\n0\nENDSEC\n0\nEOF\n','Cannot decode DXF',streamed=True,side='Right')
++
++    def test_26_binary_truncation_is_atomic_and_file_input_can_retry(self):
++        self.reject_bytes(binary_drawing()[:-1],'Unterminated binary DXF')
++        self.page.locator('#fileInputLeft').set_input_files({'name':'invalid.dxf','mimeType':'application/dxf','buffer':binary_drawing()})
++        self.page.wait_for_function('app.tabs.length===2')
++        self.assertJS("app.tabs[0]===originalDocument && app.tabs[1].name==='invalid.dxf' && app.tabs[1].renderingSourceText.includes('Valve 123')")
++
+ if __name__=='__main__' :unittest.main(verbosity=2)
