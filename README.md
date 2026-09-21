@@ -51,3 +51,5 @@ application integration suites, plus required real Graphite/WebGPU and Ganesh/We
 checks on software Vulkan/SwiftShader. Local qualification is not a GitHub Actions result.
 
 Renderer 0.3.0: [native-vector performance, byte-aware DXF input and reproducible comparison benchmarks](docs/skia-renderer-performance.md).
+
+See [atomic workspace startup](docs/workspace-startup.md) for first-paint and refresh behavior.

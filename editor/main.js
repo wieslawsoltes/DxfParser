@@ -2632,6 +2632,7 @@
 
     initializeSkeleton();
     if (window.DxfDocking) window.DxfEditorApp.dockingWorkspace = window.DxfDocking.mountEditor(window.DxfEditorApp);
+    window.DxfWorkspaceStartup?.complete(window.DxfEditorApp.dockingWorkspace);
     console.info("[editor] DXF Editor skeleton initialized.");
   }
 
