@@ -1,9 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-workspace-kind="editor" data-workspace-state="loading" data-startup-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DXF Editor</title>
+  <!-- Critical first-paint styles: do not move behind a stylesheet or script request. -->
+  <style id="workspaceStartupStyle">
+    html:not([data-workspace-state="ready"]) { background:#f4f6f8; color:#26323e; color-scheme:light; }
+    html:not([data-workspace-state="ready"])[data-startup-theme="dark"] { background:#202328; color:#e7ebf1; color-scheme:dark; }
+    html:not([data-workspace-state="ready"])[data-startup-theme="contrast"] { background:#000; color:#fff; color-scheme:dark; }
+    html:not([data-workspace-state="ready"]) body { margin:0; background:inherit; color:inherit; overflow:hidden; }
+    html:not([data-workspace-state="ready"]) body > :not(#workspaceStartup) { opacity:0!important; pointer-events:none!important; }
+    html:not([data-workspace-state="ready"]) body > :not(#workspaceStartup),
+    html:not([data-workspace-state="ready"]) body > :not(#workspaceStartup) * { visibility:hidden!important; }
+    #workspaceStartup { position:fixed; inset:0; z-index:2147483647; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; box-sizing:border-box; font:14px/1.5 system-ui,sans-serif; background:inherit; color:inherit; text-align:center; }
+    #workspaceStartup .startup-failure { display:none; }
+    html[data-workspace-state="error"] #workspaceStartup .startup-progress { display:none; }
+    html[data-workspace-state="error"] #workspaceStartup .startup-failure { display:block; }
+    #workspaceStartup h1 { margin:0; font:600 21px/1.3 system-ui,sans-serif; }
+    #workspaceStartup p { margin:0; max-width:38em; }
+    #workspaceStartup [data-startup-detail] { font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap; }
+    #workspaceStartup a { color:inherit; text-underline-offset:3px; padding:8px; }
+    #workspaceStartup a:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+    #workspaceStartup [hidden], html[data-workspace-state="ready"] #workspaceStartup { display:none!important; }
+  </style>
+  <script src="../scripts/workspace-startup.js" onerror="document.documentElement.dataset.workspaceState='error'"></script>
   <script src="../components/utils.js" defer></script>
   <script src="../components/dxf-parser.js" defer></script>
   <script src="../dist/dxf-rendering.global.js" defer></script>
@@ -34,7 +55,15 @@
 <link rel="stylesheet" href="../components/cad-workspace.css">
 </head>
 <body>
-  <div class="editor-app" id="editorAppRoot">
+  <section id="workspaceStartup" role="status" aria-live="polite" aria-atomic="true">
+    <h1>DXF Editor</h1>
+    <p class="startup-progress">Preparing ribbon and dock workspace…</p>
+    <p class="startup-failure">The workspace could not start. Reload the page to try again. Your saved drawings and layout have not been cleared.</p>
+    <p data-startup-detail hidden></p>
+    <noscript><style>#workspaceStartup .startup-progress { display:none; }</style><p>JavaScript is required to open this workspace. Enable JavaScript and reload the page.</p></noscript>
+    <a href="">Reload page</a>
+  </section>
+  <div class="editor-app" id="editorAppRoot" data-startup-root inert aria-hidden="true" aria-busy="true">
     <header class="editor-ribbon" id="editorRibbon">
       <div class="ribbon-top-bar">
         <div class="ribbon-quick-access" role="toolbar" aria-label="Quick access">

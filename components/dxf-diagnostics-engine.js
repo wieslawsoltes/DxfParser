@@ -2666,6 +2666,7 @@
 
     document.addEventListener("DOMContentLoaded", () => { 
       window.app = new App();
+      window.DxfWorkspaceStartup?.complete(window.app.dockingWorkspace);
 
       // Legacy single dropdown support (guarded). New UI uses Left/Right IDs.
       const legacyBtn = document.getElementById("objectTypeDropdownButton");
