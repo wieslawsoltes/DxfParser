@@ -1,0 +1,47 @@
+name: Skia performance and unchanged quality
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: skia-performance-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DXF_SKIA_BASELINE: ${{ github.workspace }}/.performance-baseline
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 1342c38a5fb7f1a0944c37fb989bf3cba52b2ebc
+          path: .performance-baseline
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned browser tools
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Require identical cold and warm native pixels, geometry and interactions
+        run: node scripts/check-skia-quality.mjs "$DXF_SKIA_BASELINE"
+      - name: Require actual Graphite quality and warm-cache behavior
+        run: xvfb-run -a python tests/skia-performance-gpu.py
+      - name: Record paired CPU and native paint timings without timing-sensitive thresholds
+        run: node scripts/benchmark-skia.mjs --baseline "$DXF_SKIA_BASELINE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skia-performance-and-quality-evidence
+          path: test-results/skia-performance/
+          retention-days: 14
