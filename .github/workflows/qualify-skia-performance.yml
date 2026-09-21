@@ -36,16 +36,19 @@ jobs:
           assert len(patch) == 135686, len(patch)
           assert hashlib.sha256(patch).hexdigest() == '03a19598b98f287cdb9c140cca0d301bbd5c603ff532230eed64c29c36e64196'
           Path('/tmp/performance.patch').write_bytes(patch)
+          assert hashlib.sha256(Path('.skia-performance-final.patch').read_bytes()).hexdigest() == 'b02e066a34549e8f318f6fa70217e337903ec0fac11348c60cb377da45910ae0'
           PY
           git apply --check /tmp/performance.patch
           git apply --index /tmp/performance.patch
-          git rm -r .skia-performance
+          git apply --check .skia-performance-final.patch
+          git apply --index .skia-performance-final.patch
+          git rm -r .skia-performance .skia-performance-final.patch
           node scripts/build-rendering-bundle.js
           git add -A
           git diff --cached --check
           cp .git/index /tmp/performance-index
-          GIT_INDEX_FILE=/tmp/performance-index git rm --cached .github/workflows/qualify-skia-performance.yml
-          test "$(GIT_INDEX_FILE=/tmp/performance-index git write-tree)" = d0dd768ab2fd6f0af033697fc8a7f70e62c25638
+          GIT_INDEX_FILE=/tmp/performance-index git rm --cached .github/workflows/qualify-skia-performance.yml .github/workflows/recover-skia-performance.yml
+          test "$(GIT_INDEX_FILE=/tmp/performance-index git write-tree)" = 206aa56137ecf30372dbdb337386fd895ea7e677
           test -z "$(git diff --cached --name-only -- .github/workflows)"
       - name: Install pinned qualification tools
         run: |
