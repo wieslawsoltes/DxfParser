@@ -373,36 +373,180 @@ const module = undefined;
         return path;
     }
     class SpatialIndex {
-        constructor(items = [], leafSize = 16) { if (!Number.isInteger(leafSize) || leafSize < 1)
-            throw new RangeError('Positive integer leaf size required.'); this.leafSize = leafSize; this.root = this.build(items.filter(x => !isEmpty(x.bounds))); }
-        build(items) {
-            if (!items.length)
-                return null;
-            const b = items.reduce((a, x) => union(a, x.bounds), emptyBounds());
-            if (items.length <= this.leafSize)
-                return { bounds: b, items };
-            const axis = (b.maxX - b.minX) > (b.maxY - b.minY) ? 'X' : 'Y';
-            items = items.slice().sort((a, b) => (a.bounds['min' + axis] + a.bounds['max' + axis]) - (b.bounds['min' + axis] + b.bounds['max' + axis]));
-            const mid = items.length >> 1;
-            return { bounds: b, left: this.build(items.slice(0, mid)), right: this.build(items.slice(mid)) };
+        constructor(items = [], leafSize = 16) {
+            if (!Number.isInteger(leafSize) || leafSize < 1) throw new RangeError('Positive integer leaf size required.');
+            this.leafSize = leafSize;
+            this.items = items.filter(x => !isEmpty(x.bounds));
+            this.root = this.build(this.items, 0, this.items.length);
         }
-        search(box) { const found = [], stack = [this.root]; while (stack.length) {
-            const n = stack.pop();
-            if (!n || !intersects(n.bounds, box))
-                continue;
-            if (n.items)
-                for (const item of n.items) {
-                    if (intersects(item.bounds, box))
-                        found.push(item);
+        build(items, lo = 0, hi = items.length) {
+            if (lo >= hi) return null;
+            const b = emptyBounds(); for (let i=lo;i<hi;i++) union(b,items[i].bounds);
+            if (hi-lo <= this.leafSize) return {bounds:b,lo,hi};
+            const axis=(b.maxX-b.minX)>(b.maxY-b.minY)?'X':'Y', min='min'+axis,max='max'+axis;
+            const coordinate = item => item.bounds[min]/2 + item.bounds[max]/2;
+            const mid=(lo+hi)>>>1;
+            let left=lo,right=hi-1,budget=2*Math.ceil(Math.log2(hi-lo))+2;
+            // In-place deterministic median partition. Recursive nodes share one
+            // backing array; no per-level full sort or subarray copying.
+            while(left<right) {
+                if(--budget===0) {const sorted=items.slice(left,right+1).sort((a,b)=>coordinate(a)-coordinate(b));for(let i=0;i<sorted.length;i++)items[left+i]=sorted[i];break;}
+                const pivot=coordinate(items[(left+right)>>>1]);let i=left,j=right;
+                while(i<=j) {
+                    while(coordinate(items[i])<pivot)i++;
+                    while(coordinate(items[j])>pivot)j--;
+                    if(i<=j){[items[i],items[j]]=[items[j],items[i]];i++;j--;}
                 }
-            else
-                stack.push(n.left, n.right);
-        } return found; }
+                if(mid<=j)right=j;else if(mid>=i)left=i;else break;
+            }
+            return {bounds:b,left:this.build(items,lo,mid),right:this.build(items,mid,hi)};
+        }
+        search(box) {
+            const found=[],stack=[this.root];
+            while(stack.length) {
+                const n=stack.pop();if(!n||!intersects(n.bounds,box))continue;
+                if(n.lo!==undefined) {for(let i=n.lo;i<n.hi;i++) {const item=this.items[i];if(intersects(item.bounds,box))found.push(item);}}
+                else stack.push(n.left,n.right);
+            }
+            return found;
+        }
     }
     Object.assign(api, { geometry: Object.freeze({ TAU, EPS, finite, clamp, vec, add, sub, mul, dot, cross, length, normal, distance, lerp, validPoint, identity, multiply, translation, scaling, rotation, transform, direction, inverse, ocs, viewBasis, project, emptyBounds, isEmpty, extend, bounds, union, intersects, inBounds, center, segmentDistance, pointInPolygon, inLoops, segmentIntersection, pathFromPoints, transformPath, arcPath, bulgePath, flatten, evaluateNurbs, createNurbsEvaluator, sampleNurbs, pathBounds, interpolateFitPoints }), SpatialIndex });
     if (typeof module === 'object' && module.exports)
         module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
+
+
+// packages/dxf-skia/src/input.js
+/* Byte-oriented DXF input. Binary integers are decoded without lossy Number
+ * conversion; original offsets and ordered/repeated group tags are retained.
+ * TextDecoder support determines legacy codepages; unsupported pages fail closed. */
+(function(root) {
+    'use strict';
+    const A=root.DxfSkia;
+    const SENTINEL='AutoCAD Binary DXF\r\n\x1a\0';
+    const between=(code,a,b)=>code>=a&&code<=b;
+    function binaryGroupType(code) {
+        if(between(code,310,319)||code===1004)return 'binary';
+        if(between(code,290,299))return 'bool';
+        if(between(code,60,79)||between(code,170,179)||between(code,270,289)||between(code,370,389)||between(code,400,409)||between(code,1060,1070))return 'int16';
+        if(between(code,90,99)||between(code,420,429)||between(code,440,459)||code===1071)return 'int32';
+        if(between(code,160,169))return 'int64';
+        if(between(code,10,59)||between(code,110,149)||between(code,210,239)||between(code,460,469)||between(code,1010,1059))return 'double';
+        if(between(code,0,9)||between(code,100,102)||code===105||between(code,300,309)||between(code,320,369)||between(code,390,399)||between(code,410,419)||between(code,430,439)||between(code,470,481)||code===999||between(code,1000,1009))return 'string';
+        throw new RangeError('Unsupported binary DXF group code '+code+'.');
+    }
+    function encodingName(version,codepage,override) {
+        if(override)return override;
+        if(/^AC\d{4}$/.test(version||'')&&Number(version.slice(2))>=1021)return 'utf-8';
+        const page=String(codepage||'ANSI_1252').trim().toUpperCase();
+        const mapping={ANSI_932:'shift_jis',ANSI_936:'gbk',ANSI_949:'euc-kr',ANSI_950:'big5',ANSI_874:'windows-874',UTF8:'utf-8','UTF-8':'utf-8',ANSI_65001:'utf-8',DOS437:'ibm437',DOS850:'ibm850'};
+        if(/^ANSI_125[0-8]$/.test(page))return 'windows-'+page.slice(5);
+        if(mapping[page])return mapping[page];
+        throw new RangeError('Unsupported DXF codepage '+page+'; supply an explicit encoding/decoder.');
+    }
+    function decoder(name,options) {
+        if(options.decodeString) return {decode:bytes=>String(options.decodeString(bytes,name))};
+        try {
+            const native = new TextDecoder(name,{fatal:options.fatalEncoding!==false});
+            // Node/ICU builds may expose Latin-1 controls for this WHATWG alias.
+            // Normalize only the Windows-1252 C1 window; already-decoded Unicode
+            // remains untouched and undefined bytes retain their control values.
+            if (native.encoding === 'windows-1252') {
+                const high=[0x20ac,0x81,0x201a,0x192,0x201e,0x2026,0x2020,0x2021,0x2c6,0x2030,0x160,0x2039,0x152,0x8d,0x17d,0x8f,0x90,0x2018,0x2019,0x201c,0x201d,0x2022,0x2013,0x2014,0x2dc,0x2122,0x161,0x203a,0x153,0x9d,0x17e,0x178];
+                return {decode:bytes=>native.decode(bytes).replace(/[\u0080-\u009f]/g,ch=>String.fromCodePoint(high[ch.charCodeAt(0)-128]))};
+            }
+            return native;
+        }
+        catch {throw new RangeError('TextDecoder cannot decode DXF encoding '+name+'; supply decodeString.');}
+    }
+    function metadata(tags) {
+        let version='',codepage='',section='',variable='';
+        for(const tag of tags) {
+            const value=tag.value;
+            if(tag.code===0) {if(value==='ENDSEC'&&section==='HEADER')break;if(value==='SECTION')section='?';variable='';}
+            else if(tag.code===2&&section==='?')section=value.trim();
+            else if(section==='HEADER'&&tag.code===9)variable=value.trim();
+            else if(section==='HEADER'&&variable==='$ACADVER'&&tag.code===1)version=value.trim();
+            else if(section==='HEADER'&&variable==='$DWGCODEPAGE'&&tag.code===3)codepage=value.trim();
+        }
+        return {version,codepage};
+    }
+    // Sniff only structural ASCII header fields without allocating every line or
+    // decoding the entire file twice. Other records are traversed by byte offsets.
+    function byteHeader(bytes) {
+        const ascii=new TextDecoder('windows-1252');let i=0,section='',variable='',version='',codepage='';
+        const line=()=>{const start=i;while(i<bytes.length&&bytes[i]!==10&&bytes[i]!==13)i++;const end=i;if(i<bytes.length){const cr=bytes[i++]===13;if(cr&&bytes[i]===10)i++;}return bytes.subarray(start,end);};
+        while(i<bytes.length) {
+            const codeLine=line();let code=0,valid=false;
+            for(const b of codeLine){if(b===32||b===9)continue;if(b<48||b>57){valid=false;break;}code=code*10+b-48;valid=true;}
+            if(!valid)continue;
+            const value=line();
+            if(code===0) {
+                const str=ascii.decode(value).trim();
+                if(str==='ENDSEC'&&section==='HEADER')break;
+                section=str==='SECTION'?'?':str==='ENDSEC'?'':section;variable='';
+                if(str==='EOF')break;
+            } else if(code===2&&section==='?')section=ascii.decode(value).trim();
+            else if(section==='HEADER') {
+                if(code===9)variable=ascii.decode(value).trim();
+                else if(variable==='$ACADVER'&&code===1)version=ascii.decode(value).trim();
+                else if(variable==='$DWGCODEPAGE'&&code===3)codepage=ascii.decode(value).trim();
+            }
+        }
+        return {version,codepage};
+    }
+    function decodeDxf(input,options={}) {
+        const bytes=input instanceof ArrayBuffer?new Uint8Array(input):ArrayBuffer.isView(input)?new Uint8Array(input.buffer,input.byteOffset,input.byteLength):null;
+        if(!bytes)throw new TypeError('DXF input requires an ArrayBuffer or byte view.');
+        const maxInputBytes=options.maxInputBytes??128*1024*1024,maxTags=options.maxTags??4000000;
+        if(!Number.isSafeInteger(maxInputBytes)||maxInputBytes<1||!Number.isSafeInteger(maxTags)||maxTags<1)throw new RangeError('Positive integer input/tag budgets required.');
+        if(bytes.length>maxInputBytes)throw new RangeError('DXF byte budget exceeded.');
+        const binary=bytes.length>=SENTINEL.length&&Array.from(SENTINEL,(c,i)=>bytes[i]===c.charCodeAt(0)).every(Boolean);
+        if(!binary) {
+            if(bytes.length>=18&&new TextDecoder('ascii').decode(bytes.subarray(0,18)).startsWith('AutoCAD Binary DXF'))throw new SyntaxError('Invalid binary DXF sentinel.');
+            let bom='';
+            if(bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf)bom='utf-8';
+            if(bytes[0]===0xff&&bytes[1]===0xfe)bom='utf-16le';
+            if(bytes[0]===0xfe&&bytes[1]===0xff)bom='utf-16be';
+            const info=bom?{}:byteHeader(bytes),encoding=encodingName(info.version,info.codepage,options.encoding||bom);
+            let text;try{text=decoder(encoding,options).decode(bytes);}catch(error){throw new SyntaxError('Cannot decode DXF '+encoding+': '+error.message);}
+            return {format:'text',encoding,version:info.version||'',text,byteLength:bytes.length};
+        }
+        const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),tags=[],strings=[],ascii=new TextDecoder('windows-1252');let i=22;
+        const need=n=>{if(i+n>bytes.length)throw new SyntaxError('Truncated binary DXF at byte '+i+'.');};
+        need(2);const legacy=bytes[22]===0&&bytes[23]!==0;
+        while(i<bytes.length) {
+            const offset=i;let code;
+            if(legacy){need(1);code=bytes[i++];if(code===255){need(2);code=view.getUint16(i,true);i+=2;}}
+            else {need(2);code=view.getUint16(i,true);i+=2;}
+            let type;try{type=binaryGroupType(code);}catch(error){throw new SyntaxError(error.message+' At byte '+offset+'.');}
+            let value;
+            if(type==='binary'){need(1);const count=bytes[i++];need(count);value='';for(const b of bytes.subarray(i,i+count))value+=b.toString(16).padStart(2,'0');i+=count;value=value.toUpperCase();}
+            else if(type==='bool'){need(1);value=bytes[i++];if(value>1)throw new SyntaxError('Invalid DXF boolean at byte '+offset+'.');}
+            else if(type==='int16'){need(2);value=view.getInt16(i,true);i+=2;}
+            else if(type==='int32'){need(4);value=view.getInt32(i,true);i+=4;}
+            else if(type==='int64'){need(8);value=view.getBigInt64(i,true).toString();i+=8;}
+            else if(type==='double'){need(8);value=view.getFloat64(i,true);i+=8;if(!Number.isFinite(value))throw new SyntaxError('Nonfinite binary DXF number at byte '+offset+'.');}
+            else {const start=i,end=bytes.indexOf(0,i);if(end<0)throw new SyntaxError('Unterminated binary DXF string at byte '+i+'.');i=end+1;value=ascii.decode(bytes.subarray(start,end));strings.push({index:tags.length,start,end});}
+            tags.push({code,value:String(value),line:tags.length*2+1,offset});
+            if(tags.length>maxTags)throw new RangeError('DXF tag budget exceeded.');
+            if(code===0&&value==='EOF'){if(i!==bytes.length)throw new SyntaxError('Trailing binary DXF data at byte '+i+'.');break;}
+        }
+        if(!tags.length||tags[0].code!==0||!['SECTION','EOF'].includes(tags[0].value)||tags.at(-1).code!==0||tags.at(-1).value!=='EOF')throw new SyntaxError('Binary DXF has no valid section/EOF framing.');
+        const info=metadata(tags),encoding=encodingName(info.version,info.codepage,options.encoding),textDecoder=decoder(encoding,options);
+        for(const span of strings) {try{tags[span.index].value=textDecoder.decode(bytes.subarray(span.start,span.end));}catch(error){throw new SyntaxError('Cannot decode binary DXF string at byte '+span.start+': '+error.message);}}
+        return {format:legacy?'binary-r12':'binary',encoding,version:info.version,tags,byteLength:bytes.length};
+    }
+    function dxfText(input,options={}) {
+        if(typeof input==='string')return input;
+        const decoded=decodeDxf(input,options);
+        if(decoded.text!==undefined)return decoded.text;
+        return decoded.tags.map(t=>{if(/[\r\n]/.test(t.value))throw new SyntaxError('Embedded newline in binary string cannot be represented in a line-based tree; use DxfDocument byte input.');return t.code+'\n'+t.value+'\n';}).join('');
+    }
+    Object.assign(A,{decodeDxf,dxfText,binaryGroupType});
+    if(typeof module==='object'&&module.exports)module.exports=A;
+})(globalThis);
 
 
 // packages/dxf-skia/src/document.js
@@ -427,31 +571,47 @@ const module = undefined;
                 this.items.push(Object.freeze({ code, severity, message, handle: entity?.handle || null, type: entity?.type || null, line: entity?.line ?? null }));
         }
     }
-    function parseTags(text, { maxBytes = 64 * 1024 * 1024, maxTags = 4000000 } = {}) {
+    function* iterateTags(text, { maxBytes = 64 * 1024 * 1024, maxTags = 4000000 } = {}) {
         if (!Number.isSafeInteger(maxTags) || maxTags < 1 || !Number.isSafeInteger(maxBytes) || maxBytes < 1)
             throw new RangeError('Positive integer DXF text/tag budgets required.');
-        if (typeof text !== 'string')
-            throw new TypeError('DXF source must be a string.');
-        if (text.length > maxBytes)
-            throw new RangeError('DXF text budget exceeded.');
-        if (text.startsWith('AutoCAD Binary DXF'))
-            throw new Error('Binary DXF requires decoding to text tags before compilation.');
-        text = text.replace(/^\uFEFF/, '');
-        const lines = text.split(/\r\n|\n|\r/), tags = [];
-        for (let i = 0; i < lines.length;) {
-            const line = i + 1, raw = lines[i++].trim();
-            if (!raw)
-                continue;
-            if (!/^[+-]?\d+$/.test(raw) || i >= lines.length)
-                throw new SyntaxError(`Invalid DXF group at line ${line}.`);
+        if (typeof text !== 'string') throw new TypeError('DXF source must be a string.');
+        if (text.length > maxBytes) throw new RangeError('DXF text budget exceeded.');
+        if (text.startsWith('AutoCAD Binary DXF')) throw new Error('Use byte input for binary DXF decoding.');
+        let offset = text.charCodeAt(0) === 0xfeff ? 1 : 0, lineNumber = 1, count = 0;
+        const readLine = () => {
+            const start = offset;
+            while (offset < text.length && text.charCodeAt(offset) !== 10 && text.charCodeAt(offset) !== 13) offset++;
+            const value = text.slice(start, offset);
+            if (offset < text.length) { const cr = text.charCodeAt(offset++) === 13; if (cr && text.charCodeAt(offset) === 10) offset++; }
+            else offset++; // Permit a final empty value, but not a missing value line.
+            lineNumber++; return value;
+        };
+        while (offset <= text.length) {
+            const line = lineNumber, raw = readLine().trim();
+            if (!raw) continue;
+            if (!/^[+-]?\d+$/.test(raw) || offset > text.length) throw new SyntaxError(`Invalid DXF group at line ${line}.`);
             const code = Number(raw);
-            if (code < 0 || code > 1071)
-                throw new RangeError(`DXF group code ${code} outside supported range.`);
-            tags.push({ code, value: lines[i++], line });
-            if (tags.length > maxTags)
-                throw new RangeError('DXF tag budget exceeded.');
+            if (code < 0 || code > 1071) throw new RangeError(`DXF group code ${code} outside supported range.`);
+            const value = readLine();
+            if (++count > maxTags) throw new RangeError('DXF tag budget exceeded.');
+            yield { code, value, line };
         }
-        return tags;
+    }
+    function parseTags(text, options) { return Array.from(iterateTags(text, options)); }
+    function* recordTags(input, options) {
+        const maxTags = options.maxTags ?? 4000000;
+        let record = [], count = 0;
+        const owned = typeof input === 'string';
+        for (const original of owned ? iterateTags(input, options) : input) {
+            if (++count > maxTags) throw new RangeError('DXF tag budget exceeded.');
+            const tag = owned ? original : { ...original, code: Number(original.code) };
+            if (!Number.isInteger(tag.code) || tag.code < 0 || tag.code > 1071) throw new RangeError('Invalid ordered DXF tag code.');
+            if (tag.code === 0) {
+                if (record.length) yield record;
+                record = [tag];
+            } else if (record.length) record.push(tag);
+        }
+        if (record.length) yield record;
     }
     class DxfRecord {
         constructor(tags, index = 0) {
@@ -459,6 +619,8 @@ const module = undefined;
             this.tags = tags.slice(1);
             this.properties = this.tags;
             this.line = tags[0]?.line ?? index;
+            this.offset = tags[0]?.offset ?? null;
+            this._first = null;
             this.handle = key(this.get(5, this.get(105, '')));
             this.id = `${this.handle || '@'}:${this.line}:${index}`;
             this.layer = String(this.get(8, '0')).trim() || '0';
@@ -470,7 +632,15 @@ const module = undefined;
             this.ownerHandle = key(this.get(330, ''));
             this.extrusion = this.point(210, G.vec(0, 0, 1));
         }
-        get(code, fallback = null) { const t = this.tags.find(t => t.code === code); return t === undefined ? fallback : t.value; }
+        get(code, fallback = null) {
+            if (this.tags.length >= 64) {
+                if (!this._first) { this._first = new Map(); for (const t of this.tags) if (!this._first.has(t.code)) this._first.set(t.code, t.value); }
+                return this._first.has(code) ? this._first.get(code) : fallback;
+            }
+            for (const t of this.tags) if (t.code === code) return t.value;
+            return fallback;
+        }
+        invalidateTagIndex() { this._first = null; }
         num(code, fallback = 0) { const v = this.get(code, null); if (v === null || String(v).trim() === '')
             return fallback; const n = Number(v); if (!Number.isFinite(n))
             throw new RangeError(`${this.type} #${this.handle}: nonfinite group ${code}.`); return n; }
@@ -522,22 +692,15 @@ const module = undefined;
             this.layouts = new Map();
             const tables = this.tables = { layers: Object.create(null), linetypes: Object.create(null), styles: Object.create(null), dimstyles: Object.create(null), blockRecords: Object.create(null), views: Object.create(null), viewports: Object.create(null), ucs: Object.create(null), layouts: Object.create(null) };
             const blocks = this.blockDefinitions = new Map();
-            const tags = typeof input === 'string' ? parseTags(input, options) : input;
-            if (!Array.isArray(tags))
-                throw new TypeError('Expected DXF text or an array of tags.');
-            if (tags.length > (options.maxTags ?? 4000000))
-                throw new RangeError('DXF tag budget exceeded.');
+            if (input instanceof ArrayBuffer || ArrayBuffer.isView(input)) {
+                const decoded = A.decodeDxf(input, options);
+                this.inputFormat = decoded.format; this.inputEncoding = decoded.encoding;
+                input = decoded.tags || decoded.text;
+            } else { this.inputFormat = typeof input === 'string' ? 'text' : 'tags'; this.inputEncoding = null; }
+            if (typeof input !== 'string' && !Array.isArray(input)) throw new TypeError('Expected DXF text, bytes or an array of tags.');
             let section = '', currentBlock = null, table = '', sequence = null;
-            for (let start = 0; start < tags.length;) {
-                if (Number(tags[start].code) !== 0) {
-                    start++;
-                    continue;
-                }
-                let end = start + 1;
-                while (end < tags.length && Number(tags[end].code) !== 0)
-                    end++;
-                const record = new DxfRecord(tags.slice(start, end).map(t => ({ ...t, code: Number(t.code) })), this.records.length), type = record.type;
-                start = end;
+            for (const tags of recordTags(input, options)) {
+                const record = new DxfRecord(tags, this.records.length), type = record.type;
                 if (type === 'SECTION') {
                     section = key(record.get(2));
                     if (section === 'HEADER') {
@@ -753,7 +916,7 @@ const module = undefined;
             return { byName, ordered };
         }
     }
-    Object.assign(A, { key, parseTags, DxfRecord, DxfDocument, Diagnostics, aciColor, colorObject, transparency });
+    Object.assign(A, { key, parseTags, iterateTags, DxfRecord, DxfDocument, Diagnostics, aciColor, colorObject, transparency });
     if (typeof module === 'object' && module.exports)
         module.exports = A;
 })(globalThis);
@@ -776,6 +939,8 @@ const module = undefined;
             this.bytes = 0;
             this.revision = 0;
             this.entries = new Map();
+            this.fontSessions = new Map(); this.measurements = new Map(); this.measurementCharacters = 0;
+            this.metrics = { fontCreates: 0, measurements: 0, measurementHits: 0 };
             this.disposed = false;
         }
         get(name, kind) { const e = this.entries.get(resourceKey(name)); return e && (!kind || e.kind === kind) ? e : null; }
@@ -817,6 +982,7 @@ const module = undefined;
                 this.entries.set(key, entry);
                 this.bytes += bytes.byteLength - (prior?.size || 0);
                 this.revision++;
+                this.clearTextCaches();
                 prior?.native?.Dispose();
                 return entry;
             }
@@ -840,24 +1006,51 @@ const module = undefined;
             font.Size = font.DxfUnit / entry.capHeightAtUnit;
             return font;
         }
-        measureText(primitive, text) {
-            const entry = this.get(primitive.font, 'font') || this.get(primitive.fontName, 'font');
-            if (entry) {
-                const font = this.createFont(entry);
-                try {
-                    return font.MeasureText(text) / font.DxfUnit;
-                }
-                finally {
-                    font.Dispose();
-                }
+        fontSession(entry) {
+            if (this.disposed || this.entries.get(entry.key) !== entry || entry.kind !== 'font')
+                throw new Error('Font resource is no longer registered.');
+            let session = this.fontSessions.get(entry);
+            if (session) { this.fontSessions.delete(entry); this.fontSessions.set(entry, session); return session; }
+            const font = this.createFont(entry); let shaper;
+            try { shaper = new this.S.SKShaper(entry.native); }
+            catch (error) { font.Dispose(); throw error; }
+            session = { font, shaper }; this.metrics.fontCreates++;
+            if (this.fontSessions.size >= 64) {
+                const first = this.fontSessions.keys().next().value, old = this.fontSessions.get(first);
+                old.shaper.Dispose(); old.font.Dispose(); this.fontSessions.delete(first);
             }
+            this.fontSessions.set(entry, session); return session;
+        }
+        clearTextCaches() {
+            for (const session of this.fontSessions.values()) { session.shaper.Dispose(); session.font.Dispose(); }
+            this.fontSessions.clear(); this.measurements.clear(); this.measurementCharacters = 0;
+        }
+        measureText(primitive, text) {
+            if (this.disposed) throw new Error('Resource store has been disposed.');
+            text = String(text);
+            if (text.length > 100000) throw new RangeError('Text measurement budget exceeded.');
+            const entry = this.get(primitive.font, 'font') || this.get(primitive.fontName, 'font');
             const shape = this.get(primitive.font, 'shape');
-            return [...text].reduce((n, ch) => n + (shape?.shape.glyph(ch.codePointAt(0))?.advance / (shape?.shape.above || 1) || A.draftingGlyph(ch).advance), 0);
+            const cacheKey = (entry?.key || shape?.key || '') + '\0' + text;
+            if (this.measurements.has(cacheKey)) {
+                const value = this.measurements.get(cacheKey); this.metrics.measurementHits++;
+                this.measurements.delete(cacheKey); this.measurements.set(cacheKey, value); return value;
+            }
+            this.metrics.measurements++;
+            let width;
+            if (entry) { const { font } = this.fontSession(entry); width = font.MeasureText(text) / font.DxfUnit; }
+            else { width = 0; for (const ch of text) width += shape?.shape.glyph(ch.codePointAt(0))?.advance / (shape?.shape.above || 1) || A.draftingGlyph(ch).advance; }
+            // Both entry count and stored string volume are bounded.
+            while (this.measurements.size && (this.measurements.size >= 4096 || this.measurementCharacters + cacheKey.length > 1000000)) {
+                const first = this.measurements.keys().next().value; this.measurementCharacters -= first.length; this.measurements.delete(first);
+            }
+            if (cacheKey.length <= 1000000) { this.measurements.set(cacheKey, width); this.measurementCharacters += cacheKey.length; }
+            return width;
         }
         remove(name) { const key = resourceKey(name), e = this.entries.get(key); if (!e)
-            return false; this.entries.delete(key); this.bytes -= e.size; this.revision++; e.native?.Dispose(); return true; }
+            return false; this.clearTextCaches(); this.entries.delete(key); this.bytes -= e.size; this.revision++; e.native?.Dispose(); return true; }
         dispose() { if (this.disposed)
-            return; this.disposed = true; for (const e of this.entries.values())
+            return; this.disposed = true; this.clearTextCaches(); for (const e of this.entries.values())
             e.native?.Dispose(); this.entries.clear(); this.bytes = 0; this.revision++; }
     }
     class ByteReader {
@@ -1377,6 +1570,8 @@ const module = undefined;
             this.vertices = 0;
             this.instances = 0;
             this.extents = emptyBounds();
+            this.sortedLists = new WeakMap();
+            this.sortTables = document.objects.filter(r => r.type === 'SORTENTSTABLE');
         }
         diagnostic(code, message, e, severity = 'warning') { this.diagnostics.add(code, message, e, severity); }
         compile(layout = 'Model') {
@@ -1396,10 +1591,12 @@ const module = undefined;
         }
         compileList(list, context) {
             let entities = list;
-            const orders = new Map();
-            for (const table of this.document.objects.filter(r => r.type === 'SORTENTSTABLE')) {
+            if (this.sortedLists.has(list)) entities = this.sortedLists.get(list);
+            else {
+            const orders = new Map(), owners = new Set(list.map(e=>e.ownerHandle));
+            for (const table of this.sortTables) {
                 const owner = A.key(table.all(330).at(-1));
-                if (!list.some(e => e.ownerHandle === owner))
+                if (!owners.has(owner))
                     continue;
                 let handle = null;
                 for (const t of table.tags) {
@@ -1424,6 +1621,8 @@ const module = undefined;
                         return -1;
                     return x < y ? -1 : 1;
                 }).map(x => x.entity);
+            this.sortedLists.set(list, entities);
+            }
             for (const entity of entities) {
                 if (this.primitives.length >= this.options.maxPrimitives || this.vertices >= this.options.maxVertices) {
                     this.diagnostic('geometry-budget', 'Geometry budget reached; remaining objects were not compiled.', entity, 'error');
@@ -2199,8 +2398,8 @@ const module = undefined;
         if (cache.has(key))
             return cache.get(key);
         const entries = scene.primitives.map((primitive, index) => {
-            const points = (primitive.points || []).map(p => project(p, basis)), rings = (primitive.rings || [primitive.points || []]).map(r => r.map(p => project(p, basis)));
-            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : primitive.path ? G.pathBounds(primitive.path, p => project(p, basis)) : bounds(points);
+            let points, rings; // Pick tessellation is transformed only when interaction needs it.
+            const box = primitive.infinite ? { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 } : primitive.path ? G.pathBounds(primitive.path, p => project(p, basis)) : bounds((primitive.points || []).map(p => project(p, basis)));
             for (const clip of primitive.clips || [])
                 if (!clip.inverse) {
                     const cb = bounds((clip.loops?.flat() || clip.points || []).map(p => project(p, basis)));
@@ -2211,10 +2410,19 @@ const module = undefined;
                         box.maxY = Math.min(box.maxY, cb.maxY);
                     }
                 }
-            return { primitive, index, points, rings, bounds: box };
+            const entry = { primitive, index, bounds: box };
+            Object.defineProperties(entry, {
+                points: { get: () => points ||= (primitive.points || []).map(p => project(p, basis)) },
+                rings: { get: () => rings ||= primitive.rings ? primitive.rings.map(r => r.map(p => project(p, basis))) : [entry.points] }
+            });
+            return entry;
         });
         const extents = entries.filter(x => !x.primitive.infinite).reduce((b, x) => union(b, x.bounds), emptyBounds());
-        const result = { entries, bounds: extents, index: new A.SpatialIndex(entries), basis, key };
+        const centerEntries = entries.filter(e => e.primitive.center).map(entry => ({ entry, bounds: bounds([project(entry.primitive.center, basis)]) }));
+        const clipCache = new WeakMap();
+        const result = { entries, bounds: extents, index: new A.SpatialIndex(entries), centers: new A.SpatialIndex(centerEntries), basis, key,
+            clipLoops(clip) { let loops = clipCache.get(clip); if (!loops) { loops = (clip.loops || [clip.points || []]).map(r => r.map(p => project(p, basis))); clipCache.set(clip, loops); } return loops; }
+        };
         if (cache.size >= 4)
             cache.delete(cache.keys().next().value);
         cache.set(key, result);
@@ -2294,32 +2502,48 @@ const module = undefined;
         const screenDirection = p => { const v = project(p, basis); return vec((v.x * cos - v.y * sin) * scale, -(v.x * sin + v.y * cos) * scale); };
         const margin = 10 / scale, viewport = bounds([vec(-10, -10), vec(width + 10, -10), vec(width + 10, height + 10), vec(-10, height + 10)].map(toProjected));
         const entries = projection.index.search(viewport).sort((a, b) => a.index - b.index);
-        const pickables = entries.map(entry => {
+        const picks = new Map(), interactionStats = { pickablesCreated: 0, screenPointsTransformed: 0 };
+        const pick = entry => {
+            if (picks.has(entry)) return picks.get(entry);
             const p = entry.primitive;
-            let points = entry.points;
-            if (p.infinite) {
-                points = clipInfiniteLine(points[0], points[1], viewport, p.infinite === 'ray');
-                if (!points)
-                    return null;
-            }
-            const screenPoints = points.map(screen);
-            // A conservative exact bound must not depend on pick-tessellation density.
             const b = entry.bounds;
-            const screenBounds = p.infinite ? bounds(screenPoints) : bounds([
-                vec(b.minX,b.minY), vec(b.maxX,b.minY), vec(b.maxX,b.maxY), vec(b.minX,b.maxY)
-            ].map(screen));
-            return { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer, worldBounds: p.bounds, screenBounds, worldPoints: p.points, screenPoints, isClosed: !!p.closed, weight: entry.index, primitive: p, entry, clips: p.clips };
-        }).filter(Boolean);
+            let screenPoints;
+            const result = { handle: p.handle, entityHandle: p.entityHandle, type: p.type, layer: p.style.layer,
+                worldBounds: p.bounds, worldPoints: p.points, isClosed: !!p.closed, weight: entry.index,
+                primitive: p, entry, clips: p.clips };
+            Object.defineProperties(result, {
+                screenPoints: { enumerable: true, get() {
+                    if (!screenPoints) {
+                        const points = p.infinite ? clipInfiniteLine(entry.points[0], entry.points[1], viewport, p.infinite === 'ray') || [] : entry.points;
+                        interactionStats.screenPointsTransformed += points.length;
+                        screenPoints = points.map(screen);
+                    }
+                    return screenPoints;
+                } },
+                screenBounds: { enumerable: true, get() {
+                    const box = p.infinite ? bounds(result.screenPoints) : bounds([
+                        vec(b.minX,b.minY), vec(b.maxX,b.minY), vec(b.maxX,b.maxY), vec(b.minX,b.maxY)
+                    ].map(screen));
+                    Object.defineProperty(result, 'screenBounds', { value: box, enumerable: true });
+                    return box;
+                }, configurable: true }
+            });
+            interactionStats.pickablesCreated++;
+            picks.set(entry, result);
+            return result;
+        };
+        let pickables;
         const frame = { scene, width, height, devicePixelRatio, scale, worldCenter: c, rotationRad: Number(viewState.rotationRad) || 0, rotationDeg: (Number(viewState.rotationRad) || 0) * 180 / Math.PI,
             worldBounds: scene.bounds, bounds: b, isEmpty, autoViewState: { mode: 'auto', center: autoCenter, scale: autoScale, rotationRad: Number(viewState.rotationRad) || 0 }, viewState: { mode: custom ? 'custom' : 'auto', center: c, scale, rotationRad: Number(viewState.rotationRad) || 0 },
-            basis, projection, viewport, screenDirection, cos, sin, pickables, entries, worldToScreen, screenToWorld, toProjected, screen, background, visualStyle: { name: visualStyle, category: visualStyle.includes('shad') ? 'shaded' : 'wireframe' }, polylines: [], fills: [], points: [], texts: [] };
+            basis, projection, viewport, screenDirection, cos, sin, pick, interactionStats, entries, worldToScreen, screenToWorld, toProjected, screen, background, visualStyle: { name: visualStyle, category: visualStyle.includes('shad') ? 'shaded' : 'wireframe' }, polylines: [], fills: [], points: [], texts: [] };
+        Object.defineProperty(frame, 'pickables', { enumerable: true, get: () => pickables ||= entries.map(pick).filter(p => !p.primitive.infinite || p.screenPoints.length) });
         frame.hitTest = (p, tolerance = 6) => hitTest(frame, p, tolerance);
         frame.snap = (p, tolerance = 12, modes) => snap(frame, p, tolerance, modes);
         return frame;
     }
     function unclipped(frame, primitive, point) {
         for (const clip of primitive.clips) {
-            const loops = clip.loops || [clip.points || []], inside = G.inLoops(point, loops.map(r => r.map(p => project(p, frame.basis))));
+            const inside = G.inLoops(point, frame.projection.clipLoops(clip));
             if (clip.inverse ? inside : !inside)
                 return false;
         }
@@ -2328,8 +2552,10 @@ const module = undefined;
     function hitTest(frame, screenPoint, tolerance = 6) {
         const p = frame.toProjected(screenPoint), t = tolerance / frame.scale;
         let winner = null, best = Infinity;
-        for (let i = frame.pickables.length - 1; i >= 0; i--) {
-            const pick = frame.pickables[i], item = pick.primitive;
+        const candidates = frame.projection.index.search({ minX:p.x-t,minY:p.y-t,maxX:p.x+t,maxY:p.y+t }).sort((a,b)=>b.index-a.index);
+        for (const entry of candidates) {
+            if (!G.intersects(entry.bounds, frame.viewport)) continue;
+            const pick = frame.pick(entry), item = entry.primitive;
             if (item.style.alpha <= 0 || !unclipped(frame, item, p))
                 continue;
             if (!item.infinite && !G.inBounds(p, pick.entry.bounds, t))
@@ -2365,8 +2591,13 @@ const module = undefined;
             best = d;
             result = { point, screenPoint: screen, type, kind: type, handle: pick.handle, pickable: pick, distance: d };
         } };
-        for (const pick of frame.pickables) {
-            const p = pick.primitive;
+        const projectedPoint = frame.toProjected(screenPoint), distance = tolerance / frame.scale;
+        const box = {minX:projectedPoint.x-distance,minY:projectedPoint.y-distance,maxX:projectedPoint.x+distance,maxY:projectedPoint.y+distance};
+        const candidates = new Set(frame.projection.index.search(box));
+        if (modes.has('center')) for (const center of frame.projection.centers.search(box)) candidates.add(center.entry);
+        for (const entry of [...candidates].sort((a,b)=>a.index-b.index)) {
+            if (!G.intersects(entry.bounds, frame.viewport)) continue;
+            const pick = frame.pick(entry), p = entry.primitive;
             if (p.style.alpha <= 0) continue;
             // Arc centers can lie outside the arc's bounding box.
             if (p.center) consider(p.center, 'center', pick);
@@ -2449,38 +2680,51 @@ const module = undefined;
         }
     }
     class SkiaPainter {
-        constructor(S, { resources, cacheLimit = 2048 } = {}) {
+        constructor(S, { resources, cacheLimit = 32768, cacheBytes = 32 * 1024 * 1024, textCacheLimit = 1024, textCacheBytes = 16 * 1024 * 1024 } = {}) {
             if (!S?.SKPath || !S?.SKPaint)
                 throw new TypeError('An initialized SkiaSharpWeb namespace is required.');
             this.S = S;
             if (!Number.isSafeInteger(cacheLimit) || cacheLimit < 1) throw new RangeError('Positive integer path cache limit required.');
             this.resources = resources || new A.ResourceStore(S);
             this.ownsResources = !resources;
-            this.cacheLimit = cacheLimit;
-            this.cache = new Map();
+            for (const value of [cacheBytes, textCacheLimit, textCacheBytes])
+                if (!Number.isSafeInteger(value) || value < 1) throw new RangeError('Positive integer native cache budgets required.');
+            Object.assign(this, {cacheLimit, cacheBytes, textCacheLimit, textCacheBytes});
+            this.cachedBytes = this.textBytes = 0;
+            this.cache = new Map(); this.textCache = new Map();
+            this.metrics = { pathBuilds: 0, pathHits: 0, textBuilds: 0, textHits: 0, clipBuilds: 0, clipHits: 0 };
             this.scene = null;
             this.disposed = false;
             this.diagnostics = new A.Diagnostics();
             this.paint = new S.SKPaint({ IsAntialias: true, StrokeCap: S.SKStrokeCap.Round, StrokeJoin: S.SKStrokeJoin.Round });
         }
-        clearCache() { for (const v of this.cache.values())
-            v.path.Dispose(); this.cache.clear(); }
+        clearCache() {
+            for (const v of this.cache.values()) v.path.Dispose();
+            for (const v of this.textCache.values()) v.dispose();
+            this.cache.clear(); this.textCache.clear(); this.cachedBytes = this.textBytes = 0;
+        }
         cachedPath(primitive, projection) {
             const key = primitive.id + '|' + projection.key;
             let entry = this.cache.get(key);
             if (entry) {
+                this.metrics.pathHits++;
                 this.cache.delete(key);
                 this.cache.set(key, entry);
                 return entry;
             }
             const origin = project(primitive.points[0] || vec(), projection.basis), path = nativePath(this.S, primitive.path, p => sub(project(p, projection.basis), origin));
-            entry = { path, origin };
-            if (this.cache.size >= this.cacheLimit) {
-                const first = this.cache.keys().next().value;
-                this.cache.get(first).path.Dispose();
-                this.cache.delete(first);
+            const bytes = 128 + primitive.path.length * 64;
+            entry = { path, origin, bytes, temporary: false };
+            this.metrics.pathBuilds++;
+            // Protect entries needed later in this pass. A drawing above the budget
+            // retains its hot subset rather than cyclically evicting every path.
+            while ((this.cache.size >= this.cacheLimit || this.cachedBytes + bytes > this.cacheBytes) && this.cache.size) {
+                const oldestKey = this.cache.keys().next().value, oldest = this.cache.get(oldestKey);
+                if (this.activePathKeys?.has(oldestKey)) break;
+                oldest.path.Dispose(); this.cachedBytes -= oldest.bytes; this.cache.delete(oldestKey);
             }
-            this.cache.set(key, entry);
+            if (this.cache.size >= this.cacheLimit || this.cachedBytes + bytes > this.cacheBytes) entry.temporary = true;
+            else { this.cache.set(key, entry); this.cachedBytes += bytes; }
             return entry;
         }
         draw(canvas, frame, { selection = new Set(), blockHighlights = new Set(), grid = false, background = frame.background, clear = true } = {}) {
@@ -2495,13 +2739,16 @@ const module = undefined;
             }
             if (clear)
                 canvas.Clear(S.SKColor.Parse(background));
+            this.frameClips = new Map();
+            this.activeTextIds = new Set(frame.entries.filter(e=>e.primitive.kind==='text').map(e=>e.primitive.id));
+            this.activePathKeys = new Set(frame.entries.filter(e=>e.primitive.path).map(e=>e.primitive.id+'|'+frame.projection.key));
             const save = canvas.Save();
             let drawn = 0;
             try {
                 canvas.Scale(frame.devicePixelRatio, frame.devicePixelRatio);
                 if (grid)
                     this.drawGrid(canvas, frame);
-                for (const pick of frame.pickables) {
+                for (const pick of frame.entries) {
                     try {
                         if (pick.primitive.style.alpha <= 0) continue;
                         this.drawPrimitive(canvas, frame, pick, false); drawn++;
@@ -2511,8 +2758,8 @@ const module = undefined;
                         this.diagnostics.add('skia-primitive', error.message, pick.primitive.source, 'error');
                     }
                 }
-                for (const pick of frame.pickables)
-                    if (selection.has(pick.handle) || pick.primitive.blockPath.some(b => blockHighlights.has(A.key(b)))) {
+                for (const pick of frame.entries)
+                    if (selection.has(pick.primitive.handle) || pick.primitive.blockPath.some(b => blockHighlights.has(A.key(b)))) {
                         try {
                             this.drawPrimitive(canvas, frame, pick, true);
                         }
@@ -2524,21 +2771,27 @@ const module = undefined;
             }
             finally {
                 canvas.RestoreToCount(save);
+                this.activePathKeys = null; this.activeTextIds = null;
+                for (const path of this.frameClips.values()) path.Dispose();
+                this.frameClips = null;
             }
-            return { drawn, visible: frame.pickables.length, omitted: frame.pickables.length - drawn, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
+            return { ...this.metrics, cachedBytes: this.cachedBytes, textBytes: this.textBytes, drawn, visible: frame.entries.length, omitted: frame.entries.length - drawn, cachedPaths: this.cache.size, diagnostics: [...frame.scene.diagnostics, ...this.diagnostics.items] };
         }
         configure(p, selected = false) { const S = this.S, paint = this.paint; paint.PathEffect = null; paint.ColorFilter = null; paint.Shader = null; paint.Color = S.SKColor.Parse(selected ? '#63c9ff' : p.style.color); paint.Alpha = Math.round(255 * (selected ? 1 : p.style.alpha)); paint.Style = p.fill && !selected ? S.SKPaintStyle.Fill : S.SKPaintStyle.Stroke; paint.StrokeWidth = 1; return paint; }
         drawPrimitive(canvas, frame, pick, selected) {
             const p = pick.primitive, S = this.S, paint = this.configure(p, selected), save = canvas.Save();
+            let pathEntry;
             try {
                 for (const clip of p.clips) {
-                    const path = nativePath(S, clip.path || ((clip.loops || [clip.points]).flatMap(r => G.pathFromPoints(r, true))), frame.worldToScreen);
-                    try {
-                        canvas.ClipPath(path, clip.inverse ? S.SKClipOperation.Difference : S.SKClipOperation.Intersect, true);
+                    let path = this.frameClips?.get(clip);
+                    const transient = !this.frameClips;
+                    if (path) this.metrics.clipHits++;
+                    else {
+                        path = nativePath(S, clip.path || ((clip.loops || [clip.points]).flatMap(r => G.pathFromPoints(r, true))), frame.worldToScreen);
+                        this.metrics.clipBuilds++; this.frameClips?.set(clip,path);
                     }
-                    finally {
-                        path.Dispose();
-                    }
+                    try { canvas.ClipPath(path, clip.inverse ? S.SKClipOperation.Difference : S.SKClipOperation.Intersect, true); }
+                    finally { if (transient) path.Dispose(); }
                 }
                 if (p.kind === 'text') {
                     this.drawText(canvas, frame, p, selected);
@@ -2549,7 +2802,7 @@ const module = undefined;
                     return;
                 }
                 if (p.kind === 'point') {
-                    const q = pick.screenPoints[0], size = Math.max(2, p.size > 0 ? p.size * frame.scale : p.size < 0 ? -p.size / 100 * frame.height : 5), mode = p.mode & 31;
+                    const q = frame.screen(pick.points[0]), size = Math.max(2, p.size > 0 ? p.size * frame.scale : p.size < 0 ? -p.size / 100 * frame.height : 5), mode = p.mode & 31;
                     paint.StrokeWidth = selected ? 2 : 1;
                     paint.Style = S.SKPaintStyle.Stroke;
                     if (mode === 0 || selected) {
@@ -2574,12 +2827,14 @@ const module = undefined;
                     return;
                 }
                 if (p.infinite) {
-                    const [a, b] = pick.screenPoints;
+                    const clipped = clipInfiniteLine(pick.points[0], pick.points[1], frame.viewport, p.infinite === 'ray');
+                    if (!clipped) return;
+                    const [a, b] = clipped.map(frame.screen);
                     paint.StrokeWidth = selected ? 2 : 1;
                     canvas.DrawLine(a.x, a.y, b.x, b.y, paint);
                     return;
                 }
-                const entry = this.cachedPath(p, frame.projection), origin = frame.screen(entry.origin);
+                const entry = pathEntry = this.cachedPath(p, frame.projection), origin = frame.screen(entry.origin);
                 canvas.Concat([frame.scale * frame.cos, -frame.scale * frame.sin, origin.x, -frame.scale * frame.sin, -frame.scale * frame.cos, origin.y, 0, 0, 1]);
                 const width = selected ? 2.5 : p.style.lineweightVisible ? Math.max(.7, p.style.lineweight / 100 * 96 / 25.4) : 1;
                 paint.StrokeWidth = width / frame.scale;
@@ -2625,6 +2880,7 @@ const module = undefined;
                     canvas.DrawPath(entry.path, paint);
             }
             finally {
+                if (pathEntry?.temporary) pathEntry.path.Dispose();
                 paint.PathEffect = null;
                 paint.ColorFilter = null;
                 paint.Shader = null;
@@ -2634,60 +2890,83 @@ const module = undefined;
         drawText(canvas, frame, p, selected) {
             const S = this.S, paint = this.paint, origin = frame.worldToScreen(p.position), u = frame.screenDirection(p.u), v = frame.screenDirection(p.v);
             const resource = this.resources.get(p.font, 'font') || this.resources.get(p.fontName, 'font'), shape = this.resources.get(p.font, 'shape');
-            const lines = p.text.split('\n'), lineSpacing = 1.25 * (p.lineSpacing || 1);
-            let font = null;
-            try {
-                if (resource)
-                    font = this.resources.createFont(resource);
-                else
-                    this.diagnostics.add(shape ? 'shape-font' : 'missing-font', shape ? 'Text uses explicitly registered SHX outlines.' : `Font ${p.font || p.fontName || '(unspecified)'} is not registered; original schematic fallback strokes are shown.`, p.source);
-                const width = text => font ? font.MeasureText(text) / font.DxfUnit : [...text].reduce((n, ch) => n + (shape?.shape.glyph(ch.codePointAt(0))?.advance / (shape?.shape.above || 1) || A.draftingGlyph(ch).advance), 0);
-                const layout = A.layoutText(p, width), units = font?.DxfUnit || 1;
-                const save = canvas.Save();
+            const stroke = Math.max(.02, Math.min(.15, 1 / Math.max(1, Math.hypot(u.x, u.y))));
+            const key = p.id + '|' + selected + '|' + (resource ? '' : stroke) + '|' + (p.backgroundMask ? frame.background : '');
+            let cached = this.textCache.get(key), temporary = false;
+            if (cached) {
+                this.metrics.textHits++; this.textCache.delete(key); this.textCache.set(key, cached);
+            } else {
+                this.metrics.textBuilds++;
+                if (!resource) this.diagnostics.add(shape ? 'shape-font' : 'missing-font', shape ? 'Text uses explicitly registered SHX outlines.' : `Font ${p.font || p.fontName || '(unspecified)'} is not registered; original schematic fallback strokes are shown.`, p.source);
+                const session = resource ? this.resources.fontSession(resource) : null, font = session?.font;
+                const layout = A.layoutText(p, text => this.resources.measureText(p, text)), units = font?.DxfUnit || 1;
+                const runs = [], box = emptyBounds(); let recorder, unownedPicture;
                 try {
-                    // Normalized glyph coordinates have y up. Skia text has y down; flip only
-                    // the glyph-local y, preserving mirrored/sheared DXF text transforms.
-                    canvas.Concat([u.x / units, -v.x / units, origin.x, u.y / units, -v.y / units, origin.y, 0, 0, 1]);
+                    // Record vector glyphs in text-local coordinates. There is no bitmap
+                    // cache or resolution downgrade: Skia rasterizes at the current CTM.
                     for (const line of layout.lines) {
-                        const { text } = line, x = line.x * units, y = line.y * units;
-                        if (p.backgroundMask && !selected) {
-                            paint.Style = S.SKPaintStyle.Fill;
-                            paint.Color = S.SKColor.Parse(frame.background);
-                            canvas.DrawRect(new S.SKRect(x - .1 * units, y - 1.1 * units, x + (line.width + .1) * units, y + .2 * units), paint);
-                            paint.Color = S.SKColor.Parse(p.style.color);
-                        }
-                        if (font) {
-                            paint.Style = selected ? S.SKPaintStyle.Stroke : S.SKPaintStyle.Fill;
-                            paint.StrokeWidth = .025 * units;
-                            canvas.DrawShapedText(text, x, y, font, paint);
-                        }
-                        else {
-                            paint.Style = S.SKPaintStyle.Stroke;
-                            paint.StrokeWidth = Math.max(.02, Math.min(.15, 1 / Math.max(1, Math.hypot(u.x, u.y))));
-                            let offset = x;
-                            for (const ch of text) {
+                        const x = line.x * units, y = line.y * units;
+                        if (p.backgroundMask) union(box, {minX:x-.1*units,minY:y-1.1*units,maxX:x+(line.width+.1)*units,maxY:y+.2*units,minZ:0,maxZ:0});
+                        if (font && line.text.length) {
+                            const run = session.shaper.Shape(line.text, x, y, font);
+                            runs.push({ run, line });
+                            const glyphBounds = font.GetGlyphBounds(run.Glyphs);
+                            for (let i=0;i<glyphBounds.length;i++) {
+                                const b=glyphBounds[i], q=run.Points[i];
+                                union(box, {minX:q.X+b.Left,minY:q.Y+b.Top,maxX:q.X+b.Right,maxY:q.Y+b.Bottom,minZ:0,maxZ:0});
+                            }
+                        } else if (!font) {
+                            const paths = []; let offset = x;
+                            for (const ch of line.text) {
                                 let glyph = shape?.shape.glyph(ch.codePointAt(0));
                                 const factor = glyph ? 1 / (shape.shape.above || 10) : 1;
-                                glyph = glyph || A.draftingGlyph(ch);
-                                const path = nativePath(S, glyph.path, q => vec(offset + q.x * factor, y - q.y * factor));
-                                try {
-                                    canvas.DrawPath(path, paint);
-                                }
-                                finally {
-                                    path.Dispose();
-                                }
-                                offset += glyph.advance * factor;
+                                glyph ||= A.draftingGlyph(ch);
+                                const commands = G.transformPath(glyph.path, [factor,0,0,offset, 0,-factor,0,y, 0,0,1,0, 0,0,0,1]);
+                                paths.push(commands); union(box, G.pathBounds(commands)); offset += glyph.advance * factor;
+                            }
+                            runs.push({paths, line});
+                        } else runs.push({line});
+                    }
+                    if (G.isEmpty(box)) Object.assign(box,{minX:0,minY:0,maxX:1,maxY:1,minZ:0,maxZ:0});
+                    const padding = Math.max(units*.1,stroke*2);
+                    recorder = new S.SKPictureRecorder();
+                    const recording = recorder.BeginRecording(new S.SKRect(box.minX-padding,box.minY-padding,box.maxX+padding,box.maxY+padding));
+                    for (const item of runs) {
+                        const {line} = item, x=line.x*units,y=line.y*units;
+                        if (p.backgroundMask && !selected) {
+                            paint.Style=S.SKPaintStyle.Fill;paint.Color=S.SKColor.Parse(frame.background);
+                            recording.DrawRect(new S.SKRect(x-.1*units,y-1.1*units,x+(line.width+.1)*units,y+.2*units),paint);
+                            paint.Color=S.SKColor.Parse(p.style.color);
+                        }
+                        if (font) {
+                            paint.Style=selected?S.SKPaintStyle.Stroke:S.SKPaintStyle.Fill;paint.StrokeWidth=.025*units;
+                            if (item.run) recording.DrawGlyphs(item.run.Glyphs,item.run.Points,new S.SKPoint(0,0),font,paint);
+                        } else {
+                            paint.Style=S.SKPaintStyle.Stroke;paint.StrokeWidth=stroke;
+                            for (const commands of item.paths || []) {
+                                const path=nativePath(S,commands);
+                                try { recording.DrawPath(path,paint); } finally { path.Dispose(); }
                             }
                         }
                     }
-                }
-                finally {
-                    canvas.RestoreToCount(save);
-                }
+                    const picture = unownedPicture = recorder.EndRecording();
+                    const bytes = picture.ApproximateBytesUsed + p.text.length * 32;
+                    cached = {picture, units, bytes, primitiveId: p.id, dispose() { picture.Dispose(); }};
+                    while (this.textCache.size && (this.textCache.size >= this.textCacheLimit || this.textBytes+bytes > this.textCacheBytes)) {
+                        const first=this.textCache.keys().next().value, old=this.textCache.get(first);
+                        if (this.activeTextIds?.has(old.primitiveId)) break;
+                        this.textCache.delete(first);this.textBytes-=old.bytes;old.dispose();
+                    }
+                    if (this.textCache.size < this.textCacheLimit && this.textBytes + bytes <= this.textCacheBytes) {this.textCache.set(key,cached);this.textBytes+=bytes;}
+                    else temporary=true;
+                    unownedPicture = null;
+                } finally { unownedPicture?.Dispose(); for (const item of runs) item.run?.Dispose(); recorder?.Dispose(); }
             }
-            finally {
-                font?.Dispose();
-            }
+            const save = canvas.Save();
+            try {
+                canvas.Concat([u.x/cached.units,-v.x/cached.units,origin.x,u.y/cached.units,-v.y/cached.units,origin.y,0,0,1]);
+                canvas.DrawPicture(cached.picture);
+            } finally { canvas.RestoreToCount(save); if(temporary)cached.dispose(); }
         }
         drawImage(canvas, frame, p, selected) {
             const S = this.S, paint = this.paint, resource = this.resources.get(p.resource, 'image'), origin = frame.worldToScreen(p.position), u = frame.screenDirection(p.u), v = frame.screenDirection(p.v), w = p.imageSize.x, h = p.imageSize.y;
@@ -3083,4 +3362,4 @@ return globalThis.DxfSkia;
 })();
 
 export default api;
-export const {geometry, SpatialIndex, parseTags, DxfRecord, DxfDocument, Diagnostics, aciColor, colorObject, transparency, ResourceStore, resourceKey, ShapeFont, draftingGlyph, layoutText, fallbackTextWidth, SceneCompiler, plainText, decodeProxy, SkiaPainter, prepareFrame, projectedScene, hitTest, snap, nativeDash, clipInfiniteLine, SurfaceHost} = api;
+export const {geometry, SpatialIndex, parseTags, iterateTags, decodeDxf, dxfText, binaryGroupType, DxfRecord, DxfDocument, Diagnostics, aciColor, colorObject, transparency, ResourceStore, resourceKey, ShapeFont, draftingGlyph, layoutText, fallbackTextWidth, SceneCompiler, plainText, decodeProxy, SkiaPainter, prepareFrame, projectedScene, hitTest, snap, nativeDash, clipInfiniteLine, SurfaceHost} = api;

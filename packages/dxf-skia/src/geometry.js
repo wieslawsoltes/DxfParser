@@ -367,31 +367,43 @@
         return path;
     }
     class SpatialIndex {
-        constructor(items = [], leafSize = 16) { if (!Number.isInteger(leafSize) || leafSize < 1)
-            throw new RangeError('Positive integer leaf size required.'); this.leafSize = leafSize; this.root = this.build(items.filter(x => !isEmpty(x.bounds))); }
-        build(items) {
-            if (!items.length)
-                return null;
-            const b = items.reduce((a, x) => union(a, x.bounds), emptyBounds());
-            if (items.length <= this.leafSize)
-                return { bounds: b, items };
-            const axis = (b.maxX - b.minX) > (b.maxY - b.minY) ? 'X' : 'Y';
-            items = items.slice().sort((a, b) => (a.bounds['min' + axis] + a.bounds['max' + axis]) - (b.bounds['min' + axis] + b.bounds['max' + axis]));
-            const mid = items.length >> 1;
-            return { bounds: b, left: this.build(items.slice(0, mid)), right: this.build(items.slice(mid)) };
+        constructor(items = [], leafSize = 16) {
+            if (!Number.isInteger(leafSize) || leafSize < 1) throw new RangeError('Positive integer leaf size required.');
+            this.leafSize = leafSize;
+            this.items = items.filter(x => !isEmpty(x.bounds));
+            this.root = this.build(this.items, 0, this.items.length);
         }
-        search(box) { const found = [], stack = [this.root]; while (stack.length) {
-            const n = stack.pop();
-            if (!n || !intersects(n.bounds, box))
-                continue;
-            if (n.items)
-                for (const item of n.items) {
-                    if (intersects(item.bounds, box))
-                        found.push(item);
+        build(items, lo = 0, hi = items.length) {
+            if (lo >= hi) return null;
+            const b = emptyBounds(); for (let i=lo;i<hi;i++) union(b,items[i].bounds);
+            if (hi-lo <= this.leafSize) return {bounds:b,lo,hi};
+            const axis=(b.maxX-b.minX)>(b.maxY-b.minY)?'X':'Y', min='min'+axis,max='max'+axis;
+            const coordinate = item => item.bounds[min]/2 + item.bounds[max]/2;
+            const mid=(lo+hi)>>>1;
+            let left=lo,right=hi-1,budget=2*Math.ceil(Math.log2(hi-lo))+2;
+            // In-place deterministic median partition. Recursive nodes share one
+            // backing array; no per-level full sort or subarray copying.
+            while(left<right) {
+                if(--budget===0) {const sorted=items.slice(left,right+1).sort((a,b)=>coordinate(a)-coordinate(b));for(let i=0;i<sorted.length;i++)items[left+i]=sorted[i];break;}
+                const pivot=coordinate(items[(left+right)>>>1]);let i=left,j=right;
+                while(i<=j) {
+                    while(coordinate(items[i])<pivot)i++;
+                    while(coordinate(items[j])>pivot)j--;
+                    if(i<=j){[items[i],items[j]]=[items[j],items[i]];i++;j--;}
                 }
-            else
-                stack.push(n.left, n.right);
-        } return found; }
+                if(mid<=j)right=j;else if(mid>=i)left=i;else break;
+            }
+            return {bounds:b,left:this.build(items,lo,mid),right:this.build(items,mid,hi)};
+        }
+        search(box) {
+            const found=[],stack=[this.root];
+            while(stack.length) {
+                const n=stack.pop();if(!n||!intersects(n.bounds,box))continue;
+                if(n.lo!==undefined) {for(let i=n.lo;i<n.hi;i++) {const item=this.items[i];if(intersects(item.bounds,box))found.push(item);}}
+                else stack.push(n.left,n.right);
+            }
+            return found;
+        }
     }
     Object.assign(api, { geometry: Object.freeze({ TAU, EPS, finite, clamp, vec, add, sub, mul, dot, cross, length, normal, distance, lerp, validPoint, identity, multiply, translation, scaling, rotation, transform, direction, inverse, ocs, viewBasis, project, emptyBounds, isEmpty, extend, bounds, union, intersects, inBounds, center, segmentDistance, pointInPolygon, inLoops, segmentIntersection, pathFromPoints, transformPath, arcPath, bulgePath, flatten, evaluateNurbs, createNurbsEvaluator, sampleNurbs, pathBounds, interpolateFitPoints }), SpatialIndex });
     if (typeof module === 'object' && module.exports)

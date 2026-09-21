@@ -3,3 +3,6 @@ test-results/
 __pycache__/
 *.pyc
 .venv/
+
+# Immutable comparison checkout used by native rendering performance CI.
+.performance-reference/

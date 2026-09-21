@@ -7,6 +7,7 @@ presented surface. No canvas context, geometry compiler or Skia runtime is mocke
 from __future__ import annotations
 import importlib.util
 import json
+import struct
 from pathlib import Path
 import unittest
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,6 +21,17 @@ def drawing(entities, *, objects=(), tables=()):
         pairs.extend([(0,'SECTION'),(2,name),*tags,(0,'ENDSEC')])
     pairs.append((0,'EOF'))
     return ''.join(f'{code}\n{value}\n' for code,value in pairs)
+
+def binary_drawing(*, legacy=False):
+    # Independent binary fixture writer: only the types exercised below.
+    pairs=[(0,'SECTION'),(2,'HEADER'),(9,'$ACADVER'),(1,'AC1009' if legacy else 'AC1032'),(0,'ENDSEC'),
+        (0,'SECTION'),(2,'ENTITIES'),(0,'LINE'),(5,'AB'),(8,'DRAFT'),(10,0.),(20,0.),(11,20.),(21,10.),
+        (0,'TEXT'),(5,'AC'),(10,2.),(20,2.),(40,2.),(1,'Valve 123'),(0,'ENDSEC'),(0,'EOF')]
+    result=bytearray(b'AutoCAD Binary DXF\r\n\x1a\0')
+    for code,value in pairs:
+        result+=bytes([code]) if legacy and code<255 else (b'\xff'+struct.pack('<H',code) if legacy else struct.pack('<H',code))
+        result+=struct.pack('<d',value) if 10<=code<=59 else str(value).encode()+b'\0'
+    return bytes(result)
 
 LINE=[(0,'LINE'),(5,'AB'),(8,'DRAFT'),(10,0),(20,0),(11,20),(21,10)]
 CIRCLE=[(0,'CIRCLE'),(5,'AC'),(8,'DRAFT'),(10,10),(20,10),(40,3)]
@@ -154,5 +166,67 @@ class SkiaWorkspaceTests(unittest.TestCase):
         self.render();self.page.evaluate('window.old=m.activeSurface')
         self.command('RENDERER unknown');self.assertIn('Unknown rendering backend',self.page.locator('.dxf-cad-log').inner_text())
         self.assertJS('m.activeSurface===old && !old.IsDisposed && !cad.graphicsChanging')
+
+
+    def load_bytes(self, data, name='encoded.dxf', streamed=False):
+        self.page.evaluate('(value)=>document.getElementById("useStreamCheckbox").checked=value',streamed)
+        self.page.locator('#fileInputLeft').set_input_files({'name':name,'mimeType':'application/dxf','buffer':data})
+        self.page.wait_for_function('app.tabs.length===1')
+        self.page.evaluate("app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace")
+        self.page.wait_for_function('m.host.paintCount>0 && !!m.stats');self.settle()
+        self.assertJS('!m.error && m.lastFrame.scene===m.compiled')
+    def test_20_binary_file_input_preserves_tree_and_native_rendering(self):
+        self.load_bytes(binary_drawing())
+        self.assertJS("app.tabs[0].renderingSourceText.includes('Valve 123') && m.compiled.primitives.some(p=>p.handle==='AB') && m.compiled.primitives.some(p=>p.text==='Valve 123')")
+    def test_21_r12_binary_stream_option_uses_the_same_decoder(self):
+        self.load_bytes(binary_drawing(legacy=True),streamed=True)
+        self.assertJS("app.tabs[0].renderingSourceText.startsWith('0\\nSECTION') && m.compiled.primitives.some(p=>p.handle==='AB')")
+    def test_22_declared_unicode_codepages_decode_before_tree_parsing(self):
+        entities=[(0,'TEXT'),(5,'F1'),(10,0),(20,0),(40,2),(1,'Zażółć € Ω')]
+        text='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n0\nENDSEC\n'+drawing(entities)
+        self.load_bytes(text.encode('utf8'))
+        self.assertJS("m.compiled.primitives.some(p=>p.text==='Zażółć € Ω') && app.tabs[0].renderingSourceText.includes('Zażółć € Ω')")
+        legacy=text.replace('AC1032','AC1015\n9\n$DWGCODEPAGE\n3\nANSI_1250').replace(' Ω','')
+        self.page.locator('#fileInputLeft').set_input_files({'name':'legacy.dxf','mimeType':'application/dxf','buffer':legacy.encode('cp1250')})
+        self.page.wait_for_function('app.tabs.length===2')
+        self.assertJS("app.tabs[1].renderingSourceText.includes('Zażółć €')")
+    def reject_bytes(self, data, expected, *, streamed=False, side='Left'):
+        self.render()
+        self.page.evaluate("""(streamed) => {
+            window.originalDocument=app.tabs[0];window.originalScene=m.compiled;
+            window.originalResource=m.resources;window.originalCanvas=m.canvas;
+            document.getElementById('useStreamCheckbox').checked=streamed;
+        }""", streamed)
+        # Observe the native dialog. An evaluate expression ending in an assigned
+        # function is invoked by Playwright and would itself manufacture an alert.
+        messages=[]
+        self.page.on('dialog',lambda dialog: messages.append(dialog.message))
+        with self.page.expect_event('dialog') as pending:
+            self.page.locator('#fileInput'+side).set_input_files({'name':'invalid.dxf','mimeType':'application/dxf','buffer':data})
+        message=pending.value.message
+        self.settle()
+        self.assertEqual([message],messages,'One actionable failure notification per import')
+        self.assertIn('invalid.dxf',message)
+        self.assertIn(expected,message)
+        self.assertJS('app.tabs.length===1 && app.tabsRight.length===0 && app.tabs[0]===originalDocument && m.compiled===originalScene && m.resources===originalResource && m.canvas===originalCanvas && !m.error')
+        self.assertEqual('',self.page.locator('#fileInput'+side).input_value())
+
+    def test_23_malformed_encoding_does_not_replace_the_open_drawing(self):
+        self.reject_bytes(b'0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n\xc3(\n0\nENDSEC\n0\nEOF\n','Cannot decode DXF')
+    def test_24_editor_file_input_supports_native_binary_dxf(self):
+        self.load('editor/index.html')
+        self.page.locator('#editorOpenFileInput').set_input_files({'name':'binary-editor.dxf','mimeType':'application/dxf','buffer':binary_drawing()})
+        self.page.wait_for_function('DxfEditorApp.getActiveDocument()?.name==="binary-editor.dxf"')
+        self.page.wait_for_function('DxfEditorApp.getSurfaceManager().host.paintCount>0')
+        self.assertJS("DxfEditorApp.getActiveDocument().sourceText.includes('Valve 123') && DxfEditorApp.getSurfaceManager().compiled.primitives.some(p=>p.handle==='AB')")
+
+    def test_25_streamed_right_input_reports_decode_error_without_losing_left_drawing(self):
+        self.reject_bytes(b'0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n\xc3(\n0\nENDSEC\n0\nEOF\n','Cannot decode DXF',streamed=True,side='Right')
+
+    def test_26_binary_truncation_is_atomic_and_file_input_can_retry(self):
+        self.reject_bytes(binary_drawing()[:-1],'Unterminated binary DXF')
+        self.page.locator('#fileInputLeft').set_input_files({'name':'invalid.dxf','mimeType':'application/dxf','buffer':binary_drawing()})
+        self.page.wait_for_function('app.tabs.length===2')
+        self.assertJS("app.tabs[0]===originalDocument && app.tabs[1].name==='invalid.dxf' && app.tabs[1].renderingSourceText.includes('Valve 123')")
 
 if __name__=='__main__' :unittest.main(verbosity=2)

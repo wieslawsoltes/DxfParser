@@ -19,31 +19,47 @@
                 this.items.push(Object.freeze({ code, severity, message, handle: entity?.handle || null, type: entity?.type || null, line: entity?.line ?? null }));
         }
     }
-    function parseTags(text, { maxBytes = 64 * 1024 * 1024, maxTags = 4000000 } = {}) {
+    function* iterateTags(text, { maxBytes = 64 * 1024 * 1024, maxTags = 4000000 } = {}) {
         if (!Number.isSafeInteger(maxTags) || maxTags < 1 || !Number.isSafeInteger(maxBytes) || maxBytes < 1)
             throw new RangeError('Positive integer DXF text/tag budgets required.');
-        if (typeof text !== 'string')
-            throw new TypeError('DXF source must be a string.');
-        if (text.length > maxBytes)
-            throw new RangeError('DXF text budget exceeded.');
-        if (text.startsWith('AutoCAD Binary DXF'))
-            throw new Error('Binary DXF requires decoding to text tags before compilation.');
-        text = text.replace(/^\uFEFF/, '');
-        const lines = text.split(/\r\n|\n|\r/), tags = [];
-        for (let i = 0; i < lines.length;) {
-            const line = i + 1, raw = lines[i++].trim();
-            if (!raw)
-                continue;
-            if (!/^[+-]?\d+$/.test(raw) || i >= lines.length)
-                throw new SyntaxError(`Invalid DXF group at line ${line}.`);
+        if (typeof text !== 'string') throw new TypeError('DXF source must be a string.');
+        if (text.length > maxBytes) throw new RangeError('DXF text budget exceeded.');
+        if (text.startsWith('AutoCAD Binary DXF')) throw new Error('Use byte input for binary DXF decoding.');
+        let offset = text.charCodeAt(0) === 0xfeff ? 1 : 0, lineNumber = 1, count = 0;
+        const readLine = () => {
+            const start = offset;
+            while (offset < text.length && text.charCodeAt(offset) !== 10 && text.charCodeAt(offset) !== 13) offset++;
+            const value = text.slice(start, offset);
+            if (offset < text.length) { const cr = text.charCodeAt(offset++) === 13; if (cr && text.charCodeAt(offset) === 10) offset++; }
+            else offset++; // Permit a final empty value, but not a missing value line.
+            lineNumber++; return value;
+        };
+        while (offset <= text.length) {
+            const line = lineNumber, raw = readLine().trim();
+            if (!raw) continue;
+            if (!/^[+-]?\d+$/.test(raw) || offset > text.length) throw new SyntaxError(`Invalid DXF group at line ${line}.`);
             const code = Number(raw);
-            if (code < 0 || code > 1071)
-                throw new RangeError(`DXF group code ${code} outside supported range.`);
-            tags.push({ code, value: lines[i++], line });
-            if (tags.length > maxTags)
-                throw new RangeError('DXF tag budget exceeded.');
+            if (code < 0 || code > 1071) throw new RangeError(`DXF group code ${code} outside supported range.`);
+            const value = readLine();
+            if (++count > maxTags) throw new RangeError('DXF tag budget exceeded.');
+            yield { code, value, line };
         }
-        return tags;
+    }
+    function parseTags(text, options) { return Array.from(iterateTags(text, options)); }
+    function* recordTags(input, options) {
+        const maxTags = options.maxTags ?? 4000000;
+        let record = [], count = 0;
+        const owned = typeof input === 'string';
+        for (const original of owned ? iterateTags(input, options) : input) {
+            if (++count > maxTags) throw new RangeError('DXF tag budget exceeded.');
+            const tag = owned ? original : { ...original, code: Number(original.code) };
+            if (!Number.isInteger(tag.code) || tag.code < 0 || tag.code > 1071) throw new RangeError('Invalid ordered DXF tag code.');
+            if (tag.code === 0) {
+                if (record.length) yield record;
+                record = [tag];
+            } else if (record.length) record.push(tag);
+        }
+        if (record.length) yield record;
     }
     class DxfRecord {
         constructor(tags, index = 0) {
@@ -51,6 +67,8 @@
             this.tags = tags.slice(1);
             this.properties = this.tags;
             this.line = tags[0]?.line ?? index;
+            this.offset = tags[0]?.offset ?? null;
+            this._first = null;
             this.handle = key(this.get(5, this.get(105, '')));
             this.id = `${this.handle || '@'}:${this.line}:${index}`;
             this.layer = String(this.get(8, '0')).trim() || '0';
@@ -62,7 +80,15 @@
             this.ownerHandle = key(this.get(330, ''));
             this.extrusion = this.point(210, G.vec(0, 0, 1));
         }
-        get(code, fallback = null) { const t = this.tags.find(t => t.code === code); return t === undefined ? fallback : t.value; }
+        get(code, fallback = null) {
+            if (this.tags.length >= 64) {
+                if (!this._first) { this._first = new Map(); for (const t of this.tags) if (!this._first.has(t.code)) this._first.set(t.code, t.value); }
+                return this._first.has(code) ? this._first.get(code) : fallback;
+            }
+            for (const t of this.tags) if (t.code === code) return t.value;
+            return fallback;
+        }
+        invalidateTagIndex() { this._first = null; }
         num(code, fallback = 0) { const v = this.get(code, null); if (v === null || String(v).trim() === '')
             return fallback; const n = Number(v); if (!Number.isFinite(n))
             throw new RangeError(`${this.type} #${this.handle}: nonfinite group ${code}.`); return n; }
@@ -114,22 +140,15 @@
             this.layouts = new Map();
             const tables = this.tables = { layers: Object.create(null), linetypes: Object.create(null), styles: Object.create(null), dimstyles: Object.create(null), blockRecords: Object.create(null), views: Object.create(null), viewports: Object.create(null), ucs: Object.create(null), layouts: Object.create(null) };
             const blocks = this.blockDefinitions = new Map();
-            const tags = typeof input === 'string' ? parseTags(input, options) : input;
-            if (!Array.isArray(tags))
-                throw new TypeError('Expected DXF text or an array of tags.');
-            if (tags.length > (options.maxTags ?? 4000000))
-                throw new RangeError('DXF tag budget exceeded.');
+            if (input instanceof ArrayBuffer || ArrayBuffer.isView(input)) {
+                const decoded = A.decodeDxf(input, options);
+                this.inputFormat = decoded.format; this.inputEncoding = decoded.encoding;
+                input = decoded.tags || decoded.text;
+            } else { this.inputFormat = typeof input === 'string' ? 'text' : 'tags'; this.inputEncoding = null; }
+            if (typeof input !== 'string' && !Array.isArray(input)) throw new TypeError('Expected DXF text, bytes or an array of tags.');
             let section = '', currentBlock = null, table = '', sequence = null;
-            for (let start = 0; start < tags.length;) {
-                if (Number(tags[start].code) !== 0) {
-                    start++;
-                    continue;
-                }
-                let end = start + 1;
-                while (end < tags.length && Number(tags[end].code) !== 0)
-                    end++;
-                const record = new DxfRecord(tags.slice(start, end).map(t => ({ ...t, code: Number(t.code) })), this.records.length), type = record.type;
-                start = end;
+            for (const tags of recordTags(input, options)) {
+                const record = new DxfRecord(tags, this.records.length), type = record.type;
                 if (type === 'SECTION') {
                     section = key(record.get(2));
                     if (section === 'HEADER') {
@@ -345,7 +364,7 @@
             return { byName, ordered };
         }
     }
-    Object.assign(A, { key, parseTags, DxfRecord, DxfDocument, Diagnostics, aciColor, colorObject, transparency });
+    Object.assign(A, { key, parseTags, iterateTags, DxfRecord, DxfDocument, Diagnostics, aciColor, colorObject, transparency });
     if (typeof module === 'object' && module.exports)
         module.exports = A;
 })(globalThis);

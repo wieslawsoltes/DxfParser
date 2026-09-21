@@ -57,14 +57,16 @@ test('native even-odd HATCH paints the shell and leaves the island empty', () =>
 test('native patterns are clipped to the complete hatch boundary including holes', () => { const r = draw(compile([...hatch('H', false), [420, 0xff0000], [78, 1], [53, 0], [43, 0], [44, 0], [45, 0], [46, 2], [79, 2], [49, 2], [49, -1]])); noErrors(r); assert.deepEqual(rgbAt(r, vec()), [33, 40, 48]); });
 test('large world origins are rebased before Skia float path storage', () => { const nearScene = compile(line('A', 0, 0, 10, 5)), farScene = compile(line('A', 1e12, 1e12, 1e12 + 10, 1e12 + 5)); const a = draw(nearScene), b = draw(farScene); noErrors(a); noErrors(b); assert.deepEqual(a.pixels, b.pixels); });
 test('selection is a native cyan overlay rather than a replacement HTML layer', () => { const r = draw(compile(line()), { paintOptions: { selection: new Set(['A']) } }); noErrors(r); const c = rgbAt(r, vec(5, 0)); assert.ok(c[2] > 180 && c[1] > 140 && c[0] < 140); });
-test('native path cache reuses paths during camera changes and disposes its LRU', () => { const scene = compile([...line('A'), ...circle('B')]), surface = S.SKSurface.Create(new S.SKImageInfo(400, 300)), painter = new A.SkiaPainter(S, { cacheLimit: 1 }); try {
+test('native path cache retains its budgeted working set without cyclic thrashing', () => { const scene = compile([...line('A'), ...circle('B')]), surface = S.SKSurface.Create(new S.SKImageInfo(400, 300)), painter = new A.SkiaPainter(S, { cacheLimit: 1 }); try {
     const f = A.prepareFrame(scene, { width: 400, height: 300 });
     painter.draw(surface.Canvas, f);
     assert.equal(painter.cache.size, 1);
     const p = painter.cache.values().next().value.path;
     painter.draw(surface.Canvas, f);
     assert.equal(painter.cache.size, 1);
-    assert.notEqual(painter.cache.values().next().value.path, p);
+    assert.equal(painter.cache.values().next().value.path, p);
+    assert.equal(p.IsDisposed, false);
+    assert.equal(painter.metrics.pathHits, 1);
     painter.dispose();
     assert.equal(painter.cache.size, 0);
     painter.dispose();

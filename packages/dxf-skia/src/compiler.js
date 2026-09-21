@@ -62,6 +62,8 @@
             this.vertices = 0;
             this.instances = 0;
             this.extents = emptyBounds();
+            this.sortedLists = new WeakMap();
+            this.sortTables = document.objects.filter(r => r.type === 'SORTENTSTABLE');
         }
         diagnostic(code, message, e, severity = 'warning') { this.diagnostics.add(code, message, e, severity); }
         compile(layout = 'Model') {
@@ -81,10 +83,12 @@
         }
         compileList(list, context) {
             let entities = list;
-            const orders = new Map();
-            for (const table of this.document.objects.filter(r => r.type === 'SORTENTSTABLE')) {
+            if (this.sortedLists.has(list)) entities = this.sortedLists.get(list);
+            else {
+            const orders = new Map(), owners = new Set(list.map(e=>e.ownerHandle));
+            for (const table of this.sortTables) {
                 const owner = A.key(table.all(330).at(-1));
-                if (!list.some(e => e.ownerHandle === owner))
+                if (!owners.has(owner))
                     continue;
                 let handle = null;
                 for (const t of table.tags) {
@@ -109,6 +113,8 @@
                         return -1;
                     return x < y ? -1 : 1;
                 }).map(x => x.entity);
+            this.sortedLists.set(list, entities);
+            }
             for (const entity of entities) {
                 if (this.primitives.length >= this.options.maxPrimitives || this.vertices >= this.options.maxVertices) {
                     this.diagnostic('geometry-budget', 'Geometry budget reached; remaining objects were not compiled.', entity, 'error');
