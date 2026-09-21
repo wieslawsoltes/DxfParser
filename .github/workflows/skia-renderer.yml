@@ -17,6 +17,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Check out immutable performance and pixel reference
+        uses: actions/checkout@v4
+        with:
+          ref: 1342c38a5fb7f1a0944c37fb989bf3cba52b2ebc
+          path: .performance-reference
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -32,6 +38,10 @@ jobs:
         run: python tests/check-docking-regressions.py
       - name: Require native WebGPU and WebGL pipelines on SwiftShader
         run: xvfb-run -a python tests/skia-gpu.py
+      - name: Compare native pixels and report CPU performance against 0.2.1
+        run: node scripts/benchmark-skia.mjs .performance-reference
+      - name: Require same-quality WebGPU performance and native cache reuse
+        run: xvfb-run -a python tests/skia-performance-gpu.py
       - name: Verify real HTTP CAD renderer, exports and resource lifetime
         run: python tests/skia-workspace.py
       - name: Verify retained application workflows
