@@ -4,6 +4,7 @@
   'use strict';
   const { element: el, scalar, text } = global.DxfGrid;
   const C = global.TreeDataGridCore, W = global.TreeDataGridWeb;
+  const AVisuals = () => global.DxfAnalysis?.AnalysisVisuals;
   const compare = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   const flatten = roots => {
     const result = [], stack = [...roots].reverse(), seen = new Set();
@@ -174,11 +175,12 @@
       }, { signal: this.abort.signal });
       for (const type of ['pointerup','pointercancel','lostpointercapture']) this.splitter.addEventListener(type, () => this.drag = null, { signal: this.abort.signal });
       this.setRows(options.rows || []); this.setMode('records');
+      if (options.visualization !== false && AVisuals()) this.visuals = new (AVisuals())(this);
     }
     option(select, value, label) { const node = el('option', '', label); node.value = String(value); select.append(node); }
     setRows(rows) {
       if (this.disposed) return;
-      this.rows = rows; this.allRows = flatten(rows); this.byKey = new Map(this.allRows.map(row => [row.key, row]));
+      this.closeDrill(); this.rows = rows; this.allRows = flatten(rows); this.byKey = new Map(this.allRows.map(row => [row.key, row]));
       this.maxima = this.columns.map((_, i) => this.allRows.reduce((max, row) => typeof row.values[i] === 'number' ? Math.max(max, row.values[i]) : max, 0));
       for (const key of this.expanded.keys()) if (!this.byKey.has(key)) this.expanded.delete(key);
       this.actionsColumn.IsVisible = this.allRows.some(row => this.actions(row).length > 0);
@@ -208,16 +210,19 @@
       this.facets.hidden = !this.facets.childElementCount;
     }
     clearFilters() {
-      this.search.value = ''; this.scope.value = '-1'; this.facetValues.clear();
+      this.search.value = ''; this.scope.value = '-1'; this.facetValues.clear(); this.visualFilter = null;
       this.buildFacets(); this.refresh();
     }
     refresh() {
       if (this.disposed) return;
       const query = this.search.value.trim().toLocaleLowerCase(), scope = Number(this.scope.value);
-      this.filtering = !!query || this.facetValues.size > 0;
+      this.filtering = !!query || this.facetValues.size > 0 || !!this.visualFilter;
       const selected = this.selectedKey, scroll = this.grid.Scroll?.Offset;
-      const matches = row => (!query || (scope >= 0 ? [row.values[scope]] : row.values).some(v => String(scalar(v)).toLocaleLowerCase().includes(query))) &&
+      const matchesData = row => (!query || (scope >= 0 ? [row.values[scope]] : row.values).some(v => String(scalar(v)).toLocaleLowerCase().includes(query))) &&
         [...this.facetValues].every(([i, value]) => String(row.values[i] ?? '') === value);
+      this.contextRows = this.allRows.filter(row => !row.hidden && matchesData(row));
+      const matches = row => matchesData(row) && (!this.visualFilter || this.visualFilter.keys.has(row.key));
+      this.matchingRows = this.contextRows.filter(row => !this.visualFilter || this.visualFilter.keys.has(row.key));
       // Iterative postorder avoids unbounded recursion on handle-owner hierarchies.
       const projected = new Map();
       for (let i = this.allRows.length - 1; i >= 0; i--) {
@@ -242,7 +247,35 @@
       this.reset.hidden = !this.filtering;
       this.count.removeAttribute('data-error');
       this.count.textContent = `${this.filteredRows.length.toLocaleString()} / ${this.allRows.length.toLocaleString()} records`;
-      this.selectRow(matchRow, false); this.refreshSpreadsheet(); this.options.onFilterChange?.(this);
+      this.selectRow(matchRow, false); this.refreshSpreadsheet(); this.options.onFilterChange?.(this); this.visuals?.schedule(); this.visuals?.renderFilter();
+    }
+    setVisualFilter(filter) {
+      this.visualFilter = filter ? { label: String(filter.label), keys: new Set(filter.keys) } : null;
+      this.refresh();
+    }
+    revealKey(key) {
+      if (!this.byKey.has(key)) return false;
+      if (!this.filteredRows.some(row => row.key === key)) this.clearFilters();
+      const parents = new Map();
+      for (const row of this.allRows) for (const child of row.children || []) parents.set(child.key, row.key);
+      const seen = new Set();
+      for (let parent = parents.get(key); parent != null && !seen.has(parent); parent = parents.get(parent)) {
+        seen.add(parent); this.expanded.set(parent, true);
+      }
+      this.refresh(); this.selectKey(key);
+      const row = this.visibleRows.find(row => row.key === key);
+      if (row) this.grid.BringIntoView(this.treeModel.FindModelIndex(row));
+      return !!row;
+    }
+    pinSelection() {
+      if (!this.selectedRow) return;
+      this.pinned = { key: this.selectedKey, values: this.selectedRow.values.map(scalar) };
+      this.selectRow(this.selectedRow, false);
+    }
+    compareSelection() {
+      if (!this.pinned || !this.selectedRow) return;
+      this.openRelated({ title: 'Pinned record comparison', columns: ['Property', 'Pinned value', 'Selected value', 'Status'],
+        rows: global.DxfAnalysisVisualModel.compareRows(this.columns, this.pinned, this.selectedRow), visualization: false });
     }
     copyBranch(root) {
       const copy = { ...root, children: [], expanded: true }, queue = [[root, copy]];
@@ -256,13 +289,13 @@
       const index = Number(this.sort.value); this.order.textContent = this.direction > 0 ? '↑' : '↓';
       if (index < 0) this.treeModel.ClearSort();
       else this.treeModel.SortBy([...this.treeModel.Columns].find(c => c.Id === 'analysis-column-' + index), this.direction > 0 ? C.ListSortDirection.Ascending : C.ListSortDirection.Descending);
-      this.updateVisible(); this.refreshSpreadsheet();
+      this.updateVisible(); this.refreshSpreadsheet(); this.visuals?.schedule();
     }
     sorted() {
       const column = [...this.treeModel.Columns].find(c => c.SortDirection != null);
       this.sort.value = column ? column.Id.replace('analysis-column-', '') : '-1';
       this.direction = !column || column.SortDirection === C.ListSortDirection.Ascending ? 1 : -1;
-      this.order.textContent = this.direction > 0 ? '↑' : '↓'; this.updateVisible(); this.refreshSpreadsheet();
+      this.order.textContent = this.direction > 0 ? '↑' : '↓'; this.updateVisible(); this.refreshSpreadsheet(); this.visuals?.schedule(); this.visuals?.schedule();
     }
     cell(row, index) {
       const node = el('span', 'analysis-cell'), value = row.values[index];
@@ -293,7 +326,7 @@
     actionCell(row) {
       const node = el('span', 'analysis-cell'), actions = this.actions(row);
       for (const action of actions.slice(0, 2)) {
-        const b = button(action.label, e => { e.stopPropagation(); this.selectKey(row.key); this.runAction(() => action.run(row)); }, node);
+        const b = button(action.label, e => { e.stopPropagation(); this.selectKey(row.key); this.runAction(() => action.run(row), action.requiresSource !== false); }, node);
         b.disabled = !!action.disabled; b.setAttribute('aria-label', `${action.label}: ${String(row.values[0] ?? '')}`);
       }
       if (actions.length > 2) button('More…', e => { e.stopPropagation(); this.selectKey(row.key); this.toggleDetails(true); }, node);
@@ -308,9 +341,9 @@
         docs.activate(record, { focus: false });
       }
     }
-    async runAction(run) {
+    async runAction(run, requiresSource = true) {
       if (this.disposed) return;
-      try { this.guardSource(); await run(); if (!this.disposed) this.onSourceChange?.(); return true; }
+      try { if (requiresSource) this.guardSource(); await run(); if (!this.disposed) this.onSourceChange?.(); return true; }
       catch (error) { if (!this.disposed) { this.count.textContent = error.message; this.count.dataset.error = 'true'; } return false; }
     }
     control(control, row, name = labelOf(control), compact = false) {
@@ -345,14 +378,19 @@
       const previousScroll = this.detailBody?.scrollTop || 0;
       this.selectedKey = row?.key ?? null; this.selectedRow = row;
       this.relatedView?.dispose(); this.relatedView = null; this.details.replaceChildren();
-      if (!row) { this.details.append(el('p', 'analysis-empty', 'Select a record to inspect its values and actions.')); return; }
+      if (!row) { this.details.append(el('p', 'analysis-empty', 'Select a record to inspect its values and actions.')); this.visuals?.selection(); return; }
       const toolbar = el('div', 'analysis-detail-heading');
       const previous = button('←', () => this.moveResult(-1), toolbar, 'Previous result');
       const next = button('→', () => this.moveResult(1), toolbar, 'Next result');
       previous.setAttribute('aria-label', 'Previous result'); next.setAttribute('aria-label', 'Next result');
       toolbar.append(el('strong', '', String(row.values[0] ?? 'Record'))); this.details.append(toolbar);
+      const compareTools = el('div', 'analysis-compare-tools');
+      button('Pin record', () => this.pinSelection(), compareTools, 'Capture these values as a comparison baseline');
+      const diff = button('Compare', () => this.compareSelection(), compareTools, 'Compare the current record with the pinned snapshot'); diff.disabled = !this.pinned;
+      if (this.pinned) { const pin = el('span', '', 'Pinned: ' + String(this.pinned.values[0] ?? 'record')); pin.title = pin.textContent; compareTools.append(pin); }
+      this.details.append(compareTools);
       const actions = el('div', 'dxf-grid-actions');
-      for (const action of this.actions(row)) { const b = button(action.label, () => this.runAction(() => action.run(row)), actions); b.disabled = !!action.disabled; }
+      for (const action of this.actions(row)) { const b = button(action.label, () => this.runAction(() => action.run(row), action.requiresSource !== false), actions); b.disabled = !!action.disabled; }
       for (const control of sourceControls(row.source).filter(c => c.matches('input,select,textarea'))) {
         const label = el('label', 'dxf-grid-field'), name = this.columns.find(c=>c.control?.(row)===control)?.title || labelOf(control);
         label.append(el('span', '', name), this.control(control, row, name)); actions.append(label);
@@ -368,7 +406,7 @@
       this.details.append(this.detailTabs, this.detailBody);
       this.showDetail(previousKey === row.key && this.detailTabs.querySelector(`[data-tab="${previousTab}"]`) ? previousTab : 'details');
       if (previousKey === row.key) this.detailBody.scrollTop = previousScroll;
-      this.options.onSelect?.(row);
+      this.options.onSelect?.(row); this.visuals?.selection();
     }
     moveResult(delta) {
       const index = this.visibleRows.findIndex(r => r.key === this.selectedKey), row = this.visibleRows[index + delta];
@@ -406,7 +444,7 @@
         this.detailBody.append(toolbar); const host = el('div', 'analysis-related-host'); this.detailBody.append(host);
         const update = () => {
           this.relatedView?.dispose(); host.replaceChildren();
-          this.relatedView = new AnalysisView(host, { ...this.related[Number(select.value)], height: 290 });
+          this.relatedView = new AnalysisView(host, { visualization: false, ...this.related[Number(select.value)], height: 290 });
           this.relatedView.toggleDetails(false); this.relatedView.setTheme(this.theme);
         };
         select.addEventListener('change', update); update(); return;
@@ -434,7 +472,7 @@
       const back=button('← Back to '+this.title, () => this.closeDrill(), heading);
       heading.append(el('span','',String(this.selectedRow?.values[0] || '')));
       const content=el('div','analysis-drill-content'); this.drill.append(heading,content); this.host.append(this.drill);
-      this.drillView=new AnalysisView(content,collection); this.drillView.setTheme(this.theme);
+      this.drillView=new AnalysisView(content,{visualization:false,...collection}); this.drillView.setTheme(this.theme);
       this.drill.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();this.closeDrill();}});
       back.focus();
     }
@@ -450,6 +488,8 @@
       this.host.classList.toggle('analysis-details-hidden', !value); this.detailButton.setAttribute('aria-pressed', String(value));
     }
     setMode(mode) {
+      if (!['records', 'spreadsheet'].includes(mode)) mode = 'records';
+      if (this.visuals?.state.layout === 'visual') this.visuals.setLayout('split');
       this.mode = mode; this.recordsButton.setAttribute('aria-pressed', String(mode === 'records')); this.sheetButton.setAttribute('aria-pressed', String(mode === 'spreadsheet'));
       this.grid.hidden = mode !== 'records'; this.host.dataset.mode = mode;
       if (mode === 'spreadsheet' && !this.spreadsheet) {
@@ -484,26 +524,27 @@
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     refreshLayout() { if (!this.disposed) { this.grid.InvalidateRowHeights(); this.spreadsheet?.grid.Refresh(); } }
-    saveState() { return { search: this.search.value, scope: this.scope.value, sort: this.sort.value, direction: this.direction, selectedKey: this.selectedKey, expanded: [...this.expanded], facets: [...this.facetValues], mode: this.mode, details: !this.host.classList.contains('analysis-details-hidden'), detailTab: this.detailTab, width: this.detailWidth, view: this.grid.SaveViewState() }; }
+    saveState() { return { search: this.search.value, scope: this.scope.value, sort: this.sort.value, direction: this.direction, selectedKey: this.selectedKey, expanded: [...this.expanded], facets: [...this.facetValues], mode: this.mode, details: !this.host.classList.contains('analysis-details-hidden'), detailTab: this.detailTab, visual: this.visuals?.saveState(), visualFilter: this.visualFilter ? {label:this.visualFilter.label,keys:[...this.visualFilter.keys]} : null, pinned: this.pinned, width: this.detailWidth, view: this.grid.SaveViewState() }; }
     restoreState(state) {
       if (!state) return;
       this.search.value = state.search || ''; this.scope.value = state.scope || '-1'; this.sort.value = state.sort || '-1'; this.direction = state.direction || 1;
       this.selectedKey = state.selectedKey; this.expanded = new Map(state.expanded || []); this.facetValues = new Map(state.facets || []);
+      this.visualFilter = state.visualFilter ? {label:state.visualFilter.label,keys:new Set(state.visualFilter.keys)} : null; this.pinned = state.pinned;
       this.buildFacets(); this.refresh(); this.applySort();
       if (state.view) { try { this.grid.RestoreViewState(state.view); } catch (_) { /* Column schemas can evolve independently. */ } }
-      this.toggleDetails(state.details !== false); this.setMode(state.mode || 'records');
+      this.toggleDetails(state.details !== false); this.setMode(state.mode || 'records'); this.visuals?.restore(state.visual);
       if (state.width) { this.detailWidth = state.width; this.host.style.setProperty('--analysis-detail-width', state.width + 'px'); }
       for (const [column, check] of this.columnChecks) check.checked = column.IsVisible !== false;
       if (this.detailTabs?.querySelector(`[data-tab="${state.detailTab}"]`)) this.showDetail(state.detailTab);
     }
     setTheme(theme) {
       this.theme = theme; this.host.dataset.theme = /dark|contrast/i.test(theme) ? 'dark' : 'light';
-      this.spreadsheet?.setTheme(theme); this.relatedView?.setTheme(theme); this.drillView?.setTheme(theme);
+      this.spreadsheet?.setTheme(theme); this.relatedView?.setTheme(theme); this.drillView?.setTheme(theme); this.visuals?.schedule();
     }
     dispose() {
       if (this.disposed) return; this.disposed = true; clearTimeout(this.searchTimer); this.abort.abort();
-      this.resizeObserver.disconnect(); this.closeDrill(); this.relatedView?.dispose(); this.spreadsheet?.dispose(); this.off.forEach(off => off());
-      this.grid.Dispose(); this.treeModel.Dispose(); this.rows = this.allRows = this.visibleRows = []; this.byKey.clear(); this.host.remove();
+      this.resizeObserver.disconnect(); this.visuals?.dispose(); this.closeDrill(); this.relatedView?.dispose(); this.spreadsheet?.dispose(); this.off.forEach(off => off());
+      this.grid.Dispose(); this.treeModel.Dispose(); this.rows = this.allRows = this.visibleRows = this.filteredRows = this.filteredTree = this.contextRows = this.matchingRows = []; this.related = []; this.selectedRow = this.pinned = this.visualFilter = null; this.byKey.clear(); this.details.replaceChildren(); this.host.remove();
     }
   }
   AnalysisView.sequence = 0;

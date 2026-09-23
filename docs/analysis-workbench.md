@@ -1,5 +1,8 @@
 # Analysis workbench
 
+The current [linked visual workbench](analysis-visual-workbench.md) extends these
+record views with diagrams and previews; the original inspection controls remain.
+
 This revision repairs report usability after the original blanket GridWeb migration.
 The main DXF tree control, document ownership/comparison roles, Dockyard layout,
 RibbonWeb commands, GridWeb Excel engine and RichTextWeb Word engine remain intact.
@@ -145,7 +148,8 @@ local browser storage and native controls are used in normal runs; an explicitly
 labelled injected harness remains available for restricted environments.
 
 Read-only GitHub Actions publish screenshots and browser/environment evidence.
-The base-aware regression gate preserves visibility of the two already-existing
-SVG snapshot mismatches (`advanced-geometry`, `dimension-parity`) and requires
-byte-identical generated SVG/JSON frames against the base. No snapshots are updated
-by this revision to hide differences.
+The current regression gate validates the replacement native Skia renderer, package
+consumers, deterministic distributions and local vendor checksums. The historical
+SVG snapshot gate from the initial analysis migration was retired with the legacy
+renderer; see the native renderer and performance documentation for current pixel
+comparison coverage.

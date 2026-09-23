@@ -368,6 +368,11 @@
         for (const type of ['click','change','input','keydown','focusin']) d.node.addEventListener(type, event => {
           if (!event.target.closest('button,a,input,select,[role="button"]')) return;
           if (event.target.closest('button[id^="close"],button[id^="cancel"],[data-action="close"]')) return;
+          // AnalysisView guards all source actions and editing in runAction(),
+          // including events across its grid's shadow boundary. Its local chart,
+          // search, export and snapshot inspection must still work after close.
+          // Keep the legacy-controller guard for controls outside that workbench.
+          if (event.composedPath().some(node => node.analysisView && node.analysisView.host === node)) return;
           const record = this.findByTab(d.sourceTabId);
           if (record) this.activate(record, { focus: false });
           else if (d.sourceTabId != null && event.target.closest('button,a')) {
