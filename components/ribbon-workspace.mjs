@@ -270,6 +270,12 @@ class RibbonWorkspace {
     ] };
   }
 
+  currentAnalysisView() {
+    const node = this.currentReport()?.node;
+    const host = node?.querySelector('.analysis-drill .dxf-analysis-view') || node?.querySelector('.dxf-analysis-view');
+    return host?.analysisView || null;
+  }
+
   reportTab() {
     const w = this.workspace, cmd = (...a) => this.command(...a);
     const model = () => w.manager.ActiveModel;
@@ -279,6 +285,14 @@ class RibbonWorkspace {
         cmd('report-show-source', 'Show source drawing', () => { const d = this.currentReport(), r = this.app.documentWorkspace?.findByTab(d?.sourceTabId); if (r) this.app.documentWorkspace.activate(r); }, { icon: 'document', enabled: () => !!this.app.documentWorkspace?.findByTab(this.currentReport()?.sourceTabId) }),
         cmd('report-refresh', 'Refresh from active drawing', () => { const d = this.currentReport(); if (d?.openAction) { this.app.documentWorkspace?.bindReport(d.id); w.requestOpen(d.id); } }, { icon: 'refresh', enabled: () => !!this.currentReport()?.openAction && this.hasDrawing() })
       ], { priority: 100 }),
+      group('report-explore', 'Explore & Inspect', [
+        cmd('report-visuals', 'Visual + data', () => this.currentAnalysisView()?.visuals?.setLayout('split'), {icon:'chart',enabled:()=>!!this.currentAnalysisView()?.visuals}),
+        cmd('report-data-only', 'Data only', () => this.currentAnalysisView()?.visuals?.setLayout('data'), {icon:'table',enabled:()=>!!this.currentAnalysisView()?.visuals}),
+        cmd('report-clear-filters', 'Reset report filters', () => this.currentAnalysisView()?.clearFilters(), {icon:'filter',enabled:()=>!!this.currentAnalysisView()}),
+        cmd('report-pin-record', 'Pin comparison record', () => this.currentAnalysisView()?.pinSelection(), {icon:'pin',enabled:()=>!!this.currentAnalysisView()?.selectedRow}),
+        cmd('report-chart-data', 'Inspect chart data', () => this.currentAnalysisView()?.visuals?.openData(), {icon:'table',enabled:()=>!!this.currentAnalysisView()?.visuals}),
+        cmd('report-refresh-source', 'Refresh source drawing report', () => { const d=this.currentReport(),r=this.app.documentWorkspace?.findByTab(d?.sourceTabId); if(r && d?.openAction){this.app.documentWorkspace.activate(r,{focus:false}); w.requestOpen(d.id);} }, {icon:'refresh',enabled:()=>!!this.currentReport()?.openAction&&!!this.app.documentWorkspace?.findByTab(this.currentReport()?.sourceTabId)})
+      ]),
       group('report-presentation', 'Panel', [
         cmd('report-float', 'Float as dialog', () => model()?.Float(), { icon: 'window', enabled: () => !!model()?.CanFloat && !model()?.IsFloating }),
         cmd('report-dock', 'Dock back', () => model()?.Dock(), { icon: 'panel', enabled: () => !!model()?.IsFloating }),

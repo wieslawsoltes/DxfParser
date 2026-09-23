@@ -53,3 +53,7 @@ checks on software Vulkan/SwiftShader. Local qualification is not a GitHub Actio
 Renderer 0.3.0: [native-vector performance, byte-aware DXF input and reproducible comparison benchmarks](docs/skia-renderer-performance.md).
 
 See [atomic workspace startup](docs/workspace-startup.md) for first-paint and refresh behavior.
+
+### Linked analysis visualizations
+
+Analysis tools now include linked distributions, matrices, reference graphs and preview cards alongside the existing TreeDataGridWeb records and optional GridWeb inspection spreadsheet. See [the visual analysis workbench guide](docs/analysis-visual-workbench.md) for chart scopes, source-safe native drawing navigation, pinned comparisons and regression coverage.

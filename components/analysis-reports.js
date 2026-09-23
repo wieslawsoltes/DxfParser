@@ -38,6 +38,41 @@
     for (let i = nodes.length - 1; i >= 0; i--) for (const child of nodes[i].children || []) size.set(nodes[i], size.get(nodes[i]) + (size.get(child) || 0));
     return { tab, nodes, types, codes, handles, incoming, size, depth, properties, characters, positions: new Map(nodes.map((node, i) => [node, i])) };
   }
+  // Index actual references, including named table references, once per report
+  // snapshot. Ambiguous handles/names retain every candidate, never first-match.
+  function referenceIndex(snapshot) {
+    if (snapshot.references) return snapshot.references;
+    const outgoing = new Map(), incoming = new Map(), names = new Map();
+    for (const type of ['LAYER','LTYPE','STYLE','DIMSTYLE','BLOCK']) {
+      const table = new Map();
+      for (const node of snapshot.types.get(type) || []) {
+        const key = nameOf(node).toUpperCase(); if (!table.has(key)) table.set(key, []); table.get(key).push(node);
+      }
+      names.set(type, table);
+    }
+    for (const node of snapshot.nodes) for (const p of node.properties || []) {
+      const code = Number(p.code), value = String(p.value ?? '').trim();
+      let candidates = null, relation = '';
+      if (![5,105].includes(code) && global.isHandleCode?.(code) && value && value !== '0') {
+        candidates = snapshot.handles.get(handle(value)) || []; relation = (code === 330 ? 'Owner / pointer' : 'Handle reference') + ` · ${code}`;
+      } else {
+        const target = code === 8 ? 'LAYER' : code === 6 ? 'LTYPE' : code === 7 && ['TEXT','MTEXT','ATTRIB','ATTDEF'].includes(kind(node)) ? 'STYLE' :
+          code === 2 && kind(node) === 'INSERT' ? 'BLOCK' : code === 3 && kind(node) === 'DIMENSION' ? 'DIMSTYLE' : null;
+        if (target && value && !['BYLAYER','BYBLOCK'].includes(value.toUpperCase())) {
+          candidates = names.get(target).get(value.toUpperCase()) || []; relation = target + ` name · ${code}`;
+        }
+      }
+      if (!candidates) continue;
+      if (!outgoing.has(node)) outgoing.set(node, []);
+      if (!candidates.length) outgoing.get(node).push({ node:null, value, label:'Unresolved ' + relation });
+      for (const target of candidates) {
+        const label = (candidates.length > 1 ? 'Ambiguous ' : '') + relation;
+        outgoing.get(node).push({node:target, label});
+        if (!incoming.has(target)) incoming.set(target, []); incoming.get(target).push({node, label});
+      }
+    }
+    return snapshot.references = {incoming,outgoing};
+  }
   function mtextPlain(raw) {
     // A deliberately bounded text preview, not a replacement for the renderer's
     // typesetter. The untouched source and every group-code value remain available.
@@ -48,7 +83,7 @@
   class AnalysisReports {
     constructor(app) {
       this.app = app; this.views = new Map(); this.originals = new Map(); this.abort = new AbortController();
-      this.nodeKeys = new WeakMap(); this.nodeSequence = 0; this.diagnosticGeneration = 0; this.diagnosticResults = new Map(); this.disposed = false;
+      this.locateGeneration = 0; this.nodeKeys = new WeakMap(); this.nodeSequence = 0; this.diagnosticGeneration = 0; this.diagnosticResults = new Map(); this.disposed = false;
       this.install();
     }
     replace(name, implementation) { this.originals.set(name, this.app[name]); this.app[name] = implementation.bind(this); }
@@ -65,6 +100,29 @@
       this.app.documentWorkspace.revealNode(record, node);
       if (panel) this.app.dismissReportAfterNavigation(panel);
     }
+    relationships(snapshot, node, panel) {
+      const index = referenceIndex(snapshot), links = [];
+      for (const direction of ['in','out']) for (const ref of index[direction === 'in' ? 'incoming' : 'outgoing'].get(node) || []) {
+        links.push({ direction, label:ref.label, row:ref.node ? this.row(snapshot, ref.node, panel, false) : {
+          key:`${this.key(snapshot,node)}:missing:${ref.label}:${ref.value}`, values:[ref.value,'Unresolved reference','','',''],
+          metadata:[['Resolution','No matching definition in this report snapshot. No external path was accessed.']] } });
+      }
+      return links;
+    }
+    async locate(tab, node) {
+      const generation = ++this.locateGeneration, record = this.source(tab), snapshot = inspect(tab);
+      if (!snapshot.positions.has(node)) throw new Error('This object no longer exists. Refresh from the source drawing.');
+      if (!node.handle || snapshot.handles.get(handle(node.handle))?.length !== 1) throw new Error('A unique source handle is required for drawing location. Use Show in Tree for this object.');
+      this.app.openRenderingOverlay(record.side);
+      const overlay = this.app.renderingOverlayController, manager = overlay.surfaceManager;
+      if (!manager?.sceneGraph) throw new Error('The source drawing could not be rendered.');
+      const entity = manager.sceneGraph.document.byHandle.get(handle(node.handle));
+      if (entity?.layout && entity.layout !== manager.layout) manager.setLayout(entity.layout);
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      if (this.disposed || generation !== this.locateGeneration || !this.app.documentWorkspace.findByTab(tab.id) || overlay.currentTabId !== tab.id) throw new Error('Drawing location was superseded by a source change.');
+      if (!overlay.focusHandles([node.handle])) throw new Error('No visible geometry for this object in the current layout and layer state. Source data is still available in Records.');
+      overlay.applySelectionHandles(new Set([handle(node.handle)]));
+    }
     key(snapshot, node) {
       if (!this.nodeKeys.has(node)) this.nodeKeys.set(node, ++this.nodeSequence);
       return `${snapshot.tab?.id}:node:${this.nodeKeys.get(node)}`;
@@ -74,6 +132,10 @@
         raw: () => this.app.dxfParser.serializeNode(node),
         actions: [{ label: 'Show in Tree', run: () => this.jump(snapshot.tab, node, panel) },
           { label: 'Copy DXF', run: () => navigator.clipboard.writeText(this.app.dxfParser.serializeNode(node)) }] };
+      row.relationships = () => this.relationships(snapshot, node, panel);
+      if (node.handle && ['LINE','ARC','CIRCLE','LWPOLYLINE','POLYLINE','ELLIPSE','SPLINE','TEXT','MTEXT','INSERT','ATTRIB','ATTDEF','HATCH','SOLID','TRACE','3DFACE','POINT','DIMENSION','LEADER','MLEADER','IMAGE','WIPEOUT'].includes(kind(node))) {
+        row.actions.push({ label:'Locate in Drawing', run:() => this.locate(snapshot.tab,node) });
+      }
       if (related) row.related = () => {
         const properties = (node.properties || []).map((p, i) => {
           const candidates = ![5,105].includes(Number(p.code)) && global.isHandleCode?.(Number(p.code))
@@ -103,7 +165,15 @@
         const view = new AnalysisView(container, options);
         entry = { view, kpis, note }; this.views.set(containerId, entry);
         if (options.details === false) view.toggleDetails(false);
-      } else entry.view.setRows(options.rows || []);
+      } else {
+        // New invocations may bind another source or use a new callback closure.
+        // Preserve presentation only for the same source; never reuse its filter keys.
+        if (entry.sourceTabId !== root.dataset.sourceTabId) {
+          entry.view.visualFilter = null; entry.view.pinned = null; entry.view.selectedKey = null;
+        }
+        entry.view.options = {...entry.view.options,...options}; entry.view.setRows(options.rows || []);
+      }
+      entry.sourceTabId = root.dataset.sourceTabId;
       entry.kpis.replaceChildren();
       for (const [label, value] of options.kpis || []) { const card = el('div', 'analysis-kpi'); card.append(el('strong', '', typeof value === 'number' ? value.toLocaleString() : value), el('span', '', label)); entry.kpis.append(card); }
       entry.note.textContent = options.note || ''; entry.note.hidden = !options.note;
@@ -295,6 +365,7 @@
         return { ...row, values: [block.name, block.instanceCount || 0, row.values[2], row.values[3],
           row.values[4] || 'Ordinary', block.counters?.unitWarnings ? `${block.counters.unitWarnings} warnings` : 'No warnings'],
           skipSourceCollections: true, raw: () => JSON.stringify(block, null, 2),
+          relationships: () => (block.instances || []).flatMap(instance => targets(instance.handle).map(node => ({direction:'in',label:'Block INSERT',row:this.row(snapshot,node,panel)}))),
           related: () => [
             { title: 'Instances', columns: ['Handle','Space','Layout','Layer','Parent block','Attributes','Scale','Units'],
               rows: (block.instances || []).map((instance, i) => {
@@ -353,6 +424,18 @@
             this.app.documentWorkspace.revealNode(record,node);this.app.dismissReportAfterNavigation(panel);
           }else this.app.handleDiagnosticAction(action.type,action.data);
         }}))});
+      if (tab && results) {
+        const snapshot = inspect(tab), byId = new Map(snapshot.nodes.map(node => [String(node.id), node])), issuesByKey = new Map(rows.map(row=>[row.key,row]));
+        for (const [key] of categories) for (const [i,issue] of (results[key] || []).entries()) {
+          const row = issuesByKey.get(`${tab.id}:${key}:${i}`);
+          const nodes = [...new Set((issue.actions || []).filter(a => a.type === 'navigate' || a.type === 'highlight').map(a => byId.get(String(a.data))).filter(Boolean))];
+          if (row && nodes.length) {
+            row.related = () => [this.collection(snapshot,nodes,panel,'Affected objects')];
+            row.relationships = () => nodes.map(node => ({direction:'out',label:'Affected object',row:this.row(snapshot,node,panel)}));
+            if (nodes.length === 1 && nodes[0].handle) row.actions.push({label:'Locate in Drawing',run:()=>this.locate(tab,nodes[0])});
+          }
+        }
+      }
       const counts={totalIssues:rows.length,criticalIssues:0,errorIssues:0,warningIssues:0,infoIssues:0,suggestions:0};
       for(const row of rows){const field={critical:'criticalIssues',error:'errorIssues',warning:'warningIssues',info:'infoIssues',suggestion:'suggestions'}[row.values[1]];if(field)counts[field]++;}
       this.app.updateDiagnosticsStats(counts);
@@ -374,6 +457,6 @@
     }
     dispose(){if(this.disposed)return;this.disposed=true;this.diagnosticGeneration++;this.abort.abort();for(const {view}of this.views.values())view.dispose();this.views.clear();this.diagnosticResults.clear();for(const[name,method]of this.originals)this.app[name]=method;}
   }
-  A.inspect=inspect;A.mtextPlain=mtextPlain;A.AnalysisReports=AnalysisReports;
+  A.referenceIndex=referenceIndex;A.inspect=inspect;A.mtextPlain=mtextPlain;A.AnalysisReports=AnalysisReports;
   A.install=app=>app.analysisReports=new AnalysisReports(app);
 })(window);
