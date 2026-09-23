@@ -21,7 +21,9 @@ jobs:
       - name: Verify local control and integration syntax
         run: |
           (cd vendor/treedatagridweb && sha256sum -c SHA256SUMS)
-          for file in components/analysis-view.js components/analysis-reports.js components/data-grid.js components/tabular-reports.js components/app.js; do node --check "$file"; done
+          for file in components/analysis-view.js components/analysis-visual-model.js components/analysis-visuals.js components/analysis-reports.js components/data-grid.js components/tabular-reports.js components/app.js; do node --check "$file"; done
+      - name: Verify exact visual models and aggregation boundaries
+        run: node --test tests/analysis-visual-model.test.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -31,9 +33,13 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Test normally served analysis workflows
         run: python tests/analysis-views.py
+      - name: Test linked visualizations and native source navigation
+        run: python tests/analysis-visuals.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: analysis-browser-evidence
-          path: test-results/analysis
+          path: |
+            test-results/analysis
+            test-results/analysis-visuals
           retention-days: 14
