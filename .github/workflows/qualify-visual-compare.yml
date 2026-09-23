@@ -1,0 +1,21 @@
+name: Qualify rendered visual comparison
+on:
+  push:
+    branches: [work/rendered-visual-compare]
+    paths: [.github/workflows/qualify-visual-compare.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6a114b0c028173d995101a3df377cf5f151f14b7
+          persist-credentials: false
+      - run: git archive HEAD --format=tar.gz -o /tmp/visual-compare-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-compare-source
+          path: /tmp/visual-compare-source.tar.gz
+          retention-days: 3
