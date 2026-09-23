@@ -1,0 +1,38 @@
+name: Recover analysis visualization source
+on:
+  push:
+    branches: [work/analysis-visual-workbench]
+    paths: [.github/workflows/recover-analysis-visual.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Archive exact base and staged source fragments
+        run: |
+          mkdir -p /tmp/analysis-recovery
+          git archive 2816a3f4f27c6354eb937db7b25ea5ffad761762 --format=tar.gz -o /tmp/analysis-recovery/base.tar.gz
+          cp -r .analysis-visual /tmp/analysis-recovery/
+          git bundle create /tmp/analysis-recovery/base.bundle refs/remotes/origin/main
+          python - <<'PY'
+          import base64, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.analysis-visual').glob('*.b64'))
+          data = ''.join(p.read_text().strip() for p in chunks)
+          decoder = lzma.LZMADecompressor()
+          recovered = decoder.decompress(base64.b64decode(data, validate=True))
+          Path('/tmp/analysis-recovery/recovered.partial.patch').write_bytes(recovered)
+          print('Recovered', len(recovered), 'bytes; complete:', decoder.eof, 'chunks:', [p.name for p in chunks])
+          PY
+          tar -czf /tmp/analysis-visual-recovery.tar.gz -C /tmp/analysis-recovery .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: analysis-visual-recovery
+          path: /tmp/analysis-visual-recovery.tar.gz
+          retention-days: 3
