@@ -1,0 +1,21 @@
+name: Qualify analysis visual workbench
+on:
+  push:
+    branches: [work/analysis-visual-workbench]
+    paths: [.github/workflows/qualify-analysis-visuals.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2816a3f4f27c6354eb937db7b25ea5ffad761762
+          persist-credentials: false
+      - run: git archive HEAD --format=tar.gz -o /tmp/analysis-visual-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: analysis-visual-source
+          path: /tmp/analysis-visual-source.tar.gz
+          retention-days: 3
