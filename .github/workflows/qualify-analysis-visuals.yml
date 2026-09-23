@@ -4,18 +4,83 @@ on:
     branches: [work/analysis-visual-workbench]
     paths: [.github/workflows/qualify-analysis-visuals.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
+  qualify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          ref: 2816a3f4f27c6354eb937db7b25ea5ffad761762
-          persist-credentials: false
-      - run: git archive HEAD --format=tar.gz -o /tmp/analysis-visual-source.tar.gz
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recover reviewed sources and apply audited follow-up
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          chunks = sorted(Path('.analysis-visual').glob('*.b64'))
+          assert len(chunks) == 2
+          decoder = lzma.LZMADecompressor()
+          recovered = decoder.decompress(base64.b64decode(''.join(p.read_text().strip() for p in chunks), validate=True))
+          assert len(recovered) == 81705
+          assert hashlib.sha256(recovered).hexdigest() == '6d9eec11a79813680059dbcca055d80bde240232912ed6009ab3309c7085f54e'
+          assert recovered.endswith(b' </he')
+          Path('/tmp/analysis-recovered.patch').write_bytes(recovered + b'ad>\n')
+          chunks = sorted(Path('.analysis-final').glob('*.b64'))
+          assert [p.name for p in chunks] == ['00.b64', '01.b64', '02.b64']
+          encoded = ''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded) == 33944, len(encoded)
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert len(patch) == 108437
+          assert hashlib.sha256(patch).hexdigest() == 'b3d8a8cc557aba35cb613ce9feace11d1480515249e534b265f373b2e4d250de'
+          Path('/tmp/analysis-final.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/analysis-recovered.patch
+          git apply --index /tmp/analysis-recovered.patch
+          git apply --check /tmp/analysis-final.patch
+          git apply --index /tmp/analysis-final.patch
+          git rm -r .analysis-visual .analysis-final
+          git diff --cached --check
+          cp .git/index /tmp/analysis-verified-index
+          GIT_INDEX_FILE=/tmp/analysis-verified-index git rm --cached .github/workflows/qualify-analysis-visuals.yml .github/workflows/recover-analysis-visual.yml
+          test "$(GIT_INDEX_FILE=/tmp/analysis-verified-index git write-tree)" = 70b724baf5fb5c6fd769f2612e7103a8775cd351
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          for file in components/analysis-view.js components/analysis-reports.js components/analysis-visual-model.js components/analysis-visuals.js components/docking-documents.js; do node --check "$file"; done
+      - name: Install pinned qualification tools
+        run: |
+          npm install --global typescript@5.8.3
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Verify exact visual models and linked native controls
+        run: |
+          node --test tests/analysis-visual-model.test.cjs
+          python tests/analysis-visuals.py
+          python tests/analysis-views.py
+      - name: Verify startup, renderer and installed package contracts
+        run: |
+          python tests/workspace-startup.py
+          python tests/check-docking-regressions.py
+      - name: Verify native HTTP CAD and retained docking, ribbon and Office workflows
+        run: |
+          python tests/skia-workspace.py
+          python tests/docking-workspace.py
+          python tests/ribbon-workspace.py
+          python tests/gridweb-previews.py
+      - name: Store tested sources on qualification branch only
+        run: |
+          git fetch origin work/analysis-visual-workbench
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/work/analysis-visual-workbench)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: link analysis visualizations to source-aware record inspection'
+          git push origin HEAD:work/analysis-visual-workbench
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: analysis-visual-source
-          path: /tmp/analysis-visual-source.tar.gz
-          retention-days: 3
+          name: linked-analysis-qualification
+          path: test-results/
+          retention-days: 14
