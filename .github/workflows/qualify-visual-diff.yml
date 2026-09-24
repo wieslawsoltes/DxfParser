@@ -1,0 +1,22 @@
+name: Qualify native visual comparison
+on:
+  push:
+    branches: [work/native-visual-diff]
+    paths: [.github/workflows/qualify-visual-diff.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6a114b0c028173d995101a3df377cf5f151f14b7
+          fetch-depth: 0
+          persist-credentials: false
+      - run: git bundle create /tmp/visual-diff-source.bundle HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff-source
+          path: /tmp/visual-diff-source.bundle
+          retention-days: 3
