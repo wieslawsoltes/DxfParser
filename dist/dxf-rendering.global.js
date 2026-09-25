@@ -9535,6 +9535,150 @@
 }));
 
 
+// packages/dxf-compare/clouds.js
+/* Camera-independent revision change sets and exact orthogonal cloud contours.
+ * No native/DOM allocation. Every work/output budget fails closed. */
+(function (root, factory) {
+    'use strict';
+    if (typeof module === 'object' && module.exports) module.exports = factory;
+    else root.DxfCompareCloudEngine = factory;
+})(globalThis, function createCloudEngine(A) {
+    'use strict';
+    const G = A.geometry;
+    function budget(options) {
+        let remaining = options.maxCloudWork ?? 50000000;
+        if (!Number.isSafeInteger(remaining) || remaining < 1) throw new RangeError('Invalid cloud work budget.');
+        return (n = 1) => { if ((remaining -= n) < 0) throw new RangeError('Comparison cloud work budget exceeded.'); };
+    }
+    function expanded(bounds, margin) {
+        const b = { ...bounds, minX: bounds.minX - margin, minY: bounds.minY - margin,
+            maxX: bounds.maxX + margin, maxY: bounds.maxY + margin };
+        if (![b.minX, b.minY, b.maxX, b.maxY].every(Number.isFinite)) throw new RangeError('Nonfinite comparison cloud bounds.');
+        return b;
+    }
+    function groupChanges(changes, options) {
+        const tick = budget(options), margin = options.margin ?? 1, mode = options.cloudMode ?? 'grouped';
+        if (!Number.isFinite(margin) || margin < 0 || margin > 1e12) throw new RangeError('Invalid cloud margin.');
+        if (!['local', 'combined', 'grouped'].includes(mode)) throw new RangeError('Invalid cloud grouping.');
+        const items = changes.map((change, index) => ({ change, index, bounds: G.isEmpty(change.bounds) ? null : expanded(change.bounds, margin) }));
+        const groups = [], add = members => {
+            members.sort((a, b) => a.index - b.index);
+            const bounds = G.emptyBounds(), cloudBounds = G.emptyBounds(), rectangles = [];
+            for (const item of members) { tick(); G.union(bounds, item.change.bounds); if (item.bounds) { G.union(cloudBounds, item.bounds); rectangles.push(item.bounds); } }
+            groups.push({ id: 'changeset:' + members[0].change.id, firstIndex: members[0].index,
+                changeIds: members.map(i => i.change.id), bounds, cloudBounds, rectangles });
+        };
+        if (mode === 'combined') { if (items.length) add(items); return groups; }
+        if (mode === 'local') { for (const item of items) add([item]); return groups; }
+        // Consume each discovered box once. Empty BVH subtrees are pruned, including
+        // the dense all-overlapping case, rather than returning N candidates N times.
+        const index = new A.SpatialIndex(items.filter(i => i.bounds));
+        const annotate = node => {
+            if (!node) return 0;
+            node.remaining = node.lo !== undefined ? node.hi - node.lo : annotate(node.left) + annotate(node.right);
+            return node.remaining;
+        };
+        annotate(index.root);
+        const consume = (node, box, found) => {
+            tick(); if (!node?.remaining || !G.intersects(node.bounds, box)) return;
+            if (node.lo !== undefined) {
+                for (let i = node.lo; i < node.hi; i++) {
+                    tick(); const item = index.items[i];
+                    if (!item.consumed && G.intersects(item.bounds, box)) { item.consumed = true; node.remaining--; found.push(item); }
+                }
+            } else { consume(node.left, box, found); consume(node.right, box, found); node.remaining = node.left.remaining + node.right.remaining; }
+        };
+        for (const item of items) {
+            if (item.consumed) continue;
+            if (!item.bounds) { add([item]); continue; }
+            const members = []; consume(index.root, item.bounds, members);
+            for (let next = 0; next < members.length; next++) consume(index.root, members[next].bounds, members);
+            add(members);
+        }
+        return groups;
+    }
+    function rectangle(box) {
+        let { minX: x, minY: y, maxX: right, maxY: top } = box;
+        const z = Number.isFinite(box.minZ) ? box.minZ : 0;
+        // Degenerate line/point changes still have a visible enclosing cloud. At
+        // large origins use a representable minimum span rather than adding 0.01.
+        if (!(right > x)) right = x + Math.max(.01, Math.abs(x) * Number.EPSILON * 4);
+        if (!(top > y)) top = y + Math.max(.01, Math.abs(y) * Number.EPSILON * 4);
+        if (![x, y, right, top].every(Number.isFinite)) throw new RangeError('Cloud coordinate overflow.');
+        return [G.vec(x, y, z), G.vec(right, y, z), G.vec(right, top, z), G.vec(x, top, z)];
+    }
+    function rectangleUnion(boxes, options = {}) {
+        const tick = budget(options), maxSegments = options.maxCloudSegments ?? 500000;
+        if (!Number.isSafeInteger(maxSegments) || maxSegments < 1) throw new RangeError('Invalid cloud segment budget.');
+        if (!boxes.length) return [];
+        const normalized = boxes.map(b => { tick(); const r = rectangle(b); return { x1:r[0].x, y1:r[0].y, x2:r[2].x, y2:r[2].y }; });
+        const ys = [...new Set(normalized.flatMap(b => [b.y1, b.y2]))].sort((a,b) => a-b), lookup = new Map(ys.map((y,i) => [y,i]));
+        const count = ys.length - 1, cover = new Int32Array(4 * count + 4), active = new Uint8Array(cover.length), events = [];
+        for (const b of normalized) { events.push({ x:b.x1, lo:lookup.get(b.y1), hi:lookup.get(b.y2), delta:1 }, { x:b.x2, lo:lookup.get(b.y1), hi:lookup.get(b.y2), delta:-1 }); }
+        events.sort((a,b) => a.x-b.x);
+        const update = (node, lo, hi, event) => {
+            tick(); if (event.hi <= lo || event.lo >= hi) return;
+            if (event.lo <= lo && hi <= event.hi) cover[node] += event.delta;
+            else { const mid = (lo + hi) >>> 1; update(node*2,lo,mid,event); update(node*2+1,mid,hi,event); }
+            active[node] = cover[node] > 0 || (hi-lo > 1 && (active[node*2] || active[node*2+1])) ? 1 : 0;
+        };
+        const intervals = () => {
+            const out = [], collect = (node,lo,hi) => {
+                tick(); if (!active[node]) return;
+                if (cover[node] > 0) { const last=out.at(-1); if (last && last[1] === ys[lo]) last[1]=ys[hi]; else out.push([ys[lo],ys[hi]]); }
+                else { const mid=(lo+hi)>>>1; collect(node*2,lo,mid); collect(node*2+1,mid,hi); }
+            };
+            collect(1,0,count); return out;
+        };
+        const difference = (left,right,emit) => {
+            let j=0;
+            for (const [start,end] of left) {
+                let cursor=start; while(j<right.length && right[j][1]<=cursor) {tick();j++;}
+                for(let k=j;k<right.length && right[k][0]<end;k++) {tick();const b=right[k];if(b[0]>cursor)emit(cursor,Math.min(b[0],end));cursor=Math.max(cursor,b[1]);if(cursor>=end)break;}
+                if(cursor<end)emit(cursor,end);
+            }
+        };
+        const edges=[], z=Number.isFinite(boxes[0].minZ)?boxes[0].minZ:0;
+        const emit=(x1,y1,x2,y2) => {
+            tick(); if (x1===x2 && y1===y2) return;
+            if(edges.length>=maxSegments)throw new RangeError('Comparison cloud segment budget exceeded.');
+            edges.push({a:G.vec(x1,y1,z),b:G.vec(x2,y2,z),dir:x2>x1?0:y2>y1?1:x2<x1?2:3,used:false});
+        };
+        let before=[];
+        for(let i=0;i<events.length;) {
+            const x=events[i].x;
+            do { update(1,0,count,events[i++]); } while(i<events.length && events[i].x===x);
+            const after=intervals();
+            difference(after,before,(lo,hi)=>emit(x,hi,x,lo));
+            difference(before,after,(lo,hi)=>emit(x,lo,x,hi));
+            if(i<events.length) for(const [lo,hi] of after) {emit(x,lo,events[i].x,lo);emit(events[i].x,hi,x,hi);}
+            before=after;
+        }
+        const pointKey=p=>p.x+','+p.y, starts=new Map();
+        for(const edge of edges) { const k=pointKey(edge.a);if(!starts.has(k))starts.set(k,[]);starts.get(k).push(edge); }
+        const rings=[], turnRank=[1,0,3,2];
+        for(const first of edges) {
+            if(first.used)continue;
+            const points=[];let edge=first;
+            do {
+                tick();edge.used=true;points.push(edge.a);
+                if(pointKey(edge.b)===pointKey(first.a))break;
+                const candidates=(starts.get(pointKey(edge.b))||[]).filter(e=>!e.used);
+                // Keep the filled region on the left. At corner contacts this
+                // returns separate closed contours, never a figure-eight path.
+                candidates.sort((a,b)=>turnRank[(a.dir-edge.dir+4)%4]-turnRank[(b.dir-edge.dir+4)%4]);
+                edge=candidates[0];if(!edge)throw new Error('Unclosed comparison cloud contour.');
+            } while(true);
+            const corners=points.filter((p,i)=>{const a=points[(i+points.length-1)%points.length],b=points[(i+1)%points.length];return !(a.x===p.x&&p.x===b.x || a.y===p.y&&p.y===b.y);});
+            if(corners.length<4)throw new Error('Degenerate comparison cloud contour.');
+            rings.push(corners);
+        }
+        return rings;
+    }
+    return { groupChanges, rectangleUnion, rectangle };
+});
+
+
 // packages/dxf-compare/index.js
 /* Render-space DXF comparison. No source mutation, DOM, GPU or native allocations.
  * A factory keeps the host's DxfSkia types/resources in the same module realm. */
@@ -9546,11 +9690,19 @@
     'use strict';
     if (!A?.SceneCompiler) throw new TypeError('A DxfSkia API is required.');
     const G = A.geometry;
+    const cloudEngine = (typeof module === 'object' && module.exports ? require('./clouds.js') : globalThis.DxfCompareCloudEngine)(A);
     const defaults = Object.freeze({ precision: 6, properties: 127, text: true, hatch: true,
         showCurrent: true, showReference: true, showCommon: true, clouds: true,
-        cloudMode: 'local', margin: 1, currentFirst: false, commonOpacity: .65,
+        cloudMode: 'grouped', cloudShape: 'rectangular', margin: 1, currentFirst: false, commonOpacity: .65,
         currentColor: '#5ce080', referenceColor: '#ff6678', commonColor: '#a8b5c8', cloudColor: '#ffd166',
-        maxObjects: 500000, maxSignatureBytes: 64 * 1024 * 1024 });
+        maxCloudWork: 50000000, maxCloudSegments: 500000, maxObjects: 500000, maxSignatureBytes: 64 * 1024 * 1024 });
+    const groupCache = new WeakMap();
+    function changeSets(result) {
+        const { cloudMode, margin, maxCloudWork } = result.options, cached = groupCache.get(result.changes);
+        if (cached && cached.cloudMode === cloudMode && cached.margin === margin && cached.maxCloudWork === maxCloudWork) return cached.groups;
+        const groups = cloudEngine.groupChanges(result.changes, result.options);
+        groupCache.set(result.changes, { cloudMode, margin, maxCloudWork, groups }); return groups;
+    }
     const propBits = Object.freeze({ color: 1, layer: 2, linetype: 4, linetypeScale: 8, lineweight: 16, transparency: 32, thickness: 64 });
     const key = s => String(s ?? '').trim().toUpperCase();
     function options(value = {}) {
@@ -9559,8 +9711,9 @@
         if (!Number.isInteger(o.properties) || o.properties < 0 || o.properties > 127) throw new RangeError('Property mask must be 0–127.');
         if (!Number.isFinite(o.margin) || o.margin < 0 || o.margin > 1e12) throw new RangeError('Cloud margin must be 0–1e12 drawing units.');
         if (!Number.isFinite(o.commonOpacity) || o.commonOpacity < 0 || o.commonOpacity > 1) throw new RangeError('Common opacity must be 0–1.');
-        if (!['local', 'combined'].includes(o.cloudMode)) throw new RangeError('Cloud mode must be local or combined.');
-        for (const n of ['maxObjects', 'maxSignatureBytes']) if (!Number.isSafeInteger(o[n]) || o[n] < 1) throw new RangeError('Invalid comparison budget: ' + n);
+        if (!['grouped', 'local', 'combined'].includes(o.cloudMode)) throw new RangeError('Cloud mode must be grouped, local or combined.');
+        if (!['rectangular', 'polygonal'].includes(o.cloudShape)) throw new RangeError('Cloud shape must be rectangular or polygonal.');
+        for (const n of ['maxObjects', 'maxSignatureBytes', 'maxCloudWork', 'maxCloudSegments']) if (!Number.isSafeInteger(o[n]) || o[n] < 1) throw new RangeError('Invalid comparison budget: ' + n);
         for (const n of ['currentColor', 'referenceColor', 'commonColor', 'cloudColor']) if (!/^#[0-9a-f]{6}$/i.test(o[n])) throw new TypeError('Colors must be six-digit hexadecimal values.');
         for (const n of ['text', 'hatch', 'showCurrent', 'showReference', 'showCommon', 'clouds', 'currentFirst']) if (typeof o[n] !== 'boolean') throw new TypeError(n + ' must be boolean.');
         return o;
@@ -9649,34 +9802,36 @@
         if ([...currentScene.primitives, ...referenceScene.primitives].some(p => p.kind === 'image')) notices.push({ code: 'compare-image-content', severity: 'warning', message: 'Image placement/resource names are compared, not external pixel contents.' });
         const counts = { currentOnly: currentOnly.length, referenceOnly: referenceOnly.length, common: common.length,
             modified: changes.filter(c => c.status === 'modified').length, changes: changes.length };
-        return { options: o, currentScene, referenceScene, currentOnly, referenceOnly, common, changes, counts, notices,
+        const result = { options: o, currentScene, referenceScene, currentOnly, referenceOnly, common, changes, counts, notices,
             incomplete: notices.some(d => d.severity !== 'info'), bounds: unionOf(changes) };
+        result.changeSets = changeSets(result); return result;
     }
     function cloudBounds(result) {
-        const boxes = result.changes.filter(c => !G.isEmpty(c.bounds)).map(c => ({ ...c.bounds }));
-        if (!boxes.length) return [];
-        const expanded = boxes.map(b => ({ ...b, minX: b.minX - result.options.margin, minY: b.minY - result.options.margin, maxX: b.maxX + result.options.margin, maxY: b.maxY + result.options.margin }));
-        // Local mode intentionally emits one cloud per change set. No quadratic clustering.
-        return result.options.cloudMode === 'combined' ? [unionOf(expanded.map(bounds => ({ bounds })))] : expanded;
+        return changeSets(result).filter(g => !G.isEmpty(g.cloudBounds)).map(g => g.cloudBounds);
     }
-    function cloudPrimitive(box, i, color) {
-        const { minX: x, minY: y } = box, w = Math.max(box.maxX - x, .01), h = Math.max(box.maxY - y, .01), z = Number.isFinite(box.minZ) ? box.minZ : 0;
-        const corners = [G.vec(x, y, z), G.vec(x + w, y, z), G.vec(x + w, y + h, z), G.vec(x, y + h, z)], path = [['M', corners[0]]];
-        const chord = Math.max(w, h) / 12;
-        for (let edge = 0; edge < 4; edge++) {
-            const a = corners[edge], b = corners[(edge + 1) % 4], dx = b.x - a.x, dy = b.y - a.y, n = Math.min(32, Math.max(2, Math.ceil(Math.hypot(dx, dy) / chord)));
-            for (let j = 0; j < n; j++) {
-                const t = (j + .5) / n, end = G.vec(a.x + dx * (j + 1) / n, a.y + dy * (j + 1) / n, z);
-                path.push(['Q', G.vec(a.x + dx * t + dy / n * .35, a.y + dy * t - dx / n * .35, z), end]);
+    function cloudPrimitive(group, i, color, o, chord, consume) {
+        const contours = o.cloudShape === 'polygonal' ? cloudEngine.rectangleUnion(group.rectangles, o) : [cloudEngine.rectangle(group.cloudBounds)], path = [];
+        for (const corners of contours) {
+            path.push(['M', corners[0]]);
+            for (let edge = 0; edge < corners.length; edge++) {
+                const a = corners[edge], b = corners[(edge + 1) % corners.length], dx = b.x - a.x, dy = b.y - a.y;
+                const n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / chord)); consume(n);
+                for (let j = 0; j < n; j++) {
+                    const t = (j + .5) / n, end = G.vec(a.x + dx * (j + 1) / n, a.y + dy * (j + 1) / n, a.z);
+                    path.push(['Q', G.vec(a.x + dx * t + dy / n * .35, a.y + dy * t - dx / n * .35, a.z), end]);
+                }
             }
+            path.push(['Z']);
         }
-        path.push(['Z']); const f = G.flatten(path, .02, 4096);
-        return { id: 'compare-cloud:' + i, handle: 'compare-cloud:' + i, entityHandle: '', type: 'REVCLOUD', kind: 'path', path, points: f.points, rings: f.rings,
-            closed: true, fill: false, style: { layer: 'Comparison clouds', color, alpha: 1, lineweight: 25, lineweightVisible: false, dash: [], dashScale: 1 },
-            bounds: G.pathBounds(path), clips: [], blockPath: [], instancePath: [], comparisonDecoration: true };
+        // Decorations cannot be picked or snapped. Retain contour vertices for
+        // broad-phase work; native Skia consumes the exact quadratic cloud path.
+        return { id: 'compare-cloud:' + i, handle: 'compare-cloud:' + i, entityHandle: '', type: 'REVCLOUD', kind: 'path', path,
+            points: contours.flat(), rings: contours, closed: true, fill: false,
+            style: { layer: 'Comparison clouds', color, alpha: 1, lineweight: 25, lineweightVisible: false, dash: [], dashScale: 1 },
+            bounds: G.pathBounds(path), clips: [], blockPath: [], instancePath: [], comparisonDecoration: true, comparisonChangeSetId: group.id };
     }
     function compose(result) {
-        const o = result.options, primitives = [];
+        const o = result.options, primitives = []; result.changeSets = changeSets(result);
         const add = (groups, side, color, alpha = 1) => {
             for (const group of groups) for (const p of group.primitives) {
                 const reference = side === 'reference';
@@ -9693,7 +9848,13 @@
         const current = () => { if (o.showCurrent) add(result.currentOnly, 'current', o.currentColor); };
         const reference = () => { if (o.showReference) add(result.referenceOnly, 'reference', o.referenceColor); };
         if (o.currentFirst) { current(); reference(); } else { reference(); current(); }
-        if (o.clouds) cloudBounds(result).forEach((b, i) => primitives.push(cloudPrimitive(b, i, o.cloudColor)));
+        if (o.clouds) {
+            const extent = unionOf([result.currentScene, result.referenceScene]), width = extent.maxX - extent.minX, height = extent.maxY - extent.minY;
+            const chord = Math.max(.01, Number.isFinite(width) ? width / 40 : 0, Number.isFinite(height) ? height / 40 : 0, o.margin / 4);
+            let remaining = o.maxCloudSegments;
+            const consume = n => { if (!Number.isSafeInteger(n) || (remaining -= n) < 0) throw new RangeError('Comparison cloud segment budget exceeded.'); };
+            result.changeSets.forEach((g, i) => { if (!G.isEmpty(g.cloudBounds)) primitives.push(cloudPrimitive(g, i, o.cloudColor, o, chord, consume)); });
+        }
         const scene = { ...result.currentScene, primitives, bounds: unionOf(primitives.filter(p => !p.infinite)),
             diagnostics: result.notices, stats: { ...result.currentScene.stats, primitives: primitives.length }, comparison: result, preserveForExport: true };
         scene.index = new A.SpatialIndex(primitives.map((primitive, index) => ({ primitive, index, bounds: primitive.bounds })));
@@ -9719,7 +9880,9 @@
                 layout = found.name;
                 this.referenceScene = new A.SceneCompiler(this.reference, compileOptions).compile(layout);
             }
-            const result = compareScenes(currentScene, this.referenceScene, this.options);
+            const previous = this.result, matchKeys = ['precision', 'properties', 'text', 'hatch', 'maxObjects', 'maxSignatureBytes'];
+            const reusable = previous && previous.currentScene === currentScene && previous.referenceScene === this.referenceScene && matchKeys.every(k => previous.options[k] === this.options[k]);
+            const result = reusable ? { ...previous, options: this.options } : compareScenes(currentScene, this.referenceScene, this.options);
             const composed = compose(result);
             this.result = result; this.composed = composed; this.currentScene = currentScene; this.builtRevision = this.revision;
             return composed;
@@ -9738,10 +9901,11 @@
     }
     function report(result) {
         return { format: 'dxf-render-compare-report', version: 1, layout: result.currentScene.layout, counts: result.counts, options: result.options, incomplete: result.incomplete, notices: result.notices,
+            changeSets: changeSets(result).map(g => ({ id: g.id, changeIds: g.changeIds, bounds: G.isEmpty(g.bounds) ? null : g.bounds, cloudBounds: G.isEmpty(g.cloudBounds) ? null : g.cloudBounds })),
             changes: result.changes.map(c => ({ id: c.id, status: c.status, current: c.current && { id: c.current.id, handle: c.current.handle, type: c.current.type, layer: c.current.layer },
                 reference: c.reference && { id: c.reference.id, handle: c.reference.handle, type: c.reference.type, layer: c.reference.layer }, bounds: G.isEmpty(c.bounds) ? null : c.bounds })) };
     }
-    return { createDxfCompare, defaults, propBits, options, descriptor, compareScenes, compose, cloudBounds, Session, snapshot, readSnapshot, report };
+    return { groupChanges: cloudEngine.groupChanges, rectangleUnion: cloudEngine.rectangleUnion, createDxfCompare, defaults, propBits, options, descriptor, compareScenes, compose, cloudBounds, Session, snapshot, readSnapshot, report };
 });
 
 
@@ -10009,8 +10173,11 @@
             this.field(details, 'margin', 'Cloud margin · drawing units', 'number', 0, 1e12, .1);
             this.field(details, 'commonOpacity', 'Unchanged opacity', 'range', 0, 1, .05);
             const mode = element('label', 'Cloud grouping'); this.cloudMode = element('select'); this.cloudMode.setAttribute('aria-label', 'Cloud grouping');
-            for (const [value, label] of [['local', 'One cloud per change'], ['combined', 'One combined cloud']]) { const option = element('option', label); option.value = value; this.cloudMode.append(option); }
+            for (const [value, label] of [['grouped', 'Nearby changes'], ['local', 'One cloud per object'], ['combined', 'All changes']]) { const option = element('option', label); option.value = value; this.cloudMode.append(option); }
             this.cloudMode.addEventListener('change', () => this.run(() => this.configure({ cloudMode: this.cloudMode.value })), { signal: this.abort.signal }); mode.append(this.cloudMode); details.append(mode);
+            const shape = element('label', 'Cloud shape'); this.cloudShape = element('select'); this.cloudShape.setAttribute('aria-label', 'Cloud shape');
+            for (const value of ['rectangular', 'polygonal']) { const option = element('option', value); option.value = value; this.cloudShape.append(option); }
+            this.cloudShape.addEventListener('change', () => this.run(() => this.configure({ cloudShape: this.cloudShape.value })), { signal: this.abort.signal }); shape.append(this.cloudShape); details.append(shape);
             const properties = element('fieldset'); properties.append(element('legend', 'Property changes · COMPAREPROPS'));
             for (const [name, bit] of Object.entries(C.propBits)) {
                 const label = element('label', name.replace(/([A-Z])/g, ' $1')), input = element('input'); input.type = 'checkbox'; input.checked = true; input.dataset.compareProperty = name;
@@ -10081,13 +10248,13 @@
         configure(patch) { const settings = C.options({ ...this.settings, ...patch }); this.settings = settings; this.manager.comparison?.configure(patch); this.syncControls(); this.repaint(); this.refresh(); }
         syncControls() {
             for (const [name, control] of this.controls) control.type === 'checkbox' ? control.checked = this.settings[name] : control.value = this.settings[name];
-            this.cloudMode.value = this.settings.cloudMode;
+            this.cloudMode.value = this.settings.cloudMode; this.cloudShape.value = this.settings.cloudShape;
             for (const input of this.panel.querySelectorAll('[data-compare-property]')) input.checked = !!(this.settings.properties & C.propBits[input.dataset.compareProperty]);
         }
         toggle() { const s = this.require(); s.enabled = !s.enabled; this.repaint(); this.refresh(); }
         end() {
             this.loadGeneration++; this.manager.setComparison(null); this.referenceText = null; this.referenceName = null; this.referenceTabId = null; this.seenResult = null;
-            this.selectedIndex = -1; this.view?.setRows([]); this.repaint(); this.refresh();
+            this.selectedIndex = -1; this.changeSetIndices?.clear(); this.view?.setRows([]); this.repaint(); this.refresh();
         }
         repaint() { this.cad.repaint(); }
         refreshComparison() {
@@ -10105,21 +10272,24 @@
             if (!s) {
                 this.summary.textContent = 'Comparison inactive. Choose a reference DXF or another open drawing.';
                 if (this.seenResult) { this.view?.setRows([]); this.seenResult = null; }
-                this.referenceText = null; this.referenceTabId = null; this.importButton.disabled = true; return;
+                this.referenceText = null; this.referenceTabId = null; this.changeSetIndices?.clear(); this.importButton.disabled = true; return;
             }
             this.toggleButton.textContent = s.enabled ? 'Hide comparison' : 'Show comparison';
             const r = s.result; if (!r) return;
             const count = r.counts;
-            this.summary.textContent = `${count.currentOnly} current only · ${count.referenceOnly} reference only · ${count.common} unchanged · ${count.changes} change sets. Reference: ${this.referenceName || 'drawing'}${s.enabled ? '' : ' · hidden'}.`;
+            this.summary.textContent = `${count.currentOnly} current only · ${count.referenceOnly} reference only · ${count.common} unchanged · ${count.changes} changed objects · ${r.changeSets.length} change sets. Reference: ${this.referenceName || 'drawing'}${s.enabled ? '' : ' · hidden'}.`;
             const issueCount = this.manager.diagnostics?.filter(d => d.severity !== 'info').length || 0;
             if (this.manager.comparisonError) this.message.textContent = this.manager.comparisonError.message;
             else if (r.incomplete || issueCount) this.message.textContent = `Coverage warning: ${Math.max(r.notices.length, issueCount)} rendering notices. Equal visible geometry is not proof of equal DXF databases; inspect Rendering Diagnostics.`;
             if (this.seenResult !== r) {
-                this.seenResult = r; this.selectedIndex = Math.min(this.selectedIndex, r.changes.length - 1);
-                const rows = r.changes.map((c, i) => ({ key: c.id, changeIndex: i, values: [c.status, c.current?.type || c.reference?.type, c.current?.handle || '—', c.reference?.handle || '—', c.current?.layer || c.reference?.layer],
-                    raw: JSON.stringify({ status: c.status, bounds: G.isEmpty(c.bounds) ? null : c.bounds }, null, 2) }));
-                if (!this.view && root.DxfAnalysis) this.view = new root.DxfAnalysis.AnalysisView(this.rowsHost, { title: 'Drawing changes', columns: ['Status', 'Entity', 'Current handle', 'Reference handle', 'Layer'], rows, visualization: false,
-                    onSelect: row => { const current = this.manager.comparison?.result, change = current?.changes[row.changeIndex]; this.selectedIndex = row.changeIndex; this.focus(change?.bounds); this.importButton.disabled = !change?.reference; } });
+                const selectedId = this.seenResult?.changes[this.selectedIndex]?.id;
+                this.seenResult = r; this.selectedIndex = selectedId ? r.changes.findIndex(c => c.id === selectedId) : -1;
+                this.changeSetIndices = new Map();
+                r.changeSets.forEach((group, i) => group.changeIds.forEach(id => this.changeSetIndices.set(id, i)));
+                const rows = r.changes.map((c, i) => ({ key: c.id, changeIndex: i, values: [c.status, c.current?.type || c.reference?.type, c.current?.handle || '—', c.reference?.handle || '—', c.current?.layer || c.reference?.layer, (this.changeSetIndices.get(c.id) ?? -1) + 1],
+                    raw: JSON.stringify({ status: c.status, changeSet: r.changeSets[this.changeSetIndices.get(c.id)]?.id, bounds: G.isEmpty(c.bounds) ? null : c.bounds }, null, 2) }));
+                if (!this.view && root.DxfAnalysis) this.view = new root.DxfAnalysis.AnalysisView(this.rowsHost, { title: 'Drawing changes', columns: ['Status', 'Entity', 'Current handle', 'Reference handle', 'Layer', 'Change set'], rows, visualization: false,
+                    onSelect: row => { const current = this.manager.comparison?.result, change = current?.changes[row.changeIndex]; if (!change || change.id !== row.key) return; this.selectedIndex = row.changeIndex; this.focus(change.bounds); this.importButton.disabled = !change.reference; } });
                 else this.view?.setRows(rows);
             }
             this.importButton.disabled = !r.changes[this.selectedIndex]?.reference || this.manager.layout.toUpperCase() !== 'MODEL';
@@ -10133,9 +10303,11 @@
             this.overlay?.applyViewState({ mode: 'custom', center, scale, rotationRad: 0 });
         }
         navigate(delta) {
-            const r = this.require().result; if (!r.changes.length) return;
-            this.selectedIndex = (this.selectedIndex + delta + r.changes.length) % r.changes.length;
-            const c = r.changes[this.selectedIndex]; this.view?.selectKey(c.id); this.focus(c.bounds); this.refresh();
+            const r = this.require().result; if (!r.changeSets.length) return;
+            const active = this.changeSetIndices?.get(r.changes[this.selectedIndex]?.id);
+            const next = active === undefined ? (delta < 0 ? r.changeSets.length - 1 : 0) : (active + delta + r.changeSets.length) % r.changeSets.length;
+            const group = r.changeSets[next]; this.selectedIndex = group.firstIndex;
+            this.view?.selectKey(r.changes[this.selectedIndex].id); this.focus(group.cloudBounds); this.refresh();
         }
         importSelected() { const c = this.require().result.changes[this.selectedIndex]; if (!c?.reference) throw new Error('Select a change with a reference object.'); return this.importReference([c.reference.id]); }
         importReference(ids) {
@@ -10209,13 +10381,27 @@
             else if (command === 'COMPAREUNDO') this.undo();
             else if (command === 'COMPAREREDO') this.redo();
             else if (command === 'COMPAREEXPORT') this.saveSnapshot();
+            else if (command === 'COMPAREGROUP' || command === 'COMPARESHAPE') {
+                const name = command === 'COMPAREGROUP' ? 'cloudMode' : 'cloudShape';
+                if (!args.length) this.cad.write(command + ' = ' + this.settings[name]);
+                else { if (args.length !== 1) throw new Error('Provide one comparison setting.'); this.configure({ [name]: args[0].toLowerCase() }); }
+            }
+            else if (['COMPARESHOW1', 'COMPARESHOW2', 'COMPARESHOWCOMMON', 'COMPARESHOWRC', 'COMPARETEXT', 'COMPAREHATCH'].includes(command)) {
+                const name = { COMPARESHOW1:'showCurrent', COMPARESHOW2:'showReference', COMPARESHOWCOMMON:'showCommon', COMPARESHOWRC:'clouds', COMPARETEXT:'text', COMPAREHATCH:'hatch' }[command];
+                if (!args.length) this.cad.write(command + ' = ' + Number(this.settings[name]));
+                else { if (args.length !== 1 || !/^(0|1|ON|OFF)$/i.test(args[0])) throw new Error(command + ' requires 0, 1, ON or OFF.'); this.configure({ [name]: /^(1|ON)$/i.test(args[0]) }); }
+            }
+            else if (command === 'COMPARERCMARGIN') {
+                if (!args.length) this.cad.write(command + ' = ' + this.settings.margin);
+                else { if (args.length !== 1) throw new Error('Provide one cloud margin.'); this.configure({ margin: Number(args[0]) }); }
+            }
             else if (command === 'COMPAREINFO') this.cad.write(JSON.stringify(C.report(this.require().result).counts));
             else if (command === 'COMPAREPROPS') this.configure({ properties: Number(args[0]) });
             else if (command === 'COMPARETOLERANCE') this.configure({ precision: Number(args[0]) });
             else throw new Error('Unknown comparison command. Use COMPARE, COMPARENEXT, COMPAREPREV, COMPARETOGGLE, COMPAREIMPORT, COMPAREEXPORT or COMPARECLOSE.');
             await this.manager.ready; return true;
         }
-        dispose() { this.abort.abort(); this.loadGeneration++; this.unsubscribe?.(); this.manager.comparison = null; this.referenceText = null; this.view?.dispose(); this.undoStack = []; this.redoStack = []; }
+        dispose() { this.abort.abort(); this.loadGeneration++; this.unsubscribe?.(); this.manager.comparison = null; this.referenceText = null; this.changeSetIndices?.clear(); this.view?.dispose(); this.undoStack = []; this.redoStack = []; }
     }
     C.CompareController = CompareController;
 })(globalThis);

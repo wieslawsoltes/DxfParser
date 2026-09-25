@@ -19,9 +19,17 @@ Comparison units are visible root objects, not primitive counts or DXF handles. 
 
 Precision is an integer 0–14 (default 6), implemented as decimal rounding of rendered coordinates and numeric properties, not a distance-radius search. Property bits are color 1, layer 2, linetype 4, linetype scale 8, lineweight 16, transparency 32 and thickness 64. This workbench defaults to **127**, intentionally comparing appearance properties; Autodesk documents a default COMPAREPROPS of 0. Geometrically extruded thickness still changes visible geometry even when property comparison is off.
 
-Settings include text/hatch exclusion, category visibility, four colors, common opacity, reference/current draw order, cloud margin in drawing units, and local/combined native revision clouds. A session caches its composed scene across camera-only frames. A common selected layout is required. Layer visibility follows each document and the current renderer's shared layer overrides; current handle isolation is not applied to reference handles.
+Settings include text/hatch exclusion, category visibility, four colors, common opacity, reference/current draw order, cloud margin in drawing units, and grouped/local/combined native revision clouds. The default groups nearby differences using transitive intersections of margin-expanded WCS XY object bounds. Each group retains exact object membership; empty corners of an aggregate bounding rectangle cannot spuriously connect other groups. Unbounded objects retain individual ledger entries.
 
-`snapshot`/`readSnapshot` store both exact source strings, settings and layout in a versioned JSON container. `report` produces a cycle-free change ledger. The snapshot is **not a DWG/DXF snapshot drawing**. Native PNG/PDF exports include the composed scene; comparison PDF exports preserve displayed categories instead of recompiling the current file alone.
+Rectangular clouds enclose each group. Polygonal clouds trace the exact union of the expanded rectangles, including concavities, holes and corner contacts. Cloud chord length is shared and derived from drawing extents; this is an original implementation, not a reproduction of Autodesk's private arc-sizing algorithm. Explicit work and segment budgets reject pathological inputs rather than returning truncated clouds.
+
+A session caches its composed scene across camera-only frames. Palette/visibility/draw-order/cloud-shape changes reuse signatures, matching and group membership; margin/group-mode changes rebuild groups without matching again. Geometry/property filters invalidate matching. A common selected layout is required. Layer visibility follows each document and the current renderer's shared layer overrides; current handle isolation is not applied to reference handles.
+
+`snapshot`/`readSnapshot` store both exact source strings, settings and layout in a versioned JSON container. `report` produces a cycle-free change ledger with `changeSets` containing stable IDs, exact `changeIds`, object bounds and expanded cloud bounds. `counts.changes` remains the number of changed objects, not the number of groups. The snapshot is **not a DWG/DXF snapshot drawing**. Native PNG/PDF exports include the composed scene; comparison PDF exports preserve displayed categories instead of recompiling the current file alone.
+
+## Cloud APIs
+
+`groupChanges(changes, options)` returns ordered change sets without mutating source changes or bounds. `rectangleUnion(boxes, options)` returns closed contour vertex rings (the closing vertex is implicit), with counterclockwise outer rings and clockwise holes. Both use `maxCloudWork`; union and native path generation also enforce `maxCloudSegments`. Default limits are 50,000,000 work visits and 500,000 segments. Exhaustion throws a `RangeError`. Grouping uses a consuming BVH and polygon contours use a coordinate-compressed segment-tree sweep, not an all-pairs clustering or a raster grid.
 
 ## Import boundary
 
