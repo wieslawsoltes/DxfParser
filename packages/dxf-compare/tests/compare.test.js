@@ -55,3 +55,36 @@ test('import resolves a conflicting block name rather than redefining it', () =>
 test('extension dictionaries and unresolved object graphs fail atomically', () => { const a = drawing(line()), b = drawing(circle('C', 3, [[102, '{ACAD_XDICTIONARY'], [360, 'F'], [102, '}']])); assert.throws(() => imported(a, b), /dictionaries/); const c = drawing(circle('C', 3, [[340, 'BAD']])); assert.throws(() => imported(a, c), /dependency/); assert.equal(new A.DxfDocument(a).entities.length, 1); });
 test('import normalizes global dash scale without changing reference appearance', () => { const lt = table('LTYPE', [[0, 'LTYPE'], [5, 'F3'], [2, 'DASHED'], [70, 0], [73, 2], [40, 3], [49, 2], [49, -1]]); const a = drawing([], lt, [], [[9, '$LTSCALE'], [40, 2]]), b = drawing(line('A', 0, [[6, 'DASHED']]), lt, [], [[9, '$LTSCALE'], [40, 4]]); const tx = imported(a, b); assert.equal(tx.document.entities[0].num(48), 2); });
 test('empty selection is rejected', () => { assert.throws(() => C.importObjects(drawing(), drawing(), []), /Select/); });
+
+
+test('hatch exclusion is symmetric and does not hide non-hatch block leaves', () => {
+    const h = require('../../dxf-skia/tests/helpers').hatch('A');
+    assert.equal(compare(drawing(h), drawing(), { hatch: false }).counts.changes, 0);
+    assert.equal(compare(drawing(h), drawing()).counts.currentOnly, 1);
+    const blocks = [[0, 'BLOCK'], [2, 'VALVE'], ...h, ...line('B', 50), [0, 'ENDBLK']];
+    assert.equal(compare(drawing(insert(), [], blocks), drawing(), { hatch: false }).currentOnly[0].primitives.length, 1);
+});
+test('a nonassociative hatch retaining a boundary source reference is rejected', () => {
+    const h = require('../../dxf-skia/tests/helpers').hatch('A'); h.push([330, 'BEEF']);
+    assert.throws(() => imported(drawing(), drawing(h)), /boundary/);
+});
+test('large reordered drawings preserve multiplicity without pairwise candidate scans', () => {
+    const a = [], b = []; const count = 10000;
+    for (let i = 0; i < count; i++) a.push(...line((i + 100).toString(16), i * 20));
+    for (let i = count - 1; i >= 0; i--) b.push(...line((i + 20000).toString(16), i * 20));
+    const r = compare(drawing(a), drawing(b));
+    assert.equal(r.counts.common, count); assert.equal(r.counts.changes, 0);
+});
+test('current entity isolation does not silently isolate unrelated reference handles', () => {
+    const source = drawing([...line('A'), ...circle('B')]);
+    const current = new A.SceneCompiler(new A.DxfDocument(source), { entityIsolation: new Set(['A']) }).compile();
+    const session = new C.Session(new A.DxfDocument(drawing(circle('C')))); session.scene(current);
+    assert.equal(session.referenceScene.primitives.length, 1);
+});
+test('paper layout comparison compiles only the matching shared layout', () => {
+    const a = drawing([...line('A'), ...line('B', 50, [[67, 1], [410, 'Sheet A']])]);
+    const b = drawing([...circle('C'), ...line('D', 50, [[67, 1], [410, 'Sheet A']])]);
+    const current = new A.SceneCompiler(new A.DxfDocument(a)).compile('Sheet A');
+    const session = new C.Session(new A.DxfDocument(b));session.scene(current);
+    assert.equal(session.result.counts.common, 1); assert.equal(session.result.counts.changes, 0);
+});

@@ -63,7 +63,8 @@
         function stage(r, destination, owner = null, blockContent = false) {
             if (staged.has(r.id)) return staged.get(r.id);
             if (!tableKinds.has(r.type) && !entityKinds.has(r.type) && r.type !== 'BLOCK' && r.type !== 'ENDBLK') throw new Error('Import requires unsupported ' + r.type + ' dependency; no changes were applied.');
-            if (r.all(330).length > 1 || r.type === 'HATCH' && r.num(71) === 1) throw new Error('Associative boundary/owner references require a database-aware importer; no changes were applied.');
+            const boundaryStart = r.type === 'HATCH' ? r.tags.findIndex(t => t.code === 91) : -1;
+            if (r.all(330).length > 1 || r.type === 'HATCH' && (r.num(71) === 1 || boundaryStart >= 0 && r.tags.slice(boundaryStart).some(t => t.code === 330))) throw new Error('Associative boundary/owner references require a database-aware importer; no changes were applied.');
             if (r.tags.some(t => t.code === 102)) throw new Error('Extension dictionaries/reactors require a database-aware importer; no changes were applied.');
             const entry = { record: r, tags: copyTags(r), destination, owner, blockContent, handle: allocate() };
             staged.set(r.id, entry); if (r.handle) handles.set(key(r.handle), entry.handle);

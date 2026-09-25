@@ -14,7 +14,9 @@
                 return null;
             try {
                 const document = new A.DxfDocument(sourceBytes ?? sourceText, this.options);
-                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0, comparisonSourceText: typeof sourceText === "string" ? sourceText : null });
+                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0, comparisonSourceText: typeof sourceText === "string" && sourceBytes == null ? sourceText : null });
+                // A binary string with embedded newlines can render but cannot round-trip through the line-based editor.
+                if (sourceBytes != null) { try { document.comparisonSourceText = A.dxfText(sourceBytes, this.options); } catch { /* Rendering remains usable; source transactions require representable text. */ } }
                 this.documents.set(tabId, document);
                 for (const listener of this.listeners) { try { listener({ type: 'ingest', document }); } catch (error) { console.warn('DXF document observer:', error); } }
                 return document;

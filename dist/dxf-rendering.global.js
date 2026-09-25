@@ -3374,7 +3374,9 @@
                 return null;
             try {
                 const document = new A.DxfDocument(sourceBytes ?? sourceText, this.options);
-                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0, comparisonSourceText: typeof sourceText === "string" ? sourceText : null });
+                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0, comparisonSourceText: typeof sourceText === "string" && sourceBytes == null ? sourceText : null });
+                // A binary string with embedded newlines can render but cannot round-trip through the line-based editor.
+                if (sourceBytes != null) { try { document.comparisonSourceText = A.dxfText(sourceBytes, this.options); } catch { /* Rendering remains usable; source transactions require representable text. */ } }
                 this.documents.set(tabId, document);
                 for (const listener of this.listeners) { try { listener({ type: 'ingest', document }); } catch (error) { console.warn('DXF document observer:', error); } }
                 return document;
@@ -9809,7 +9811,8 @@
         function stage(r, destination, owner = null, blockContent = false) {
             if (staged.has(r.id)) return staged.get(r.id);
             if (!tableKinds.has(r.type) && !entityKinds.has(r.type) && r.type !== 'BLOCK' && r.type !== 'ENDBLK') throw new Error('Import requires unsupported ' + r.type + ' dependency; no changes were applied.');
-            if (r.all(330).length > 1 || r.type === 'HATCH' && r.num(71) === 1) throw new Error('Associative boundary/owner references require a database-aware importer; no changes were applied.');
+            const boundaryStart = r.type === 'HATCH' ? r.tags.findIndex(t => t.code === 91) : -1;
+            if (r.all(330).length > 1 || r.type === 'HATCH' && (r.num(71) === 1 || boundaryStart >= 0 && r.tags.slice(boundaryStart).some(t => t.code === 330))) throw new Error('Associative boundary/owner references require a database-aware importer; no changes were applied.');
             if (r.tags.some(t => t.code === 102)) throw new Error('Extension dictionaries/reactors require a database-aware importer; no changes were applied.');
             const entry = { record: r, tags: copyTags(r), destination, owner, blockContent, handle: allocate() };
             staged.set(r.id, entry); if (r.handle) handles.set(key(r.handle), entry.handle);
@@ -10041,8 +10044,8 @@
         tabs() { return [...(this.app.tabs || []), ...(this.app.tabsRight || [])]; }
         currentTab() { return this.tabs().find(t => t.id === this.manager.sceneGraph?.document.tabId); }
         sourceFor(tab) { return tab.originalTreeData && this.app.dxfParser ? this.app.dxfParser.serializeTree(tab.originalTreeData) : tab.renderingSourceText; }
-        currentText() { return this.manager.sceneGraph?.document.comparisonSourceText; }
-        require() { const session = this.manager.comparison; if (!session?.result) throw new Error('Start a drawing comparison first.'); return session; }
+        currentText() { const text = this.manager.sceneGraph?.document.comparisonSourceText; if (typeof text !== 'string') throw new Error('This drawing has no losslessly representable text source; source transactions and snapshots are unavailable.'); return text; }
+        require() { const session = this.manager.comparison; if (!session?.result) throw new Error('Start a drawing comparison first.'); if (this.manager.comparisonError) throw this.manager.comparisonError; return session; }
         open() { this.cad.workspace?.show('render-compare'); this.refreshSources(); this.sources.focus(); }
         refreshSources() {
             const tabs = this.tabs().filter(t => t.id !== this.manager.sceneGraph?.document.tabId), stamp = JSON.stringify(tabs.map(t => [t.id, t.name]));
@@ -10111,7 +10114,7 @@
                 const rows = r.changes.map((c, i) => ({ key: c.id, changeIndex: i, values: [c.status, c.current?.type || c.reference?.type, c.current?.handle || '—', c.reference?.handle || '—', c.current?.layer || c.reference?.layer],
                     raw: JSON.stringify({ status: c.status, bounds: G.isEmpty(c.bounds) ? null : c.bounds }, null, 2) }));
                 if (!this.view && root.DxfAnalysis) this.view = new root.DxfAnalysis.AnalysisView(this.rowsHost, { title: 'Drawing changes', columns: ['Status', 'Entity', 'Current handle', 'Reference handle', 'Layer'], rows, visualization: false,
-                    onSelect: row => { this.selectedIndex = row.changeIndex; this.focus(r.changes[row.changeIndex]?.bounds); this.importButton.disabled = !r.changes[row.changeIndex]?.reference; } });
+                    onSelect: row => { const current = this.manager.comparison?.result, change = current?.changes[row.changeIndex]; this.selectedIndex = row.changeIndex; this.focus(change?.bounds); this.importButton.disabled = !change?.reference; } });
                 else this.view?.setRows(rows);
             }
             this.importButton.disabled = !r.changes[this.selectedIndex]?.reference || this.manager.layout.toUpperCase() !== 'MODEL';
@@ -10134,11 +10137,17 @@
             this.require(); if (this.manager.layout.toUpperCase() !== 'MODEL') throw new Error('Import is currently supported in model space only.');
             if (!this.currentTab()) throw new Error('Import into the parser workspace is supported; the standalone editor remains comparison-only.');
             const before = this.currentText(), tab = this.currentTab(), beforeTree = this.sourceFor(tab);
+            const repeated = this.undoStack.some(item => item.tabId === tab.id && item.referenceText === this.referenceText && ids.some(id => item.referenceIds?.includes(id)));
+            if (repeated) throw new Error('This reference object was already imported. Undo that import before importing it again.');
             // Never overwrite unrendered tree edits. Refresh updates the comparison first.
             if (this.app.dxfParser.serializeTree(this.app.dxfParser.parse(before)) !== beforeTree) throw new Error('The source tree changed. Refresh the comparison before importing.');
             const transaction = C.importObjects(before, this.referenceText, ids, { ...this.settings, compileOptions: this.manager.compiled.compileOptions });
+            const item = { tabId: tab.id, before, after: transaction.text, referenceText: this.referenceText, referenceIds: [...ids] };
+            const bytes = entry => 2 * (entry.before.length + entry.after.length + entry.referenceText.length);
+            if (bytes(item) > 128 * 1024 * 1024) throw new RangeError('Import exceeds the 128 MiB undo-history budget; no changes were applied.');
             this.applySource(transaction.text, before);
-            this.undoStack.push({ tabId: tab.id, before, after: transaction.text }); if (this.undoStack.length > 10) this.undoStack.shift(); this.redoStack = [];
+            this.undoStack.push(item); this.redoStack = [];
+            while (this.undoStack.length > 10 || this.undoStack.reduce((total, entry) => total + bytes(entry), 0) > 128 * 1024 * 1024) this.undoStack.shift();
             this.cad.write(`Imported ${transaction.imported} reference objects (${transaction.recordCount} records). Current objects were not deleted.`);
             return transaction;
         }
