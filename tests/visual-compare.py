@@ -38,6 +38,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.render();self.reference();self.page.evaluate('() => { window.composed=m.lastFrame.scene;window.result=m.comparison.result; }')
         self.command('ZOOM 2');self.command('PAN 20 10');self.assertJS('m.lastFrame.scene===composed && m.comparison.result===result')
         self.page.evaluate('() => { compare.open(); }');self.settle()
+        self.page.locator('.dxf-compare-panel summary').click();self.settle()
         self.page.locator('[data-compare=showReference]').uncheck();self.settle()
         self.assertJS("!m.lastFrame.scene.primitives.some(p=>p.comparisonSide==='reference')")
         self.command('COMPARETOGGLE');self.assertJS('m.lastFrame.scene===m.compiled')

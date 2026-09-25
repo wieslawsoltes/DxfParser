@@ -1,8 +1,0 @@
-diff --git a/tests/visual-compare.py b/tests/visual-compare.py
-index 9a6504b..4d5322d 100644
---- a/tests/visual-compare.py
-+++ b/tests/visual-compare.py
-@@ -40,2 +40,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
-         self.page.evaluate('() => { compare.open(); }');self.settle()
-+        self.page.locator('.dxf-compare-panel summary').click();self.settle()
-         self.page.locator('[data-compare=showReference]').uncheck();self.settle()
