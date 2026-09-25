@@ -167,6 +167,7 @@
         // Business-document lifetime is not layout undo. Never resurrect closed DXF records from history.
         if (changed) this.manager.ClearHistory();
       } finally { this.syncing = false; }
+      this.app.drawingViews?.syncFiles();
       this.workspace.scheduleResize(); this.app.ribbonWorkspace?.schedule();
     }
 
@@ -197,6 +198,7 @@
         if (this.app.sideBySideDiffEnabled) this.app.computeAndApplySideBySideDiff();
       }
       if (focus) this.insert(record).Activate();
+      this.app.drawingViews?.activateTab(record.tab.id);
       this.workspace.scheduleResize(); this.app.ribbonWorkspace?.schedule();
     }
 
@@ -229,7 +231,7 @@
         const key = record.side === 'left' ? 'activeTabId' : 'activeTabIdRight';
         this.app[array] = this.app[array].filter(tab => tab.id !== record.tab.id);
         if (this.app[key] === record.tab.id) this.app[key] = this.app[array][0]?.id ?? null;
-        if (this.app.renderingOverlayController?.currentTabId === record.tab.id) this.workspace.hide('rendering');
+        this.app.drawingViews?.release(record.tab.id);
         this.app.renderingDataController?.releaseDocument(record.tab.id);
         this.app.stateManager.removeTabState(record.tab.id);
         this.release(record);

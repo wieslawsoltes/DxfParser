@@ -945,12 +945,12 @@ body.tooltip-enhanced .has-tooltip::before {
 .rendering-overlay-info section:first-of-type h3 {
   margin-top: 0;
 }
-#renderingOverlaySummary {
+#renderingOverlaySummary, [data-render-source-id="renderingOverlaySummary"] {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-#renderingOverlayLayerManager {
+#renderingOverlayLayerManager, [data-render-source-id="renderingOverlayLayerManager"] {
   flex: 1;
   overflow: auto;
   min-height: 0;
@@ -962,7 +962,7 @@ body.tooltip-enhanced .has-tooltip::before {
   overflow: hidden;
   min-height: 0;
 }
-#renderingOverlayCanvas {
+#renderingOverlayCanvas, [data-render-source-id="renderingOverlayCanvas"] {
   display: block;
   width: 100%;
   height: 100%;

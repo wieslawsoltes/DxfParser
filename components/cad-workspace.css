@@ -21,3 +21,9 @@
 .dxf-cad-graphics-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:end; padding:8px; }
 .dxf-cad-graphics-controls label { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
 .dxf-cad-graphics-controls select { min-width:0; width:100%; }
+
+/* Stable dock tool hosts contain only the focused drawing's retained controls. */
+.dxf-render-tool-slot { display:flex; flex-direction:column; height:100%; min-height:0; overflow:auto; }
+.dxf-render-tool-slot > * { flex:1; min-height:0; }
+.dxf-dock-host [data-render-tab-id] canvas { min-width:0; min-height:0; }
+.dxf-dock-host [data-active-drawing="true"] .dxf-cad-status { border-top-color:#72bef1; }

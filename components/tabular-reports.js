@@ -17,7 +17,7 @@
         return global.app?.analysisReports?.enrichBlocks(rows) || rows; } },
     { selector: '.rendering-summary-grid', title: 'Drawing Information', columns: ['Property', 'Value'],
       records: s => records(s, ':scope > div', n => { const label = text(n.querySelector('.label')); return [label.replace(/:$/, ''), text(n).slice(label.length).trim()]; }).map(row => ({...row,key:row.values[0]})) },
-    { selector: '#renderingBlocksGrid', title: 'Block Definitions', columns: ['Block', 'Details'],
+    { selector: '#renderingBlocksGrid,[data-render-source-id="renderingBlocksGrid"]', title: 'Block Definitions', columns: ['Block', 'Details'],
       records: s => records(s, '.rendering-block-card', n => [text(n.querySelector('.rendering-block-name')), text(n.querySelector('.rendering-block-details'))]).map(row=>({...row,key:'block:'+row.values[0]})) },
     { selector: '#ruleConfigContent', title: 'Diagnostic Rules', columns: ['Rule', {title:'Enabled',width:85,control:row=>row.source.querySelector('input[type=checkbox]')}, 'Category', 'Severity', {title:'Description',width:350}],
       records: s => records(s, '.rule-item', n => [text(n.querySelector('.rule-title')), !!n.querySelector('input')?.checked, n.dataset.category || '', text(n.querySelector('.rule-severity')), text(n.querySelector('.rule-description'))])
@@ -115,5 +115,8 @@
   }
   const installLegacy = installApp;
   global.DxfGrid.installApp = app => { installLegacy(app); global.DxfAnalysis?.install(app); };
+  global.DxfGrid.createRenderingRegistry = overlay => new ReportRegistry(
+    [overlay.infoTabPanel, overlay.layersTabPanel, overlay.blocksTabPanel],
+    descriptors.filter(d => d.selector.includes('rendering')));
   global.DxfGrid.mount = mount;
 })(window);

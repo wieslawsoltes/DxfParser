@@ -83,6 +83,7 @@
       this.scheduleResize();
       global.addEventListener('pagehide', () => this.save(), { signal: this.abort.signal });
       document.addEventListener('visibilitychange', () => {
+        this.scheduleResize();
         if (document.visibilityState === 'hidden') this.save();
       }, { signal: this.abort.signal });
       options.shell.classList.add('dxf-dock-shell');
@@ -289,6 +290,7 @@
         for (const d of this.definitions.values()) {
           if (!d.onResize) continue;
           const rect = (d.resizeNode || d.node).getBoundingClientRect();
+          d.onVisibility?.(rect.width > 0 && rect.height > 0 && document.visibilityState !== 'hidden');
           const size = `${rect.width}:${rect.height}:${global.devicePixelRatio || 1}`;
           if (size === d.size) continue;
           d.size = size;

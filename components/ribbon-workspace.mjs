@@ -186,22 +186,22 @@ class RibbonWorkspace {
         cmd('compare-filter-right', 'Right filters', () => app.openFiltersOverlay('right'), { icon: 'filter', enabled: () => !!app.getComparisonTab('right') })
       ])
     ] };
-    const rendering = w.legacyCommandSources.viewControls;
-    const view = value => rendering.querySelector(`[data-view="${value}"]`);
-    const nav = value => rendering.querySelector(`[data-action="${value}"]`);
-    const measurement = mode => rendering.querySelector(`[data-mode="${mode}"]`);
+    const rendering = () => app.drawingViews?.active?.controls || w.legacyCommandSources.viewControls;
+    const view = value => rendering().querySelector(`[data-view="${value}"]`);
+    const nav = value => rendering().querySelector(`[data-action="${value}"]`);
+    const measurement = mode => rendering().querySelector(`[data-mode="${mode}"]`);
     const drawing = { id: 'drawing', header: 'Drawing', contextualGroup: 'drawing', keyTip: 'V', groups: [
-      group('drawing-views', 'Orientation', ['home', 'top', 'right', 'bottom', 'left', 'iso'].map(value => source(`view-${value}`, { home: 'Fit drawing', iso: 'Isometric' }[value] || value[0].toUpperCase() + value.slice(1), view(value), { icon: value === 'home' ? 'fit' : 'shapes' }))),
+      group('drawing-views', 'Orientation', ['home', 'top', 'right', 'bottom', 'left', 'iso'].map(value => cmd(`view-${value}`, { home: 'Fit drawing', iso: 'Isometric' }[value] || value[0].toUpperCase() + value.slice(1), () => view(value)?.click(), { icon: value === 'home' ? 'fit' : 'shapes' }))),
       group('drawing-navigation', 'View Navigation', [
-        source('view-undo', 'Previous view', 'viewUndoBtn', { icon: 'undo' }), source('view-redo', 'Next view', 'viewRedoBtn', { icon: 'redo' }),
-        source('view-zoom-in', 'Zoom in', nav('zoom-in'), { icon: 'zoomIn' }), source('view-zoom-out', 'Zoom out', nav('zoom-out'), { icon: 'zoomOut' }),
-        ...['pan-up', 'pan-down', 'pan-left', 'pan-right', 'orbit-left', 'orbit-right'].map(value => source(`view-${value}`, value.replace('-', ' '), nav(value), { icon: 'move' }))
+        cmd('view-undo', 'Previous view', () => app.renderingOverlayController.undoViewNavigation(), { icon: 'undo' }), cmd('view-redo', 'Next view', () => app.renderingOverlayController.redoViewNavigation(), { icon: 'redo' }),
+        cmd('view-zoom-in', 'Zoom in', () => nav('zoom-in')?.click(), { icon: 'zoomIn' }), cmd('view-zoom-out', 'Zoom out', () => nav('zoom-out')?.click(), { icon: 'zoomOut' }),
+        ...['pan-up', 'pan-down', 'pan-left', 'pan-right', 'orbit-left', 'orbit-right'].map(value => cmd(`view-${value}`, value.replace('-', ' '), () => nav(value)?.click(), { icon: 'move' }))
       ]),
       group('drawing-style', 'Display', [
-        cmd('drawing-style', 'Visual style', value => { const select = byId('renderingVisualStyleSelect'); select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }, { type: 'dropdown', width: 170, items: [] }),
-        ...[['toggleAttributeDefinitions', 'Attribute definitions'], ['toggleAttributeReferences', 'Attribute references'], ['toggleAttributeInvisible', 'Hidden attributes']].map(([id, label]) => cmd(`draw-${id}`, label, (_value, c) => { const input = byId(id); input.checked = c.checked; input.dispatchEvent(new Event('change', { bubbles: true })); }, { type: 'checkbox', icon: 'check' }))
+        cmd('drawing-style', 'Visual style', value => { const select = app.renderingOverlayController.visualStyleSelect; select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }, { type: 'dropdown', width: 170, items: [] }),
+        ...[['toggleAttributeDefinitions', 'Attribute definitions'], ['toggleAttributeReferences', 'Attribute references'], ['toggleAttributeInvisible', 'Hidden attributes']].map(([id, label]) => cmd(`draw-${id}`, label, (_value, c) => { const input = app.renderingOverlayController[({toggleAttributeDefinitions:'attributeDefinitionCheckbox',toggleAttributeReferences:'attributeReferencesCheckbox',toggleAttributeInvisible:'attributeInvisibleCheckbox'})[id]]; input.checked = c.checked; input.dispatchEvent(new Event('change', { bubbles: true })); }, { type: 'checkbox', icon: 'check' }))
       ]),
-      group('drawing-measure', 'Measure', ['none', 'distance', 'area', 'angle'].map(mode => source(`measure-${mode}`, mode === 'none' ? 'Select' : mode[0].toUpperCase() + mode.slice(1), measurement(mode), { type: 'toggle', icon: 'ruler' }))),
+      group('drawing-measure', 'Measure', ['none', 'distance', 'area', 'angle'].map(mode => cmd(`measure-${mode}`, mode === 'none' ? 'Select' : mode[0].toUpperCase() + mode.slice(1), () => measurement(mode)?.click(), { type: 'toggle', icon: 'ruler' }))),
       group('drawing-tools', 'Drawing Panels', [['render-layers', 'Layers'], ['render-blocks', 'Blocks'], ['render-info', 'Information'], ['render-properties', 'Properties']].map(([id, title]) => cmd(`show-${id}`, title, () => w.show(id), { icon: 'panel' })))
     ] };
     const selection = { id: 'selection', header: 'Selection', contextualGroup: 'selection', keyTip: 'S', groups: [
@@ -369,7 +369,7 @@ class RibbonWorkspace {
       const title = doc ? `${doc.isModified ? '● ' : ''}${doc.name} — DXF Parser` : 'DXF Parser';
       if (this.ribbon.model.title !== title) this.ribbon.model.title = title;
       this.context('comparison', records.length > 1);
-      const drawing = activeModel?.ContentId === 'rendering' || activeModel?.ContentId?.startsWith('render-');
+      const drawing = activeModel?.ContentId?.startsWith('rendering') || activeModel?.ContentId?.startsWith('render-');
       this.context('drawing', drawing);
       this.context('selection', drawing && app.renderingOverlayController.selectionHandles?.size > 0);
       for (const side of ['left', 'right']) this.update(`compare-${side}`, { items: records.map(r => option(r.tab.id, `${r.side === 'left' ? 'L' : 'R'} · ${r.tab.name}`)), value: String(app.getComparisonTab(side)?.id ?? '') });
@@ -382,9 +382,9 @@ class RibbonWorkspace {
         this.navigationHistory = handles;
         this.handleHistory.replaceChildren(...(doc?.navigationHistory || []).map(h => { const item = document.createElement('option'); item.value = h; return item; }));
       }
-      const style = byId('renderingVisualStyleSelect');
+      const style = app.renderingOverlayController.visualStyleSelect;
       this.update('drawing-style', { value: style.value, items: [...style.options].map(o => option(o.value, o.textContent)) });
-      for (const id of ['toggleAttributeDefinitions', 'toggleAttributeReferences', 'toggleAttributeInvisible']) this.update(`draw-${id}`, { checked: byId(id).checked });
+      for (const id of ['toggleAttributeDefinitions', 'toggleAttributeReferences', 'toggleAttributeInvisible']) this.update(`draw-${id}`, { checked: (app.renderingOverlayController[({toggleAttributeDefinitions:'attributeDefinitionCheckbox',toggleAttributeReferences:'attributeReferencesCheckbox',toggleAttributeInvisible:'attributeInvisibleCheckbox'})[id]] || byId(id)).checked });
     } else {
       const record = app.getActiveDocument();
       const title = record ? `${record.name} — DXF Editor` : 'DXF Editor'; if (this.ribbon.model.title !== title) this.ribbon.model.title = title;

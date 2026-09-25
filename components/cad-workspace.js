@@ -7,10 +7,10 @@
         e.textContent = text; return e; };
     const views = { Top: [0, 0, 1], Bottom: [0, 0, -1], Front: [0, -1, 0], Back: [0, 1, 0], Left: [-1, 0, 0], Right: [1, 0, 0], Isometric: [1, -1, 1] };
     class CadWorkspace {
-        constructor(app, mode = 'parser') {
+        constructor(app, mode = 'parser', overlay = null) {
             this.app = app;
             this.mode = mode;
-            this.overlay = app.renderingOverlayController || app.getOverlayController?.();
+            this.overlay = overlay || app.renderingOverlayController || app.getOverlayController?.();
             this.manager = this.overlay?.surfaceManager || app.getSurfaceManager?.();
             if (!this.manager)
                 throw new Error('Initialize the Skia renderer before the CAD workspace.');
@@ -70,9 +70,11 @@
             load.onclick = () => this.fileInput.click();
             this.resourceRows = el('div', 'dxf-cad-records');
             this.resourcePanel.append(el('p', 'dxf-cad-note', 'Resources are matched by filename. Drawing paths are never fetched automatically. Register only files you are authorized to use.'), load, this.fileInput, this.resourceRows);
-            this.fileInput.addEventListener('change', async () => { for (const file of this.fileInput.files) {
+            this.fileInput.addEventListener('change', async () => { const files = [...this.fileInput.files]; this.fileInput.value = ''; for (const file of files) {
                 try {
-                    await this.manager.registerResource(file.name, await file.arrayBuffer());
+                    const bytes = await file.arrayBuffer();
+                    if (this.disposed) return;
+                    await this.manager.registerResource(file.name, bytes);
                     this.write(`Registered ${file.name}`);
                 }
                 catch (error) {
@@ -100,8 +102,23 @@
             this.write('Native Skia drawing. Type HELP for available view commands.');
         }
         panels() { return [...(this.compare ? [{ id: 'render-compare', title: 'Drawing Compare', node: this.compare.panel, side: 'Right', width: 520 }] : []), { id: 'render-console', title: 'CAD Command Line', node: this.console, side: 'Bottom', height: 135 }, { id: 'render-diagnostics', title: 'Rendering Diagnostics', node: this.issuePanel, side: 'Right', width: 420 }, { id: 'render-resources', title: 'Drawing Resources', node: this.resourcePanel, side: 'Right', width: 380 }]; }
-        attach(workspace) { this.workspace = workspace; workspace.abort.signal.addEventListener('abort', () => this.dispose(), { once: true }); workspace.unsubscribers.push(workspace.manager.ThemeChanged.add(() => { const theme = String(workspace.manager.Theme?.Name || workspace.manager.Theme || 'light'); for (const view of this.views)
-            view.setTheme(theme); })); }
+        attach(workspace) {
+            this.detachWorkspace?.(); this.workspace = workspace;
+            if (this.disposed) return;
+            if (workspace.abort.signal.aborted) { this.dispose(); return; }
+            const onAbort = () => this.dispose();
+            workspace.abort.signal.addEventListener('abort', onAbort, { once: true });
+            const unsubscribeTheme = workspace.manager.ThemeChanged.add(() => {
+                const theme = String(workspace.manager.Theme?.Name || workspace.manager.Theme || 'light');
+                for (const view of this.views) view.setTheme(theme);
+            });
+            // Source closure can precede workspace disposal. Do not retain this
+            // controller in the workspace's long-lived unsubscriber collection.
+            this.detachWorkspace = () => {
+                workspace.abort.signal.removeEventListener('abort', onAbort);
+                unsubscribeTheme(); this.detachWorkspace = null;
+            };
+        }
         write(message, error = false) { if (this.disposed)
             return; const line = el('div', error ? 'dxf-cad-error' : '', message); this.log.append(line); while (this.log.children.length > 150)
             this.log.firstChild.remove(); this.log.scrollTop = this.log.scrollHeight; }
@@ -137,6 +154,7 @@
                     return;
                 }
                 if (this.compare && await this.compare.command(command, args)) return;
+                if (this.app.drawingViews && this.app.drawingViews.command(command, args)) return;
                 if (command === 'RENDERER') { await this.setBackend((args[0] || this.manager.host.backend).toLowerCase()); return; }
                 if (!this.active())
                     throw new Error('Open a DXF drawing and choose Render DXF first.');
@@ -273,8 +291,14 @@
         else
             this.resourceView.setRows(rows); }
         ribbonGroups(ribbon) {
-            const cmd = (...a) => ribbon.command(...a), group = (id, header, items) => ({ id, header, items }), enabled = () => this.active();
+            const cmd = (...a) => ribbon.command(...a), group = (id, header, items, options = {}) => ({ id, header, items, ...options }), enabled = () => this.active();
             return [
+                ...(this.app.drawingViews ? [group('skia-drawings', 'Drawing Views', [
+                    cmd('skia-render-all', 'Render all drawings', () => this.app.drawingViews.renderAll(), { icon: 'window', enabled: () => this.app.drawingViews.tabs().length > 0 }),
+                    cmd('skia-drawing', 'Active drawing', value => this.app.drawingViews.openById(value), { type: 'dropdown', items: [], enabled: () => this.app.drawingViews.tabs().length > 0 }),
+                    cmd('skia-tile-horizontal', 'Tile side by side', () => this.app.drawingViews.tile('horizontal'), { icon: 'columns', enabled: () => this.app.drawingViews.records.size > 1 }),
+                    cmd('skia-tile-vertical', 'Tile stacked', () => this.app.drawingViews.tile('vertical'), { icon: 'panel', enabled: () => this.app.drawingViews.records.size > 1 })
+                ])] : []),
                 ...(this.compare ? [group('skia-compare', 'Drawing Compare', [
                     cmd('skia-compare-open', 'Compare drawings', () => this.compare.open(), { icon: 'layers', size: 'large', enabled }),
                     cmd('skia-compare-prev', 'Previous change', () => this.compare.run(() => this.compare.navigate(-1)), { enabled: () => !!this.manager.comparison }),
@@ -297,14 +321,16 @@
                     cmd('skia-retry', 'Retry graphics', () => this.setBackend(this.manager.host.backend), { icon: 'refresh' }),
                     cmd('skia-command', 'Command line', () => { this.workspace.show('render-console'); this.input.focus(); }, { icon: 'code' }),
                     cmd('skia-diagnostics', 'Rendering diagnostics', () => this.workspace.show('render-diagnostics'), { icon: 'check' }),
-                    cmd('skia-resources', 'Fonts / images', () => { this.workspace.show('render-resources'); this.refreshResources(); }, { icon: 'font' }),
+                    cmd('skia-resources', 'Fonts / images', () => { this.workspace.show('render-resources'); this.refreshResources(); }, { icon: 'font' })
+                ]),
+                group('skia-output', 'Export', [
                     cmd('skia-png', 'Export PNG', () => this.export('png'), { icon: 'save', enabled }), cmd('skia-pdf', 'Export PDF', () => this.export('pdf'), { icon: 'save', enabled })
-                ])
+                ], { priority: 100 })
             ];
         }
-        updateRibbon(r) { const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
+        updateRibbon(r) { if (this.app.drawingViews) r.update('skia-drawing', {items: this.app.drawingViews.tabs().map(t => ({value: String(t.id), label: t.name})), value: String(this.overlay.currentTabId ?? '')}); const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
         dispose() { if (this.disposed)
-            return; this.disposed = true; this.compare?.dispose(); this.abort.abort(); for (const v of this.views)
+            return; this.disposed = true; this.detachWorkspace?.(); this.compare?.dispose(); this.abort.abort(); for (const v of this.views)
             v.dispose(); this.views = []; this.footer.remove(); this.manager.onPaint = this.previousPaint; this.manager.onError = this.previousError; this.manager.dispose(); }
     }
     global.DxfCad = { CadWorkspace, create(app, mode) { return app.cadWorkspace = new CadWorkspace(app, mode); } };

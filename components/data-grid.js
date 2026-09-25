@@ -245,7 +245,7 @@
       this.observer.disconnect();
       try {
         for (const projection of [...this.projections]) {
-          if (!projection.source.isConnected || !projection.view.host.isConnected) { if (projection.view.saveState) this.states.set(projection.stateKey, projection.view.saveState()); projection.view.dispose(); projection.container.remove(); this.projections.delete(projection); }
+          if (!this.roots.some(root => root.contains(projection.source) && root.contains(projection.view.host))) { if (projection.view.saveState) this.states.set(projection.stateKey, projection.view.saveState()); projection.view.dispose(); projection.container.remove(); this.projections.delete(projection); }
           else projection.update();
           // Session-level presentation state is bounded independently of document bytes.
           while (this.states.size > 128) this.states.delete(this.states.keys().next().value);
@@ -307,6 +307,15 @@
       view.restoreState?.(this.states.get(stateKey));
       view.setTheme(this.theme);
       return view;
+    }
+    removeRoots(roots) {
+      const removed = new Set(roots);
+      this.observer.disconnect();
+      this.roots = this.roots.filter(root => !removed.has(root));
+      for (const p of [...this.projections]) if (!this.roots.some(root => root.contains(p.source))) {
+        p.view.dispose(); p.container.remove(); this.projections.delete(p); this.states.delete(p.stateKey);
+      }
+      if (!this.disposed) this.listen();
     }
     setTheme(theme) { this.theme = theme; for (const p of this.projections) p.view.setTheme(theme); }
     dispose() { this.disposed = true; this.observer.disconnect(); for (const p of this.projections) p.view.dispose(); this.projections.clear(); this.states.clear(); }

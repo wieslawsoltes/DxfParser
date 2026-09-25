@@ -108,6 +108,7 @@
         // Restore document identities before deserializing the layout that refers to them.
         this.restoreAppState();
         if (this.dockingWorkspace) {
+          this.drawingViews?.restore();
           this.dockingWorkspace.restore();
           this.documentWorkspace.reconcileLayout();
           this.dockingWorkspace.ready = true;
@@ -3253,6 +3254,7 @@
           alert(`No DXF file loaded in the ${pane} pane.`);
           return;
         }
+        if (this.drawingViews) { this.drawingViews.open({ pane, tab }); return; }
         this.renderingOverlayController.open({ pane, tab });
       }
 

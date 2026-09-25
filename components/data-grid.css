@@ -16,7 +16,7 @@
 .dxf-office-stage>grid-web,.dxf-office-stage>rich-text-page-editor{height:100%;width:100%;flex:1;display:block;min-height:150px}.dxf-office-stage>pre{overflow:auto;white-space:pre-wrap;padding:8px;margin:0}.dxf-office-stage img{object-fit:contain;max-width:100%;max-height:100%}
 .dxf-office-status{font:12px system-ui;margin:0;padding:5px;white-space:pre-wrap}.dxf-office-status[data-error=true]{color:#b42318}.dxf-office-status[data-warning=true]{color:#915b05}
 #objectSizeList>.dxf-grid-view,#hexContent>.dxf-grid-view{height:100%;min-height:240px;margin:0}#hexContent{white-space:normal!important}
-#renderingOverlayLayerManager>.dxf-grid-projection>.dxf-grid-view{min-height:270px}.rendering-property-grid>.dxf-grid-view{height:100%;min-height:260px}
+:is(#renderingOverlayLayerManager,[data-render-source-id="renderingOverlayLayerManager"])>.dxf-grid-projection>.dxf-grid-view{min-height:270px}.rendering-property-grid>.dxf-grid-view{height:100%;min-height:260px}
 .dxf-dock-host .layer-manager-container,.dxf-dock-host .rendering-blocks-grid{overflow:auto}
 .dxf-office-launcher{white-space:nowrap}
 

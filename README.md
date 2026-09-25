@@ -57,3 +57,7 @@ See [atomic workspace startup](docs/workspace-startup.md) for first-paint and re
 ### Linked analysis visualizations
 
 Analysis tools now include linked distributions, matrices, reference graphs and preview cards alongside the existing TreeDataGridWeb records and optional GridWeb inspection spreadsheet. See [the visual analysis workbench guide](docs/analysis-visual-workbench.md) for chart scopes, source-safe native drawing navigation, pinned comparisons and regression coverage.
+
+## Multiple native drawing views
+
+Open multiple DXF sources and use **CAD View → Drawing Views → Render all drawings** to render them simultaneously. Each drawing has an independent dockable viewport, camera, selection, layout, resources and comparison session. See [multiple drawing views](docs/multiple-drawings.md).

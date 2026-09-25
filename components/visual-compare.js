@@ -223,7 +223,9 @@
             this.download('drawing-compare.snapshot.json', text, 'application/json');
         }
         restoreSnapshot(text) {
-            const value = C.readSnapshot(text); this.end();
+            const value = C.readSnapshot(text);
+            if (this.app.drawingViews) { this.app.drawingViews.restoreComparison(value); return; }
+            this.end();
             if (this.cad.mode === 'editor') this.app.loadDxfSource({ name: value.metadata?.currentName || 'snapshot.dxf', sourceText: value.currentText });
             else {
                 this.app.handleCreateNewDxf(); const tab = this.app.getActiveTab();

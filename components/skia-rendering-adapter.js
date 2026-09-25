@@ -103,10 +103,12 @@
                 throw new TypeError('Only DxfSkia scene graphs are accepted.');
             if (this.comparison && this.comparisonTarget !== (sceneGraph.document.tabId ?? sceneGraph.document)) this.setComparison(null);
             if (this.sceneGraph !== sceneGraph) {
+                const sameTab = sceneGraph.document.tabId != null && sceneGraph.document.tabId === this.sceneGraph?.document.tabId;
+                const layout = sameTab && [...sceneGraph.document.layouts.values()].find(l => l.name.toUpperCase() === this.layout.toUpperCase());
                 this.sceneGraph = sceneGraph;
-                this.layout = 'Model';
+                this.layout = layout ? layout.name : 'Model';
                 this.compileRevision++;
-                this.viewState = { mode: 'auto' };
+                if (!sameTab) this.viewState = { mode: 'auto' };
             }
             if (options.viewState)
                 this.viewState = options.viewState;
@@ -128,7 +130,7 @@
         resize(width, height, dpr = 1) { if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(dpr))
             throw new RangeError('Finite viewport dimensions required.'); this.width = Math.max(1, width); this.height = Math.max(1, height); this.devicePixelRatio = G.clamp(dpr, 1, 3); if (this.sceneGraph)
             this.renderScene(this.sceneGraph); }
-        resume() { this.suspended = false; this.host.resume(); }
+        resume() { if (this.canPresent && !this.canPresent()) { this.suspend(); return; } this.suspended = false; this.host.resume(); }
         suspend() { this.suspended = true; this.host.suspend(); }
         clear() { this.setComparison(null); this.host.suspend(); this.sceneGraph = null; this.compiled = null; this.lastFrame = null; this.host.lastFrame = null; this.host.pending = null; this.host.painter?.clearCache(); }
         renderMessage(message) { this.message = String(message); this.onError?.(new Error(message)); }
@@ -136,7 +138,7 @@
             this.renderScene(this.sceneGraph); await this.ready; return result; }
         async exportPng() { return this.host.exportPng(); }
         async exportPdf(options) { return this.host.exportPdf(options); }
-        async dispose() { this.clear(); await this.host.dispose(); }
+        dispose() { if (!this.disposePromise) { this.clear(); this.disposePromise = this.host.dispose(); } return this.disposePromise; }
         destroy() { return this.dispose(); }
     }
     Object.assign(N, { RenderingDataController, RenderingDocumentBuilder, RenderingSurfaceManager, initializeSkia });
