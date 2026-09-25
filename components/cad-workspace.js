@@ -133,7 +133,7 @@
                     throw new RangeError('Command length limit exceeded.');
                 const args = (text.match(/"[^"]*"|'[^']*'|\S+/g) || []).map(v => v.replace(/^["']|["']$/g, '')), command = args.shift().toUpperCase(), m = this.manager;
                 if (command === 'HELP') {
-                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF | COMPARE [drawing name] | COMPARENEXT | COMPAREPREV | COMPARETOGGLE | COMPAREIMPORT | COMPAREEXPORT | COMPARECLOSE. These are view commands; tree editing remains in Home.');
+                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF | COMPARE [drawing name] | COMPARENEXT | COMPAREPREV | COMPARETOGGLE | COMPAREIMPORT | COMPAREEXPORT | COMPAREGROUP grouped/local/combined | COMPARESHAPE rectangular/polygonal | COMPARERCMARGIN units | COMPARESHOWRC ON/OFF | COMPARECLOSE. These are view commands; tree editing remains in Home.');
                     return;
                 }
                 if (this.compare && await this.compare.command(command, args)) return;

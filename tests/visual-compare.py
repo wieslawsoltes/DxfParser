@@ -120,6 +120,43 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.page.evaluate('compare.end()');self.page.wait_for_timeout(300);self.settle()
         self.assertJS('m.comparison===null && app.tabs.length===1 && compare.currentText()===sourceBeforeSnapshot')
 
+    def grouped_reference(self):
+        def line(handle,x): return [(0,'LINE'),(5,handle),(8,'DRAFT'),(10,x),(20,0),(11,x+1),(21,1)]
+        self.render(h.drawing(h.CIRCLE,tables=h.TABLES))
+        self.reference(h.CIRCLE + line('D1',0) + line('D2',2.5) + line('D3',50))
+    def test_compare_14_proximity_navigation_retains_individual_object_inspection(self):
+        self.grouped_reference()
+        self.assertJS('m.comparison.result.counts.changes===3 && m.comparison.result.changeSets.length===2')
+        self.assertIn('3 changed objects · 2 change sets',self.page.locator('.dxf-compare-summary').inner_text())
+        self.command('COMPAREPREV');self.assertJS('compare.selectedIndex===2')
+        self.command('COMPARENEXT');self.assertJS('compare.selectedIndex===0')
+        self.command('COMPARENEXT');self.assertJS('compare.selectedIndex===2')
+        self.page.evaluate('() => { compare.view.selectKey(m.comparison.result.changes[1].id); }');self.settle()
+        self.assertJS('compare.selectedIndex===1 && !compare.importButton.disabled')
+        self.command('COMPARENEXT');self.assertJS('compare.selectedIndex===2')
+        self.command('COMPARERCMARGIN 0');self.assertJS('m.comparison.result.changeSets.length===3')
+        self.command('COMPAREGROUP combined');self.assertJS('m.comparison.result.changeSets.length===1')
+    def test_compare_15_native_cloud_shape_and_grouping_controls_reuse_matching(self):
+        self.grouped_reference()
+        self.page.evaluate('() => { window.originalChanges=m.comparison.result.changes;window.originalSets=m.comparison.result.changeSets; }')
+        self.page.locator('.dxf-compare-settings > summary').click();self.settle()
+        self.page.get_by_label('Cloud shape',exact=True).select_option('polygonal');self.settle()
+        self.assertJS('m.comparison.result.changes===originalChanges && m.comparison.result.changeSets===originalSets && m.comparison.options.cloudShape==="polygonal"')
+        self.assertJS('m.lastFrame.scene.primitives.filter(p=>p.comparisonDecoration).length===2 && !m.comparisonError')
+        self.page.get_by_label('Cloud grouping',exact=True).select_option('local');self.settle()
+        self.assertJS('m.comparison.result.changes===originalChanges && m.comparison.result.changeSets.length===3')
+        self.page.evaluate('() => { compare.end(); }');self.settle()
+    def test_compare_16_command_validation_and_snapshot_preserve_cloud_options(self):
+        self.grouped_reference();self.command('COMPARESHAPE polygonal');self.command('COMPAREGROUP local')
+        self.command('COMPARESHOWRC OFF');self.assertJS('!m.comparison.options.clouds')
+        self.command('COMPARESHOWRC maybe');self.assertJS('!m.comparison.options.clouds')
+        self.command('COMPARESHOWRC 1');self.assertJS('m.comparison.options.clouds')
+        self.command('COMPARETEXT OFF');self.assertJS('!m.comparison.options.text')
+        self.command('COMPAREHATCH 0');self.assertJS('!m.comparison.options.hatch')
+        self.command('COMPARESHAPE unsupported');self.assertJS('m.comparison.options.cloudShape==="polygonal"')
+        self.page.evaluate('() => { const text=DxfCompare.snapshot(compare.currentText(),compare.referenceText,compare.settings);compare.restoreSnapshot(text); }');self.settle()
+        self.assertJS('m.comparison.options.cloudShape==="polygonal" && m.comparison.options.cloudMode==="local" && m.comparison.result.changeSets.length===3')
+
 if __name__ == '__main__':
     names=[name for name in dir(VisualCompareTests) if name.startswith('test_compare_')]
     suite=unittest.TestSuite(VisualCompareTests(name) for name in names)

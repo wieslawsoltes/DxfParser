@@ -8,11 +8,19 @@
     'use strict';
     if (!A?.SceneCompiler) throw new TypeError('A DxfSkia API is required.');
     const G = A.geometry;
+    const cloudEngine = (typeof module === 'object' && module.exports ? require('./clouds.js') : globalThis.DxfCompareCloudEngine)(A);
     const defaults = Object.freeze({ precision: 6, properties: 127, text: true, hatch: true,
         showCurrent: true, showReference: true, showCommon: true, clouds: true,
-        cloudMode: 'local', margin: 1, currentFirst: false, commonOpacity: .65,
+        cloudMode: 'grouped', cloudShape: 'rectangular', margin: 1, currentFirst: false, commonOpacity: .65,
         currentColor: '#5ce080', referenceColor: '#ff6678', commonColor: '#a8b5c8', cloudColor: '#ffd166',
-        maxObjects: 500000, maxSignatureBytes: 64 * 1024 * 1024 });
+        maxCloudWork: 50000000, maxCloudSegments: 500000, maxObjects: 500000, maxSignatureBytes: 64 * 1024 * 1024 });
+    const groupCache = new WeakMap();
+    function changeSets(result) {
+        const { cloudMode, margin, maxCloudWork } = result.options, cached = groupCache.get(result.changes);
+        if (cached && cached.cloudMode === cloudMode && cached.margin === margin && cached.maxCloudWork === maxCloudWork) return cached.groups;
+        const groups = cloudEngine.groupChanges(result.changes, result.options);
+        groupCache.set(result.changes, { cloudMode, margin, maxCloudWork, groups }); return groups;
+    }
     const propBits = Object.freeze({ color: 1, layer: 2, linetype: 4, linetypeScale: 8, lineweight: 16, transparency: 32, thickness: 64 });
     const key = s => String(s ?? '').trim().toUpperCase();
     function options(value = {}) {
@@ -21,8 +29,9 @@
         if (!Number.isInteger(o.properties) || o.properties < 0 || o.properties > 127) throw new RangeError('Property mask must be 0–127.');
         if (!Number.isFinite(o.margin) || o.margin < 0 || o.margin > 1e12) throw new RangeError('Cloud margin must be 0–1e12 drawing units.');
         if (!Number.isFinite(o.commonOpacity) || o.commonOpacity < 0 || o.commonOpacity > 1) throw new RangeError('Common opacity must be 0–1.');
-        if (!['local', 'combined'].includes(o.cloudMode)) throw new RangeError('Cloud mode must be local or combined.');
-        for (const n of ['maxObjects', 'maxSignatureBytes']) if (!Number.isSafeInteger(o[n]) || o[n] < 1) throw new RangeError('Invalid comparison budget: ' + n);
+        if (!['grouped', 'local', 'combined'].includes(o.cloudMode)) throw new RangeError('Cloud mode must be grouped, local or combined.');
+        if (!['rectangular', 'polygonal'].includes(o.cloudShape)) throw new RangeError('Cloud shape must be rectangular or polygonal.');
+        for (const n of ['maxObjects', 'maxSignatureBytes', 'maxCloudWork', 'maxCloudSegments']) if (!Number.isSafeInteger(o[n]) || o[n] < 1) throw new RangeError('Invalid comparison budget: ' + n);
         for (const n of ['currentColor', 'referenceColor', 'commonColor', 'cloudColor']) if (!/^#[0-9a-f]{6}$/i.test(o[n])) throw new TypeError('Colors must be six-digit hexadecimal values.');
         for (const n of ['text', 'hatch', 'showCurrent', 'showReference', 'showCommon', 'clouds', 'currentFirst']) if (typeof o[n] !== 'boolean') throw new TypeError(n + ' must be boolean.');
         return o;
@@ -111,34 +120,36 @@
         if ([...currentScene.primitives, ...referenceScene.primitives].some(p => p.kind === 'image')) notices.push({ code: 'compare-image-content', severity: 'warning', message: 'Image placement/resource names are compared, not external pixel contents.' });
         const counts = { currentOnly: currentOnly.length, referenceOnly: referenceOnly.length, common: common.length,
             modified: changes.filter(c => c.status === 'modified').length, changes: changes.length };
-        return { options: o, currentScene, referenceScene, currentOnly, referenceOnly, common, changes, counts, notices,
+        const result = { options: o, currentScene, referenceScene, currentOnly, referenceOnly, common, changes, counts, notices,
             incomplete: notices.some(d => d.severity !== 'info'), bounds: unionOf(changes) };
+        result.changeSets = changeSets(result); return result;
     }
     function cloudBounds(result) {
-        const boxes = result.changes.filter(c => !G.isEmpty(c.bounds)).map(c => ({ ...c.bounds }));
-        if (!boxes.length) return [];
-        const expanded = boxes.map(b => ({ ...b, minX: b.minX - result.options.margin, minY: b.minY - result.options.margin, maxX: b.maxX + result.options.margin, maxY: b.maxY + result.options.margin }));
-        // Local mode intentionally emits one cloud per change set. No quadratic clustering.
-        return result.options.cloudMode === 'combined' ? [unionOf(expanded.map(bounds => ({ bounds })))] : expanded;
+        return changeSets(result).filter(g => !G.isEmpty(g.cloudBounds)).map(g => g.cloudBounds);
     }
-    function cloudPrimitive(box, i, color) {
-        const { minX: x, minY: y } = box, w = Math.max(box.maxX - x, .01), h = Math.max(box.maxY - y, .01), z = Number.isFinite(box.minZ) ? box.minZ : 0;
-        const corners = [G.vec(x, y, z), G.vec(x + w, y, z), G.vec(x + w, y + h, z), G.vec(x, y + h, z)], path = [['M', corners[0]]];
-        const chord = Math.max(w, h) / 12;
-        for (let edge = 0; edge < 4; edge++) {
-            const a = corners[edge], b = corners[(edge + 1) % 4], dx = b.x - a.x, dy = b.y - a.y, n = Math.min(32, Math.max(2, Math.ceil(Math.hypot(dx, dy) / chord)));
-            for (let j = 0; j < n; j++) {
-                const t = (j + .5) / n, end = G.vec(a.x + dx * (j + 1) / n, a.y + dy * (j + 1) / n, z);
-                path.push(['Q', G.vec(a.x + dx * t + dy / n * .35, a.y + dy * t - dx / n * .35, z), end]);
+    function cloudPrimitive(group, i, color, o, chord, consume) {
+        const contours = o.cloudShape === 'polygonal' ? cloudEngine.rectangleUnion(group.rectangles, o) : [cloudEngine.rectangle(group.cloudBounds)], path = [];
+        for (const corners of contours) {
+            path.push(['M', corners[0]]);
+            for (let edge = 0; edge < corners.length; edge++) {
+                const a = corners[edge], b = corners[(edge + 1) % corners.length], dx = b.x - a.x, dy = b.y - a.y;
+                const n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / chord)); consume(n);
+                for (let j = 0; j < n; j++) {
+                    const t = (j + .5) / n, end = G.vec(a.x + dx * (j + 1) / n, a.y + dy * (j + 1) / n, a.z);
+                    path.push(['Q', G.vec(a.x + dx * t + dy / n * .35, a.y + dy * t - dx / n * .35, a.z), end]);
+                }
             }
+            path.push(['Z']);
         }
-        path.push(['Z']); const f = G.flatten(path, .02, 4096);
-        return { id: 'compare-cloud:' + i, handle: 'compare-cloud:' + i, entityHandle: '', type: 'REVCLOUD', kind: 'path', path, points: f.points, rings: f.rings,
-            closed: true, fill: false, style: { layer: 'Comparison clouds', color, alpha: 1, lineweight: 25, lineweightVisible: false, dash: [], dashScale: 1 },
-            bounds: G.pathBounds(path), clips: [], blockPath: [], instancePath: [], comparisonDecoration: true };
+        // Decorations cannot be picked or snapped. Retain contour vertices for
+        // broad-phase work; native Skia consumes the exact quadratic cloud path.
+        return { id: 'compare-cloud:' + i, handle: 'compare-cloud:' + i, entityHandle: '', type: 'REVCLOUD', kind: 'path', path,
+            points: contours.flat(), rings: contours, closed: true, fill: false,
+            style: { layer: 'Comparison clouds', color, alpha: 1, lineweight: 25, lineweightVisible: false, dash: [], dashScale: 1 },
+            bounds: G.pathBounds(path), clips: [], blockPath: [], instancePath: [], comparisonDecoration: true, comparisonChangeSetId: group.id };
     }
     function compose(result) {
-        const o = result.options, primitives = [];
+        const o = result.options, primitives = []; result.changeSets = changeSets(result);
         const add = (groups, side, color, alpha = 1) => {
             for (const group of groups) for (const p of group.primitives) {
                 const reference = side === 'reference';
@@ -155,7 +166,13 @@
         const current = () => { if (o.showCurrent) add(result.currentOnly, 'current', o.currentColor); };
         const reference = () => { if (o.showReference) add(result.referenceOnly, 'reference', o.referenceColor); };
         if (o.currentFirst) { current(); reference(); } else { reference(); current(); }
-        if (o.clouds) cloudBounds(result).forEach((b, i) => primitives.push(cloudPrimitive(b, i, o.cloudColor)));
+        if (o.clouds) {
+            const extent = unionOf([result.currentScene, result.referenceScene]), width = extent.maxX - extent.minX, height = extent.maxY - extent.minY;
+            const chord = Math.max(.01, Number.isFinite(width) ? width / 40 : 0, Number.isFinite(height) ? height / 40 : 0, o.margin / 4);
+            let remaining = o.maxCloudSegments;
+            const consume = n => { if (!Number.isSafeInteger(n) || (remaining -= n) < 0) throw new RangeError('Comparison cloud segment budget exceeded.'); };
+            result.changeSets.forEach((g, i) => { if (!G.isEmpty(g.cloudBounds)) primitives.push(cloudPrimitive(g, i, o.cloudColor, o, chord, consume)); });
+        }
         const scene = { ...result.currentScene, primitives, bounds: unionOf(primitives.filter(p => !p.infinite)),
             diagnostics: result.notices, stats: { ...result.currentScene.stats, primitives: primitives.length }, comparison: result, preserveForExport: true };
         scene.index = new A.SpatialIndex(primitives.map((primitive, index) => ({ primitive, index, bounds: primitive.bounds })));
@@ -181,7 +198,9 @@
                 layout = found.name;
                 this.referenceScene = new A.SceneCompiler(this.reference, compileOptions).compile(layout);
             }
-            const result = compareScenes(currentScene, this.referenceScene, this.options);
+            const previous = this.result, matchKeys = ['precision', 'properties', 'text', 'hatch', 'maxObjects', 'maxSignatureBytes'];
+            const reusable = previous && previous.currentScene === currentScene && previous.referenceScene === this.referenceScene && matchKeys.every(k => previous.options[k] === this.options[k]);
+            const result = reusable ? { ...previous, options: this.options } : compareScenes(currentScene, this.referenceScene, this.options);
             const composed = compose(result);
             this.result = result; this.composed = composed; this.currentScene = currentScene; this.builtRevision = this.revision;
             return composed;
@@ -200,8 +219,9 @@
     }
     function report(result) {
         return { format: 'dxf-render-compare-report', version: 1, layout: result.currentScene.layout, counts: result.counts, options: result.options, incomplete: result.incomplete, notices: result.notices,
+            changeSets: changeSets(result).map(g => ({ id: g.id, changeIds: g.changeIds, bounds: G.isEmpty(g.bounds) ? null : g.bounds, cloudBounds: G.isEmpty(g.cloudBounds) ? null : g.cloudBounds })),
             changes: result.changes.map(c => ({ id: c.id, status: c.status, current: c.current && { id: c.current.id, handle: c.current.handle, type: c.current.type, layer: c.current.layer },
                 reference: c.reference && { id: c.reference.id, handle: c.reference.handle, type: c.reference.type, layer: c.reference.layer }, bounds: G.isEmpty(c.bounds) ? null : c.bounds })) };
     }
-    return { createDxfCompare, defaults, propBits, options, descriptor, compareScenes, compose, cloudBounds, Session, snapshot, readSnapshot, report };
+    return { groupChanges: cloudEngine.groupChanges, rectangleUnion: cloudEngine.rectangleUnion, createDxfCompare, defaults, propBits, options, descriptor, compareScenes, compose, cloudBounds, Session, snapshot, readSnapshot, report };
 });

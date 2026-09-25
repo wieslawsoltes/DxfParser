@@ -36,8 +36,11 @@
             this.field(details, 'margin', 'Cloud margin · drawing units', 'number', 0, 1e12, .1);
             this.field(details, 'commonOpacity', 'Unchanged opacity', 'range', 0, 1, .05);
             const mode = element('label', 'Cloud grouping'); this.cloudMode = element('select'); this.cloudMode.setAttribute('aria-label', 'Cloud grouping');
-            for (const [value, label] of [['local', 'One cloud per change'], ['combined', 'One combined cloud']]) { const option = element('option', label); option.value = value; this.cloudMode.append(option); }
+            for (const [value, label] of [['grouped', 'Nearby changes'], ['local', 'One cloud per object'], ['combined', 'All changes']]) { const option = element('option', label); option.value = value; this.cloudMode.append(option); }
             this.cloudMode.addEventListener('change', () => this.run(() => this.configure({ cloudMode: this.cloudMode.value })), { signal: this.abort.signal }); mode.append(this.cloudMode); details.append(mode);
+            const shape = element('label', 'Cloud shape'); this.cloudShape = element('select'); this.cloudShape.setAttribute('aria-label', 'Cloud shape');
+            for (const value of ['rectangular', 'polygonal']) { const option = element('option', value); option.value = value; this.cloudShape.append(option); }
+            this.cloudShape.addEventListener('change', () => this.run(() => this.configure({ cloudShape: this.cloudShape.value })), { signal: this.abort.signal }); shape.append(this.cloudShape); details.append(shape);
             const properties = element('fieldset'); properties.append(element('legend', 'Property changes · COMPAREPROPS'));
             for (const [name, bit] of Object.entries(C.propBits)) {
                 const label = element('label', name.replace(/([A-Z])/g, ' $1')), input = element('input'); input.type = 'checkbox'; input.checked = true; input.dataset.compareProperty = name;
@@ -108,13 +111,13 @@
         configure(patch) { const settings = C.options({ ...this.settings, ...patch }); this.settings = settings; this.manager.comparison?.configure(patch); this.syncControls(); this.repaint(); this.refresh(); }
         syncControls() {
             for (const [name, control] of this.controls) control.type === 'checkbox' ? control.checked = this.settings[name] : control.value = this.settings[name];
-            this.cloudMode.value = this.settings.cloudMode;
+            this.cloudMode.value = this.settings.cloudMode; this.cloudShape.value = this.settings.cloudShape;
             for (const input of this.panel.querySelectorAll('[data-compare-property]')) input.checked = !!(this.settings.properties & C.propBits[input.dataset.compareProperty]);
         }
         toggle() { const s = this.require(); s.enabled = !s.enabled; this.repaint(); this.refresh(); }
         end() {
             this.loadGeneration++; this.manager.setComparison(null); this.referenceText = null; this.referenceName = null; this.referenceTabId = null; this.seenResult = null;
-            this.selectedIndex = -1; this.view?.setRows([]); this.repaint(); this.refresh();
+            this.selectedIndex = -1; this.changeSetIndices?.clear(); this.view?.setRows([]); this.repaint(); this.refresh();
         }
         repaint() { this.cad.repaint(); }
         refreshComparison() {
@@ -132,21 +135,24 @@
             if (!s) {
                 this.summary.textContent = 'Comparison inactive. Choose a reference DXF or another open drawing.';
                 if (this.seenResult) { this.view?.setRows([]); this.seenResult = null; }
-                this.referenceText = null; this.referenceTabId = null; this.importButton.disabled = true; return;
+                this.referenceText = null; this.referenceTabId = null; this.changeSetIndices?.clear(); this.importButton.disabled = true; return;
             }
             this.toggleButton.textContent = s.enabled ? 'Hide comparison' : 'Show comparison';
             const r = s.result; if (!r) return;
             const count = r.counts;
-            this.summary.textContent = `${count.currentOnly} current only · ${count.referenceOnly} reference only · ${count.common} unchanged · ${count.changes} change sets. Reference: ${this.referenceName || 'drawing'}${s.enabled ? '' : ' · hidden'}.`;
+            this.summary.textContent = `${count.currentOnly} current only · ${count.referenceOnly} reference only · ${count.common} unchanged · ${count.changes} changed objects · ${r.changeSets.length} change sets. Reference: ${this.referenceName || 'drawing'}${s.enabled ? '' : ' · hidden'}.`;
             const issueCount = this.manager.diagnostics?.filter(d => d.severity !== 'info').length || 0;
             if (this.manager.comparisonError) this.message.textContent = this.manager.comparisonError.message;
             else if (r.incomplete || issueCount) this.message.textContent = `Coverage warning: ${Math.max(r.notices.length, issueCount)} rendering notices. Equal visible geometry is not proof of equal DXF databases; inspect Rendering Diagnostics.`;
             if (this.seenResult !== r) {
-                this.seenResult = r; this.selectedIndex = Math.min(this.selectedIndex, r.changes.length - 1);
-                const rows = r.changes.map((c, i) => ({ key: c.id, changeIndex: i, values: [c.status, c.current?.type || c.reference?.type, c.current?.handle || '—', c.reference?.handle || '—', c.current?.layer || c.reference?.layer],
-                    raw: JSON.stringify({ status: c.status, bounds: G.isEmpty(c.bounds) ? null : c.bounds }, null, 2) }));
-                if (!this.view && root.DxfAnalysis) this.view = new root.DxfAnalysis.AnalysisView(this.rowsHost, { title: 'Drawing changes', columns: ['Status', 'Entity', 'Current handle', 'Reference handle', 'Layer'], rows, visualization: false,
-                    onSelect: row => { const current = this.manager.comparison?.result, change = current?.changes[row.changeIndex]; this.selectedIndex = row.changeIndex; this.focus(change?.bounds); this.importButton.disabled = !change?.reference; } });
+                const selectedId = this.seenResult?.changes[this.selectedIndex]?.id;
+                this.seenResult = r; this.selectedIndex = selectedId ? r.changes.findIndex(c => c.id === selectedId) : -1;
+                this.changeSetIndices = new Map();
+                r.changeSets.forEach((group, i) => group.changeIds.forEach(id => this.changeSetIndices.set(id, i)));
+                const rows = r.changes.map((c, i) => ({ key: c.id, changeIndex: i, values: [c.status, c.current?.type || c.reference?.type, c.current?.handle || '—', c.reference?.handle || '—', c.current?.layer || c.reference?.layer, (this.changeSetIndices.get(c.id) ?? -1) + 1],
+                    raw: JSON.stringify({ status: c.status, changeSet: r.changeSets[this.changeSetIndices.get(c.id)]?.id, bounds: G.isEmpty(c.bounds) ? null : c.bounds }, null, 2) }));
+                if (!this.view && root.DxfAnalysis) this.view = new root.DxfAnalysis.AnalysisView(this.rowsHost, { title: 'Drawing changes', columns: ['Status', 'Entity', 'Current handle', 'Reference handle', 'Layer', 'Change set'], rows, visualization: false,
+                    onSelect: row => { const current = this.manager.comparison?.result, change = current?.changes[row.changeIndex]; if (!change || change.id !== row.key) return; this.selectedIndex = row.changeIndex; this.focus(change.bounds); this.importButton.disabled = !change.reference; } });
                 else this.view?.setRows(rows);
             }
             this.importButton.disabled = !r.changes[this.selectedIndex]?.reference || this.manager.layout.toUpperCase() !== 'MODEL';
@@ -160,9 +166,11 @@
             this.overlay?.applyViewState({ mode: 'custom', center, scale, rotationRad: 0 });
         }
         navigate(delta) {
-            const r = this.require().result; if (!r.changes.length) return;
-            this.selectedIndex = (this.selectedIndex + delta + r.changes.length) % r.changes.length;
-            const c = r.changes[this.selectedIndex]; this.view?.selectKey(c.id); this.focus(c.bounds); this.refresh();
+            const r = this.require().result; if (!r.changeSets.length) return;
+            const active = this.changeSetIndices?.get(r.changes[this.selectedIndex]?.id);
+            const next = active === undefined ? (delta < 0 ? r.changeSets.length - 1 : 0) : (active + delta + r.changeSets.length) % r.changeSets.length;
+            const group = r.changeSets[next]; this.selectedIndex = group.firstIndex;
+            this.view?.selectKey(r.changes[this.selectedIndex].id); this.focus(group.cloudBounds); this.refresh();
         }
         importSelected() { const c = this.require().result.changes[this.selectedIndex]; if (!c?.reference) throw new Error('Select a change with a reference object.'); return this.importReference([c.reference.id]); }
         importReference(ids) {
@@ -236,13 +244,27 @@
             else if (command === 'COMPAREUNDO') this.undo();
             else if (command === 'COMPAREREDO') this.redo();
             else if (command === 'COMPAREEXPORT') this.saveSnapshot();
+            else if (command === 'COMPAREGROUP' || command === 'COMPARESHAPE') {
+                const name = command === 'COMPAREGROUP' ? 'cloudMode' : 'cloudShape';
+                if (!args.length) this.cad.write(command + ' = ' + this.settings[name]);
+                else { if (args.length !== 1) throw new Error('Provide one comparison setting.'); this.configure({ [name]: args[0].toLowerCase() }); }
+            }
+            else if (['COMPARESHOW1', 'COMPARESHOW2', 'COMPARESHOWCOMMON', 'COMPARESHOWRC', 'COMPARETEXT', 'COMPAREHATCH'].includes(command)) {
+                const name = { COMPARESHOW1:'showCurrent', COMPARESHOW2:'showReference', COMPARESHOWCOMMON:'showCommon', COMPARESHOWRC:'clouds', COMPARETEXT:'text', COMPAREHATCH:'hatch' }[command];
+                if (!args.length) this.cad.write(command + ' = ' + Number(this.settings[name]));
+                else { if (args.length !== 1 || !/^(0|1|ON|OFF)$/i.test(args[0])) throw new Error(command + ' requires 0, 1, ON or OFF.'); this.configure({ [name]: /^(1|ON)$/i.test(args[0]) }); }
+            }
+            else if (command === 'COMPARERCMARGIN') {
+                if (!args.length) this.cad.write(command + ' = ' + this.settings.margin);
+                else { if (args.length !== 1) throw new Error('Provide one cloud margin.'); this.configure({ margin: Number(args[0]) }); }
+            }
             else if (command === 'COMPAREINFO') this.cad.write(JSON.stringify(C.report(this.require().result).counts));
             else if (command === 'COMPAREPROPS') this.configure({ properties: Number(args[0]) });
             else if (command === 'COMPARETOLERANCE') this.configure({ precision: Number(args[0]) });
             else throw new Error('Unknown comparison command. Use COMPARE, COMPARENEXT, COMPAREPREV, COMPARETOGGLE, COMPAREIMPORT, COMPAREEXPORT or COMPARECLOSE.');
             await this.manager.ready; return true;
         }
-        dispose() { this.abort.abort(); this.loadGeneration++; this.unsubscribe?.(); this.manager.comparison = null; this.referenceText = null; this.view?.dispose(); this.undoStack = []; this.redoStack = []; }
+        dispose() { this.abort.abort(); this.loadGeneration++; this.unsubscribe?.(); this.manager.comparison = null; this.referenceText = null; this.changeSetIndices?.clear(); this.view?.dispose(); this.undoStack = []; this.redoStack = []; }
     }
     C.CompareController = CompareController;
 })(globalThis);
