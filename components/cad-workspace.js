@@ -150,7 +150,7 @@
                     throw new RangeError('Command length limit exceeded.');
                 const args = (text.match(/"[^"]*"|'[^']*'|\S+/g) || []).map(v => v.replace(/^["']|["']$/g, '')), command = args.shift().toUpperCase(), m = this.manager;
                 if (command === 'HELP') {
-                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF | COMPARE [drawing name] | COMPARENEXT | COMPAREPREV | COMPARETOGGLE | COMPAREIMPORT | COMPAREEXPORT | COMPAREGROUP grouped/local/combined | COMPARESHAPE rectangular/polygonal | COMPARERCMARGIN units | COMPARESHOWRC ON/OFF | COMPARECLOSE. These are view commands; tree editing remains in Home.');
+                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF | COMPARE [drawing name] | COMPARENEXT | COMPAREPREV | COMPARETOGGLE | COMPAREIMPORT | COMPAREEXPORT | COMPAREGROUP grouped/local/combined | COMPARESHAPE rectangular/polygonal | COMPARERCMARGIN units | COMPARESHOWRC ON/OFF | COMPARECLOSE | RENDERALL | RENDERTILE horizontal/vertical/grid | RENDERDRAWING name | RENDERLINK off/world/relative | RENDERMATCH. These are view commands; tree editing remains in Home.');
                     return;
                 }
                 if (this.compare && await this.compare.command(command, args)) return;
@@ -297,7 +297,12 @@
                     cmd('skia-render-all', 'Render all drawings', () => this.app.drawingViews.renderAll(), { icon: 'window', enabled: () => this.app.drawingViews.tabs().length > 0 }),
                     cmd('skia-drawing', 'Active drawing', value => this.app.drawingViews.openById(value), { type: 'dropdown', items: [], enabled: () => this.app.drawingViews.tabs().length > 0 }),
                     cmd('skia-tile-horizontal', 'Tile side by side', () => this.app.drawingViews.tile('horizontal'), { icon: 'columns', enabled: () => this.app.drawingViews.records.size > 1 }),
-                    cmd('skia-tile-vertical', 'Tile stacked', () => this.app.drawingViews.tile('vertical'), { icon: 'panel', enabled: () => this.app.drawingViews.records.size > 1 })
+                    cmd('skia-tile-vertical', 'Tile stacked', () => this.app.drawingViews.tile('vertical'), { icon: 'panel', enabled: () => this.app.drawingViews.records.size > 1 }),
+                    cmd('skia-tile-grid', 'Tile grid', () => this.app.drawingViews.tile('grid'), { icon: 'window', enabled: () => this.app.drawingViews.records.size > 1 }),
+                    cmd('skia-navigation-link', 'Navigation', value => this.app.drawingViews.setNavigation(value), { type: 'dropdown', value: 'off', items: [
+                        {value:'off',label:'Independent'}, {value:'world',label:'Linked coordinates'}, {value:'relative',label:'Linked relative view'}
+                    ], enabled }),
+                    cmd('skia-match-view', 'Match active view', () => this.app.drawingViews.matchView(), { icon: 'fit', enabled })
                 ])] : []),
                 ...(this.compare ? [group('skia-compare', 'Drawing Compare', [
                     cmd('skia-compare-open', 'Compare drawings', () => this.compare.open(), { icon: 'layers', size: 'large', enabled }),
@@ -328,7 +333,7 @@
                 ], { priority: 100 })
             ];
         }
-        updateRibbon(r) { if (this.app.drawingViews) r.update('skia-drawing', {items: this.app.drawingViews.tabs().map(t => ({value: String(t.id), label: t.name})), value: String(this.overlay.currentTabId ?? '')}); const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
+        updateRibbon(r) { if (this.app.drawingViews) r.update('skia-navigation-link', {value: this.app.drawingViews.navigation.mode}); if (this.app.drawingViews) r.update('skia-drawing', {items: this.app.drawingViews.tabs().map(t => ({value: String(t.id), label: t.name})), value: String(this.overlay.currentTabId ?? '')}); const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
         dispose() { if (this.disposed)
             return; this.disposed = true; this.detachWorkspace?.(); this.compare?.dispose(); this.abort.abort(); for (const v of this.views)
             v.dispose(); this.views = []; this.footer.remove(); this.manager.onPaint = this.previousPaint; this.manager.onError = this.previousError; this.manager.dispose(); }

@@ -60,4 +60,4 @@ Analysis tools now include linked distributions, matrices, reference graphs and 
 
 ## Multiple native drawing views
 
-Open multiple DXF sources and use **CAD View → Drawing Views → Render all drawings** to render them simultaneously. Each drawing has an independent dockable viewport, camera, selection, layout, resources and comparison session. See [multiple drawing views](docs/multiple-drawings.md).
+Open multiple DXF sources and use **CAD View → Drawing Views → Render all drawings** to render them simultaneously. Each drawing has an independent dockable viewport, camera, selection, layout, resources and comparison session. Balanced grid/linear layouts are undoable, with optional coordinate or relative linked navigation for side-by-side inspection. See [multiple drawing views](docs/multiple-drawings.md).
