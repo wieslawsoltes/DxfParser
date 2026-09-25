@@ -423,6 +423,8 @@ import '../components/ribbon-workspace.mjs';
   const state = {
     bootstrapped: false,
     resizeObserver: null,
+    resizeFrame: null,
+    rendererDisposed: false,
     parser: null,
     dataController: null,
     surfaceManager: null,
@@ -728,7 +730,9 @@ import '../components/ribbon-workspace.mjs';
   }
 
   function scheduleStatusRefresh() {
-    window.requestAnimationFrame(() => refreshRendererStatus());
+    if (!state.rendererDisposed) window.requestAnimationFrame(() => {
+      if (!state.rendererDisposed) refreshRendererStatus();
+    });
   }
 
   function persistViewToggles() {
@@ -908,18 +912,19 @@ import '../components/ribbon-workspace.mjs';
   }
 
   async function loadDxfFile(file) {
-    if (!file) return;
+    if (!file || state.rendererDisposed) return;
     if (!/\.dxf$/i.test(file.name)) { updateStatus(`Unsupported file type: ${file.name}. Only DXF files are supported.`); return; }
     updateStatus(`Loading ${file.name}...`);
     try {
       const maxInputBytes=128*1024*1024;
       if(file.size>maxInputBytes)throw new RangeError('DXF byte budget exceeded.');
       const sourceText=window.DxfSkia.dxfText(await file.arrayBuffer(),{maxInputBytes});
-      ingestDxfDocument({name:file.name,sourceText});
+      if (!state.rendererDisposed) ingestDxfDocument({name:file.name,sourceText});
     } catch(error) { updateStatus(`Unable to load ${file.name}: ${error.message}`); }
   }
 
   function ingestDxfDocument({ name, sourceText }) {
+    if (state.rendererDisposed) return false;
     if (!state.dataController) {
       updateStatus("Renderer not ready.");
       return;
@@ -967,7 +972,7 @@ import '../components/ribbon-workspace.mjs';
   }
 
   function renderDocument(record) {
-    if (!record || !record.doc || !state.surfaceManager) {
+    if (state.rendererDisposed || !record || !record.doc || !state.surfaceManager || state.surfaceManager.disposed) {
       return false;
     }
     attachOverlayHooks(state.overlayController);
@@ -1804,6 +1809,7 @@ import '../components/ribbon-workspace.mjs';
   }
 
   function sizeViewportLayers() {
+    if (state.rendererDisposed || state.surfaceManager?.disposed) return;
     const viewport = document.getElementById("editorViewport");
     if (!viewport) {
       return;
@@ -2529,25 +2535,48 @@ import '../components/ribbon-workspace.mjs';
     state.ribbonInitialized = true;
   }
 
+  function scheduleViewportResize() {
+    if (state.rendererDisposed || state.resizeFrame != null) return;
+    state.resizeFrame = window.requestAnimationFrame(() => {
+      state.resizeFrame = null;
+      sizeViewportLayers();
+    });
+  }
+
   function attachResizeHandling() {
     const viewport = document.getElementById("editorViewport");
-    if (!viewport || state.resizeObserver) {
-      return;
-    }
-
+    if (!viewport || state.resizeObserver || state.rendererDisposed) return;
     if (typeof ResizeObserver !== "function") {
-      console.warn("[editor] ResizeObserver not supported; viewport resizes will rely on window resize fallback.");
-      const legacyHandler = () => window.requestAnimationFrame(sizeViewportLayers);
-      window.addEventListener("resize", legacyHandler);
-      state.resizeObserver = { disconnect() { window.removeEventListener("resize", legacyHandler); } };
+      window.addEventListener("resize", scheduleViewportResize);
+      state.resizeObserver = { disconnect() { window.removeEventListener("resize", scheduleViewportResize); } };
       return;
     }
+    state.resizeObserver = new ResizeObserver(scheduleViewportResize);
+    state.resizeObserver.observe(viewport);
+  }
 
-    const observer = new ResizeObserver(() => {
-      window.requestAnimationFrame(sizeViewportLayers);
-    });
-    observer.observe(viewport);
-    state.resizeObserver = observer;
+  function disposeRenderer() {
+    if (state.rendererDisposed) return;
+    state.rendererDisposed = true;
+    state.resizeObserver?.disconnect();
+    state.resizeObserver = null;
+    if (state.resizeFrame != null) window.cancelAnimationFrame(state.resizeFrame);
+    state.resizeFrame = null;
+    const overlay = state.overlayController, surface = state.surfaceManager, data = state.dataController;
+    // Invalidate public entry points before cleanup can schedule more DOM work.
+    state.overlayController = state.surfaceManager = state.dataController = null;
+    state.currentDocId = null;
+    state.documents.clear();
+    const errors = [];
+    for (const release of [
+      () => window.DxfEditorApp.cadWorkspace?.dispose(),
+      () => overlay?.dispose(),
+      () => surface?.dispose(),
+      () => data?.dispose()
+    ]) {
+      try { release(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Editor renderer cleanup failed.');
   }
 
   function bootstrapRendererCore() {
@@ -2604,7 +2633,7 @@ import '../components/ribbon-workspace.mjs';
     initializeStatusBar();
     ensureLayoutDom();
     sizeViewportLayers();
-    window.requestAnimationFrame(sizeViewportLayers);
+    scheduleViewportResize();
     attachResizeHandling();
     const bootstrapped = bootstrapRendererCore();
     if (bootstrapped) {
@@ -2641,6 +2670,7 @@ import '../components/ribbon-workspace.mjs';
 
     initializeSkeleton();
     if (window.DxfDocking) window.DxfEditorApp.dockingWorkspace = window.DxfDocking.mountEditor(window.DxfEditorApp);
+    window.DxfEditorApp.dockingWorkspace?.onDispose(disposeRenderer);
     window.DxfWorkspaceStartup?.complete(window.DxfEditorApp.dockingWorkspace);
     console.info("[editor] DXF Editor skeleton initialized.");
   }

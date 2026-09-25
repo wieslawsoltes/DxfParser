@@ -112,4 +112,23 @@ class RenderingViewTests(unittest.TestCase):
             return copied && !container.classList.contains('rendering-property-grid') && !b.properties.disposed;
         }''')
 
+    def test_11_editor_workspace_disposal_releases_renderer_and_pending_resize(self):
+        self.context.close(); h.DockingTests.setUp(self)
+        h.DockingTests.load(self, 'editor/index.html')
+        self.page.evaluate("""() => {
+            window.retiredView=DxfEditorApp.getSurfaceManager();
+            window.retiredOverlay=DxfEditorApp.getOverlayController();
+            window.retiredData=retiredOverlay.dataController;
+            const viewport=DxfEditorApp.getViewportElement();
+            viewport.style.height='301px';
+            requestAnimationFrame(() => DxfEditorApp.dockingWorkspace.dispose());
+        }""")
+        self.page.wait_for_function('retiredView.disposed && retiredOverlay.disposed')
+        self.page.evaluate('''async () => {
+            await retiredView.dispose();
+            window.dispatchEvent(new Event('resize'));
+            await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);
+        }''')
+        self.assertJS('retiredData.disposed && retiredData.documents.size===0 && !DxfEditorApp.getSurfaceManager() && !DxfEditorApp.getOverlayController() && !DxfEditorApp.rerenderActiveDocument()')
+
 if __name__ == '__main__': unittest.main(verbosity=2)
