@@ -58,7 +58,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         value=json.loads(Path(download.value.path()).read_text())
         self.assertEqual(value['referenceText'],ref);self.assertEqual(value['format'],'dxf-render-compare');self.assertIn('currentText',value)
         self.page.evaluate('(value)=>{ window.snapshotValue=value; }',value)
-        self.page.evaluate('compare.restoreSnapshot(JSON.stringify(snapshotValue))');self.settle()
+        self.page.evaluate('() => { compare.restoreSnapshot(JSON.stringify(snapshotValue));window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.compare=app.cadWorkspace.compare; }');self.settle()
         self.assertJS('m.comparison.result.counts.modified===1 && app.tabs.length===2')
     def test_compare_05_import_undo_redo_and_tree_source_consistency(self):
         self.render();self.reference();self.command('COMPARENEXT')
@@ -74,11 +74,11 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.page.locator('.dxf-compare-panel').get_by_role('button',name='Import selected change',exact=True).click();self.settle()
         self.assertJS('compare.currentText()===before && compare.undoStack.length===0')
         self.assertIn('dictionaries',self.page.locator('.dxf-compare-message').inner_text())
-    def test_compare_07_document_switch_closes_comparison(self):
+    def test_compare_07_document_switch_preserves_source_owned_comparison(self):
         self.render();self.reference()
         self.page.locator('#fileInputLeft').set_input_files({'name':'different.dxf','mimeType':'application/dxf','buffer':h.drawing(h.LINE).encode()})
         self.page.wait_for_function('app.tabs.length===2');self.page.evaluate("o.open({pane:'left',tab:app.tabs[1]})");self.settle()
-        self.assertJS('!m.comparison && m.lastFrame.scene===m.compiled')
+        self.assertJS('!!m.comparison && !app.cadWorkspace.manager.comparison && app.cadWorkspace.manager!==m')
     def test_compare_08_reference_and_cloud_are_not_current_pick_targets(self):
         self.render();self.reference()
         self.assertJS("(()=>{const p=m.lastFrame.worldToScreen({x:40,y:5,z:0});return !DxfSkia.hitTest(m.lastFrame,p,3)})()")
@@ -154,7 +154,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.command('COMPARETEXT OFF');self.assertJS('!m.comparison.options.text')
         self.command('COMPAREHATCH 0');self.assertJS('!m.comparison.options.hatch')
         self.command('COMPARESHAPE unsupported');self.assertJS('m.comparison.options.cloudShape==="polygonal"')
-        self.page.evaluate('() => { const text=DxfCompare.snapshot(compare.currentText(),compare.referenceText,compare.settings);compare.restoreSnapshot(text); }');self.settle()
+        self.page.evaluate('() => { const text=DxfCompare.snapshot(compare.currentText(),compare.referenceText,compare.settings);compare.restoreSnapshot(text);window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.compare=app.cadWorkspace.compare; }');self.settle()
         self.assertJS('m.comparison.options.cloudShape==="polygonal" && m.comparison.options.cloudMode==="local" && m.comparison.result.changeSets.length===3')
 
 if __name__ == '__main__':

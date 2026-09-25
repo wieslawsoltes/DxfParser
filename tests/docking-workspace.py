@@ -283,7 +283,7 @@ class DockingTests(unittest.TestCase):
         self.assertJS("canvas===app.renderingOverlayController.canvas && canvas.width<640 && canvas.width>400")
         self.assertGreater(self.colors(),4)
         self.page.evaluate("w.manager.Find('rendering').Dock();w.hide('rendering')"); self.settle()
-        self.assertJS('app.renderingOverlayController.currentDoc===null')
+        self.assertJS('app.renderingOverlayController.surfaceManager.suspended && !app.drawingViews.active.open')
         self.page.evaluate("w.requestOpen('rendering')"); self.settle()
         self.assertGreater(self.colors(),4)
 

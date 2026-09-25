@@ -17,6 +17,7 @@
     const shell = document.querySelector('.main-container');
     const originalContent = document.querySelector('.content-wrapper');
     const renderer = app.renderingOverlayController;
+    const renderingTemplate = renderer.overlayRoot.cloneNode(true);
     // A narrow split must scroll rather than collapse the Data column to zero.
     for (const grid of [app.myTreeGridLeft, app.myTreeGridRight]) grid.minimumColumnWidths = { type: 200 };
     const commands = element('div', 'dxf-dock-commands');
@@ -106,6 +107,10 @@
     };
     if (global.DxfCad) panels.push(...global.DxfCad.create(app, 'parser').panels());
     if (global.DxfOffice) panels.push(global.DxfOffice.createPanel(app));
+    for (const panel of panels) if (panel.id.startsWith('render-')) {
+      const slot = element('div', 'dxf-render-tool-slot'); slot.append(panel.node);
+      panel.node = slot;
+    }
     const workspace = new Workspace({
       id: 'parser', title: 'DXF Parser', shell, panels, deferRestore: true,
       presets: ['Compare', 'Review', 'Focus', 'CAD'],
@@ -117,25 +122,25 @@
           main = new A.LayoutPanel({ Orientation: 'Vertical', Children: [
             new A.LayoutPanel({ Orientation: 'Horizontal', Children: [
               new A.LayoutAnchorablePane({ DockWidth: 250, DockMinWidth: 180, Children: ['render-layers','render-blocks','render-resources'].map(id => w.make(id)) }),
-              new A.LayoutDocumentPane({ Id: 'dxf-pane-left', DockWidth: '3*', Children: ['rendering',...ids].map(id => w.make(id)) }),
+              new A.LayoutDocumentPane({ Id: 'dxf-pane-left', DockWidth: '3*', Children: [...(app.drawingViews?.layoutIds() || ['rendering']),...ids].map(id => w.make(id)) }),
               new A.LayoutAnchorablePane({ DockWidth: 320, DockMinWidth: 200, Children: ['render-properties','render-diagnostics','render-info'].map(id => w.make(id)) })
             ] }),
             new A.LayoutAnchorablePane({ DockHeight: 140, DockMinHeight: 80, Children: [w.make('render-console')] })
           ] });
         } else if (preset === 'Focus') {
           const ids = [...w.definitions.values()].filter(d => d.fileSide).map(d => d.id);
-          main = new A.LayoutDocumentPane({ Id: 'dxf-pane-left', Children: [...(ids.length ? ids : ['tree-left']), 'rendering'].map(id => w.make(id)) });
+          main = new A.LayoutDocumentPane({ Id: 'dxf-pane-left', Children: [...(ids.length ? ids : ['tree-left']), ...(app.drawingViews?.layoutIds() || ['rendering'])].map(id => w.make(id)) });
         } else if (preset === 'Review') {
           const ids = [...w.definitions.values()].filter(d => d.fileSide).map(d => d.id);
           main = new A.LayoutPanel({ Orientation: 'Horizontal', Children: [
             new A.LayoutDocumentPane({ Id: 'dxf-pane-left', DockWidth: '0.8*', Children: (ids.length ? ids : ['tree-left']).map(id => w.make(id)) }),
-            new A.LayoutDocumentPane({ DockWidth: '1.8*', Children: [w.make('rendering')] }),
+            new A.LayoutDocumentPane({ DockWidth: '1.8*', Children: (app.drawingViews?.layoutIds() || ['rendering']).map(id => w.make(id)) }),
             new A.LayoutPanel({ Orientation: 'Vertical', DockWidth: 300, DockMinWidth: 160, Children: [
               new A.LayoutAnchorablePane({ Children: ['render-layers', 'render-blocks', 'render-info'].map(id => w.make(id)) }),
               new A.LayoutAnchorablePane({ DockHeight: '0.7*', Children: [w.make('render-properties')] })
             ] })
           ] });
-        } else main = new A.LayoutPanel({ Orientation: 'Horizontal', Children: [documents(w, 'left'), documents(w, 'right')] });
+        } else main = new A.LayoutPanel({ Orientation: 'Horizontal', Children: [documents(w, 'left', '1*', app.drawingViews?.layoutIds(false) || []), documents(w, 'right')] });
         return new A.LayoutRoot({ RootPanel: new A.LayoutPanel({ Children: [main] }) });
       },
       onPreset(preset, w) {
@@ -191,6 +196,7 @@
         }
       }
     };
+    app.drawingViews = new global.DxfDocking.DrawingViews(app, workspace, renderingTemplate);
     // Restoring an old app state still restores the comparison data; the new layout has its own key.
     return workspace;
   }

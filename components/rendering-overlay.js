@@ -1106,6 +1106,15 @@
     }
 
     dispose() {
+      if (this.disposed) return;
+      this.disposed = true;
+      this.propertyGrid?.gridView?.dispose();
+      this.propertyGrid = null;
+      this.currentDoc = this.currentSceneGraph = this.currentTabId = this.currentPane = null;
+      this.currentLayerCatalog = this.currentLayerOverrides = this.currentBlockMetadata = null;
+      this.selectionHandles.clear();
+      for (const map of [this.layerCatalogByTab, this.layerOverridesByTab, this.selectionByTab, this.entityLookupByTab,
+          this.blockMetadataByTab, this.viewContexts, this.layerIsolationStateByTab, this.objectIsolationStateByTab, this.blockCardMap]) map.clear();
       if (this.closeBtn) {
         this.closeBtn.removeEventListener('click', this.boundClose);
       }
@@ -4244,6 +4253,7 @@
     }
 
     handleOverlayKeyDown(event) {
+      if (this.isInputActive && !this.isInputActive(event)) return;
       if (!event || typeof event.key !== 'string') {
         return;
       }
