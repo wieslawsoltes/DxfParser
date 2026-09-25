@@ -32,7 +32,14 @@ jobs:
             git apply --check /tmp/repository-cleanup.patch
             git apply /tmp/repository-cleanup.patch
             rm scripts/repository-cleanup.0{1,2,3}.xzpart
-            git add -A
+          fi
+          if test -f scripts/repository-cleanup-fix.patch; then
+            git apply --check scripts/repository-cleanup-fix.patch
+            git apply scripts/repository-cleanup-fix.patch
+            rm scripts/repository-cleanup-fix.patch
+          fi
+          git add -A
+          if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git commit -m 'chore: consolidate current sources, tests and package builds'
