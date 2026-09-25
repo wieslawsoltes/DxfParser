@@ -26,6 +26,8 @@ jobs:
         run: |
           node scripts/build-rendering-bundle.js
           git diff --exit-code -- dist packages/dxf-skia/dist
+      - name: Qualify camera transfer and transactional layout models
+        run: node --test tests/drawing-view-tools.test.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -38,9 +40,13 @@ jobs:
           mkdir -p test-results/multiple-drawings
           git rev-parse HEAD HEAD^{tree} > test-results/multiple-drawings/tested-source.txt
           python -u tests/multiple-drawings.py 2>&1 | tee test-results/multiple-drawings/browser.log
+      - name: Qualify linked navigation and balanced grids
+        run: python -u tests/drawing-navigation.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: multiple-native-drawings-evidence
-          path: test-results/multiple-drawings
+          path: |
+            test-results/multiple-drawings
+            test-results/drawing-navigation
           retention-days: 14

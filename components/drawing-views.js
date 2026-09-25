@@ -18,6 +18,19 @@
                 blockIsolation: app.blockIsolation, blockHighlights: app.blockHighlights, abort: new AbortController() };
             for (const [id, slot] of this.slots) this.base.tools.set(id, slot.firstElementChild);
             this.active = this.base;
+            this.navigation = new N.DrawingViewTools.NavigationLink({
+                records: () => this.records.values(), active: () => this.active,
+                visible: r => r.visible && this.isVisible(r), frame: r => r.overlay.surfaceManager.lastFrame,
+                layout: r => r.overlay.surfaceManager.layout,
+                schedule: callback => requestAnimationFrame(callback), cancel: id => cancelAnimationFrame(id),
+                apply: (r, camera, history) => {
+                    r.overlay.surfaceManager.viewDirection = { ...camera.direction };
+                    r.overlay.applyViewState(camera.viewState, { recordHistory: history });
+                    r.cad.refresh();
+                },
+                changed: () => { this.scheduleSave(); this.app.ribbonWorkspace?.schedule(); },
+                error: error => this.workspace.notify(error.message, true)
+            });
             this.selectors = { ...this.base.overlay.selectors };
             // The ribbon keeps this facade. Every asynchronous action is bound to
             // its original CadWorkspace; only ribbon factory closures remain dynamic.
@@ -103,6 +116,14 @@
                 }
             };
             record.cad.workspace = o.dockingWorkspace;
+            const unsubscribeFrame = o.surfaceManager.subscribeFrame(frame => {
+                if (record.disposed || !record.tab) return;
+                const manager = o.surfaceManager;
+                const stamp = JSON.stringify([manager.layout, manager.viewState, manager.viewDirection]);
+                if (record.cameraStamp !== stamp) { record.cameraStamp = stamp; this.scheduleSave(); }
+                this.navigation.onFrame(record, frame);
+            });
+            record.abort.signal.addEventListener('abort', unsubscribeFrame, { once: true });
             o.surfaceManager.canPresent = () => !record.disposed && this.isVisible(record);
             for (const type of ['pointerdown', 'focusin', 'wheel']) record.node.addEventListener(type, () => this.activate(record), { capture: true, signal: record.abort.signal });
         }
@@ -194,7 +215,10 @@
                 const source = this.app.documentWorkspace.findByTab(record.tab?.id);
                 if (source) this.app.documentWorkspace.activate(source, { focus: false });
                 for (const r of this.records.values()) r.node.dataset.activeDrawing = String(r === record);
-                if (changed) { record.cad.refresh(); record.cad.refreshResources(); record.registry?.schedule(); }
+                if (changed) {
+                    this.navigation.focus(record);
+                    record.cad.refresh(); record.cad.refreshResources(); record.registry?.schedule();
+                }
                 this.app.ribbonWorkspace?.schedule();
             } finally { this.activating = false; }
         }
@@ -228,6 +252,10 @@
             const manager = record.overlay.surfaceManager;
             if (visible && manager.suspended) { manager.resume(); record.overlay.resizeCanvas(); }
             else if (!visible && !manager.suspended) manager.suspend();
+            if (visible && manager.lastFrame) {
+                if (record === this.active) this.navigation.focus(record);
+                else this.navigation.onFrame(record, manager.lastFrame);
+            }
         }
         updateVisibility() { for (const record of this.records.values()) this.setVisibility(record, this.isVisible(record)); }
         closed(record) {
@@ -261,23 +289,33 @@
             if (tabs.length > 1) this.tile('horizontal');
         }
         tile(direction = 'horizontal') {
-            if (!['horizontal', 'vertical'].includes(direction)) throw new TypeError('Use horizontal or vertical tiling.');
-            const records = [...this.records.values()].filter(r => r.open);
-            if (!records.length) return;
-            const w = this.workspace; let previous = w.show(records[0].id, { activate: false });
-            for (const r of records.slice(1)) {
-                const model = w.show(r.id, { activate: false });
-                if (!w.manager.Dock(model, previous.Parent, direction === 'horizontal' ? 'Right' : 'Bottom')) throw new Error('Dockyard could not tile this drawing.');
-                previous = model;
-            }
-            // Moving a selected document can select its sibling source tree.
-            // Re-select every tiled drawing after all moves, without activating tools.
-            for (const r of records) w.manager.Find(r.id).IsSelected = true;
-            w.scheduleResize(); this.save();
+            const records = [...this.records.values()].filter(r => r.open && !r.disposed);
+            const w = this.workspace, active = this.active, wasActivating = this.activating;
+            this.activating = true;
+            try {
+                N.DrawingViewTools.tileDrawings(w.manager, records.map(r => w.manager.Find(r.id)), direction,
+                    Math.max(1, w.host.clientWidth), Math.max(1, w.host.clientHeight));
+            } finally { this.activating = wasActivating; }
+            if (active && !active.disposed) this.activate(active);
+            w.syncPresentation(); w.scheduleResize(); this.save();
         }
+        setNavigation(mode) { this.navigation.setMode(mode); }
+        matchView() { this.navigation.match(); }
         command(command, args) {
-            if (command === 'RENDERALL') this.renderAll();
-            else if (command === 'RENDERTILE') this.tile((args[0] || 'horizontal').toLowerCase());
+            if (command === 'RENDERLINK') {
+                if (args.length > 1) throw new Error('RENDERLINK expects off, world or relative.');
+                if (args.length) this.setNavigation(args[0].toLowerCase());
+                else this.active?.cad.write('Drawing navigation: ' + this.navigation.mode);
+            }
+            else if (command === 'RENDERMATCH') {
+                if (args.length) throw new Error('RENDERMATCH takes no arguments.');
+                this.matchView();
+            }
+            else if (command === 'RENDERALL') this.renderAll();
+            else if (command === 'RENDERTILE') {
+                if (args.length > 1) throw new Error('RENDERTILE expects horizontal, vertical or grid.');
+                this.tile((args[0] || 'horizontal').toLowerCase());
+            }
             else if (command === 'RENDERDRAWING') {
                 const name = args.join(' '), tabs = this.tabs().filter(t => String(t.id) === name || t.name.toUpperCase() === name.toUpperCase());
                 if (tabs.length !== 1) throw new Error('Specify one unique drawing name or source tab ID.');
@@ -301,13 +339,19 @@
             record.cad.layout(layout); record.cad.compare.start(value.referenceText, value.metadata?.referenceName || 'reference.dxf', value.options);
             record.cad.compare.open(); this.app.saveCurrentState(); return record;
         }
+        scheduleSave() {
+            if (this.disposed) return;
+            clearTimeout(this.cameraSaveTimer);
+            this.cameraSaveTimer = setTimeout(() => { this.cameraSaveTimer = null; this.save(); }, 200);
+        }
         save() {
             if (this.disposed) return;
+            clearTimeout(this.cameraSaveTimer); this.cameraSaveTimer = null;
             try {
                 const views = [...this.records.values()].map(r => ({ tabId: r.tab.id, id: r.id, open: r.open,
                     layout: r.overlay.surfaceManager.layout, viewState: r.overlay.surfaceManager.viewState,
                     viewDirection: r.overlay.surfaceManager.viewDirection }));
-                localStorage.setItem(this.storageKey, JSON.stringify({version: 1, active: this.active?.tab?.id, views}));
+                localStorage.setItem(this.storageKey, JSON.stringify({version: 1, active: this.active?.tab?.id, navigation: this.navigation.mode, views}));
             } catch (error) { this.persistenceError = error; }
         }
         restore() {
@@ -328,10 +372,14 @@
                 this.setVisibility(r, false);
             }
             const active = this.records.get(saved.active); if (active) this.activate(active);
+            // Enabling an empty link is deferred until the restored dock layout exposes a view.
+            if (['world', 'relative'].includes(saved.navigation)) this.navigation.mode = saved.navigation;
         }
         release(tabId) {
             const r = this.records.get(tabId); if (!r || r.disposed) return;
             this.records.delete(tabId); r.disposed = true; r.open = false; r.abort.abort();
+            // A fresh source must not inherit coordinates from a fully closed set.
+            if (!this.records.size) this.navigation.reset();
             if (this.active === r) {
                 for (const [id, tool] of r.tools) if (this.slots.get(id)?.contains(tool)) r.stash.append(tool);
                 this.active = null;
@@ -363,7 +411,8 @@
         }
         dispose() {
             if (this.disposed) return;
-            this.save(); this.disposed = true; this.abort.abort(); this.unsubscribe?.();
+            this.save(); this.disposed = true; clearTimeout(this.cameraSaveTimer);
+            this.navigation.dispose(); this.abort.abort(); this.unsubscribe?.();
             for (const r of [...this.records.values()]) this.release(r.tab.id);
             this.base.abort.abort(); this.base.registry?.dispose(); this.base.cad.dispose(); this.base.overlay.dispose();
         }

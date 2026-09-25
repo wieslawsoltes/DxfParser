@@ -4,9 +4,19 @@ The parser workspace can render several open DXF sources simultaneously. Each **
 
 ## Open and arrange drawings
 
-Open the source DXF files, then use **CAD View → Drawing Views → Render all drawings**. This opens a native viewport for every source and arranges them side by side. **Tile side by side** and **Tile stacked** arrange currently open rendering views. The **Active drawing** dropdown opens or focuses a particular source; the usual Render drawing action remains available.
+Open the source DXF files, then use **CAD View → Drawing Views → Render all drawings**. This opens a native viewport for every source and arranges them side by side. **Tile side by side** and **Tile stacked** arrange currently open rendering views. **Tile grid** builds an aspect-aware grid with equal-size rows and columns (the final row fills its available width). Every tiling action is one undoable Dockyard transaction, preserves the active source and unrelated document/tool content, and redocks floating drawing views. Locked/unmovable drawings reject the entire action before any layout change. The **Active drawing** dropdown opens or focuses a particular source; the usual Render drawing action remains available.
 
-The command line exposes `RENDERALL`, `RENDERTILE horizontal`, `RENDERTILE vertical`, and `RENDERDRAWING "filename.dxf"`. A source tab ID can be used instead of a filename when names are duplicated. Names must resolve uniquely. The parser retains at most 32 source-owned rendering contexts; Render all validates the limit before modifying the workspace.
+The command line exposes `RENDERALL`, `RENDERTILE horizontal`, `RENDERTILE vertical`, `RENDERTILE grid`, and `RENDERDRAWING "filename.dxf"`. A source tab ID can be used instead of a filename when names are duplicated. Names must resolve uniquely. The parser retains at most 32 source-owned rendering contexts; Render all validates the limit before modifying the workspace.
+
+## Linked navigation
+
+The **Navigation** dropdown defaults to **Independent**. **Linked coordinates** synchronizes the active rendered camera into every visible drawing using the same layout name, without switching layouts or altering any source data. Center, orthographic view direction, view twist and CSS-pixels-per-drawing-unit scale are shared; unequal viewport sizes therefore display different extents around the same center. This assumes compatible drawing coordinates and units: it does not convert `$INSUNITS`, georeference, register or overlay drawings.
+
+**Linked relative view** instead transfers the center offset as fractions of each drawing's projected extents and the zoom factor relative to its own fit-to-view scale. This is useful for proportionally exploring drawings with different origins or sizes; it is not geometric registration. Projection and twist still follow the active camera. Empty/degenerate drawings use finite renderer-consistent fallback extents. Fit ratios follow the rendered scene, including an enabled comparison.
+
+Pan, wheel/pinch zoom, view history, fit, projection and comparison-change navigation all feed the same camera path. Updates are coalesced once per animation frame. Propagated frames cannot feed back into the leader, and repeated follower updates do not append hundreds of local history entries. Focus changes apply the latest queued camera before a new gesture. Hidden/closed views remain suspended and catch up when shown; views with different layout names are skipped. Source scenes, resources, selections, layers and comparison sessions remain independent.
+
+**Match active view** performs a one-time coordinate-camera transfer into compatible visible drawings without enabling a link. Command equivalents are `RENDERLINK off|world|relative`, `RENDERLINK` (report current mode), and `RENDERMATCH`. Turning navigation off cancels queued transfers. Closing the last source clears the linked camera but retains the chosen mode, so the next source starts with its own camera. The mode and each source camera are saved with view metadata; camera-only changes are debounce-saved, and page hiding flushes the existing workspace save path.
 
 ## Ownership and active tools
 
@@ -27,5 +37,7 @@ Workspace persistence stores view identities, open/closed state, layout selectio
 This feature provides one native viewport per source file in the parser workspace, not multiple independent cameras on the same source. The standalone editor retains its single-file UI. Dockyard floating panels remain within the current browser page; new browser windows are not introduced. Multiple-drawing presentation does not overlay unrelated drawings into one coordinate system.
 
 ## Validation
+
+`node --test tests/drawing-view-tools.test.cjs` checks camera math, coalescing, native pixel equivalence, and layout transaction/rollback behavior without a DOM. `python tests/drawing-navigation.py` exercises linked navigation, grids, undo, resource isolation and reload through the normal browser application.
 
 `python tests/multiple-drawings.py` runs the multi-document workflows through normal HTTP loading, Chromium, the real native Skia WASM renderer and Dockyard. It covers simultaneous native surfaces, focus routing, duplicate handles, independent layers/cameras/comparisons, floating and tiled layouts, source closure, reload, resource-read races and export ownership. Run `bash tests/run-all.sh` for the retained renderer, comparison and workspace regression gates. CI/software-GPU results are not physical-device performance certification.

@@ -3419,6 +3419,7 @@
             this.suspended = false;
             this.error = null;
             this.diagnostics = [];
+            this.frameListeners = new Set();
             this.host = new A.SurfaceHost({ initialize: options.initialize || initializeSkia, Skia: options.Skia, backend: options.backend || 'auto', onCanvasReplaced: (canvas) => { this.canvas = canvas; this.onCanvasReplaced?.(canvas); }, onPaint: stats => {
                     this.error = null;
                     this.stats = stats;
@@ -3426,6 +3427,12 @@
                     this.onPaint?.(stats);
                     this.canvas?.dispatchEvent(new CustomEvent('dxf-skia-painted', { detail: stats }));
                 }, onError: error => { this.error = error; this.onError?.(error); this.canvas?.dispatchEvent(new CustomEvent('dxf-skia-error', { detail: error })); } });
+        }
+        subscribeFrame(listener) {
+            if (typeof listener !== 'function') throw new TypeError('A frame listener is required.');
+            if (this.disposePromise) throw new Error('Rendering surface is disposed.');
+            this.frameListeners.add(listener);
+            return () => this.frameListeners.delete(listener);
         }
         static getVisualStylePresets() { return [{ key: '2dwireframe', id: '2dwireframe', name: '2D Wireframe', label: '2D Wireframe', category: 'wireframe' }, { key: 'shaded', id: 'shaded', name: 'Filled faces', label: 'Filled faces', category: 'shaded' }]; }
         initialize(canvas) { this.canvas = canvas; this.host.initialize(canvas); const rect = canvas.getBoundingClientRect(); this.width = Math.max(1, rect.width || canvas.width || 800); this.height = Math.max(1, rect.height || canvas.height || 600); return this; }
@@ -3485,6 +3492,9 @@
             this.lastFrame = frame;
             this.diagnostics = displayScene.diagnostics;
             this.host.request(frame, { selection: this.selectionHandles, blockHighlights: this.blockHighlights, grid: this.gridVisible });
+            for (const listener of [...this.frameListeners]) {
+                try { listener(frame); } catch (error) { console.warn('DXF frame observer:', error); }
+            }
             return frame;
         }
         resize(width, height, dpr = 1) { if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(dpr))
@@ -3498,7 +3508,7 @@
             this.renderScene(this.sceneGraph); await this.ready; return result; }
         async exportPng() { return this.host.exportPng(); }
         async exportPdf(options) { return this.host.exportPdf(options); }
-        dispose() { if (!this.disposePromise) { this.clear(); this.disposePromise = this.host.dispose(); } return this.disposePromise; }
+        dispose() { if (!this.disposePromise) { this.frameListeners.clear(); this.clear(); this.disposePromise = this.host.dispose(); } return this.disposePromise; }
         destroy() { return this.dispose(); }
     }
     Object.assign(N, { RenderingDataController, RenderingDocumentBuilder, RenderingSurfaceManager, initializeSkia });
