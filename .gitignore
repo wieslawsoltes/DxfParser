@@ -1,8 +1,14 @@
-# Local test artifacts and Python tooling.
-test-results/
+# Generated first-party distributions and package archives.
+/dist/
+/packages/*/dist/
+*.tgz
+
+# Dependencies and local tooling.
+node_modules/
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 
-# Immutable comparison checkout used by native rendering performance CI.
-.performance-reference/
+# Test evidence is produced locally and uploaded by CI, not committed.
+/test-results/
+.DS_Store

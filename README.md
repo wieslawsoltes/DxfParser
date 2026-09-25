@@ -1,63 +1,176 @@
-# DxfParser — native Skia rendering
+# DxfParser
 
-DXF inspection, independent dock documents, analysis records, spreadsheet/document
-previews and a CAD-oriented native SkiaSharpWeb rendering workspace.
+A browser-based DXF inspection and comparison workbench with native SkiaSharpWeb
+rendering, dockable drawing views, structured analysis tools, and a standalone editor.
 
-Serve the repository root over HTTP and open `index.html`:
+## Run locally
+
+Serve the repository root with Python 3:
 
 ```sh
-python -m http.server 8080
+python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-Open a drawing, choose **CAD View → CAD workspace**, or keep the normal comparison
-workspace and use **Render DXF**. The standalone editor is at `editor/index.html`.
-No build or CDN is required to run the checked-in browser assets.
+Open `http://localhost:8080/` for the workbench or
+`http://localhost:8080/editor/` for the standalone editor. On systems where Python
+is named `python`, use that executable instead. `npm start` is an equivalent
+shortcut when Node.js is installed.
 
-## Core guides
+The browser applications load maintained source modules and pinned local vendor
+assets. No npm install, generated `dist` directory, CDN, or application server is
+required to run them. Serve over HTTP on localhost or deploy the repository root
+to an HTTPS static host; opening the HTML directly with `file://` is not supported.
+WebGPU is preferred when available, with WebGL and native Skia raster fallbacks.
+The `.nojekyll` file allows branch-based GitHub Pages hosting of the source tree.
 
-[New renderer and migration](docs/skia-renderer.md) ·
-[0.2.0 WebGPU fixes and rendering improvements](docs/skia-renderer-improvements.md) ·
-[0.2.1 export and backend lifetime fixes](docs/skia-renderer-lifetime.md) ·
-[Reusable DxfSkia package](packages/dxf-skia/README.md) ·
-[Rendering compatibility and limits](packages/dxf-skia/COMPATIBILITY.md) ·
-[Ribbon and dock documents](docs/ribbon-document-workspace.md) ·
-[Analysis workbench](docs/analysis-workbench.md) ·
-[Office previews](docs/gridweb-document-previews.md)
+## Workbench
 
-The renderer uses a new document/geometry implementation and native SkiaSharpWeb,
-not the former Canvas2D/WebGL renderer. Broad DXF support is present, but full
-AutoCAD/all-entity fidelity is not complete. Unsupported content is reported, not
-silently claimed to render. Native resource licenses/notices are retained under
-`vendor/skiasharpweb`; the distribution contains no font binaries.
+| Area | Current functionality |
+| --- | --- |
+| DXF inspection | Text and supported binary DXF input, source-tree inspection, handle navigation, filtering, structural comparison, diagnostics, and batch analysis. |
+| Drawing rendering | Retained geometry compilation, model and paper layouts, layer controls, selection and snapping, measurements, local font/image resources, and native PNG/vector PDF export. |
+| Visual comparison | Rendered-object matching, current/reference/common categories, appearance and text/hatch filters, change ledger, proximity groups, rectangular/polygonal revision clouds, and change navigation. |
+| Multiple drawings | A separate dockable viewport per source, independent rendering state, balanced linear/grid tiling, and optional linked camera navigation. |
+| Analysis and previews | Searchable/sortable records, linked charts and graphs, optional inspection spreadsheets, CSV/copy/export, and spreadsheet/document previews. |
 
-## Qualification
+The standalone editor uses the same renderer and docking/ribbon controls, but
+retains a single-file UI. It is not a complete CAD authoring system.
 
-Node 22, a TypeScript compiler, Python and Chromium are needed for all checks:
+### Render and arrange drawings
+
+Open your DXF sources and choose **CAD View → Drawing Views → Render all drawings**.
+Drag drawing tabs to split, float within the page, or redock them. The active
+viewport determines which drawing the ribbon and shared tools control.
+
+```text
+RENDERALL
+RENDERTILE grid
+RENDERTILE horizontal
+RENDERTILE vertical
+RENDERDRAWING "drawing.dxf"
+```
+
+Each source owns its camera, layout, selection, resources, measurements, and
+comparison session. Closing a viewport retains its in-memory state; closing its
+source disposes that source's resources. The workspace supports up to 32 retained
+source-owned drawing contexts. Tiling is undoable and preserves unrelated content.
+
+**Navigation** defaults to **Independent**. **Linked coordinates** shares camera
+coordinates and scale; **Linked relative view** shares proportional position and
+fit-relative zoom. Only compatible visible layouts participate. Commands are
+`RENDERLINK off|world|relative` and `RENDERMATCH` for a one-time camera match.
+Linking does not convert units, register geometry, georeference, or overlay files.
+
+### Compare revisions
+
+Choose **CAD View → Compare drawings**, then select an open source or load a
+reference DXF. Comparison uses visible rendered root objects, including supported
+compound geometry; it is not a raw-handle comparison or a raster pixel diff.
+
+**Import selected change** adds eligible reference objects and supported
+block/symbol dependencies without deleting the current version. Import is limited
+to model space in the parser workspace. Unsafe or unsupported dependency graphs
+are rejected before applying a transaction; source-guarded undo/redo is available.
+
+**Save snapshot** stores both DXF source strings, comparison settings, and layout
+in a reloadable JSON container. This is not a DWG/DXF comparison drawing. PNG/PDF
+exports retain the displayed comparison. Use **Refresh** after source-tree edits.
+
+Workspace persistence stores supported source state, dock placement, layouts,
+cameras, and navigation mode within browser-storage limits. External resource
+bytes, selections, measurements, and comparison sessions are not restored by view
+metadata; save comparison snapshots explicitly.
+
+## Rendering boundaries
+
+The renderer supports common lines, curves, polylines, blocks, meshes, hatches,
+text, dimensions, images, clipping, and layouts, with diagnostics for unsupported
+content. Coverage is not full AutoCAD fidelity. In particular:
+
+- There is no DWG reader/writer, ACIS solid kernel, dynamic-block evaluator,
+  automatic external-reference resolver, or arbitrary DXF object-graph importer.
+- Advanced MTEXT typography, bigfont SHX, associative dimension behavior, plot
+  styles, perspective/depth rendering, and proprietary objects are not exhaustive.
+- Fonts and images must be supplied explicitly. Font binaries are not bundled;
+  fallback glyphs do not establish typography fidelity. Comparison checks image
+  placement and resource names, not external image bytes.
+
+Compilation is synchronous and budget-limited. Visible rendering is scheduled
+per surface; hidden views suspend presentation. Software-GPU checks exercise real
+Skia/WebGPU/WebGL APIs but are not physical-device performance certification.
+
+## Development and packages
+
+Node.js **22 or later** is required for builds and JavaScript tests. The root npm
+package is private and has no install-time dependencies.
+
+```sh
+npm run build        # Generate optional app and renderer distributions.
+npm run build:check  # Verify those files match the current sources.
+npm run clean        # Remove generated first-party distributions.
+```
+
+Generated `/dist/` and `/packages/*/dist/` directories are ignored by Git. The
+`vendor/` tree is different: its checked-in distributions are runtime dependencies,
+with retained licenses, notices, and checksum manifests. Do not remove them when
+cleaning build output. `node scripts/clean.mjs --tests` also removes test evidence.
+
+| Package | Purpose |
+| --- | --- |
+| [`@wieslawsoltes/dxf-skia`](packages/dxf-skia/README.md) | DXF input/document model, retained scene compiler, geometry, picking/snapping, native painter, and surface lifetime management. |
+| [`@wieslawsoltes/dxf-compare`](packages/dxf-compare/README.md) | Rendered-object comparison, change grouping/clouds, snapshots/reports, and guarded reference import. |
+
+```sh
+npm pack ./packages/dxf-skia
+npm pack ./packages/dxf-compare
+```
+
+The renderer's `prepack` builds its CJS, ESM, and classic-browser artifacts from
+source. These commands produce local tarballs; they do not publish to npm.
+
+## Tests
+
+Install the declaration checker and browser tooling:
 
 ```sh
 npm install --global typescript@5.8.3
-python -m pip install -r tests/requirements-browser.txt
-python -m playwright install --with-deps chromium
-bash tests/run-all.sh
-xvfb-run -a python tests/skia-gpu.py
+python3 -m pip install -r tests/requirements-browser.txt
+python3 -m playwright install --with-deps chromium
 ```
 
-An existing Chromium executable may be supplied through `CHROMIUM_EXECUTABLE`.
-The native font test uses an installed system font or `SKIA_TEST_FONT`; it skips
-with an explicit reason when neither exists. It never packages those bytes.
+```sh
+npm test                         # Source/build contracts, models, native pixels, packed consumers.
+npm run test:browser              # All current HTTP application suites.
+npm run test:all                  # Models and browser suites, excluding the strict GPU group.
+python3 tests/run.py gpu          # Required WebGPU/WebGL pipelines and current cache checks.
+python3 tests/run.py --list       # Show the default test inventory without running it.
+```
 
-The workflow `skia-renderer.yml` runs native pixels, package consumers and all
-application integration suites, plus required real Graphite/WebGPU and Ganesh/WebGL
-checks on software Vulkan/SwiftShader. Local qualification is not a GitHub Actions result.
+On Linux CI, the GPU group runs under `xvfb-run -a`. Missing GPU adapters fail that
+group rather than counting a raster fallback as a GPU pass. Individual browser
+groups are `workspace`, `analysis`, and `drawings`; all are defined in
+[`tests/suites.json`](tests/suites.json) and used by the same local/CI runner.
+JavaScript `*.test.js`, `*.test.cjs`, and `*.test.mjs` files are discovered automatically.
+`bash tests/run-all.sh` delegates to that runner.
 
-Renderer 0.3.0: [native-vector performance, byte-aware DXF input and reproducible comparison benchmarks](docs/skia-renderer-performance.md).
+`CHROMIUM_EXECUTABLE` selects an existing Chromium installation. `SKIA_TEST_FONT`
+selects a local font for native-font checks; a native test reports an explicit skip
+when no suitable system font is available. Test logs, measurements, and screenshots
+are written to ignored `test-results/` directories and uploaded as CI artifacts.
+Browser CI deliberately runs without generated distributions or injected scripts.
 
-See [atomic workspace startup](docs/workspace-startup.md) for first-paint and refresh behavior.
+## Repository layout
 
-### Linked analysis visualizations
+```text
+components/  Workbench controllers, source inspection, docking, ribbon and rendering integration.
+editor/      Single-file editor entry point and editing integration.
+packages/    Reusable renderer and comparison sources and unit tests.
+scripts/     Build, cleanup, vendor maintenance and distribution/package checks.
+tests/       Current native and HTTP regression suites, fixtures and shared runner.
+vendor/      Pinned runtime dependencies, licenses, notices and checksums.
+```
 
-Analysis tools now include linked distributions, matrices, reference graphs and preview cards alongside the existing TreeDataGridWeb records and optional GridWeb inspection spreadsheet. See [the visual analysis workbench guide](docs/analysis-visual-workbench.md) for chart scopes, source-safe native drawing navigation, pinned comparisons and regression coverage.
+## License
 
-## Multiple native drawing views
-
-Open multiple DXF sources and use **CAD View → Drawing Views → Render all drawings** to render them simultaneously. Each drawing has an independent dockable viewport, camera, selection, layout, resources and comparison session. Balanced grid/linear layouts are undoable, with optional coordinate or relative linked navigation for side-by-side inspection. See [multiple drawing views](docs/multiple-drawings.md).
+First-party code is licensed under the [MIT License](LICENSE). Vendored components
+retain their respective license and attribution files in `vendor/`.

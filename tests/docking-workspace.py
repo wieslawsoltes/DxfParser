@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""Real Chromium integration tests. Normal mode serves the unmodified static application.
-
---injected is an explicitly weaker offline harness for policy-blocked environments:
-local scripts/styles are injected in dependency order and storage is an in-memory
-Storage substitute. CI must run normal mode to test navigation and real persistence.
-"""
+"""Chromium integration tests against the normally served application and real storage."""
 from __future__ import annotations
 
-import argparse
-import base64
 import functools
 import http.server
 import io
 import json
 import os
 from pathlib import Path
-import re
 import threading
 import unittest
 
@@ -24,68 +16,6 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / 'test-results' / 'docking'
-INJECTED = '--injected' in os.sys.argv
-if INJECTED:
-    os.sys.argv.remove('--injected')
-
-
-def inline_module(file, cache=None):
-    """Keep ESM semantics in offline mode; only relative URLs become data URLs.
-
-    This harness does not claim to verify network or native HTTP module loading.
-    Production files are unmodified. CI runs without --injected.
-    """
-    cache = {} if cache is None else cache
-    file = file.resolve()
-    if file in cache:
-        return cache[file]
-    source = file.read_text()
-    def dependency(match):
-        specifier = match.group(2)
-        if not specifier.startswith('.'):
-            raise ValueError(f'Nonlocal offline dependency: {specifier}')
-        return match.group(1) + inline_module(file.parent / specifier, cache) + match.group(3)
-    source = re.sub(r"(from\s*['\"])([^'\"]+)(['\"])", dependency, source, flags=re.M)
-    source = re.sub(r"(^[ \t]*import\s*['\"])([^'\"]+)(['\"])", dependency, source, flags=re.M)
-    url = 'data:text/javascript;base64,' + base64.b64encode(source.encode()).decode()
-    cache[file] = url
-    return url
-
-
-def injected_load(page, path: str, storage=None):
-    """No application source substitutions; only loading and browser storage differ."""
-    file = ROOT / path
-    html = file.read_text()
-    scripts = []
-    for match in re.finditer(r'<script\b([^>]*)>(.*?)</script>', html, re.S):
-        src = re.search(r'\bsrc="([^"]+)"', match[1])
-        module = 'type="module"' in match[1]
-        if src and not src[1].startswith('https:'):
-            script = 'import ' + json.dumps(inline_module(file.parent / src[1])) + ';' if module else (file.parent / src[1]).read_text()
-            scripts.append((script, src[1], module))
-        elif not src:
-            scripts.append((match[2], 'inline.js', module))
-    styles = [ (file.parent / href).read_text() for href in
-               re.findall(r'<link\s+rel="stylesheet"\s+href="([^"]+)"[^>]*>', html)]
-    html = re.sub(r'<script\b[^>]*>.*?</script>', '', html, flags=re.S)
-    html = re.sub(r'<link\s+rel="stylesheet"[^>]*>', '', html)
-    page.set_content(html)
-    page.evaluate('''initial => {
-      const entries = new Map(Object.entries(initial));
-      Object.defineProperty(window, 'localStorage', {value: {
-        getItem: k => entries.get(String(k)) ?? null, setItem: (k,v) => entries.set(String(k),String(v)),
-        removeItem: k => entries.delete(String(k)), clear: () => entries.clear(),
-        key: n => [...entries.keys()][n] ?? null, get length() { return entries.size; }
-      }});
-    }''', storage or {})
-    for css in styles:
-        page.add_style_tag(content=css)
-    for script, name, module in scripts:
-        page.add_script_tag(content=script + '\n//# sourceURL=' + name, type='module' if module else 'text/javascript')
-    if path == 'index.html':
-        page.evaluate("document.dispatchEvent(new Event('DOMContentLoaded'))")
-
-
 class QuietServer(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -105,7 +35,7 @@ class DockingTests(unittest.TestCase):
             options['executable_path'] = os.environ['CHROMIUM_EXECUTABLE']
         cls.browser = cls.playwright.chromium.launch(**options)
         (ARTIFACTS / 'environment.json').write_text(json.dumps({
-            'browser': cls.browser.version, 'injected': INJECTED, 'base': cls.base
+            'browser': cls.browser.version, 'transport': 'http', 'base': cls.base
         }, indent=2))
 
     @classmethod
@@ -130,11 +60,8 @@ class DockingTests(unittest.TestCase):
         self.context.close()
         self.assertEqual([], self.errors, 'Unexpected page errors')
 
-    def load(self, path='index.html', storage=None):
-        if INJECTED:
-            injected_load(self.page, path, storage)
-        else:
-            self.page.goto(self.base + path, wait_until='domcontentloaded')
+    def load(self, path='index.html'):
+        self.page.goto(self.base + path, wait_until='domcontentloaded')
         self.page.wait_for_function('window.app?.dockingWorkspace || window.DxfEditorApp?.dockingWorkspace')
         self.page.wait_for_timeout(180)  # App state restoration is scheduled at 100 ms.
         self.page.evaluate('window.w = window.app?.dockingWorkspace || window.DxfEditorApp.dockingWorkspace;window.dw=window.app?.documentWorkspace;window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon')
@@ -333,22 +260,13 @@ class DockingTests(unittest.TestCase):
     def test_13_persistence_and_corruption_recovery(self):
         self.load()
         self.page.evaluate("w.hide('tree-right');w.manager.Theme='dark';w.save()")
-        storage=self.page.evaluate('Object.fromEntries(Array.from({length:localStorage.length},(_,i)=>{const k=localStorage.key(i);return[k,localStorage.getItem(k)];}))')
-        if INJECTED:
-            self.page.close(); self.page=self.context.new_page(); self.page.on('pageerror',lambda e:self.errors.append(str(e)))
-            self.load(storage=storage)
-        else:
-            self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
+        self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
         self.assertJS("!w.isOpen('tree-right') && w.manager.Theme==='dark'")
-        if INJECTED:
-            self.page.close(); self.page=self.context.new_page(); self.page.on('pageerror',lambda e:self.errors.append(str(e)))
-            self.load(storage={'dxfparser.dockyard.parser.v1':'broken'})
-        else:
-            # Corrupt the next document before app startup, after the outgoing
-            # workspace's pagehide autosave has finished. Poisoning the live
-            # page instead would be repaired by its intentional reload save.
-            self.page.add_init_script("localStorage.setItem('dxfparser.dockyard.parser.v1','broken')")
-            self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
+        # Corrupt the next document before app startup, after the outgoing
+        # workspace's pagehide autosave has finished. Poisoning the live
+        # page instead would be repaired by its intentional reload save.
+        self.page.add_init_script("localStorage.setItem('dxfparser.dockyard.parser.v1','broken')")
+        self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
         self.assertJS("w.isOpen('tree-right') && w.status.dataset.error==='true'")
 
     def test_14_reset_layout_and_presets_do_not_reset_files(self):
@@ -414,5 +332,5 @@ class DockingTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    print('INJECTED OFFLINE HARNESS (not an HTTP/storage certification)' if INJECTED else 'HTTP + real Chromium storage integration tests', flush=True)
+    print('HTTP + real Chromium storage integration tests', flush=True)
     unittest.main(verbosity=2)

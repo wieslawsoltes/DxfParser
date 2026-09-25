@@ -12,7 +12,15 @@ fs.mkdirSync(out, { recursive: true });
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dxf-skia-consumer-'));
 const run = (command, args, cwd = temp) => execFileSync(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: 120000 });
 try {
-    const packed = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', temp], path.join(root, 'packages/dxf-skia')))[0];
+    const packageSource = path.join(temp, 'source');
+    fs.cpSync(path.join(root, 'packages/dxf-skia'), packageSource, {
+        recursive: true,
+        filter: file => !['dist', 'tests', 'node_modules'].includes(path.basename(file))
+    });
+    assert.equal(fs.existsSync(path.join(packageSource, 'dist')), false);
+    const packed = JSON.parse(run('npm', ['pack', '--offline', '--json', '--pack-destination', temp], packageSource))[0];
+    for (const file of ['dist/dxf-skia.cjs', 'dist/dxf-skia.mjs', 'dist/dxf-skia.global.js'])
+        assert.ok(packed.files.some(entry => entry.path === file), 'prepack must generate ' + file);
     assert.ok(!packed.files.some(f => /\.(ttf|otf|woff2?|shx)$/i.test(f.path)), 'Do not distribute fonts.');
     fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({ name: 'external-skia-consumer', private: true, type: 'module' }));
     run('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', path.join(temp, packed.filename)]);
@@ -55,7 +63,7 @@ try{painter.draw(surface.Canvas,A.prepareFrame(new A.SceneCompiler(doc).compile(
 console.log('Installed package draws real native Skia PNG.');`);
     process.stdout.write(run('node', ['native.mjs']));
     fs.copyFileSync(path.join(temp, packed.filename), path.join(out, packed.filename));
-    fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ packed: packed.filename, files: packed.files.length, checks: ['installed CJS/ESM constructor identity', 'standalone native ESM import', 'no global mutation', 'compile/pick from installed package', 'strict TypeScript consumer', 'real native Skia PNG from installed package'], passed: true }, null, 2));
+    fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ packed: packed.filename, files: packed.files.length, checks: ['source-only prepack lifecycle', 'installed CJS/ESM constructor identity', 'standalone native ESM import', 'no global mutation', 'compile/pick from installed package', 'strict TypeScript consumer', 'real native Skia PNG from installed package'], passed: true }, null, 2));
     console.log('Package checks PASSED');
 }
 finally {

@@ -1,0 +1,22 @@
+{
+  "workspace": [
+    "workspace-startup",
+    "docking-workspace",
+    "ribbon-workspace",
+    "gridweb-previews"
+  ],
+  "analysis": [
+    "analysis-views",
+    "analysis-visuals"
+  ],
+  "drawings": [
+    "skia-workspace",
+    "visual-compare",
+    "multiple-drawings",
+    "drawing-navigation"
+  ],
+  "gpu": [
+    "skia-gpu",
+    "skia-performance-gpu"
+  ]
+}

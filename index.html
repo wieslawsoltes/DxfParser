@@ -33,7 +33,24 @@
   <!-- Load components in dependency order -->
   <script src="components/utils.js"></script>
   <script src="components/dxf-parser.js"></script>
-  <script src="dist/dxf-rendering.global.js"></script>
+  <!-- DXF rendering sources: dependency order checked by the distribution gate. -->
+  <script src="packages/dxf-skia/src/geometry.js"></script>
+  <script src="packages/dxf-skia/src/input.js"></script>
+  <script src="packages/dxf-skia/src/document.js"></script>
+  <script src="packages/dxf-skia/src/resources.js"></script>
+  <script src="packages/dxf-skia/src/proxy.js"></script>
+  <script src="packages/dxf-skia/src/text.js"></script>
+  <script src="packages/dxf-skia/src/compiler.js"></script>
+  <script src="packages/dxf-skia/src/renderer.js"></script>
+  <script src="packages/dxf-skia/src/surface-host.js"></script>
+  <script src="components/skia-rendering-adapter.js"></script>
+  <script src="components/rendering-property-grid.js"></script>
+  <script src="components/rendering-overlay.js"></script>
+  <script src="packages/dxf-compare/clouds.js"></script>
+  <script src="packages/dxf-compare/index.js"></script>
+  <script src="packages/dxf-compare/import.js"></script>
+  <script src="components/visual-compare.js"></script>
+  <!-- End DXF rendering sources. -->
   <script src="scripts/dxf-app-bootstrap.js"></script>
   <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>

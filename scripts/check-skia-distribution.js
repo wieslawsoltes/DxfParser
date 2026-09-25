@@ -2,23 +2,24 @@
 'use strict';
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto'), vm = require('node:vm'), assert = require('node:assert/strict'), { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
-const removed = ['acis-parser', 'catmull-clark-subdivision', 'point-cloud-loader', 'procedural-surfaces', 'rendering-data-controller', 'rendering-document-builder', 'rendering-entities', 'rendering-renderer', 'rendering-scene-graph', 'rendering-surface-canvas', 'rendering-surface-webgl', 'rendering-tessellation', 'rendering-text-layout', 'shx-font-loader'];
-for (const name of removed)
-    assert.equal(fs.existsSync(path.join(root, 'components', name + '.js')), false, 'Old engine remains: ' + name);
-for (const page of ['index.html', 'editor/index.html']) {
+const builder = require('./build-rendering-bundle.js');
+for (const page of ['index.html', 'editor/index.html', 'tests/skia-gpu.html']) {
     const text = fs.readFileSync(path.join(root, page), 'utf8');
-    for (const name of removed)
-        assert.ok(!text.includes(name + '.js'), 'Old script in ' + page);
-    assert.ok(text.includes('dist/dxf-rendering.global.js'));
+    const block = text.match(/<!-- DXF rendering sources:[\s\S]*?<!-- End DXF rendering sources\. -->/);
+    assert.ok(block, 'Missing source-module declaration in ' + page);
+    const sources = [...block[0].matchAll(/<script[^>]*src="([^"]+)"[^>]*><\/script>/g)]
+        .map(match => path.relative(root, path.resolve(root, path.dirname(page), match[1])).split(path.sep).join('/'));
+    assert.deepEqual(sources, builder.modules, 'Source dependency order differs from the bundle: ' + page);
+    assert.ok(!text.includes('dist/dxf-rendering.global.js'), 'Static entry point depends on generated output: ' + page);
 }
-const app = fs.readFileSync(path.join(root, 'dist/dxf-rendering.global.js'), 'utf8');
-for (const token of ['RenderEntityFactories', 'class RenderingTessellator', 'class WebGLSurface', 'class CanvasSurface'])
-    assert.ok(!app.includes(token), 'Old engine implementation in app bundle: ' + token);
-const files = ['dist/dxf-rendering.global.js', 'packages/dxf-skia/dist/dxf-skia.global.js', 'packages/dxf-skia/dist/dxf-skia.cjs', 'packages/dxf-skia/dist/dxf-skia.mjs', 'packages/dxf-skia/index.mjs'];
 const hash = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
+// Clean checkouts have no distributions: compare two builds, not tracked output.
+builder.build();
+const files = [...builder.artifacts().keys()];
 const before = files.map(hash);
-execFileSync(process.execPath, ['scripts/build-rendering-bundle.js'], { cwd: root, stdio: 'inherit' });
-assert.deepEqual(files.map(hash), before, 'Generated bundles were stale.');
+builder.build();
+assert.deepEqual(files.map(hash), before, 'Repeated builds must be byte-identical.');
+execFileSync(process.execPath, ['scripts/build-rendering-bundle.js', '--check'], {cwd: root, stdio: 'inherit'});
 const context = { console };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(root, 'packages/dxf-skia/dist/dxf-skia.global.js'), 'utf8'), context);
@@ -52,4 +53,4 @@ assert.equal(localPatches.wasmUnchanged, true);
 assert.equal(nativeManifest.artifacts['canvaskit.wasm'], nativeManifest.upstreamArtifacts['canvaskit.wasm']);
 for (const entry of localPatches.files)
     assert.equal(hash('vendor/skiasharpweb/' + entry.path), entry.patchedSha256, 'Local patch identity: ' + entry.path);
-console.log('Removed-engine, deterministic bundle, classic consumer, all vendor checksum and font-free checks PASSED.');
+console.log('Source entry points, reproducible bundles, classic consumer, vendor checksums and font-free distribution checks PASSED.');

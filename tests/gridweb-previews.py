@@ -18,7 +18,7 @@ class GridPreviewTests(unittest.TestCase):
     def setUpClass(cls):
         harness.DockingTests.setUpClass.__func__(cls)
         ARTIFACTS.mkdir(parents=True, exist_ok=True)
-        (ARTIFACTS/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'injected':harness.INJECTED},indent=2))
+        (ARTIFACTS/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'transport':'http'},indent=2))
     @classmethod
     def tearDownClass(cls):
         harness.DockingTests.tearDownClass.__func__(cls)
@@ -202,5 +202,5 @@ class GridPreviewTests(unittest.TestCase):
         self.page.evaluate('w.dispose()');self.assertJS('DxfEditorApp.officePreview.disposed')
 
 if __name__ == '__main__':
-    print('Injected harness' if harness.INJECTED else 'HTTP + actual local browser controls',flush=True)
+    print('HTTP + actual local browser controls',flush=True)
     unittest.main(verbosity=2)
