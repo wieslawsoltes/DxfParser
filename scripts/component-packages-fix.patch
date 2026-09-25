@@ -1,0 +1,31 @@
+diff --git a/components/app-startup.mjs b/components/app-startup.mjs
+index cafd72c..51aa7a9 100644
+--- a/components/app-startup.mjs
++++ b/components/app-startup.mjs
+@@ -7,7 +7,7 @@ import './analysis-reports.js';
+ import './drawing-views.js';
+ import './ribbon-workspace.mjs';
+ 
+-document.addEventListener("DOMContentLoaded", () => { 
++document.addEventListener("DOMContentLoaded", () => {
+   window.app = new App();
+   window.DxfWorkspaceStartup?.complete(window.app.dockingWorkspace);
+ 
+diff --git a/packages/dxf-inspector/src/diagnostics.mjs b/packages/dxf-inspector/src/diagnostics.mjs
+index 7e8df7d..533eedf 100644
+--- a/packages/dxf-inspector/src/diagnostics.mjs
++++ b/packages/dxf-inspector/src/diagnostics.mjs
+@@ -2665,4 +2665,3 @@ import { isHandleCode } from './utils.mjs';
+         };
+       }
+     }
+-
+diff --git a/packages/dxf-inspector/src/parser.mjs b/packages/dxf-inspector/src/parser.mjs
+index d1b687f..0619847 100644
+--- a/packages/dxf-inspector/src/parser.mjs
++++ b/packages/dxf-inspector/src/parser.mjs
+@@ -450,4 +450,3 @@ import { isHandleCode } from './utils.mjs';
+       return nodes.map(n => this.serializeNode(n)).join("\n");
+     }
+   }
+-
