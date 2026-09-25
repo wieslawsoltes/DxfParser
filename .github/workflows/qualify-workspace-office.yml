@@ -1,0 +1,56 @@
+name: Qualify workspace and Office packages
+on:
+  push:
+    branches: [work/workspace-office-packages]
+permissions:
+  contents: read
+jobs:
+  materialize:
+    name: Materialize verified source refactor
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified refactor
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/workspace-office.01.xzpart; then
+            cat scripts/workspace-office.0{1,2}.xzpart | xz -dc > /tmp/refactor.patch
+            echo 'bc31493730107ac3e155fb424a37bfbd90fad7ebbb5b40418e46fbe1d21419e7  /tmp/refactor.patch' | sha256sum -c -
+            git apply --check /tmp/refactor.patch
+            git apply /tmp/refactor.patch
+            rm scripts/workspace-office.0{1,2}.xzpart
+          fi
+          if test -f scripts/workspace-office-fix.patch; then
+            git apply --check scripts/workspace-office-fix.patch
+            git apply scripts/workspace-office-fix.patch
+            rm scripts/workspace-office-fix.patch
+          fi
+          git add -A
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor: extract host-injected workspace and Office preview packages'
+            git push origin HEAD:work/workspace-office-packages
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/workspace-office-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-office-source
+          path: /tmp/workspace-office-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate extracted sources
+    needs: materialize
+    uses: ./.github/workflows/ci.yml
+    with:
+      revision: ${{ needs.materialize.outputs.revision }}
+    permissions:
+      contents: read
