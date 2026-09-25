@@ -1,0 +1,98 @@
+name: Qualify linked drawing navigation
+on:
+  push:
+    branches: [work/drawing-navigation]
+permissions:
+  contents: write
+concurrency:
+  group: qualify-drawing-navigation
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Materialize and verify implementation
+        id: source
+        run: |
+          set -euo pipefail
+          if test -f scripts/drawing-navigation.01.xzpart; then
+            cat scripts/drawing-navigation.0{1,2,3}.xzpart | xz -dc > /tmp/drawing-navigation.patch
+            echo '58725ca7ffd11daf940b035df2c85f17e21177912ad7c2fff5767e23c9225d84  /tmp/drawing-navigation.patch' | sha256sum -c -
+            git apply --check /tmp/drawing-navigation.patch
+            git apply /tmp/drawing-navigation.patch
+            rm scripts/drawing-navigation.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/drawing-navigation-fix.patch; then
+            git apply --check scripts/drawing-navigation-fix.patch
+            git apply scripts/drawing-navigation-fix.patch
+            rm scripts/drawing-navigation-fix.patch
+          fi
+          node scripts/build-rendering-bundle.js
+          git add components dist docs scripts tests README.md index.html
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'feat(rendering): add linked navigation and transactional balanced drawing grids'
+            git push origin HEAD:work/drawing-navigation
+          fi
+          mkdir -p test-results/qualification
+          git rev-parse HEAD HEAD^{tree} > test-results/qualification/tested-source.txt
+          git archive HEAD --format=tar.gz -o /tmp/drawing-navigation-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drawing-navigation-source
+          path: /tmp/drawing-navigation-source.tar.gz
+          retention-days: 7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned test tooling
+        id: tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+          npm install -g typescript@5.8.3
+      - name: Comparison, analysis, camera and tiling models
+        run: node --test packages/dxf-compare/tests/*.test.js tests/analysis-visual-model.test.cjs tests/drawing-view-tools.test.cjs 2>&1 | tee test-results/qualification/models.log
+      - name: Native renderer and package regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.tooling.outcome == 'success' }}
+        run: python -u tests/check-docking-regressions.py 2>&1 | tee test-results/qualification/native.log
+      - name: Linked navigation and drawing grid browser workflows
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.tooling.outcome == 'success' }}
+        run: timeout 360s python -u tests/drawing-navigation.py 2>&1 | tee test-results/qualification/navigation-browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drawing-navigation-browser-evidence
+          path: test-results/
+          retention-days: 7
+      - name: Drawing, comparison and native browser regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.tooling.outcome == 'success' }}
+        run: |
+          failed=0
+          for suite in multiple-drawings visual-compare skia-workspace; do
+            timeout 360s python -u tests/$suite.py 2>&1 | tee test-results/qualification/$suite.log || failed=1
+          done
+          exit $failed
+      - name: Retained workspace regression
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.tooling.outcome == 'success' }}
+        run: |
+          failed=0
+          for suite in workspace-startup docking-workspace gridweb-previews ribbon-workspace analysis-views analysis-visuals; do
+            timeout 180s python -u tests/$suite.py 2>&1 | tee test-results/qualification/$suite.log || failed=1
+          done
+          exit $failed
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drawing-navigation-full-qualification
+          path: test-results/
+          retention-days: 14
