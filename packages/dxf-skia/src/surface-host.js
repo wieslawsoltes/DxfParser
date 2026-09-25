@@ -282,7 +282,7 @@
                 throw new Error('No drawing is loaded.');
             if (!(width > 0 && height > 0 && width <= 14400 && height <= 14400))
                 throw new RangeError('Invalid PDF page dimensions.');
-            const scene = new A.SceneCompiler(this.lastFrame.scene.document, { ...this.lastFrame.scene.compileOptions, background, printing: true }).compile(this.lastFrame.scene.layout), frame = A.prepareFrame(scene, { width, height, background, viewDirection: this.lastFrame.basis.z, viewState: { mode: 'auto', rotationRad: this.lastFrame.rotationRad } }), document = this.S.SKDocument.CreatePdf(null, { NativeBackend: true });
+            const scene = this.lastFrame.scene.preserveForExport ? this.lastFrame.scene : new A.SceneCompiler(this.lastFrame.scene.document, { ...this.lastFrame.scene.compileOptions, background, printing: true }).compile(this.lastFrame.scene.layout), frame = A.prepareFrame(scene, { width, height, background, viewDirection: this.lastFrame.basis.z, viewState: { mode: 'auto', rotationRad: this.lastFrame.rotationRad } }), document = this.S.SKDocument.CreatePdf(null, { NativeBackend: true });
             try {
                 const canvas = document.BeginPage(width, height);
                 this.painter.draw(canvas, frame, { background });

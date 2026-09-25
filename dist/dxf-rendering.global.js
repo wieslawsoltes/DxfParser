@@ -1709,7 +1709,7 @@
             this.vertices += points.length;
             if (this.vertices > this.options.maxVertices)
                 throw new RangeError('Vertex budget exceeded.');
-            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
+            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, rootSource: context.rootSource || e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
             delete primitive.matrix;
             if (data.infinite)
                 primitive.bounds = { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 };
@@ -1727,6 +1727,7 @@
         }
         path(e, c, s, points, close = false, fill = false, extra = {}) { return this.emit(e, c, s, { kind: 'path', path: pathFromPoints(points, close), fill, closed: close, ...extra }); }
         compileEntity(e, c) {
+            if (!c.rootSource) c = { ...c, rootSource: e };
             const s = this.style(e, c);
             if (!s)
                 return;
@@ -2553,7 +2554,7 @@
         for (const entry of candidates) {
             if (!G.intersects(entry.bounds, frame.viewport)) continue;
             const pick = frame.pick(entry), item = entry.primitive;
-            if (item.style.alpha <= 0 || !unclipped(frame, item, p))
+            if (item.comparisonDecoration || item.comparisonSide === 'reference' || item.style.alpha <= 0 || !unclipped(frame, item, p))
                 continue;
             if (!item.infinite && !G.inBounds(p, pick.entry.bounds, t))
                 continue;
@@ -2595,7 +2596,7 @@
         for (const entry of [...candidates].sort((a,b)=>a.index-b.index)) {
             if (!G.intersects(entry.bounds, frame.viewport)) continue;
             const pick = frame.pick(entry), p = entry.primitive;
-            if (p.style.alpha <= 0) continue;
+            if (p.comparisonDecoration || p.comparisonSide === 'reference' || p.style.alpha <= 0) continue;
             // Arc centers can lie outside the arc's bounding box.
             if (p.center) consider(p.center, 'center', pick);
             if (!G.inBounds(screenPoint, pick.screenBounds, tolerance)) continue;
@@ -3322,7 +3323,7 @@
                 throw new Error('No drawing is loaded.');
             if (!(width > 0 && height > 0 && width <= 14400 && height <= 14400))
                 throw new RangeError('Invalid PDF page dimensions.');
-            const scene = new A.SceneCompiler(this.lastFrame.scene.document, { ...this.lastFrame.scene.compileOptions, background, printing: true }).compile(this.lastFrame.scene.layout), frame = A.prepareFrame(scene, { width, height, background, viewDirection: this.lastFrame.basis.z, viewState: { mode: 'auto', rotationRad: this.lastFrame.rotationRad } }), document = this.S.SKDocument.CreatePdf(null, { NativeBackend: true });
+            const scene = this.lastFrame.scene.preserveForExport ? this.lastFrame.scene : new A.SceneCompiler(this.lastFrame.scene.document, { ...this.lastFrame.scene.compileOptions, background, printing: true }).compile(this.lastFrame.scene.layout), frame = A.prepareFrame(scene, { width, height, background, viewDirection: this.lastFrame.basis.z, viewState: { mode: 'auto', rotationRad: this.lastFrame.rotationRad } }), document = this.S.SKDocument.CreatePdf(null, { NativeBackend: true });
             try {
                 const canvas = document.BeginPage(width, height);
                 this.painter.draw(canvas, frame, { background });
@@ -3367,14 +3368,15 @@
     let runtime;
     const initializeSkia = () => runtime ||= (runtimeUrl ? import(runtimeUrl).then(m => m.Initialize({ fonts: false })) : Promise.reject(new Error('Provide Skia initialization outside the browser.'))).catch(e => { runtime = null; throw e; });
     class RenderingDataController {
-        constructor(options = {}) { this.options = options; this.documents = new Map(); }
+        constructor(options = {}) { this.options = options; this.documents = new Map(); this.listeners = new Set(); }
         ingestDocument({ tabId, fileName, sourceText, sourceBytes } = {}) {
             if (!tabId)
                 return null;
             try {
                 const document = new A.DxfDocument(sourceBytes ?? sourceText, this.options);
-                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0 });
+                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0, comparisonSourceText: typeof sourceText === "string" ? sourceText : null });
                 this.documents.set(tabId, document);
+                for (const listener of this.listeners) { try { listener({ type: 'ingest', document }); } catch (error) { console.warn('DXF document observer:', error); } }
                 return document;
             }
             catch (error) {
@@ -3382,6 +3384,7 @@
                 return null;
             }
         }
+        subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
         registerPlaceholder(id, details = {}) { this.documents.set(id, { status: 'placeholder', ...details }); }
         getDocument(id) { return this.documents.get(id) || null; }
         getSceneGraph(id) { return this.getDocument(id)?.sceneGraph || null; }
@@ -3452,9 +3455,11 @@
         setLayout(layout) { if (!this.sceneGraph?.document)
             throw new Error('Load a drawing first.'); this.sceneGraph.document.getEntities(layout); this.layout = layout; this.compileRevision++; this.viewState = { mode: 'auto' }; return this.renderScene(this.sceneGraph); }
         setViewDirection(direction) { this.viewDirection = G.normal(direction); this.viewState = { mode: 'auto' }; return this.sceneGraph ? this.renderScene(this.sceneGraph) : null; }
+        setComparison(session) { this.comparison = session; this.comparisonTarget = this.sceneGraph?.document.tabId ?? this.sceneGraph?.document; this.comparisonError = null; }
         renderScene(sceneGraph, options = {}) {
             if (!sceneGraph?.document)
                 throw new TypeError('Only DxfSkia scene graphs are accepted.');
+            if (this.comparison && this.comparisonTarget !== (sceneGraph.document.tabId ?? sceneGraph.document)) this.setComparison(null);
             if (this.sceneGraph !== sceneGraph) {
                 this.sceneGraph = sceneGraph;
                 this.layout = 'Model';
@@ -3467,9 +3472,14 @@
                 this.compiled = new A.SceneCompiler(sceneGraph.document, { ...this.options, textMeasurer: this.resources ? (p, t) => this.resources.measureText(p, t) : undefined }).compile(this.layout);
                 this.builtRevision = this.compileRevision;
             }
-            const frame = A.prepareFrame(this.compiled, { width: this.width, height: this.height, devicePixelRatio: this.devicePixelRatio, viewState: this.viewState, viewDirection: this.viewDirection, visualStyle: this.visualStyle, background: this.options.background });
+            let displayScene = this.compiled;
+            if (this.comparison?.enabled) {
+                try { displayScene = this.comparison.scene(this.compiled); this.comparisonError = null; }
+                catch (error) { this.comparisonError = error; this.comparison.enabled = false; }
+            }
+            const frame = A.prepareFrame(displayScene, { width: this.width, height: this.height, devicePixelRatio: this.devicePixelRatio, viewState: this.viewState, viewDirection: this.viewDirection, visualStyle: this.visualStyle, background: this.options.background });
             this.lastFrame = frame;
-            this.diagnostics = this.compiled.diagnostics;
+            this.diagnostics = displayScene.diagnostics;
             this.host.request(frame, { selection: this.selectionHandles, blockHighlights: this.blockHighlights, grid: this.gridVisible });
             return frame;
         }
@@ -3478,7 +3488,7 @@
             this.renderScene(this.sceneGraph); }
         resume() { this.suspended = false; this.host.resume(); }
         suspend() { this.suspended = true; this.host.suspend(); }
-        clear() { this.host.suspend(); this.sceneGraph = null; this.compiled = null; this.lastFrame = null; this.host.lastFrame = null; this.host.pending = null; this.host.painter?.clearCache(); }
+        clear() { this.setComparison(null); this.host.suspend(); this.sceneGraph = null; this.compiled = null; this.lastFrame = null; this.host.lastFrame = null; this.host.pending = null; this.host.painter?.clearCache(); }
         renderMessage(message) { this.message = String(message); this.onError?.(new Error(message)); }
         async registerResource(...args) { await this.host.ensureRuntime(); const result = this.resources.register(...args); this.compileRevision++; if (this.sceneGraph)
             this.renderScene(this.sceneGraph); await this.ready; return result; }
@@ -9521,3 +9531,677 @@
     RenderingOverlayController
   };
 }));
+
+
+// packages/dxf-compare/index.js
+/* Render-space DXF comparison. No source mutation, DOM, GPU or native allocations.
+ * A factory keeps the host's DxfSkia types/resources in the same module realm. */
+(function (root, factory) {
+    'use strict';
+    if (typeof module === 'object' && module.exports) module.exports = factory;
+    else root.DxfCompare = factory(root.DxfSkia);
+})(globalThis, function createDxfCompare(A) {
+    'use strict';
+    if (!A?.SceneCompiler) throw new TypeError('A DxfSkia API is required.');
+    const G = A.geometry;
+    const defaults = Object.freeze({ precision: 6, properties: 127, text: true, hatch: true,
+        showCurrent: true, showReference: true, showCommon: true, clouds: true,
+        cloudMode: 'local', margin: 1, currentFirst: false, commonOpacity: .65,
+        currentColor: '#5ce080', referenceColor: '#ff6678', commonColor: '#a8b5c8', cloudColor: '#ffd166',
+        maxObjects: 500000, maxSignatureBytes: 64 * 1024 * 1024 });
+    const propBits = Object.freeze({ color: 1, layer: 2, linetype: 4, linetypeScale: 8, lineweight: 16, transparency: 32, thickness: 64 });
+    const key = s => String(s ?? '').trim().toUpperCase();
+    function options(value = {}) {
+        const o = { ...defaults, ...value };
+        if (!Number.isInteger(o.precision) || o.precision < 0 || o.precision > 14) throw new RangeError('Precision must be 0–14 decimal places.');
+        if (!Number.isInteger(o.properties) || o.properties < 0 || o.properties > 127) throw new RangeError('Property mask must be 0–127.');
+        if (!Number.isFinite(o.margin) || o.margin < 0 || o.margin > 1e12) throw new RangeError('Cloud margin must be 0–1e12 drawing units.');
+        if (!Number.isFinite(o.commonOpacity) || o.commonOpacity < 0 || o.commonOpacity > 1) throw new RangeError('Common opacity must be 0–1.');
+        if (!['local', 'combined'].includes(o.cloudMode)) throw new RangeError('Cloud mode must be local or combined.');
+        for (const n of ['maxObjects', 'maxSignatureBytes']) if (!Number.isSafeInteger(o[n]) || o[n] < 1) throw new RangeError('Invalid comparison budget: ' + n);
+        for (const n of ['currentColor', 'referenceColor', 'commonColor', 'cloudColor']) if (!/^#[0-9a-f]{6}$/i.test(o[n])) throw new TypeError('Colors must be six-digit hexadecimal values.');
+        for (const n of ['text', 'hatch', 'showCurrent', 'showReference', 'showCommon', 'clouds', 'currentFirst']) if (typeof o[n] !== 'boolean') throw new TypeError(n + ' must be boolean.');
+        return o;
+    }
+    function canonical(value, precision) {
+        if (typeof value === 'number') {
+            if (!Number.isFinite(value)) throw new RangeError('Nonfinite comparison geometry.');
+            return Number(value.toFixed(precision));
+        }
+        if (Array.isArray(value)) return value.map(v => canonical(v, precision));
+        if (value && typeof value === 'object') {
+            const result = {};
+            for (const k of Object.keys(value).sort()) if (value[k] !== undefined) result[k] = canonical(value[k], precision);
+            return result;
+        }
+        return value;
+    }
+    function descriptor(p, o) {
+        const s = p.style, mask = o.properties;
+        const d = { kind: p.kind, fill: !!p.fill, closed: !!p.closed, clips: p.clips || [] };
+        if (p.path) {
+            d.path = p.path;
+            // A continuous single line has no visible direction. Preserve dash origin.
+            if (p.path.length === 2 && p.path[0][0] === 'M' && p.path[1][0] === 'L' && !s.dash?.length) {
+                const ends = [p.path[0][1], p.path[1][1]].sort((a, b) => a.x - b.x || a.y - b.y || a.z - b.z);
+                d.path = [['M', ends[0]], ['L', ends[1]]];
+            }
+        } else d.points = p.points;
+        for (const field of ['fillRule', 'face', 'infinite', 'size', 'mode', 'position', 'u', 'v', 'text', 'font', 'bigFont', 'align', 'vertical', 'mtext', 'wrapWidth', 'lineSpacing', 'backgroundMask', 'resource', 'imageSize', 'imageClip', 'brightness', 'contrast', 'fade', 'displayFlags'])
+            if (p[field] != null) d[field] = p[field];
+        // Compare resolved text/geometry, not raw formatting tags or style names.
+        if (p.gradient) { d.gradient = { ...p.gradient }; if (!(mask & 1)) delete d.gradient.colors; }
+        if (mask & 1) d.color = s.color.toLowerCase();
+        if (mask & 2) d.layer = key(s.layer);
+        if (mask & 4) { d.dash = s.dash || []; d.linetype = key(s.linetype); }
+        if (mask & 8) d.dashScale = s.dashScale;
+        if (mask & 16) { d.lineweight = s.lineweight; d.lineweightVisible = !!s.lineweightVisible; }
+        if (mask & 32) d.alpha = s.alpha;
+        if (mask & 64) d.thickness = p.source?.num(39) || 0;
+        return JSON.stringify(canonical(d, o.precision));
+    }
+    function objects(scene, o) {
+        const groups = new Map(); let bytes = 0;
+        for (const p of scene.primitives) {
+            if (!o.text && p.kind === 'text' || !o.hatch && p.type === 'HATCH') continue;
+            const source = p.rootSource || p.source, id = source?.id || p.id;
+            let group = groups.get(id);
+            if (!group) {
+                if (groups.size >= o.maxObjects) throw new RangeError('Comparison object budget exceeded.');
+                group = { id, source, handle: source?.handle || '', type: source?.type || p.type, layer: source?.layer || p.style.layer,
+                    primitives: [], bounds: G.emptyBounds(), keys: [] }; groups.set(id, group);
+            }
+            const signature = descriptor(p, o); bytes += signature.length * 2;
+            if (bytes > o.maxSignatureBytes) throw new RangeError('Comparison signature budget exceeded.');
+            group.primitives.push(p); group.keys.push(signature);
+            if (!p.infinite) G.union(group.bounds, p.bounds);
+        }
+        for (const group of groups.values()) {
+            // Preserve internal draw order: overlapping fills in a block are visual content.
+            group.signature = group.keys.join('\u0000'); delete group.keys;
+        }
+        return [...groups.values()];
+    }
+    const unionOf = items => { const b = G.emptyBounds(); for (const item of items) if (!G.isEmpty(item.bounds)) G.union(b, item.bounds); return b; };
+    function compareScenes(currentScene, referenceScene, settings = {}) {
+        const o = options(settings), current = objects(currentScene, o), reference = objects(referenceScene, o), buckets = new Map();
+        for (const r of reference) { let list = buckets.get(r.signature); if (!list) buckets.set(r.signature, list = { values: [], next: 0 }); list.values.push(r); }
+        const common = [], currentOnly = [], used = new Set();
+        for (const c of current) {
+            const bucket = buckets.get(c.signature), r = bucket && bucket.values[bucket.next++];
+            if (r) { common.push({ current: c, reference: r }); used.add(r); } else currentOnly.push(c);
+        }
+        const referenceOnly = reference.filter(r => !used.has(r));
+        // Handles suggest correspondence only AFTER geometric multiset matching.
+        const byHandle = list => { const map = new Map(); for (const item of list) if (item.handle) {
+            const k = key(item.type) + ':' + key(item.handle); map.set(k, map.has(k) ? null : item);
+        } return map; };
+        const cm = byHandle(currentOnly), rm = byHandle(referenceOnly), linked = new Set(), changes = [];
+        for (const c of currentOnly) {
+            const k = key(c.type) + ':' + key(c.handle), r = c.handle && cm.get(k) === c && rm.get(k);
+            if (r) linked.add(r);
+            changes.push({ id: 'current:' + c.id, status: r ? 'modified' : 'current-only', current: c, reference: r || null, bounds: unionOf(r ? [c, r] : [c]) });
+        }
+        for (const r of referenceOnly) if (!linked.has(r)) changes.push({ id: 'reference:' + r.id, status: 'reference-only', current: null, reference: r, bounds: { ...r.bounds } });
+        const notices = [...currentScene.diagnostics.map(d => ({ ...d, drawing: 'current' })), ...referenceScene.diagnostics.map(d => ({ ...d, drawing: 'reference' }))];
+        if ([...currentScene.primitives, ...referenceScene.primitives].some(p => p.kind === 'image')) notices.push({ code: 'compare-image-content', severity: 'warning', message: 'Image placement/resource names are compared, not external pixel contents.' });
+        const counts = { currentOnly: currentOnly.length, referenceOnly: referenceOnly.length, common: common.length,
+            modified: changes.filter(c => c.status === 'modified').length, changes: changes.length };
+        return { options: o, currentScene, referenceScene, currentOnly, referenceOnly, common, changes, counts, notices,
+            incomplete: notices.some(d => d.severity !== 'info'), bounds: unionOf(changes) };
+    }
+    function cloudBounds(result) {
+        const boxes = result.changes.filter(c => !G.isEmpty(c.bounds)).map(c => ({ ...c.bounds }));
+        if (!boxes.length) return [];
+        const expanded = boxes.map(b => ({ ...b, minX: b.minX - result.options.margin, minY: b.minY - result.options.margin, maxX: b.maxX + result.options.margin, maxY: b.maxY + result.options.margin }));
+        // Local mode intentionally emits one cloud per change set. No quadratic clustering.
+        return result.options.cloudMode === 'combined' ? [unionOf(expanded.map(bounds => ({ bounds })))] : expanded;
+    }
+    function cloudPrimitive(box, i, color) {
+        const { minX: x, minY: y } = box, w = Math.max(box.maxX - x, .01), h = Math.max(box.maxY - y, .01), z = Number.isFinite(box.minZ) ? box.minZ : 0;
+        const corners = [G.vec(x, y, z), G.vec(x + w, y, z), G.vec(x + w, y + h, z), G.vec(x, y + h, z)], path = [['M', corners[0]]];
+        const chord = Math.max(w, h) / 12;
+        for (let edge = 0; edge < 4; edge++) {
+            const a = corners[edge], b = corners[(edge + 1) % 4], dx = b.x - a.x, dy = b.y - a.y, n = Math.min(32, Math.max(2, Math.ceil(Math.hypot(dx, dy) / chord)));
+            for (let j = 0; j < n; j++) {
+                const t = (j + .5) / n, end = G.vec(a.x + dx * (j + 1) / n, a.y + dy * (j + 1) / n, z);
+                path.push(['Q', G.vec(a.x + dx * t + dy / n * .35, a.y + dy * t - dx / n * .35, z), end]);
+            }
+        }
+        path.push(['Z']); const f = G.flatten(path, .02, 4096);
+        return { id: 'compare-cloud:' + i, handle: 'compare-cloud:' + i, entityHandle: '', type: 'REVCLOUD', kind: 'path', path, points: f.points, rings: f.rings,
+            closed: true, fill: false, style: { layer: 'Comparison clouds', color, alpha: 1, lineweight: 25, lineweightVisible: false, dash: [], dashScale: 1 },
+            bounds: G.pathBounds(path), clips: [], blockPath: [], instancePath: [], comparisonDecoration: true };
+    }
+    function compose(result) {
+        const o = result.options, primitives = [];
+        const add = (groups, side, color, alpha = 1) => {
+            for (const group of groups) for (const p of group.primitives) {
+                const reference = side === 'reference';
+                primitives.push({ ...p, id: 'compare:' + side + ':' + p.id,
+                    handle: reference ? 'compare-reference:' + group.id : p.handle,
+                    entityHandle: reference ? 'compare-reference:' + p.entityHandle : p.entityHandle,
+                    instancePath: reference ? [] : p.instancePath, blockPath: reference ? [] : p.blockPath,
+                    comparisonSide: side, comparisonObjectId: group.id,
+                    style: { ...p.style, color, alpha: p.style.alpha * alpha },
+                    gradient: p.gradient ? { ...p.gradient, colors: [color, color] } : p.gradient });
+            }
+        };
+        if (o.showCommon) add(result.common.map(p => p.current), 'common', o.commonColor, o.commonOpacity);
+        const current = () => { if (o.showCurrent) add(result.currentOnly, 'current', o.currentColor); };
+        const reference = () => { if (o.showReference) add(result.referenceOnly, 'reference', o.referenceColor); };
+        if (o.currentFirst) { current(); reference(); } else { reference(); current(); }
+        if (o.clouds) cloudBounds(result).forEach((b, i) => primitives.push(cloudPrimitive(b, i, o.cloudColor)));
+        const scene = { ...result.currentScene, primitives, bounds: unionOf(primitives.filter(p => !p.infinite)),
+            diagnostics: result.notices, stats: { ...result.currentScene.stats, primitives: primitives.length }, comparison: result, preserveForExport: true };
+        scene.index = new A.SpatialIndex(primitives.map((primitive, index) => ({ primitive, index, bounds: primitive.bounds })));
+        return scene;
+    }
+    class Session {
+        constructor(reference, settings = {}) {
+            if (!(reference instanceof A.DxfDocument)) throw new TypeError('A reference DxfDocument is required.');
+            this.reference = reference; this.options = options(settings); this.revision = 0; this.enabled = true;
+        }
+        configure(patch) { this.options = options({ ...this.options, ...patch }); this.revision++; }
+        setReference(reference) { if (!(reference instanceof A.DxfDocument)) throw new TypeError('Invalid reference document.'); this.reference = reference; this.referenceScene = null; this.revision++; }
+        scene(currentScene) {
+            if (this.currentScene === currentScene && this.builtRevision === this.revision) return this.composed;
+            // Reuse the reference compilation for visibility/color/cloud setting changes.
+            if (this.currentScene !== currentScene || !this.referenceScene) {
+                const compileOptions = { ...currentScene.compileOptions };
+                // Current handle isolation must never hide unrelated reference objects.
+                delete compileOptions.entityIsolation; delete compileOptions.blockIsolation;
+                let layout = currentScene.layout;
+                const found = [...this.reference.layouts.values()].find(l => key(l.name) === key(layout));
+                if (!found) throw new Error('Reference drawing has no layout "' + layout + '". Choose a shared layout.');
+                layout = found.name;
+                this.referenceScene = new A.SceneCompiler(this.reference, compileOptions).compile(layout);
+            }
+            const result = compareScenes(currentScene, this.referenceScene, this.options);
+            const composed = compose(result);
+            this.result = result; this.composed = composed; this.currentScene = currentScene; this.builtRevision = this.revision;
+            return composed;
+        }
+    }
+    function snapshot(currentText, referenceText, settings, metadata = {}) {
+        if (typeof currentText !== 'string' || typeof referenceText !== 'string') throw new TypeError('Snapshot requires both DXF source strings.');
+        return JSON.stringify({ format: 'dxf-render-compare', version: 1, currentText, referenceText, options: options(settings),
+            metadata: { currentName: String(metadata.currentName || 'current.dxf'), referenceName: String(metadata.referenceName || 'reference.dxf'), layout: String(metadata.layout || 'Model') } });
+    }
+    function readSnapshot(text) {
+        if (typeof text !== 'string' || text.length > 128 * 1024 * 1024) throw new RangeError('Snapshot input exceeds 128 MiB.');
+        const value = JSON.parse(text);
+        if (value?.format !== 'dxf-render-compare' || value.version !== 1 || typeof value.currentText !== 'string' || typeof value.referenceText !== 'string') throw new TypeError('Unsupported comparison snapshot.');
+        return { ...value, options: options(value.options), current: new A.DxfDocument(value.currentText), reference: new A.DxfDocument(value.referenceText) };
+    }
+    function report(result) {
+        return { format: 'dxf-render-compare-report', version: 1, layout: result.currentScene.layout, counts: result.counts, options: result.options, incomplete: result.incomplete, notices: result.notices,
+            changes: result.changes.map(c => ({ id: c.id, status: c.status, current: c.current && { id: c.current.id, handle: c.current.handle, type: c.current.type, layer: c.current.layer },
+                reference: c.reference && { id: c.reference.id, handle: c.reference.handle, type: c.reference.type, layer: c.reference.layer }, bounds: G.isEmpty(c.bounds) ? null : c.bounds })) };
+    }
+    return { createDxfCompare, defaults, propBits, options, descriptor, compareScenes, compose, cloudBounds, Session, snapshot, readSnapshot, report };
+});
+
+
+// packages/dxf-compare/import.js
+/* Transactional, fail-closed import of supported reference objects. All records
+ * are staged and compiled before a new source string is returned to the host. */
+(function (root, factory) {
+    'use strict';
+    if (typeof module === 'object' && module.exports) module.exports = factory;
+    else Object.assign(root.DxfCompare, factory(root.DxfSkia, root.DxfCompare));
+})(globalThis, function createImport(A, C) {
+    'use strict';
+    const key = s => String(s ?? '').trim().toUpperCase();
+    const tag = (code, value) => ({ code, value: String(value) });
+    const copyTags = r => [tag(0, r.type), ...r.tags.map(t => tag(t.code, t.value))];
+    const pointer = code => code >= 320 && code <= 369 || code >= 390 && code <= 399 || code === 480 || code === 481 || code === 1005;
+    const tableKinds = new Set(['LAYER', 'LTYPE', 'STYLE', 'DIMSTYLE', 'APPID', 'BLOCK_RECORD']);
+    const entityKinds = new Set(['LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'LWPOLYLINE', 'POLYLINE', 'VERTEX', 'SEQEND', 'SPLINE', 'POINT', 'SOLID', 'TRACE', '3DFACE', 'TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF', 'INSERT', 'MINSERT', 'DIMENSION', 'HATCH', 'LEADER', 'XLINE', 'RAY', 'MESH']);
+    function set(tags, code, value) { const t = tags.find(t => t.code === code); if (t) t.value = String(value); else tags.push(tag(code, value)); }
+    function section(tags, name) {
+        for (let i = 0; i < tags.length - 1; i++) if (tags[i].code === 0 && key(tags[i].value) === 'SECTION' && key(tags[i + 1].value) === name) {
+            for (let j = i + 2; j < tags.length; j++) if (tags[j].code === 0 && key(tags[j].value) === 'ENDSEC') return { start: i + 2, end: j };
+            throw new SyntaxError('Unterminated DXF section ' + name);
+        }
+        return null;
+    }
+    function ensureSection(tags, name) {
+        let s = section(tags, name); if (s) return s;
+        const eof = tags.findIndex(t => t.code === 0 && key(t.value) === 'EOF');
+        tags.splice(eof < 0 ? tags.length : eof, 0, tag(0, 'SECTION'), tag(2, name), tag(0, 'ENDSEC'));
+        return section(tags, name);
+    }
+    function table(tags, name) {
+        const s = section(tags, 'TABLES'); if (!s) return null;
+        for (let i = s.start; i < s.end - 1; i++) if (tags[i].code === 0 && key(tags[i].value) === 'TABLE' && tags[i + 1].code === 2 && key(tags[i + 1].value) === name) {
+            let headerEnd = i + 1; while (headerEnd < s.end && tags[headerEnd].code !== 0) headerEnd++;
+            for (let j = headerEnd; j < s.end; j++) if (tags[j].code === 0 && key(tags[j].value) === 'ENDTAB') return { start: i, headerEnd, end: j };
+        }
+        return null;
+    }
+    function importObjects(currentText, referenceText, selectedIds, settings = {}) {
+        if (typeof currentText !== 'string' || typeof referenceText !== 'string') throw new TypeError('Import requires DXF source strings.');
+        const current = new A.DxfDocument(currentText), reference = new A.DxfDocument(referenceText), opts = C.options(settings), ids = new Set(selectedIds);
+        if (!ids.size || ids.size > 10000) throw new RangeError('Select 1–10000 reference objects.');
+        if (current.diagnostics.items.some(d => /duplicate-handle/.test(d.code)) || reference.diagnostics.items.some(d => /duplicate-handle/.test(d.code))) throw new Error('Resolve duplicate handles before import.');
+        const compilerOptions = settings.compileOptions || {}, beforeScene = new A.SceneCompiler(current, compilerOptions).compile('Model'), refScene = new A.SceneCompiler(reference, compilerOptions).compile('Model');
+        const comparison = C.compareScenes(beforeScene, refScene, opts), eligible = new Map(comparison.referenceOnly.map(g => [g.id, g]));
+        for (const id of ids) if (!eligible.has(id)) throw new Error('Only rendered reference-only model-space objects can be imported: ' + id);
+        const targetTags = A.parseTags(currentText).map(t => tag(t.code, t.value));
+        let next = 255n;
+        for (const t of targetTags) if ((t.code === 5 || t.code === 105) && /^[0-9a-f]+$/i.test(t.value)) { const n = BigInt('0x' + t.value); if (n > next) next = n; }
+        const allocate = () => (++next).toString(16).toUpperCase();
+        const staged = new Map(), handles = new Map(), names = new Map(), records = reference.records;
+        const byType = new Map(); for (const r of records) { if (!byType.has(r.type)) byType.set(r.type, []); byType.get(r.type).push(r); }
+        const tableRecords = type => byType.get(type) || [];
+        const existingNames = new Map([...tableKinds].map(t => [t, new Set(current.records.filter(r => r.type === t).map(r => key(r.get(2))))]));
+        for (const b of current.blocks) existingNames.get('BLOCK_RECORD').add(key(b.name));
+        let sequence = 0;
+        const renamed = (type, name) => {
+            const k = type + ':' + key(name); if (names.has(k)) return names.get(k);
+            const set = existingNames.get(type) || new Set();
+            if (!set.has(key(name))) { set.add(key(name)); names.set(k, String(name)); return String(name); }
+            const base = String(name).replace(/[<>/\\":;?*|=,]/g, '_').slice(0, 160) || 'unnamed';
+            let n; do { n = (type === 'BLOCK_RECORD' && String(name).startsWith('*') ? '*U_' : '') + 'CMP$' + (++sequence) + '$' + base; } while (set.has(key(n)));
+            set.add(key(n)); names.set(k, n); return n;
+        };
+        function stage(r, destination, owner = null, blockContent = false) {
+            if (staged.has(r.id)) return staged.get(r.id);
+            if (!tableKinds.has(r.type) && !entityKinds.has(r.type) && r.type !== 'BLOCK' && r.type !== 'ENDBLK') throw new Error('Import requires unsupported ' + r.type + ' dependency; no changes were applied.');
+            if (r.all(330).length > 1 || r.type === 'HATCH' && r.num(71) === 1) throw new Error('Associative boundary/owner references require a database-aware importer; no changes were applied.');
+            if (r.tags.some(t => t.code === 102)) throw new Error('Extension dictionaries/reactors require a database-aware importer; no changes were applied.');
+            const entry = { record: r, tags: copyTags(r), destination, owner, blockContent, handle: allocate() };
+            staged.set(r.id, entry); if (r.handle) handles.set(key(r.handle), entry.handle);
+            return entry;
+        }
+        function symbol(type, name) {
+            const n = key(name); if (!n) return name;
+            const mapKey = type + ':' + n; if (names.has(mapKey)) return names.get(mapKey);
+            if (type === 'LTYPE' && ['BYLAYER', 'BYBLOCK'].includes(n)) return n;
+            if (type === 'BLOCK_RECORD') return block(name);
+            const r = tableRecords(type).find(r => key(r.get(2)) === n);
+            if (!r) {
+                // Synthesize the same defaults the native compiler uses for absent tables.
+                if (type === 'LAYER') {
+                    const layer = reference.layer(name), tags = [tag(0, 'LAYER'), tag(2, name), tag(70, layer.flags || 0), tag(62, layer.colorNumber ?? 7), tag(6, layer.linetype || 'CONTINUOUS'), tag(370, layer.lineweight ?? -3)];
+                    const synthetic = new A.DxfRecord(tags, -1000 - sequence); const n = renamed(type, name); stage(synthetic, type); return n;
+                }
+                if (type === 'STYLE' && n === 'STANDARD' || type === 'LTYPE' && n === 'CONTINUOUS') return name;
+                throw new Error('Missing ' + type + ' dependency "' + name + '"; no changes were applied.');
+            }
+            const target = current.records.find(t => t.type === type && key(t.get(2)) === n);
+            const definition = r => JSON.stringify(r.tags.filter(t => ![5, 105, 330, 100].includes(t.code)).map(t => [t.code, String(t.value)]));
+            if (target?.handle && definition(target) === definition(r)) { names.set(mapKey, target.get(2)); if (r.handle) handles.set(key(r.handle), target.handle); return target.get(2); }
+            const mapped = renamed(type, name); stage(r, type); return mapped;
+        }
+        function block(name) {
+            const mapKey = 'BLOCK_RECORD:' + key(name); if (names.has(mapKey)) return names.get(mapKey);
+            const b = reference.getBlock(name); if (!b) throw new Error('Missing block ' + name);
+            if (b.record.num(70) & 124 || b.record.get(1)) throw new Error('External-reference blocks cannot be imported as self-contained objects.');
+            const mapped = renamed('BLOCK_RECORD', name), br = tableRecords('BLOCK_RECORD').find(r => key(r.get(2)) === key(name));
+            const record = br || new A.DxfRecord([tag(0, 'BLOCK_RECORD'), tag(2, name), tag(70, 0)], -2000 - sequence);
+            const owner = stage(record, 'BLOCK_RECORD').handle;
+            const start = records.indexOf(b.record); let end = start + 1; while (end < records.length && records[end].type !== 'ENDBLK') end++;
+            if (end === records.length) throw new Error('Unterminated block ' + name);
+            for (let i = start; i <= end; i++) stage(records[i], 'BLOCKS', owner, true);
+            return mapped;
+        }
+        // Model owner: create a minimal BLOCK_RECORD table record when absent.
+        ensureSection(targetTags, 'TABLES'); ensureSection(targetTags, 'BLOCKS'); ensureSection(targetTags, 'ENTITIES');
+        const model = current.records.find(r => r.type === 'BLOCK_RECORD' && key(r.get(2)) === '*MODEL_SPACE');
+        const modelHandle = model?.handle || allocate();
+        const rootHandles = new Map();
+        for (const id of ids) {
+            const r = eligible.get(id).source; const entry = stage(r, 'ENTITIES', modelHandle); rootHandles.set(id, entry.handle);
+            // Ordered sequence records include ATTRIB/VERTEX and terminating SEQEND.
+            if (r.type === 'POLYLINE' || ['INSERT', 'MINSERT'].includes(r.type) && r.num(66) === 1) {
+                let i = records.indexOf(r) + 1;
+                for (; i < records.length && ['VERTEX', 'ATTRIB', 'SEQEND'].includes(records[i].type); i++) {
+                    stage(records[i], 'ENTITIES', entry.handle, true); if (records[i].type === 'SEQEND') break;
+                }
+                if (records[i]?.type !== 'SEQEND') throw new Error('Unterminated entity sequence.');
+            }
+        }
+        const findSymbol = r => {
+            const t = r.type, tags = r.tags;
+            if (t === 'BLOCK_RECORD') symbol('BLOCK_RECORD', r.get(2));
+            if (t === 'LAYER') symbol('LTYPE', r.get(6, 'CONTINUOUS'));
+            if (entityKinds.has(t)) {
+                symbol('LAYER', r.layer); symbol('LTYPE', r.get(6, 'BYLAYER'));
+                if (['TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF'].includes(t)) symbol('STYLE', r.get(7, 'STANDARD'));
+                if (['INSERT', 'MINSERT', 'DIMENSION'].includes(t) && r.get(2)) block(r.get(2));
+                if (t === 'DIMENSION' && r.get(3)) symbol('DIMSTYLE', r.get(3));
+            }
+            for (const tag of tags) {
+                if (tag.code === 1001) symbol('APPID', tag.value);
+                if (!pointer(tag.code) || tag.code === 330 || key(tag.value) === '0' || handles.has(key(tag.value))) continue;
+                const dependency = reference.byHandle.get(key(tag.value));
+                if (dependency && tableKinds.has(dependency.type)) symbol(dependency.type, dependency.get(2));
+                else throw new Error('Unresolved/unsupported handle dependency ' + tag.value + ' (group ' + tag.code + '); no changes were applied.');
+            }
+        };
+        for (const entry of staged.values()) { findSymbol(entry.record); if (staged.size > 100000) throw new RangeError('Import dependency budget exceeded.'); }
+        const tableHandles = new Map();
+        function ensureTable(name) {
+            if (tableHandles.has(name)) return tableHandles.get(name);
+            let t = table(targetTags, name), handle;
+            if (t) {
+                const header = targetTags.slice(t.start, t.headerEnd); handle = header.find(t => t.code === 5)?.value || allocate();
+                if (!header.some(t => t.code === 5)) targetTags.splice(t.start + 2, 0, tag(5, handle));
+            } else {
+                handle = allocate(); const s = ensureSection(targetTags, 'TABLES');
+                targetTags.splice(s.end, 0, tag(0, 'TABLE'), tag(2, name), tag(5, handle), tag(100, 'AcDbSymbolTable'), tag(70, 0), tag(0, 'ENDTAB'));
+            }
+            tableHandles.set(name, handle); return handle;
+        }
+        ensureTable('BLOCK_RECORD');
+        if (!model) {
+            const t = table(targetTags, 'BLOCK_RECORD'); targetTags.splice(t.end, 0, tag(0, 'BLOCK_RECORD'), tag(5, modelHandle), tag(330, tableHandles.get('BLOCK_RECORD')), tag(100, 'AcDbSymbolTableRecord'), tag(100, 'AcDbBlockTableRecord'), tag(2, '*Model_Space'), tag(70, 0));
+        }
+        if (!model && !current.getBlock('*Model_Space')) {
+            const b = ensureSection(targetTags, 'BLOCKS'); targetTags.splice(b.end, 0, tag(0, 'BLOCK'), tag(5, allocate()), tag(330, modelHandle), tag(100, 'AcDbEntity'), tag(8, '0'), tag(100, 'AcDbBlockBegin'), tag(2, '*Model_Space'), tag(70, 0), tag(10, 0), tag(20, 0), tag(30, 0), tag(3, '*Model_Space'), tag(0, 'ENDBLK'), tag(5, allocate()), tag(330, modelHandle), tag(100, 'AcDbEntity'), tag(8, '0'), tag(100, 'AcDbBlockEnd'));
+        }
+        for (const entry of staged.values()) if (tableKinds.has(entry.destination)) ensureTable(entry.destination);
+        const layerDefault = reference.headerNumber('$LWDEFAULT', 25), dashRatio = reference.headerNumber('$LTSCALE', 1) / current.headerNumber('$LTSCALE', 1);
+        if (!Number.isFinite(dashRatio)) throw new Error('Invalid global linetype scale.');
+        for (const entry of staged.values()) {
+            const { record: r, tags, destination, blockContent } = entry;
+            set(tags, r.type === 'DIMSTYLE' ? 105 : 5, entry.handle);
+            for (const t of tags) if (pointer(t.code) && key(t.value) !== '0') {
+                if (t.code === 330) t.value = handles.get(key(t.value)) || entry.owner || tableHandles.get(destination) || modelHandle;
+                else { const mapped = handles.get(key(t.value)); if (!mapped) throw new Error('Unmapped handle dependency ' + t.value); t.value = mapped; }
+            }
+            if (!tags.some(t => t.code === 330)) set(tags, 330, entry.owner || tableHandles.get(destination) || modelHandle);
+            if (tableKinds.has(r.type)) set(tags, 2, names.get(r.type + ':' + key(r.get(2))) || r.get(2));
+            if (r.type === 'BLOCK') { const n = names.get('BLOCK_RECORD:' + key(r.get(2))); set(tags, 2, n); if (r.get(3)) set(tags, 3, n); }
+            if (entityKinds.has(r.type)) {
+                set(tags, 8, blockContent && key(r.layer) === '0' ? '0' : names.get('LAYER:' + key(r.layer)) || r.layer);
+                if (['INSERT', 'MINSERT', 'DIMENSION'].includes(r.type) && r.get(2)) set(tags, 2, names.get('BLOCK_RECORD:' + key(r.get(2))));
+                if (r.type === 'DIMENSION' && r.get(3)) set(tags, 3, names.get('DIMSTYLE:' + key(r.get(3))) || r.get(3));
+                if (['TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF'].includes(r.type)) set(tags, 7, names.get('STYLE:' + key(r.get(7, 'STANDARD'))) || r.get(7, 'STANDARD'));
+                if (dashRatio !== 1) set(tags, 48, r.num(48, 1) * dashRatio);
+                if (r.num(370, -1) === -3) set(tags, 370, layerDefault);
+                // All selected/imported roots are model-space objects.
+                if (destination === 'ENTITIES' && !blockContent) { set(tags, 67, 0); if (r.get(410)) set(tags, 410, 'Model'); }
+            }
+            if (r.type === 'LAYER' && r.num(370, -3) === -3) set(tags, 370, layerDefault);
+            for (const t of tags) {
+                if (t.code === 6 && (entityKinds.has(r.type) || r.type === 'LAYER')) t.value = names.get('LTYPE:' + key(t.value)) || t.value;
+                if (t.code === 1001) t.value = names.get('APPID:' + key(t.value)) || t.value;
+            }
+        }
+        // Batch each destination, preserving block/sequence record order. Avoid O(N²) splices.
+        const destinations = new Map(); for (const e of staged.values()) { if (!destinations.has(e.destination)) destinations.set(e.destination, []); for (const t of e.tags) destinations.get(e.destination).push(t); }
+        for (const [destination, tags] of destinations) {
+            const range = tableKinds.has(destination) ? table(targetTags, destination) : ensureSection(targetTags, destination);
+            const suffix = targetTags.splice(range.end); for (const t of tags) targetTags.push(t); for (const t of suffix) targetTags.push(t);
+        }
+        for (const name of tableHandles.keys()) {
+            const t = table(targetTags, name); let count = 0;
+            for (let i = t.headerEnd; i < t.end; i++) if (targetTags[i].code === 0) count++;
+            const index = targetTags.findIndex((tag, i) => i >= t.start && i < t.headerEnd && tag.code === 70);
+            if (index >= 0) targetTags[index].value = String(count);
+        }
+        const header = ensureSection(targetTags, 'HEADER'); let seed = -1;
+        for (let i = header.start; i < header.end; i++) if (targetTags[i].code === 9 && key(targetTags[i].value) === '$HANDSEED') seed = i + 1;
+        if (seed >= 0 && targetTags[seed]?.code === 5) targetTags[seed].value = allocate();
+        else targetTags.splice(header.end, 0, tag(9, '$HANDSEED'), tag(5, allocate()));
+        const text = targetTags.map(t => t.code + '\n' + t.value + '\n').join(''), document = new A.DxfDocument(text);
+        if (document.diagnostics.items.some(d => d.severity === 'error' || /duplicate-handle/.test(d.code))) throw new Error('Import validation failed; original drawing is unchanged.');
+        const afterScene = new A.SceneCompiler(document, compilerOptions).compile('Model');
+        const originalRootIds = new Set(document.entities.slice(0, current.entities.length).map(e => e.id));
+        const originalAfter = afterScene.primitives.filter(p => originalRootIds.has((p.rootSource || p.source).id));
+        if (JSON.stringify(beforeScene.primitives.map(p => C.descriptor(p, opts))) !== JSON.stringify(originalAfter.map(p => C.descriptor(p, opts)))) throw new Error('Import would change existing drawing geometry. No changes were applied.');
+        // Verify the staged import retains resolved geometry and appearance. Renamed
+        // symbol labels are intentionally excluded from this postcondition only.
+        const visual = p => { const d = JSON.parse(C.descriptor(p, { ...opts, properties: 127 })); delete d.layer; delete d.linetype; return JSON.stringify(d); };
+        for (const [id, handle] of rootHandles) {
+            const before = refScene.primitives.filter(p => (p.rootSource || p.source).id === id).map(visual);
+            const after = afterScene.primitives.filter(p => (p.rootSource || p.source).handle === handle).map(visual);
+            if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Import would change rendered appearance (global settings or unsupported dependency). No changes were applied.');
+        }
+        return { text, document, imported: rootHandles.size, handles: Object.fromEntries(rootHandles), renamedSymbols: Object.fromEntries(names), recordCount: staged.size };
+    }
+    return { importObjects };
+});
+
+
+// components/visual-compare.js
+/* Dockyard/AnalysisView comparison workbench. Native drawing and export stay in
+ * the existing Skia surface; no parallel Canvas2D preview is introduced. */
+(function (root) {
+    'use strict';
+    const A = root.DxfSkia, C = root.DxfCompare, G = A.geometry;
+    const asset = typeof document !== 'undefined' && document.currentScript?.src;
+    const element = (tag, text, className) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (className) e.className = className; return e; };
+    class CompareController {
+        constructor(cad) {
+            this.cad = cad; this.manager = cad.manager; this.overlay = cad.overlay; this.app = cad.app;
+            this.abort = new AbortController(); this.settings = { ...C.defaults }; this.loadGeneration = 0;
+            this.undoStack = []; this.redoStack = []; this.controls = new Map(); this.selectedIndex = -1;
+            this.panel = element('section', null, 'dxf-compare-panel'); this.panel.setAttribute('aria-label', 'Drawing comparison');
+            if (!document.querySelector('link[data-dxf-compare]') && asset) { const css = element('link'); css.rel = 'stylesheet'; css.href = new URL('../components/visual-compare.css', asset).href; css.dataset.dxfCompare = ''; document.head.append(css); }
+            const heading = element('div', null, 'dxf-compare-heading'); heading.append(element('strong', 'Drawing Compare'), element('span', 'Native Skia · object changes'));
+            const source = element('div', null, 'dxf-compare-tools'); this.sources = element('select'); this.sources.setAttribute('aria-label', 'Reference drawing');
+            source.append(this.sources); this.button(source, 'Compare tab', () => this.startTab()); this.button(source, 'Open reference DXF…', () => this.file.click());
+            this.file = element('input'); this.file.type = 'file'; this.file.accept = '.dxf'; this.file.hidden = true;
+            this.file.addEventListener('change', () => this.run(async () => { const file = this.file.files[0]; this.file.value = ''; if (file) await this.loadFile(file); }), { signal: this.abort.signal });
+            this.snapshotFile = element('input'); this.snapshotFile.type = 'file'; this.snapshotFile.accept = '.json'; this.snapshotFile.hidden = true;
+            this.snapshotFile.addEventListener('change', () => this.run(async () => { const file = this.snapshotFile.files[0]; this.snapshotFile.value = ''; if (file) { if (file.size > 128 * 1024 * 1024) throw new RangeError('Snapshot is too large.'); this.restoreSnapshot(await file.text()); } }), { signal: this.abort.signal });
+            this.summary = element('p', 'Choose a reference drawing to compare with the active rendered DXF.', 'dxf-compare-summary'); this.summary.setAttribute('role', 'status'); this.summary.setAttribute('aria-live', 'polite');
+            this.message = element('p', '', 'dxf-compare-message'); this.message.setAttribute('role', 'alert');
+            const nav = element('div', null, 'dxf-compare-tools');
+            this.button(nav, 'Previous', () => this.navigate(-1)); this.button(nav, 'Next', () => this.navigate(1)); this.button(nav, 'Fit changes', () => this.focus(this.require().result.bounds));
+            this.toggleButton = this.button(nav, 'Hide comparison', () => this.toggle()); this.button(nav, 'Refresh', () => this.refreshComparison()); this.button(nav, 'End', () => this.end());
+            const details = element('details', null, 'dxf-compare-settings'); details.append(element('summary', 'Comparison settings'));
+            for (const [name, label] of [['showCurrent', 'Current only'], ['showReference', 'Reference only'], ['showCommon', 'Unchanged'], ['clouds', 'Revision clouds'], ['text', 'Compare text'], ['hatch', 'Compare hatches'], ['currentFirst', 'Reference in front']]) this.field(details, name, label, 'checkbox');
+            for (const [name, label] of [['currentColor', 'Current color'], ['referenceColor', 'Reference color'], ['commonColor', 'Unchanged color'], ['cloudColor', 'Cloud color']]) this.field(details, name, label, 'color');
+            this.field(details, 'precision', 'Decimal precision (0–14)', 'number', 0, 14, 1);
+            this.field(details, 'margin', 'Cloud margin · drawing units', 'number', 0, 1e12, .1);
+            this.field(details, 'commonOpacity', 'Unchanged opacity', 'range', 0, 1, .05);
+            const mode = element('label', 'Cloud grouping'); this.cloudMode = element('select'); this.cloudMode.setAttribute('aria-label', 'Cloud grouping');
+            for (const [value, label] of [['local', 'One cloud per change'], ['combined', 'One combined cloud']]) { const option = element('option', label); option.value = value; this.cloudMode.append(option); }
+            this.cloudMode.addEventListener('change', () => this.run(() => this.configure({ cloudMode: this.cloudMode.value })), { signal: this.abort.signal }); mode.append(this.cloudMode); details.append(mode);
+            const properties = element('fieldset'); properties.append(element('legend', 'Property changes · COMPAREPROPS'));
+            for (const [name, bit] of Object.entries(C.propBits)) {
+                const label = element('label', name.replace(/([A-Z])/g, ' $1')), input = element('input'); input.type = 'checkbox'; input.checked = true; input.dataset.compareProperty = name;
+                input.addEventListener('change', () => this.run(() => this.configure({ properties: input.checked ? this.settings.properties | bit : this.settings.properties & ~bit })), { signal: this.abort.signal }); label.prepend(input); properties.append(label);
+            }
+            details.append(properties);
+            const actions = element('div', null, 'dxf-compare-tools');
+            this.importButton = this.button(actions, 'Import selected change', () => this.importSelected()); this.button(actions, 'Import all reference-only', () => this.importReference(this.require().result.referenceOnly.map(g => g.id)));
+            this.button(actions, 'Undo import', () => this.undo()); this.button(actions, 'Redo import', () => this.redo());
+            const exports = element('div', null, 'dxf-compare-tools');
+            this.button(exports, 'Save snapshot', () => this.saveSnapshot()); this.button(exports, 'Open snapshot…', () => this.snapshotFile.click());
+            this.button(exports, 'JSON report', () => this.download('compare-report.json', JSON.stringify(C.report(this.require().result), null, 2), 'application/json'));
+            this.button(exports, 'PNG', () => this.cad.export('png')); this.button(exports, 'PDF', () => this.cad.export('pdf'));
+            this.rowsHost = element('div', null, 'dxf-compare-records');
+            const note = element('p', 'Comparison covers compiled visible objects in the selected layout, including nested blocks. Source handles are not identity. Unsupported geometry, fonts and external content can limit coverage. Imports add complete eligible model-space objects; unsafe dependencies are rejected.', 'dxf-cad-note');
+            this.panel.append(heading, source, this.file, this.snapshotFile, this.summary, this.message, nav, details, actions, exports, this.rowsHost, note);
+            this.panel.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); }, { signal: this.abort.signal });
+            this.panel.addEventListener('drop', e => { if (e.dataTransfer?.files.length) { e.preventDefault(); this.run(() => this.loadFile(e.dataTransfer.files[0])); } }, { signal: this.abort.signal });
+            const data = this.overlay?.dataController;
+            this.unsubscribe = data?.subscribe?.(event => {
+                if (!this.manager.comparison || event.type !== 'ingest') return;
+                if (event.document.tabId === this.referenceTabId) {
+                    this.referenceText = event.document.comparisonSourceText; this.manager.comparison.setReference(event.document); this.repaint();
+                }
+            });
+        }
+        button(host, label, action) { const b = element('button', label); b.type = 'button'; b.addEventListener('click', () => this.run(action), { signal: this.abort.signal }); host.append(b); return b; }
+        async run(action) { try { this.message.textContent = ''; return await action(); } catch (error) { this.message.textContent = error.message; this.cad.write(error.message, true); return null; } }
+        field(host, name, label, type, min, max, step) {
+            const l = element('label', label), input = element('input'); input.type = type; input.setAttribute('aria-label', label); input.dataset.compare = name;
+            if (type === 'checkbox') input.checked = this.settings[name]; else input.value = this.settings[name];
+            if (min != null) { input.min = min; input.max = max; input.step = step; }
+            input.addEventListener('change', () => this.run(() => this.configure({ [name]: type === 'checkbox' ? input.checked : type === 'color' ? input.value : Number(input.value) })), { signal: this.abort.signal });
+            type === 'checkbox' ? l.prepend(input) : l.append(input); host.append(l); this.controls.set(name, input);
+        }
+        tabs() { return [...(this.app.tabs || []), ...(this.app.tabsRight || [])]; }
+        currentTab() { return this.tabs().find(t => t.id === this.manager.sceneGraph?.document.tabId); }
+        sourceFor(tab) { return tab.originalTreeData && this.app.dxfParser ? this.app.dxfParser.serializeTree(tab.originalTreeData) : tab.renderingSourceText; }
+        currentText() { return this.manager.sceneGraph?.document.comparisonSourceText; }
+        require() { const session = this.manager.comparison; if (!session?.result) throw new Error('Start a drawing comparison first.'); return session; }
+        open() { this.cad.workspace?.show('render-compare'); this.refreshSources(); this.sources.focus(); }
+        refreshSources() {
+            const tabs = this.tabs().filter(t => t.id !== this.manager.sceneGraph?.document.tabId), stamp = JSON.stringify(tabs.map(t => [t.id, t.name]));
+            if (stamp === this.sourceStamp) return; this.sourceStamp = stamp; const selected = this.sources.value; this.sources.replaceChildren();
+            for (const tab of tabs) { const option = element('option', tab.name); option.value = String(tab.id); this.sources.append(option); }
+            if (tabs.some(t => String(t.id) === selected)) this.sources.value = selected;
+            if (!tabs.length) { const o = element('option', 'No other open drawings'); o.value = ''; this.sources.append(o); }
+        }
+        startTab() {
+            const tab = this.tabs().find(t => String(t.id) === this.sources.value); if (!tab) throw new Error('Open another DXF tab or choose a local reference file.');
+            this.start(this.sourceFor(tab), tab.name, this.settings, tab.id);
+        }
+        async loadFile(file) {
+            if (!/\.dxf$/i.test(file.name)) throw new TypeError('Reference files must be DXF.');
+            if (file.size > 128 * 1024 * 1024) throw new RangeError('Reference DXF exceeds 128 MiB.');
+            const generation = ++this.loadGeneration, target = this.manager.sceneGraph?.document;
+            const text = A.dxfText(await file.arrayBuffer());
+            if (generation !== this.loadGeneration || target !== this.manager.sceneGraph?.document || this.abort.signal.aborted) return;
+            this.start(text, file.name);
+        }
+        start(text, name = 'reference.dxf', settings = this.settings, tabId = null) {
+            if (!this.manager.compiled) throw new Error('Render the current DXF before starting comparison.');
+            const document = new A.DxfDocument(text), session = new C.Session(document, settings);
+            document.fileName = name; session.scene(this.manager.compiled); // validate before replacing a working session
+            this.referenceText = text; this.referenceName = name; this.referenceTabId = tabId; this.selectedIndex = -1; this.seenResult = null;
+            this.settings = C.options(settings); this.syncControls(); this.manager.setComparison(session); this.repaint(); this.refresh(); return session;
+        }
+        configure(patch) { const settings = C.options({ ...this.settings, ...patch }); this.settings = settings; this.manager.comparison?.configure(patch); this.syncControls(); this.repaint(); this.refresh(); }
+        syncControls() {
+            for (const [name, control] of this.controls) control.type === 'checkbox' ? control.checked = this.settings[name] : control.value = this.settings[name];
+            this.cloudMode.value = this.settings.cloudMode;
+            for (const input of this.panel.querySelectorAll('[data-compare-property]')) input.checked = !!(this.settings.properties & C.propBits[input.dataset.compareProperty]);
+        }
+        toggle() { const s = this.require(); s.enabled = !s.enabled; this.repaint(); this.refresh(); }
+        end() {
+            this.loadGeneration++; this.manager.setComparison(null); this.referenceText = null; this.referenceName = null; this.referenceTabId = null; this.seenResult = null;
+            this.selectedIndex = -1; this.view?.setRows([]); this.repaint(); this.refresh();
+        }
+        repaint() { this.cad.repaint(); }
+        refreshComparison() {
+            const session = this.require(), tab = this.currentTab(), referenceTab = this.tabs().find(t => t.id === this.referenceTabId);
+            if (tab) {
+                const text = this.sourceFor(tab);
+                if (text !== this.currentText()) this.applySource(text, this.currentText(), false);
+            }
+            if (referenceTab) { this.referenceText = this.sourceFor(referenceTab); session.setReference(new A.DxfDocument(this.referenceText)); }
+            this.manager.compileRevision++; session.revision++; this.repaint(); this.refresh();
+        }
+        refresh() {
+            if (this.abort.signal.aborted) return;
+            this.refreshSources(); const s = this.manager.comparison;
+            if (!s) {
+                this.summary.textContent = 'Comparison inactive. Choose a reference DXF or another open drawing.';
+                if (this.seenResult) { this.view?.setRows([]); this.seenResult = null; }
+                this.referenceText = null; this.referenceTabId = null; this.importButton.disabled = true; return;
+            }
+            this.toggleButton.textContent = s.enabled ? 'Hide comparison' : 'Show comparison';
+            const r = s.result; if (!r) return;
+            const count = r.counts;
+            this.summary.textContent = `${count.currentOnly} current only · ${count.referenceOnly} reference only · ${count.common} unchanged · ${count.changes} change sets. Reference: ${this.referenceName || 'drawing'}${s.enabled ? '' : ' · hidden'}.`;
+            const issueCount = this.manager.diagnostics?.filter(d => d.severity !== 'info').length || 0;
+            if (this.manager.comparisonError) this.message.textContent = this.manager.comparisonError.message;
+            else if (r.incomplete || issueCount) this.message.textContent = `Coverage warning: ${Math.max(r.notices.length, issueCount)} rendering notices. Equal visible geometry is not proof of equal DXF databases; inspect Rendering Diagnostics.`;
+            if (this.seenResult !== r) {
+                this.seenResult = r; this.selectedIndex = Math.min(this.selectedIndex, r.changes.length - 1);
+                const rows = r.changes.map((c, i) => ({ key: c.id, changeIndex: i, values: [c.status, c.current?.type || c.reference?.type, c.current?.handle || '—', c.reference?.handle || '—', c.current?.layer || c.reference?.layer],
+                    raw: JSON.stringify({ status: c.status, bounds: G.isEmpty(c.bounds) ? null : c.bounds }, null, 2) }));
+                if (!this.view && root.DxfAnalysis) this.view = new root.DxfAnalysis.AnalysisView(this.rowsHost, { title: 'Drawing changes', columns: ['Status', 'Entity', 'Current handle', 'Reference handle', 'Layer'], rows, visualization: false,
+                    onSelect: row => { this.selectedIndex = row.changeIndex; this.focus(r.changes[row.changeIndex]?.bounds); this.importButton.disabled = !r.changes[row.changeIndex]?.reference; } });
+                else this.view?.setRows(rows);
+            }
+            this.importButton.disabled = !r.changes[this.selectedIndex]?.reference || this.manager.layout.toUpperCase() !== 'MODEL';
+        }
+        focus(bounds) {
+            if (!bounds || G.isEmpty(bounds)) return;
+            const frame = this.manager.lastFrame, points = [];
+            for (const x of [bounds.minX, bounds.maxX]) for (const y of [bounds.minY, bounds.maxY]) for (const z of [bounds.minZ, bounds.maxZ]) points.push(G.project(G.vec(x, y, z), frame.basis));
+            const b = G.bounds(points), center = G.center(b), size = Math.max(b.maxX - b.minX, b.maxY - b.minY, .01);
+            const scale = Math.max(1e-9, Math.min(this.manager.width / Math.max(b.maxX - b.minX, size * .1), this.manager.height / Math.max(b.maxY - b.minY, size * .1)) * .7);
+            this.overlay?.applyViewState({ mode: 'custom', center, scale, rotationRad: 0 });
+        }
+        navigate(delta) {
+            const r = this.require().result; if (!r.changes.length) return;
+            this.selectedIndex = (this.selectedIndex + delta + r.changes.length) % r.changes.length;
+            const c = r.changes[this.selectedIndex]; this.view?.selectKey(c.id); this.focus(c.bounds); this.refresh();
+        }
+        importSelected() { const c = this.require().result.changes[this.selectedIndex]; if (!c?.reference) throw new Error('Select a change with a reference object.'); return this.importReference([c.reference.id]); }
+        importReference(ids) {
+            this.require(); if (this.manager.layout.toUpperCase() !== 'MODEL') throw new Error('Import is currently supported in model space only.');
+            if (!this.currentTab()) throw new Error('Import into the parser workspace is supported; the standalone editor remains comparison-only.');
+            const before = this.currentText(), tab = this.currentTab(), beforeTree = this.sourceFor(tab);
+            // Never overwrite unrendered tree edits. Refresh updates the comparison first.
+            if (this.app.dxfParser.serializeTree(this.app.dxfParser.parse(before)) !== beforeTree) throw new Error('The source tree changed. Refresh the comparison before importing.');
+            const transaction = C.importObjects(before, this.referenceText, ids, { ...this.settings, compileOptions: this.manager.compiled.compileOptions });
+            this.applySource(transaction.text, before);
+            this.undoStack.push({ tabId: tab.id, before, after: transaction.text }); if (this.undoStack.length > 10) this.undoStack.shift(); this.redoStack = [];
+            this.cad.write(`Imported ${transaction.imported} reference objects (${transaction.recordCount} records). Current objects were not deleted.`);
+            return transaction;
+        }
+        applySource(text, expected, recordUndo = true) {
+            const tab = this.currentTab(); if (!tab) throw new Error('Current source tab is closed.');
+            if (this.currentText() !== expected) throw new Error('Drawing changed since this transaction. Refresh instead of overwriting newer edits.');
+            const parsed = this.app.dxfParser.parse(text), document = new A.DxfDocument(text);
+            Object.assign(document, { tabId: tab.id, fileName: tab.name, comparisonSourceText: text });
+            // All fallible parsing/compilation occurs before the tree and renderer swap.
+            new A.SceneCompiler(document, this.manager.compiled.compileOptions).compile(this.manager.layout);
+            const previous = { originalTreeData: tab.originalTreeData, currentTreeData: tab.currentTreeData, renderingSourceText: tab.renderingSourceText, isModified: tab.isModified }, oldDoc = this.manager.sceneGraph.document;
+            try {
+                Object.assign(tab, { originalTreeData: parsed, currentTreeData: parsed, renderingSourceText: text, isModified: true });
+                this.overlay.dataController.documents.set(tab.id, document); this.app.applyTabFilters(tab);
+                this.overlay.renderSceneGraph(tab, document, this.overlay.currentPane);
+            } catch (error) {
+                Object.assign(tab, previous); this.overlay.dataController.documents.set(tab.id, oldDoc);
+                this.app.applyTabFilters(tab); this.overlay.renderSceneGraph(tab, oldDoc, this.overlay.currentPane); throw error;
+            }
+            this.app.updateTabUI(); this.app.saveCurrentState(); this.refresh();
+        }
+        history(from, to, undo) {
+            const item = from.at(-1), tab = this.currentTab(); if (!item || tab?.id !== item.tabId) throw new Error('No comparison import to ' + (undo ? 'undo' : 'redo') + ' in this drawing.');
+            const expected = undo ? item.after : item.before;
+            if (this.sourceFor(tab) !== this.app.dxfParser.serializeTree(this.app.dxfParser.parse(expected))) throw new Error('Source tree has intervening edits; import history will not overwrite them.');
+            this.applySource(undo ? item.before : item.after, expected, false); from.pop(); to.push(item);
+        }
+        undo() { this.history(this.undoStack, this.redoStack, true); }
+        redo() { this.history(this.redoStack, this.undoStack, false); }
+        download(name, data, type) { const url = URL.createObjectURL(new Blob([data], { type })), link = element('a'); link.download = name; link.href = url; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+        saveSnapshot() {
+            this.require(); const text = C.snapshot(this.currentText(), this.referenceText, this.settings, { currentName: this.manager.sceneGraph.document.fileName, referenceName: this.referenceName, layout: this.manager.layout });
+            this.download('drawing-compare.snapshot.json', text, 'application/json');
+        }
+        restoreSnapshot(text) {
+            const value = C.readSnapshot(text); this.end();
+            if (this.cad.mode === 'editor') this.app.loadDxfSource({ name: value.metadata?.currentName || 'snapshot.dxf', sourceText: value.currentText });
+            else {
+                this.app.handleCreateNewDxf(); const tab = this.app.getActiveTab();
+                tab.name = value.metadata?.currentName || 'snapshot.dxf';
+                this.overlay.open({ tab, pane: 'left' }); this.applySource(value.currentText, this.currentText(), false);
+            }
+            const layout = value.metadata?.layout || 'Model'; this.manager.setLayout(layout);
+            this.start(value.referenceText, value.metadata?.referenceName || 'reference.dxf', value.options); this.open();
+        }
+        async command(command, args = []) {
+            if (!/^COMPARE/.test(command)) return false;
+            if (command === 'COMPARE') { this.open(); if (args.length) { const tab = this.tabs().find(t => t.name.toUpperCase() === args.join(' ').toUpperCase()); if (!tab) throw new Error('No open reference tab with that name.'); this.start(this.sourceFor(tab), tab.name, this.settings, tab.id); } }
+            else if (command === 'COMPARECLOSE') this.end();
+            else if (command === 'COMPARETOGGLE') this.toggle();
+            else if (command === 'COMPARENEXT') this.navigate(1);
+            else if (command === 'COMPAREPREV') this.navigate(-1);
+            else if (command === 'COMPAREIMPORT') this.importSelected();
+            else if (command === 'COMPAREUNDO') this.undo();
+            else if (command === 'COMPAREREDO') this.redo();
+            else if (command === 'COMPAREEXPORT') this.saveSnapshot();
+            else if (command === 'COMPAREINFO') this.cad.write(JSON.stringify(C.report(this.require().result).counts));
+            else if (command === 'COMPAREPROPS') this.configure({ properties: Number(args[0]) });
+            else if (command === 'COMPARETOLERANCE') this.configure({ precision: Number(args[0]) });
+            else throw new Error('Unknown comparison command. Use COMPARE, COMPARENEXT, COMPAREPREV, COMPARETOGGLE, COMPAREIMPORT, COMPAREEXPORT or COMPARECLOSE.');
+            await this.manager.ready; return true;
+        }
+        dispose() { this.abort.abort(); this.loadGeneration++; this.unsubscribe?.(); this.manager.comparison = null; this.referenceText = null; this.view?.dispose(); this.undoStack = []; this.redoStack = []; }
+    }
+    C.CompareController = CompareController;
+})(globalThis);

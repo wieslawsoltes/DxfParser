@@ -172,7 +172,7 @@
         for (const entry of candidates) {
             if (!G.intersects(entry.bounds, frame.viewport)) continue;
             const pick = frame.pick(entry), item = entry.primitive;
-            if (item.style.alpha <= 0 || !unclipped(frame, item, p))
+            if (item.comparisonDecoration || item.comparisonSide === 'reference' || item.style.alpha <= 0 || !unclipped(frame, item, p))
                 continue;
             if (!item.infinite && !G.inBounds(p, pick.entry.bounds, t))
                 continue;
@@ -214,7 +214,7 @@
         for (const entry of [...candidates].sort((a,b)=>a.index-b.index)) {
             if (!G.intersects(entry.bounds, frame.viewport)) continue;
             const pick = frame.pick(entry), p = entry.primitive;
-            if (p.style.alpha <= 0) continue;
+            if (p.comparisonDecoration || p.comparisonSide === 'reference' || p.style.alpha <= 0) continue;
             // Arc centers can lie outside the arc's bounding box.
             if (p.center) consider(p.center, 'center', pick);
             if (!G.inBounds(screenPoint, pick.screenBounds, tolerance)) continue;

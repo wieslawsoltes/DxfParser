@@ -8,14 +8,15 @@
     let runtime;
     const initializeSkia = () => runtime ||= (runtimeUrl ? import(runtimeUrl).then(m => m.Initialize({ fonts: false })) : Promise.reject(new Error('Provide Skia initialization outside the browser.'))).catch(e => { runtime = null; throw e; });
     class RenderingDataController {
-        constructor(options = {}) { this.options = options; this.documents = new Map(); }
+        constructor(options = {}) { this.options = options; this.documents = new Map(); this.listeners = new Set(); }
         ingestDocument({ tabId, fileName, sourceText, sourceBytes } = {}) {
             if (!tabId)
                 return null;
             try {
                 const document = new A.DxfDocument(sourceBytes ?? sourceText, this.options);
-                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0 });
+                Object.assign(document, { tabId, fileName, createdAt: Date.now(), sourceLength: sourceBytes?.byteLength ?? sourceText?.length ?? 0, comparisonSourceText: typeof sourceText === "string" ? sourceText : null });
                 this.documents.set(tabId, document);
+                for (const listener of this.listeners) { try { listener({ type: 'ingest', document }); } catch (error) { console.warn('DXF document observer:', error); } }
                 return document;
             }
             catch (error) {
@@ -23,6 +24,7 @@
                 return null;
             }
         }
+        subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
         registerPlaceholder(id, details = {}) { this.documents.set(id, { status: 'placeholder', ...details }); }
         getDocument(id) { return this.documents.get(id) || null; }
         getSceneGraph(id) { return this.getDocument(id)?.sceneGraph || null; }
@@ -93,9 +95,11 @@
         setLayout(layout) { if (!this.sceneGraph?.document)
             throw new Error('Load a drawing first.'); this.sceneGraph.document.getEntities(layout); this.layout = layout; this.compileRevision++; this.viewState = { mode: 'auto' }; return this.renderScene(this.sceneGraph); }
         setViewDirection(direction) { this.viewDirection = G.normal(direction); this.viewState = { mode: 'auto' }; return this.sceneGraph ? this.renderScene(this.sceneGraph) : null; }
+        setComparison(session) { this.comparison = session; this.comparisonTarget = this.sceneGraph?.document.tabId ?? this.sceneGraph?.document; this.comparisonError = null; }
         renderScene(sceneGraph, options = {}) {
             if (!sceneGraph?.document)
                 throw new TypeError('Only DxfSkia scene graphs are accepted.');
+            if (this.comparison && this.comparisonTarget !== (sceneGraph.document.tabId ?? sceneGraph.document)) this.setComparison(null);
             if (this.sceneGraph !== sceneGraph) {
                 this.sceneGraph = sceneGraph;
                 this.layout = 'Model';
@@ -108,9 +112,14 @@
                 this.compiled = new A.SceneCompiler(sceneGraph.document, { ...this.options, textMeasurer: this.resources ? (p, t) => this.resources.measureText(p, t) : undefined }).compile(this.layout);
                 this.builtRevision = this.compileRevision;
             }
-            const frame = A.prepareFrame(this.compiled, { width: this.width, height: this.height, devicePixelRatio: this.devicePixelRatio, viewState: this.viewState, viewDirection: this.viewDirection, visualStyle: this.visualStyle, background: this.options.background });
+            let displayScene = this.compiled;
+            if (this.comparison?.enabled) {
+                try { displayScene = this.comparison.scene(this.compiled); this.comparisonError = null; }
+                catch (error) { this.comparisonError = error; this.comparison.enabled = false; }
+            }
+            const frame = A.prepareFrame(displayScene, { width: this.width, height: this.height, devicePixelRatio: this.devicePixelRatio, viewState: this.viewState, viewDirection: this.viewDirection, visualStyle: this.visualStyle, background: this.options.background });
             this.lastFrame = frame;
-            this.diagnostics = this.compiled.diagnostics;
+            this.diagnostics = displayScene.diagnostics;
             this.host.request(frame, { selection: this.selectionHandles, blockHighlights: this.blockHighlights, grid: this.gridVisible });
             return frame;
         }
@@ -119,7 +128,7 @@
             this.renderScene(this.sceneGraph); }
         resume() { this.suspended = false; this.host.resume(); }
         suspend() { this.suspended = true; this.host.suspend(); }
-        clear() { this.host.suspend(); this.sceneGraph = null; this.compiled = null; this.lastFrame = null; this.host.lastFrame = null; this.host.pending = null; this.host.painter?.clearCache(); }
+        clear() { this.setComparison(null); this.host.suspend(); this.sceneGraph = null; this.compiled = null; this.lastFrame = null; this.host.lastFrame = null; this.host.pending = null; this.host.painter?.clearCache(); }
         renderMessage(message) { this.message = String(message); this.onError?.(new Error(message)); }
         async registerResource(...args) { await this.host.ensureRuntime(); const result = this.resources.register(...args); this.compileRevision++; if (this.sceneGraph)
             this.renderScene(this.sceneGraph); await this.ready; return result; }

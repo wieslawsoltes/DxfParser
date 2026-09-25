@@ -204,7 +204,7 @@
             this.vertices += points.length;
             if (this.vertices > this.options.maxVertices)
                 throw new RangeError('Vertex budget exceeded.');
-            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
+            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, rootSource: context.rootSource || e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
             delete primitive.matrix;
             if (data.infinite)
                 primitive.bounds = { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 };
@@ -222,6 +222,7 @@
         }
         path(e, c, s, points, close = false, fill = false, extra = {}) { return this.emit(e, c, s, { kind: 'path', path: pathFromPoints(points, close), fill, closed: close, ...extra }); }
         compileEntity(e, c) {
+            if (!c.rootSource) c = { ...c, rootSource: e };
             const s = this.style(e, c);
             if (!s)
                 return;

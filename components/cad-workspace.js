@@ -19,6 +19,7 @@
             this.historyIndex = 0;
             this.disposed = false;
             this.views = [];
+            this.compare = global.DxfCompare ? new global.DxfCompare.CompareController(this) : null;
             this.console = el('section', 'dxf-cad-console');
             this.log = el('div', 'dxf-cad-log');
             this.log.setAttribute('role', 'log');
@@ -98,7 +99,7 @@
             this.previousError = error;
             this.write('Native Skia drawing. Type HELP for available view commands.');
         }
-        panels() { return [{ id: 'render-console', title: 'CAD Command Line', node: this.console, side: 'Bottom', height: 135 }, { id: 'render-diagnostics', title: 'Rendering Diagnostics', node: this.issuePanel, side: 'Right', width: 420 }, { id: 'render-resources', title: 'Drawing Resources', node: this.resourcePanel, side: 'Right', width: 380 }]; }
+        panels() { return [...(this.compare ? [{ id: 'render-compare', title: 'Drawing Compare', node: this.compare.panel, side: 'Right', width: 520 }] : []), { id: 'render-console', title: 'CAD Command Line', node: this.console, side: 'Bottom', height: 135 }, { id: 'render-diagnostics', title: 'Rendering Diagnostics', node: this.issuePanel, side: 'Right', width: 420 }, { id: 'render-resources', title: 'Drawing Resources', node: this.resourcePanel, side: 'Right', width: 380 }]; }
         attach(workspace) { this.workspace = workspace; workspace.abort.signal.addEventListener('abort', () => this.dispose(), { once: true }); workspace.unsubscribers.push(workspace.manager.ThemeChanged.add(() => { const theme = String(workspace.manager.Theme?.Name || workspace.manager.Theme || 'light'); for (const view of this.views)
             view.setTheme(theme); })); }
         write(message, error = false) { if (this.disposed)
@@ -132,9 +133,10 @@
                     throw new RangeError('Command length limit exceeded.');
                 const args = (text.match(/"[^"]*"|'[^']*'|\S+/g) || []).map(v => v.replace(/^["']|["']$/g, '')), command = args.shift().toUpperCase(), m = this.manager;
                 if (command === 'HELP') {
-                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF. These are view commands; tree editing remains in Home.');
+                    this.write('ZOOM EXTENTS | ZOOM factor | PAN dx dy | VIEW name | MODEL | LAYOUT name | GRID ON/OFF | OSNAP ON/OFF | LAYER ON/OFF name | SELECT handle | ISOLATE handle | UNISOLATE | REGEN | RENDERER auto/webgpu/webgl/canvas | PNG | PDF | COMPARE [drawing name] | COMPARENEXT | COMPAREPREV | COMPARETOGGLE | COMPAREIMPORT | COMPAREEXPORT | COMPARECLOSE. These are view commands; tree editing remains in Home.');
                     return;
                 }
+                if (this.compare && await this.compare.command(command, args)) return;
                 if (command === 'RENDERER') { await this.setBackend((args[0] || this.manager.host.backend).toLowerCase()); return; }
                 if (!this.active())
                     throw new Error('Open a DXF drawing and choose Render DXF first.');
@@ -227,6 +229,7 @@
         refresh(stats) {
             if (this.disposed)
                 return;
+            this.compare?.refresh();
             const m = this.manager, document = m.sceneGraph?.document;
             const layoutKey = document ? JSON.stringify([document.tabId, [...document.layouts.values()].map(x => x.name), m.layout]) : '';
             if (this.layoutKey !== layoutKey) {
@@ -272,6 +275,13 @@
         ribbonGroups(ribbon) {
             const cmd = (...a) => ribbon.command(...a), group = (id, header, items) => ({ id, header, items }), enabled = () => this.active();
             return [
+                ...(this.compare ? [group('skia-compare', 'Drawing Compare', [
+                    cmd('skia-compare-open', 'Compare drawings', () => this.compare.open(), { icon: 'layers', size: 'large', enabled }),
+                    cmd('skia-compare-prev', 'Previous change', () => this.compare.run(() => this.compare.navigate(-1)), { enabled: () => !!this.manager.comparison }),
+                    cmd('skia-compare-next', 'Next change', () => this.compare.run(() => this.compare.navigate(1)), { enabled: () => !!this.manager.comparison }),
+                    cmd('skia-compare-toggle', 'Toggle comparison', () => this.compare.run(() => this.compare.toggle()), { enabled: () => !!this.manager.comparison }),
+                    cmd('skia-compare-end', 'End comparison', () => this.compare.end(), { enabled: () => !!this.manager.comparison })
+                ])] : []),
                 group('skia-workspace', 'Native CAD', [
                     cmd('skia-cad-preset', 'CAD workspace', () => { if (this.mode === 'parser')
                         this.workspace.applyPreset('CAD');
@@ -294,7 +304,7 @@
         }
         updateRibbon(r) { const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
         dispose() { if (this.disposed)
-            return; this.disposed = true; this.abort.abort(); for (const v of this.views)
+            return; this.disposed = true; this.compare?.dispose(); this.abort.abort(); for (const v of this.views)
             v.dispose(); this.views = []; this.footer.remove(); this.manager.onPaint = this.previousPaint; this.manager.onError = this.previousError; this.manager.dispose(); }
     }
     global.DxfCad = { CadWorkspace, create(app, mode) { return app.cadWorkspace = new CadWorkspace(app, mode); } };
