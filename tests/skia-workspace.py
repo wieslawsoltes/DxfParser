@@ -6,6 +6,8 @@ presented surface. No canvas context, geometry compiler or Skia runtime is mocke
 """
 from __future__ import annotations
 import importlib.util
+from io import BytesIO
+from PIL import Image
 import json
 import struct
 from pathlib import Path
@@ -113,10 +115,11 @@ class SkiaWorkspaceTests(unittest.TestCase):
         self.assertIn('3DSOLID',self.page.evaluate("JSON.stringify(cad.issueView.rows)"))
     def test_10_local_resource_upload_atomic_failure_and_unload(self):
         self.render()
-        image=ROOT/'test-results/skia-native/image.png'
-        self.assertTrue(image.exists(),'Run node --test tests/skia-native.test.mjs first')
+        # Each browser suite must run from a clean source-only checkout.
+        image = BytesIO()
+        Image.new('RGBA', (2, 2), (37, 127, 219, 255)).save(image, format='PNG')
         self.page.evaluate("w.show('render-resources')");self.settle()
-        self.page.locator('.dxf-cad-tool input[type=file]').set_input_files(str(image));self.page.wait_for_function("m.resources?.entries.size===1");self.settle()
+        self.page.locator('.dxf-cad-tool input[type=file]').set_input_files({'name':'image.png','mimeType':'image/png','buffer':image.getvalue()});self.page.wait_for_function("m.resources?.entries.size===1");self.settle()
         self.assertJS("cad.resourceView.rows.length===1 && m.resources.get('IMAGE.png').kind==='image'")
         self.page.locator('.dxf-cad-tool input[type=file]').set_input_files({'name':'image.png','mimeType':'image/png','buffer':b'not an image'})
         self.page.wait_for_function("cad.log.textContent.includes('rejected')");self.assertJS('m.resources.entries.size===1')
