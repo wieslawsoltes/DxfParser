@@ -26,8 +26,8 @@ jobs:
           if test -f scripts/multiple-drawings-recovery.patch.xz; then
             xz -dc scripts/multiple-drawings-recovery.patch.xz > /tmp/multiple-drawings.patch
             echo 'def60228a81f4a365c097f512548393f59bde9f8d6acb1129bb8a2aa8d6a61ec  /tmp/multiple-drawings.patch' | sha256sum -c -
-            git apply --check /tmp/multiple-drawings.patch
-            git apply /tmp/multiple-drawings.patch
+            git apply --exclude='.github/workflows/*' --check /tmp/multiple-drawings.patch
+            git apply --exclude='.github/workflows/*' /tmp/multiple-drawings.patch
             rm scripts/multiple-drawings-recovery.patch.xz
           fi
           if test -f scripts/multiple-drawings-fix.patch; then
@@ -36,7 +36,7 @@ jobs:
             rm scripts/multiple-drawings-fix.patch
           fi
           node scripts/build-rendering-bundle.js
-          git add components packages dist docs scripts tests styles.css index.html README.md .github/workflows
+          git add components packages dist docs scripts tests styles.css index.html README.md
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

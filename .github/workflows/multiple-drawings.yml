@@ -1,0 +1,46 @@
+name: Multiple native drawing views
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: multiple-drawings-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  drawings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify native application distribution
+        run: |
+          node scripts/build-rendering-bundle.js
+          git diff --exit-code -- dist packages/dxf-skia/dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned browser tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Qualify independent native drawing lifetimes and UI
+        run: |
+          mkdir -p test-results/multiple-drawings
+          git rev-parse HEAD HEAD^{tree} > test-results/multiple-drawings/tested-source.txt
+          python -u tests/multiple-drawings.py 2>&1 | tee test-results/multiple-drawings/browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: multiple-native-drawings-evidence
+          path: test-results/multiple-drawings
+          retention-days: 14
