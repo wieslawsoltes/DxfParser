@@ -7,7 +7,7 @@ import './analysis-reports.js';
 import './drawing-views.js';
 import './ribbon-workspace.mjs';
 
-document.addEventListener("DOMContentLoaded", () => { 
+document.addEventListener("DOMContentLoaded", () => {
   window.app = new App();
   window.DxfWorkspaceStartup?.complete(window.app.dockingWorkspace);
 
