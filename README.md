@@ -117,6 +117,7 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 
 | Package | Purpose |
 | --- | --- |
+| [`@wieslawsoltes/dxf-rendering-view`](packages/dxf-rendering-view/README.md) | Host-injected document services, retained native viewports and property inspection. |
 | [`@wieslawsoltes/dxf-skia`](packages/dxf-skia/README.md) | DXF input/document model, retained scene compiler, geometry, picking/snapping, native painter, and surface lifetime management. |
 | [`@wieslawsoltes/dxf-compare`](packages/dxf-compare/README.md) | Rendered-object comparison, change grouping/clouds, snapshots/reports, and guarded reference import. |
 | [`@wieslawsoltes/dxf-inspector`](packages/dxf-inspector/README.md) | Source-tree parser, structural diff, diagnostics and binary inspection helpers. |
@@ -127,6 +128,7 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 | [`@wieslawsoltes/dxf-drawing-tools`](packages/dxf-drawing-tools/README.md) | Host-injected camera linking and transactional drawing layout helpers. |
 
 ```sh
+npm pack ./packages/dxf-rendering-view
 npm pack ./packages/dxf-skia
 npm pack ./packages/dxf-compare
 npm pack ./packages/dxf-inspector
@@ -152,6 +154,8 @@ Office adapters provide panel identities, storage namespaces and host callbacks;
 the reusable packages contain no application or vendor-relative imports. Small service adapters
 connect package exports to the existing app API. The diagnostics engine no longer
 starts the application; `components/app-startup.mjs` owns workbench startup.
+Rendering initialization policy remains in `components/rendering-services.mjs`;
+viewport orchestration and property presentation live in `dxf-rendering-view`.
 Both browser entry points import the same packages without generated `dist` files.
 
 ## Tests

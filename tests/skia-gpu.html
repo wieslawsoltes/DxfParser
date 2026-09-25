@@ -11,8 +11,6 @@
 <script src="../packages/dxf-skia/src/compiler.js"></script>
 <script src="../packages/dxf-skia/src/renderer.js"></script>
 <script src="../packages/dxf-skia/src/surface-host.js"></script>
-<script src="../components/skia-rendering-adapter.js"></script>
-<script src="../components/rendering-property-grid.js"></script>
 <script src="../components/rendering-overlay.js"></script>
 <script src="../packages/dxf-compare/clouds.js"></script>
 <script src="../packages/dxf-compare/index.js"></script>
@@ -20,6 +18,7 @@
 <script src="../components/visual-compare.js"></script>
 <!-- End DXF rendering sources. -->
 <script type="module">
+import '../components/rendering-services.mjs';
 window.S = await DxfRendering.initializeSkia();
 window.makeScene = text => new DxfSkia.SceneCompiler(new DxfSkia.DxfDocument(text)).compile();
 window.start = async (text, backend='webgpu', allowFallback=false) => {

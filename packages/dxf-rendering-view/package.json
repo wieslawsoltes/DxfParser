@@ -1,0 +1,42 @@
+{
+  "name": "@wieslawsoltes/dxf-rendering-view",
+  "version": "0.1.0",
+  "description": "Host-injected retained DXF viewport, source-document services and property inspection",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "main": "./index.cjs",
+  "module": "./index.mjs",
+  "types": "./index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./index.d.mts",
+      "import": "./index.mjs",
+      "require": "./index.cjs"
+    },
+    "./styles.css": "./styles.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/",
+    "index.mjs",
+    "index.cjs",
+    "index.d.mts",
+    "README.md",
+    "LICENSE",
+    "styles.css"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wieslawsoltes/DxfParser.git",
+    "directory": "packages/dxf-rendering-view"
+  }
+}
