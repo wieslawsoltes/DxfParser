@@ -9,6 +9,8 @@ spec = importlib.util.spec_from_file_location('skia_harness', ROOT / 'tests/skia
 h = importlib.util.module_from_spec(spec); spec.loader.exec_module(h)
 
 class VisualCompareTests(h.SkiaWorkspaceTests):
+    # Side-effect evaluations must not return the app/native WASM object graph.
+    # Only explicit scalar assertions and bounded export headers cross the driver pipe.
     # Reuse setup/render helpers, not the inherited baseline tests.
     def settle(self):
         self.page.wait_for_timeout(100)
@@ -21,7 +23,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         }""")
     def reference(self, entities=None):
         source = h.drawing(entities if entities is not None else h.CIRCLE + [(0,'LINE'),(5,'AB'),(8,'DRAFT'),(10,30),(20,0),(11,50),(21,10)], tables=h.TABLES)
-        self.page.evaluate("cad.compare.open();window.compare=cad.compare")
+        self.page.evaluate("() => { cad.compare.open();window.compare=cad.compare; }")
         self.page.locator('.dxf-compare-panel input[type=file][accept=".dxf"]').set_input_files({'name':'revision.dxf','mimeType':'application/dxf','buffer':source.encode()})
         self.page.wait_for_function('!!m.comparison?.result');self.settle()
         return source
@@ -33,7 +35,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.assertIn('1 current only',self.page.locator('.dxf-compare-summary').inner_text())
         self.assertJS("m.lastFrame.scene.primitives.some(p=>p.comparisonDecoration) && m.host.painter instanceof DxfSkia.SkiaPainter")
     def test_compare_02_visibility_toggle_and_camera_cache(self):
-        self.render();self.reference();self.page.evaluate('window.composed=m.lastFrame.scene;window.result=m.comparison.result')
+        self.render();self.reference();self.page.evaluate('() => { window.composed=m.lastFrame.scene;window.result=m.comparison.result; }')
         self.command('ZOOM 2');self.command('PAN 20 10');self.assertJS('m.lastFrame.scene===composed && m.comparison.result===result')
         self.page.locator('[data-compare=showReference]').uncheck();self.settle()
         self.assertJS("!m.lastFrame.scene.primitives.some(p=>p.comparisonSide==='reference')")
@@ -53,7 +55,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         with self.page.expect_download() as download:self.page.locator('.dxf-compare-panel').get_by_role('button',name='Save snapshot',exact=True).click()
         value=json.loads(Path(download.value.path()).read_text())
         self.assertEqual(value['referenceText'],ref);self.assertEqual(value['format'],'dxf-render-compare');self.assertIn('currentText',value)
-        self.page.evaluate('window.snapshotValue='+json.dumps(value))
+        self.page.evaluate('(value)=>{ window.snapshotValue=value; }',value)
         self.page.evaluate('compare.restoreSnapshot(JSON.stringify(snapshotValue))');self.settle()
         self.assertJS('m.comparison.result.counts.modified===1 && app.tabs.length===2')
     def test_compare_05_import_undo_redo_and_tree_source_consistency(self):
@@ -65,7 +67,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.command('COMPAREUNDO');self.assertJS('compare.currentText()===sourceBefore && m.sceneGraph.document.entities.length===countBefore')
         self.command('COMPAREREDO');self.assertJS('m.sceneGraph.document.entities.length===countBefore+1')
     def test_compare_06_unsupported_dependency_import_is_atomic(self):
-        self.render();self.reference(h.CIRCLE+[(0,'LINE'),(5,'FF'),(10,50),(20,0),(11,70),(21,0),(102,'{ACAD_XDICTIONARY'),(360,'BEEF'),(102,'}')]);self.command('COMPARENEXT');self.command('COMPARENEXT')
+        self.render();self.reference(h.CIRCLE+[(0,'LINE'),(5,'FF'),(10,50),(20,0),(11,70),(21,0),(102,'{ACAD_XDICTIONARY'),(360,'BEEF'),(102,'}')]);self.page.evaluate('() => { compare.view.selectKey(m.comparison.result.changes.find(c=>c.reference).id); }');self.settle()
         self.page.evaluate('window.before=compare.currentText()')
         self.page.locator('.dxf-compare-panel').get_by_role('button',name='Import selected change',exact=True).click();self.settle()
         self.assertJS('compare.currentText()===before && compare.undoStack.length===0')
@@ -86,7 +88,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
     def test_compare_10_row_selection_after_reference_refresh_uses_new_result(self):
         self.render();self.reference()
         ref=h.drawing(h.CIRCLE + [(0,'LINE'),(5,'D1'),(10,40),(20,0),(11,45),(21,5),(0,'LINE'),(5,'D2'),(10,80),(20,0),(11,90),(21,5)],tables=h.TABLES)
-        self.page.evaluate('(text)=>compare.start(text,"new-reference.dxf")',ref);self.settle()
+        self.page.evaluate('(text)=>{ compare.start(text,"new-reference.dxf"); }',ref);self.settle()
         self.page.evaluate('compare.view.selectKey(m.comparison.result.changes[2].id)');self.settle()
         self.assertJS('compare.selectedIndex===2 && !compare.importButton.disabled')
     def test_compare_11_tree_edits_are_not_overwritten_by_import(self):
@@ -96,7 +98,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.assertJS('compare.currentText()===before && compare.sourceFor(compare.currentTab())===edited && compare.undoStack.length===0')
         self.assertIn('source tree changed',self.page.locator('.dxf-compare-message').inner_text())
     def test_compare_12_binary_reference_uses_decoded_native_source(self):
-        self.render();self.page.evaluate('cad.compare.open();window.compare=cad.compare')
+        self.render();self.page.evaluate('() => { cad.compare.open();window.compare=cad.compare; }')
         self.page.locator('.dxf-compare-panel input[type=file][accept=".dxf"]').set_input_files({'name':'binary-reference.dxf','mimeType':'application/dxf','buffer':h.binary_drawing()})
         self.page.wait_for_function('!!m.comparison?.result');self.settle()
         self.assertJS('m.comparison.result.counts.common===1 && typeof compare.referenceText==="string" && m.comparison.reference.entities.length===2')

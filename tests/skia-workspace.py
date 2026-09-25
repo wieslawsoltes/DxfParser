@@ -59,7 +59,7 @@ class SkiaWorkspaceTests(unittest.TestCase):
         text=text or drawing(LINE+CIRCLE,tables=TABLES)
         self.page.locator('#fileInputLeft').set_input_files({'name':'native-test.dxf','mimeType':'application/dxf','buffer':text.encode()})
         self.page.wait_for_function('app.tabs.length===1')
-        self.page.evaluate("app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace")
+        self.page.evaluate("() => { app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace; }")
         self.settle();self.page.wait_for_function('m.host.paintCount>0 && !!m.stats');self.settle()
         self.assertJS('!m.error && m.lastFrame.scene===m.compiled')
     def command(self, value):
@@ -172,7 +172,7 @@ class SkiaWorkspaceTests(unittest.TestCase):
         self.page.evaluate('(value)=>document.getElementById("useStreamCheckbox").checked=value',streamed)
         self.page.locator('#fileInputLeft').set_input_files({'name':name,'mimeType':'application/dxf','buffer':data})
         self.page.wait_for_function('app.tabs.length===1')
-        self.page.evaluate("app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace")
+        self.page.evaluate("() => { app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace; }")
         self.page.wait_for_function('m.host.paintCount>0 && !!m.stats');self.settle()
         self.assertJS('!m.error && m.lastFrame.scene===m.compiled')
     def test_20_binary_file_input_preserves_tree_and_native_rendering(self):
