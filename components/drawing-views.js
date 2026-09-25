@@ -44,7 +44,7 @@
                     for (const r of this.records.values()) {
                         const theme = workspace.manager.Theme?.Name || workspace.manager.Theme;
                         for (const view of r.cad.views) view.setTheme(theme);
-                        r.registry?.setTheme(theme); r.overlay.propertyGrid?.gridView?.setTheme(theme);
+                        r.registry?.setTheme(theme); r.overlay.propertyGrid?.gridView?.setTheme(theme); r.cad.compare?.view?.setTheme(theme);
                     }
                 })
             );
@@ -142,7 +142,7 @@
                 const {node, overlay} = record;
                 this.workspace.register({ id: record.id, title: 'Drawing · ' + tab.name, kind: 'document', node,
                     onResize: () => overlay.resizeCanvas(), resizeNode: overlay.viewportEl,
-                    onVisibility: visible => this.setVisibility(record, visible), onClose: () => this.closed(record),
+                    onVisibility: visible => this.syncVisibility(record, visible), onClose: () => this.closed(record),
                     openAction: () => this.open({ tab: record.tab, pane: record.pane }) });
             }
             Object.assign(record, { tab, pane, open: true, visible: false, disposed: false });
@@ -150,7 +150,7 @@
             this.records.set(tab.id, record);
             const definition = this.workspace.require(record.id);
             Object.assign(definition, { title: 'Drawing · ' + tab.name, onResize: () => record.overlay.resizeCanvas(),
-                onVisibility: visible => this.setVisibility(record, visible), onClose: () => this.closed(record) });
+                onVisibility: visible => this.syncVisibility(record, visible), onClose: () => this.closed(record) });
             // The launcher must always resolve the current source, not a previously rendered tab.
             if (record !== this.base) definition.openAction = () => this.open({ tab: record.tab, pane: record.pane });
             record.overlay.currentTabId = tab.id;
@@ -212,6 +212,12 @@
             const rect = r.overlay.viewportEl.getBoundingClientRect();
             return r.open && document.visibilityState !== 'hidden' && rect.width > 0 && rect.height > 0;
         }
+        syncVisibility(record, visible) {
+            if (record.disposed) return;
+            // Layout deserialization and undo may reopen a model without its launcher.
+            record.open = this.workspace.isOpen(record.id);
+            this.setVisibility(record, visible);
+        }
         setVisibility(record, visible) {
             if (record.disposed) return;
             visible = !!visible && record.open;
@@ -261,6 +267,9 @@
                 if (!w.manager.Dock(model, previous.Parent, direction === 'horizontal' ? 'Right' : 'Bottom')) throw new Error('Dockyard could not tile this drawing.');
                 previous = model;
             }
+            // Moving a selected document can select its sibling source tree.
+            // Re-select every tiled drawing after all moves, without activating tools.
+            for (const r of records) w.manager.Find(r.id).IsSelected = true;
             w.scheduleResize(); this.save();
         }
         command(command, args) {
@@ -275,6 +284,7 @@
         }
         restoreComparison(value) {
             // Validate before creating a business tab. Existing views/sessions are untouched.
+            if (this.records.size >= this.maxViews) throw new RangeError('Close a source drawing before opening another comparison snapshot.');
             const C = global.DxfCompare, S = global.DxfSkia, document = new S.DxfDocument(value.currentText);
             const layout = value.metadata?.layout || 'Model';
             const scene = new S.SceneCompiler(document).compile(layout);
@@ -324,6 +334,7 @@
                 this.active = null;
             }
             const manager = r.overlay.surfaceManager;
+            this.app.tabularReports?.removeRoots([...r.tools.values()]);
             r.registry?.dispose(); r.cad.dispose(); r.overlay.dispose();
             const retirement = manager.dispose().finally(() => this.retirements.delete(retirement));
             this.retirements.add(retirement);

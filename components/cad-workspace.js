@@ -276,7 +276,7 @@
         else
             this.resourceView.setRows(rows); }
         ribbonGroups(ribbon) {
-            const cmd = (...a) => ribbon.command(...a), group = (id, header, items) => ({ id, header, items }), enabled = () => this.active();
+            const cmd = (...a) => ribbon.command(...a), group = (id, header, items, options = {}) => ({ id, header, items, ...options }), enabled = () => this.active();
             return [
                 ...(this.app.drawingViews ? [group('skia-drawings', 'Drawing Views', [
                     cmd('skia-render-all', 'Render all drawings', () => this.app.drawingViews.renderAll(), { icon: 'window', enabled: () => this.app.drawingViews.tabs().length > 0 }),
@@ -306,9 +306,11 @@
                     cmd('skia-retry', 'Retry graphics', () => this.setBackend(this.manager.host.backend), { icon: 'refresh' }),
                     cmd('skia-command', 'Command line', () => { this.workspace.show('render-console'); this.input.focus(); }, { icon: 'code' }),
                     cmd('skia-diagnostics', 'Rendering diagnostics', () => this.workspace.show('render-diagnostics'), { icon: 'check' }),
-                    cmd('skia-resources', 'Fonts / images', () => { this.workspace.show('render-resources'); this.refreshResources(); }, { icon: 'font' }),
+                    cmd('skia-resources', 'Fonts / images', () => { this.workspace.show('render-resources'); this.refreshResources(); }, { icon: 'font' })
+                ]),
+                group('skia-output', 'Export', [
                     cmd('skia-png', 'Export PNG', () => this.export('png'), { icon: 'save', enabled }), cmd('skia-pdf', 'Export PDF', () => this.export('pdf'), { icon: 'save', enabled })
-                ])
+                ], { priority: 100 })
             ];
         }
         updateRibbon(r) { if (this.app.drawingViews) r.update('skia-drawing', {items: this.app.drawingViews.tabs().map(t => ({value: String(t.id), label: t.name})), value: String(this.overlay.currentTabId ?? '')}); const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }

@@ -17,7 +17,10 @@ class MultipleDrawingTests(h.SkiaWorkspaceTests):
         self.page.wait_for_function('!window.app?.drawingViews || [...app.drawingViews.records.values()].every(r => !r.visible || !r.overlay.surfaceManager.host._running)', timeout=20000)
     def tearDown(self):
         OUT.mkdir(parents=True, exist_ok=True)
-        try: self.page.screenshot(path=str(OUT/(self._testMethodName+'.png')))
+        try:
+            self.page.screenshot(path=str(OUT/(self._testMethodName+'.png')))
+            state=self.page.evaluate('() => [...(window.app?.drawingViews?.records.values()||[])].map(r=>({id:r.id,open:r.open,visible:r.visible,selected:app.dockingWorkspace.manager.Find(r.id)?.IsSelected,rect:r.overlay.viewportEl.getBoundingClientRect().toJSON(),error:r.overlay.surfaceManager.error?.message,paintCount:r.overlay.surfaceManager.host.paintCount,suspended:r.overlay.surfaceManager.suspended}))')
+            (OUT/(self._testMethodName+'.json')).write_text(json.dumps(state,indent=2))
         finally: self.context.close()
         self.assertEqual([], self.errors, 'Uncaught application errors')
     def two(self):
@@ -140,7 +143,22 @@ class MultipleDrawingTests(h.SkiaWorkspaceTests):
         self.page.wait_for_function('app.cadWorkspace.manager.host.paintCount>0')
         self.assertJS('app.drawingViews.records.size===1 && app.cadWorkspace.active()')
 
+    def test_multi_17_layout_restore_reopens_closed_view(self):
+        self.two()
+        self.page.evaluate('() => { window.saved=w.exportLayout();w.hide(a.id); }');self.settle()
+        self.assertJS('!a.open && a.overlay.surfaceManager.suspended')
+        self.page.evaluate('() => { w.importLayout(saved); }');self.settle()
+        self.assertJS('a.open && a.visible && !a.overlay.surfaceManager.suspended && b.visible')
+    def test_multi_18_primary_report_roots_are_released_with_source(self):
+        self.two()
+        self.page.evaluate('() => { window.oldRoot=a.overlay.infoTabPanel;dw.remove(dw.findByTab(a.tab.id)); }');self.settle()
+        self.assertJS('!app.tabularReports.roots.includes(oldRoot) && [...app.tabularReports.projections].every(p=>!oldRoot.contains(p.source)) && b.visible')
+    def test_multi_19_snapshot_budget_is_atomic(self):
+        self.two();self.focus('a');self.command('COMPARE second.dxf')
+        self.page.evaluate('() => { views.maxViews=2;window.sourceA=a.overlay.currentDoc;window.budgetError="";try{a.cad.compare.restoreSnapshot(DxfCompare.snapshot(a.cad.compare.currentText(),a.cad.compare.referenceText,a.cad.compare.settings));}catch(e){budgetError=e.message;} }');self.settle()
+        self.assertJS('budgetError.includes("Close a source") && app.tabs.length===2 && views.records.size===2 && a.overlay.currentDoc===sourceA')
+
 if __name__ == '__main__':
     suite=unittest.TestSuite(MultipleDrawingTests(name) for name in sorted(n for n in dir(MultipleDrawingTests) if n.startswith('test_multi_')))
-    result=unittest.TextTestRunner(verbosity=2).run(suite)
+    result=unittest.TextTestRunner(verbosity=2, failfast=True).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)

@@ -308,6 +308,15 @@
       view.setTheme(this.theme);
       return view;
     }
+    removeRoots(roots) {
+      const removed = new Set(roots);
+      this.observer.disconnect();
+      this.roots = this.roots.filter(root => !removed.has(root));
+      for (const p of [...this.projections]) if (!this.roots.some(root => root.contains(p.source))) {
+        p.view.dispose(); p.container.remove(); this.projections.delete(p); this.states.delete(p.stateKey);
+      }
+      if (!this.disposed) this.listen();
+    }
     setTheme(theme) { this.theme = theme; for (const p of this.projections) p.view.setTheme(theme); }
     dispose() { this.disposed = true; this.observer.disconnect(); for (const p of this.projections) p.view.dispose(); this.projections.clear(); this.states.clear(); }
   }

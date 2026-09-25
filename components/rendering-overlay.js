@@ -2886,7 +2886,8 @@
       if (this.propertySummaryEl) {
         this.propertySummaryEl.textContent = options.message || 'No selection.';
       }
-      this.propertyPanel.setAttribute('aria-hidden', 'true');
+      this.propertyPanel.setAttribute('aria-hidden', this.dockingWorkspace
+        ? String(!this.dockingWorkspace.isOpen('render-properties')) : 'true');
       if (this.overlayBodyEl) {
         this.overlayBodyEl.classList.remove('has-properties');
       }
