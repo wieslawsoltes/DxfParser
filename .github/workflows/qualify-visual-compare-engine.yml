@@ -1,0 +1,81 @@
+name: Qualify native visual comparison
+on:
+  push:
+    branches: [work/visual-compare-engine]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: qualify-visual-compare
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/visual-compare-engine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Materialize and publish implementation on work branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/visual-compare-update.01.xzpart; then
+            cat scripts/visual-compare-update.0{1,2,3}.xzpart | xz -dc > /tmp/visual-compare.patch
+            echo '2fa5900d944da71618849921a3141bc5d606721fbc07d4683cfd5e74431f2e06  /tmp/visual-compare.patch' | sha256sum -c -
+            git apply --check /tmp/visual-compare.patch
+            git apply /tmp/visual-compare.patch
+            rm scripts/visual-compare-update.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/visual-compare-fix.patch; then
+            git apply --check scripts/visual-compare-fix.patch
+            git apply scripts/visual-compare-fix.patch
+            rm scripts/visual-compare-fix.patch
+          fi
+          node scripts/build-rendering-bundle.js
+          git add components packages dist docs scripts tests
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'feat(compare): implement native DXF visual comparison and guarded import'
+            git push origin HEAD:work/visual-compare-engine
+          fi
+          mkdir -p test-results/qualification
+          git rev-parse HEAD HEAD^{tree} > test-results/qualification/tested-source.txt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser test dependencies
+        run: |
+          pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+          npm install -g typescript@5.8.3
+      - name: Compare model and transaction tests
+        run: node --test packages/dxf-compare/tests/*.test.js 2>&1 | tee test-results/qualification/compare.log
+      - name: Native renderer and package qualification
+        if: '!cancelled()'
+        run: python tests/check-docking-regressions.py 2>&1 | tee test-results/qualification/native.log
+      - name: Native compare browser workflows
+        if: '!cancelled()'
+        run: python tests/visual-compare.py 2>&1 | tee test-results/qualification/compare-browser.log
+      - name: Native renderer browser regression
+        if: '!cancelled()'
+        run: python tests/skia-workspace.py 2>&1 | tee test-results/qualification/skia-browser.log
+      - name: Retained workspace and analysis regression
+        if: '!cancelled()'
+        shell: bash
+        run: |
+          failed=0
+          for suite in workspace-startup docking-workspace gridweb-previews ribbon-workspace analysis-views analysis-visuals; do
+            python tests/$suite.py 2>&1 | tee test-results/qualification/$suite.log || failed=1
+          done
+          exit $failed
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-compare-qualification
+          path: test-results/
+          retention-days: 7
