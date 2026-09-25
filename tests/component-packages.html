@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Standalone component packages</title>
+<link rel="stylesheet" href="../packages/dxf-analysis/styles.css">
+<link rel="stylesheet" href="../packages/dxf-tree-view/styles.css">
+<style>body {font:14px sans-serif;margin:20px}.panels{display:grid;grid-template-columns:1fr 1fr;gap:16px}#tree{height:260px}#report,#second{height:460px}</style>
+<script src="../vendor/gridweb/gridweb.global.js"></script>
+<script src="../vendor/treedatagridweb/treedatagrid.global.js"></script>
+<script type="module" src="component-packages-demo.mjs"></script>
+</head><body><h1>Standalone components</h1><div class="panels"><div id="report" data-source-tab-id="external-source"></div><div id="second"></div></div>
+<div id="header" class="tree-header"><div class="header-cell tree-line" data-field="line">Line</div><div class="header-cell tree-code" data-field="code">Code</div><div class="header-cell tree-data" data-field="type">Value</div></div>
+<div id="tree"><div id="tree-content"></div></div></body></html>

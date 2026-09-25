@@ -1,3 +1,4 @@
+import './analysis-services.mjs';
 /* Display adapters only. Existing CAD controllers continue to own their actions. */
 (function (global) {
   'use strict';

@@ -2,7 +2,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const S = require('../packages/dxf-skia'), { compile, line } = require('../packages/dxf-skia/tests/helpers');
 require('../vendor/dockyard/avalondock');
-const D = global.AvalonDock, T = require('../components/drawing-view-tools')(S, D);
+const D = global.AvalonDock, T = require('../packages/dxf-drawing-tools/index.cjs').createDrawingViewTools(S, D);
 const frame = (x = 0, span = 20, width = 800, height = 600, options = {}) => S.prepareFrame(compile(line('A', x, x, x + span, x + span)), { width, height, ...options });
 const redraw = (f, camera) => S.prepareFrame(f.scene, { width: f.width, height: f.height, viewDirection: camera.direction, viewState: camera.viewState });
 const almost = (a, b) => assert.ok(Math.abs(a - b) < 1e-8 * Math.max(1, Math.abs(a), Math.abs(b)), `${a} != ${b}`);

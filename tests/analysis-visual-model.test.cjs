@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const M = require('../components/analysis-visual-model.js');
+const M = require('../packages/dxf-analysis/models.cjs');
 const row = (key, ...values) => ({key, values});
 
 test('typed groups and stable row keys are not inferred from labels', () => {

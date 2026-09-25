@@ -1,10 +1,11 @@
-/* Interactive report presentation. TreeDataGridWeb owns the virtualized records;
- * GridWeb is constructed only when the user requests the spreadsheet view. */
-(function (global) {
-  'use strict';
-  const { element: el, scalar, text } = global.DxfGrid;
-  const C = global.TreeDataGridCore, W = global.TreeDataGridWeb;
-  const AVisuals = () => global.DxfAnalysis?.AnalysisVisuals;
+export function createAnalysisServices(env) {
+const { window, document, GridWeb, AbortController, Event, MutationObserver, ResizeObserver,
+    navigator, Blob, URL, requestAnimationFrame, cancelAnimationFrame, getComputedStyle,
+    setTimeout, clearTimeout } = env;
+
+  const { element: el, scalar, text } = env.grid;
+  const C = env.treeDataGridCore, W = env.treeDataGridWeb;
+  const AVisuals = () => env.analysis?.AnalysisVisuals;
   const compare = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   const flatten = roots => {
     const result = [], stack = [...roots].reverse(), seen = new Set();
@@ -51,7 +52,8 @@
 
   class AnalysisView {
     constructor(container, options = {}) {
-      if (!C || !W) throw new Error('The pinned TreeDataGridWeb control is not loaded.');
+      if (container?.ownerDocument !== document) throw new TypeError('AnalysisView container must belong to the supplied window.');
+      if (!C || !W) throw new Error('TreeDataGrid core and web APIs must be supplied.');
       this.container = container; this.title = options.title || 'Records'; this.options = options;
       this.columns = (options.columns?.length ? options.columns : ['Value']).map(c => typeof c === 'string' ? { title: c } : { ...c });
       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;
@@ -68,6 +70,7 @@
       this.modeButtons.setAttribute('aria-label', 'Report presentation');
       this.recordsButton = button('Records', () => this.setMode('records'), this.modeButtons);
       this.sheetButton = button('Spreadsheet', () => this.setMode('spreadsheet'), this.modeButtons);
+      this.sheetButton.disabled = !GridWeb;
       this.detailButton = button('Details', () => this.toggleDetails(), this.modeButtons);
       this.detailButton.setAttribute('aria-pressed', 'true'); this.heading.append(this.modeButtons);
       this.bar = el('div', 'dxf-grid-toolbar analysis-toolbar');
@@ -275,7 +278,7 @@
     compareSelection() {
       if (!this.pinned || !this.selectedRow) return;
       this.openRelated({ title: 'Pinned record comparison', columns: ['Property', 'Pinned value', 'Selected value', 'Status'],
-        rows: global.DxfAnalysisVisualModel.compareRows(this.columns, this.pinned, this.selectedRow), visualization: false });
+        rows: env.models.compareRows(this.columns, this.pinned, this.selectedRow), visualization: false });
     }
     copyBranch(root) {
       const copy = { ...root, children: [], expanded: true }, queue = [[root, copy]];
@@ -334,12 +337,8 @@
     }
     guardSource() {
       const root = this.host.closest('[data-source-tab-id]');
-      const id = root?.dataset.sourceTabId, docs = global.app?.documentWorkspace;
-      if (id && docs) {
-        const record = docs.findByTab(id);
-        if (!record) throw new Error('The source drawing is closed. Refresh this report from an open drawing.');
-        docs.activate(record, { focus: false });
-      }
+      const id = root?.dataset.sourceTabId;
+      if (id) env.activateSource?.(id);
     }
     async runAction(run, requiresSource = true) {
       if (this.disposed) return;
@@ -401,7 +400,7 @@
       const raw = row.raw != null || row.source?.querySelector('pre');
       for (const [id, label] of [['details','Details'], ...(this.related.length ? [['related', `Related (${this.related.length})`]] : []), ...(raw ? [['raw','Raw data']] : [])]) {
         const b = button(label, () => this.showDetail(id), this.detailTabs); b.dataset.tab = id;
-        b.setAttribute('role', 'tab'); b.id = `analysis-detail-${++AnalysisView.sequence}`; b.setAttribute('aria-controls', b.id + '-body');
+        b.setAttribute('role', 'tab'); b.id = `${env.idPrefix}-detail-${++AnalysisView.sequence}`; b.setAttribute('aria-controls', b.id + '-body');
       }
       this.details.append(this.detailTabs, this.detailBody);
       this.showDetail(previousKey === row.key && this.detailTabs.querySelector(`[data-tab="${previousTab}"]`) ? previousTab : 'details');
@@ -420,7 +419,7 @@
         if (node.tagName === 'TABLE') {
           const header = node.tHead?.rows[0];
           collections.push({ title: title.slice(0, 70), columns: header ? [...header.cells].map(text) : ['Property','Value'],
-            rows: [...node.rows].filter(n => n !== header).map((n, i) => ({ key: `${row.key}:related:${i}`, values: [...n.cells].map(global.DxfGrid.valueOf), source: n })) });
+            rows: [...node.rows].filter(n => n !== header).map((n, i) => ({ key: `${row.key}:related:${i}`, values: [...n.cells].map(env.grid.valueOf), source: n })) });
         } else collections.push({ title: title.slice(0, 70), columns: ['Record'], rows: listRecords(node) });
       }
       return collections;
@@ -488,13 +487,15 @@
       this.host.classList.toggle('analysis-details-hidden', !value); this.detailButton.setAttribute('aria-pressed', String(value));
     }
     setMode(mode) {
+      if (this.disposed) return;
+      if (mode === 'spreadsheet' && !GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
       if (!['records', 'spreadsheet'].includes(mode)) mode = 'records';
       if (this.visuals?.state.layout === 'visual') this.visuals.setLayout('split');
       this.mode = mode; this.recordsButton.setAttribute('aria-pressed', String(mode === 'records')); this.sheetButton.setAttribute('aria-pressed', String(mode === 'spreadsheet'));
       this.grid.hidden = mode !== 'records'; this.host.dataset.mode = mode;
       if (mode === 'spreadsheet' && !this.spreadsheet) {
         this.sheetHost = el('div', 'analysis-sheet-host'); this.stage.append(this.sheetHost);
-        this.spreadsheet = new global.DxfGrid.GridView(this.sheetHost, { title: this.title + ' spreadsheet', columns: this.columns, showDetails: false,
+        this.spreadsheet = new env.grid.GridView(this.sheetHost, { title: this.title + ' spreadsheet', columns: this.columns, showDetails: false,
           onSelect: row => { if (row && !this.updatingSheet) this.selectRow(row); } });
       }
       if (this.sheetHost) this.sheetHost.hidden = mode !== 'spreadsheet'; this.refreshSpreadsheet();
@@ -557,7 +558,7 @@
         if (child.matches('a') && !/show|open|navigate/i.test(text(child))) child.replaceWith(document.createTextNode(text(child)));
         else child.remove();
       }
-      return { key: global.DxfGrid.keyFor(node), values: [text(clone) || text(node.querySelector('a'))], source: node, children: [], hidden: node.classList.contains('hidden') };
+      return { key: env.grid.keyFor(node), values: [text(clone) || text(node.querySelector('a'))], source: node, children: [], hidden: node.classList.contains('hidden') };
     };
     const roots = [], entries = new Map();
     for (const node of source.querySelectorAll('li')) {
@@ -566,5 +567,5 @@
     }
     return roots;
   }
-  global.DxfAnalysis = { AnalysisView, flatten, listRecords, sourceControls, labelOf };
-})(window);
+  return { AnalysisView, flatten, listRecords, sourceControls, labelOf };
+}

@@ -3,7 +3,8 @@
     "workspace-startup",
     "docking-workspace",
     "ribbon-workspace",
-    "gridweb-previews"
+    "gridweb-previews",
+    "component-packages"
   ],
   "analysis": [
     "analysis-views",

@@ -1,3 +1,10 @@
+import '../components/inspection-services.mjs';
+import '../components/analysis-services.mjs';
+import '../components/office-preview.js';
+import '../components/tabular-reports.js';
+import '../components/analysis-reports.js';
+import '../components/ribbon-workspace.mjs';
+
 (function () {
   const defaultStatus = {
     message: 'Ready',

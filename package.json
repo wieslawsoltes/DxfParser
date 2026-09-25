@@ -4,7 +4,7 @@
   "license": "MIT",
   "description": "DXF inspection, visual comparison and multi-drawing Skia rendering workbench",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "start": "python3 -m http.server 8080 --bind 127.0.0.1",

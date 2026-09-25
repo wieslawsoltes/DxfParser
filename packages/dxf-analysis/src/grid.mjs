@@ -1,6 +1,8 @@
-/* Shared, read-only GridWeb report surface. No renderer is substituted for GridWeb. */
-(function (global) {
-  'use strict';
+export function createGridServices(env) {
+const { window, document, GridWeb, AbortController, Event, MutationObserver, ResizeObserver,
+    navigator, Blob, URL, requestAnimationFrame, cancelAnimationFrame, getComputedStyle,
+    setTimeout, clearTimeout } = env;
+
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -35,7 +37,8 @@
 
   class GridView {
     constructor(container, { title = 'Data', columns = [], rows = [], height, onSelect, showDetails = true } = {}) {
-      if (!global.GridWeb) throw new Error('The local GridWeb distribution is not loaded.');
+      if (container?.ownerDocument !== document) throw new TypeError('GridView container must belong to the supplied window.');
+      if (!GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
       this.container = container;
       this.columns = columns.map(c => typeof c === 'string' ? { title: c } : c);
       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;
@@ -264,7 +267,7 @@
           for (const source of root.querySelectorAll('ul,ol')) {
             if (source.closest('.dxf-grid-view,.dxf-grid-source')) continue;
             this.project(source, { title: source.previousElementSibling?.textContent || 'Records', columns: ['Record'],
-              records: node => global.DxfAnalysis.listRecords(node) });
+              records: node => env.analysis.listRecords(node) });
           }
         }
       } finally { if (!this.disposed) this.listen(); }
@@ -286,7 +289,7 @@
       const container = element('div', 'dxf-grid-projection'); source.before(container);
       if (descriptor.preserve) for (const node of source.querySelectorAll(descriptor.preserve)) container.before(node);
       source.hidden = true; source.classList.add('dxf-grid-source');
-      const View = global.DxfAnalysis?.AnalysisView || GridView;
+      const View = env.analysis?.AnalysisView || GridView;
       const view = new View(container, { title: String(descriptor.title || 'Data').slice(0, 100), columns: descriptor.columns });
       const root = this.roots.find(r => r.contains(source));
       const stateKey = [root?.id, root?.dataset.sourceTabId, descriptor.selector || source.id || source.className, descriptor.title].join('|');
@@ -299,7 +302,7 @@
         // Empty-state prose stays visible; populated source rows are never displayed.
         source.hidden = rows.length > 0;
         if (!rows.length) container.hidden = true;
-        const next = JSON.stringify(rows.map(r => [r.key, r.values, r.hidden, r.source?.innerHTML, ...(global.DxfAnalysis?.sourceControls(r.source) || []).map(c => [c.value, c.checked, c.disabled]) ]));
+        const next = JSON.stringify(rows.map(r => [r.key, r.values, r.hidden, r.source?.innerHTML, ...(env.analysis?.sourceControls(r.source) || []).map(c => [c.value, c.checked, c.disabled]) ]));
         if (signature !== next) { signature = next; view.setRows(rows); }
       } };
       view.onSourceChange = () => this.schedule();
@@ -320,5 +323,5 @@
     setTheme(theme) { this.theme = theme; for (const p of this.projections) p.view.setTheme(theme); }
     dispose() { this.disposed = true; this.observer.disconnect(); for (const p of this.projections) p.view.dispose(); this.projections.clear(); this.states.clear(); }
   }
-  global.DxfGrid = { GridView, ReportRegistry, element, scalar, text, directText, keyFor, valueOf };
-})(window);
+  return { GridView, ReportRegistry, element, scalar, text, directText, keyFor, valueOf };
+}

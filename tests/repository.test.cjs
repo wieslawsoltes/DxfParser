@@ -21,7 +21,7 @@ function sourceFiles(directory = root) {
 
 test('first-party documentation is limited to current package and root READMEs', () => {
     assert.deepEqual(sourceFiles().filter(file => file.endsWith('.md')).sort(),
-        ['README.md', 'packages/dxf-compare/README.md', 'packages/dxf-skia/README.md']);
+        ['README.md', ...fs.readdirSync(path.join(root, 'packages')).map(name => `packages/${name}/README.md`)].sort());
     for (const directory of ['docs', 'tests/baselines', 'tests/outputs', 'tests/trueview'])
         assert.equal(fs.existsSync(path.join(root, directory)), false, directory);
 });

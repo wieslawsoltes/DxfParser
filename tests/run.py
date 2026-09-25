@@ -25,6 +25,7 @@ def commands(group: str) -> list[tuple[str, list[str]]]:
             ('distribution', ['node', 'scripts/check-skia-distribution.js']),
             ('models', ['node', '--test', *tests]),
             ('package', ['node', 'scripts/check-skia-package.mjs']),
+            ('component-packages', ['node', 'scripts/check-component-packages.mjs']),
         ])
     groups = BROWSER_GROUPS if group in ('all', 'browser') else (group,)
     for name in groups:

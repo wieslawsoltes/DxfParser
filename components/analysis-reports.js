@@ -1,3 +1,4 @@
+import './analysis-services.mjs';
 /* Purpose-specific analysis data models. Never recover CAD identity from a
  * formatted label: navigation closures capture the actual source tab and node. */
 (function (global) {

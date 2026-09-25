@@ -1,8 +1,9 @@
-/* Linked analytical views composed with the existing record/spreadsheet controls.
- * SVG is used for explanatory diagrams only; CAD still uses native Skia/WebGPU. */
-(function (global) {
-    'use strict';
-    const A = global.DxfAnalysis, M = global.DxfAnalysisVisualModel, { element: el } = global.DxfGrid;
+export function createAnalysisVisuals(env) {
+const { window, document, GridWeb, AbortController, Event, MutationObserver, ResizeObserver,
+    navigator, Blob, URL, XMLSerializer, requestAnimationFrame, cancelAnimationFrame, getComputedStyle,
+    setTimeout, clearTimeout } = env;
+
+    const A = env.analysis, M = env.models, { element: el } = env.grid;
     const NS = 'http://www.w3.org/2000/svg', fmt = n => Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
     const short = (s, n = 34) => { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
     function svg(tag, attrs = {}, value) { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs))
@@ -308,7 +309,7 @@
             }
             const incoming = relations.filter(r => r.direction === 'in'), outgoing = relations.filter(r => r.direction !== 'in'), left = incoming.slice(0, 6), right = outgoing.slice(0, 6);
             const h = Math.max(160, Math.max(left.length, right.length) * 42 + 28), n = this.makeSvg(h), cy = h / 2;
-            const defs = svg('defs'), id = 'av-arrow-' + (++AnalysisVisuals.sequence), marker = svg('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
+            const defs = svg('defs'), id = env.idPrefix + '-arrow-' + (++AnalysisVisuals.sequence), marker = svg('marker', { id, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' });
             marker.append(svg('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: 'av-arrow' }));
             defs.append(marker);
             n.append(defs);
@@ -418,5 +419,5 @@
             return; this.disposed = true; cancelAnimationFrame(this.frame); this.observer.disconnect(); this.host.remove(); this.grip.remove(); this.filterBar.remove(); this.toggle.remove(); this.chartData = []; this.chartRows = []; this.relationRows = []; this.diagram = null; this.body.replaceChildren(); this.footer.replaceChildren(); this.tools.replaceChildren(); this.view = null; this.drag = null; }
     }
     AnalysisVisuals.sequence = 0;
-    A.AnalysisVisuals = AnalysisVisuals;
-})(window);
+    return AnalysisVisuals;
+}
