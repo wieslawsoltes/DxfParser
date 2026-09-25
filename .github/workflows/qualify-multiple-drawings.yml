@@ -22,24 +22,18 @@ jobs:
       - name: Materialize drawing views on work branch
         run: |
           set -euo pipefail
-          if test -f scripts/multiple-drawings.01.xzpart; then
-            cat scripts/multiple-drawings.0{1,2}.xzpart | xz -dc > /tmp/multiple-drawings.patch
-            echo '5658004b88b166ed1040b23bae0cb282131e662a369f34e2a21b43125e2e3d13  /tmp/multiple-drawings.patch' | sha256sum -c -
-            git apply --check /tmp/multiple-drawings.patch
-            git apply /tmp/multiple-drawings.patch
-            rm scripts/multiple-drawings.0{1,2}.xzpart
-          fi
-          if test -f scripts/multiple-drawings-fix.patch; then
-            git apply --check scripts/multiple-drawings-fix.patch
-            git apply scripts/multiple-drawings-fix.patch
-            rm scripts/multiple-drawings-fix.patch
-          fi
+          for patch in scripts/multiple-drawings-fix*.patch; do
+            test -f "$patch" || continue
+            git apply --check --recount "$patch"
+            git apply --recount "$patch"
+            rm "$patch"
+          done
           node scripts/build-rendering-bundle.js
-          git add components packages dist docs scripts tests styles.css index.html .github/workflows
+          git add components packages dist docs scripts tests styles.css index.html README.md .github/workflows
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'feat(rendering): retain independent native drawing documents and active-view tools'
+            git commit -m 'fix(rendering): select tiled drawings and guard source-owned lifetimes'
             git push origin HEAD:work/multiple-drawings
           fi
           mkdir -p test-results/qualification
