@@ -1,0 +1,79 @@
+diff --git a/components/drawing-view-tools.js b/components/drawing-view-tools.js
+index b7d1969..42100a1 100644
+--- a/components/drawing-view-tools.js
++++ b/components/drawing-view-tools.js
+@@ -114,6 +114,7 @@
+             const snapshot = captureCamera(this.host.frame(source), this.host.layout(source));
+             for (const record of this.host.records()) if (record !== source) this.apply(record, snapshot, 'world', true);
+         }
++        reset() { if (!this.disposed) { this.cancel(); this.snapshot = null; this.key = null; } }
+         dispose() { if (!this.disposed) { this.cancel(); this.disposed = true; this.snapshot = null; this.host = null; } }
+     }
+ 
+diff --git a/components/drawing-views.js b/components/drawing-views.js
+index f5974ee..5cdc01a 100644
+--- a/components/drawing-views.js
++++ b/components/drawing-views.js
+@@ -378,6 +378,8 @@
+         release(tabId) {
+             const r = this.records.get(tabId); if (!r || r.disposed) return;
+             this.records.delete(tabId); r.disposed = true; r.open = false; r.abort.abort();
++            // A fresh source must not inherit coordinates from a fully closed set.
++            if (!this.records.size) this.navigation.reset();
+             if (this.active === r) {
+                 for (const [id, tool] of r.tools) if (this.slots.get(id)?.contains(tool)) r.stash.append(tool);
+                 this.active = null;
+diff --git a/docs/multiple-drawings.md b/docs/multiple-drawings.md
+index 1c9eceb..693935e 100644
+--- a/docs/multiple-drawings.md
++++ b/docs/multiple-drawings.md
+@@ -16,7 +16,7 @@ The **Navigation** dropdown defaults to **Independent**. **Linked coordinates**
+ 
+ Pan, wheel/pinch zoom, view history, fit, projection and comparison-change navigation all feed the same camera path. Updates are coalesced once per animation frame. Propagated frames cannot feed back into the leader, and repeated follower updates do not append hundreds of local history entries. Focus changes apply the latest queued camera before a new gesture. Hidden/closed views remain suspended and catch up when shown; views with different layout names are skipped. Source scenes, resources, selections, layers and comparison sessions remain independent.
+ 
+-**Match active view** performs a one-time coordinate-camera transfer into compatible visible drawings without enabling a link. Command equivalents are `RENDERLINK off|world|relative`, `RENDERLINK` (report current mode), and `RENDERMATCH`. Turning navigation off cancels queued transfers. The mode and each source camera are saved with view metadata; camera-only changes are debounce-saved, and page hiding flushes the existing workspace save path.
++**Match active view** performs a one-time coordinate-camera transfer into compatible visible drawings without enabling a link. Command equivalents are `RENDERLINK off|world|relative`, `RENDERLINK` (report current mode), and `RENDERMATCH`. Turning navigation off cancels queued transfers. Closing the last source clears the linked camera but retains the chosen mode, so the next source starts with its own camera. The mode and each source camera are saved with view metadata; camera-only changes are debounce-saved, and page hiding flushes the existing workspace save path.
+ 
+ ## Ownership and active tools
+ 
+diff --git a/tests/drawing-navigation.py b/tests/drawing-navigation.py
+index c6a78fb..ccca0c3 100644
+--- a/tests/drawing-navigation.py
++++ b/tests/drawing-navigation.py
+@@ -108,6 +108,17 @@ class DrawingNavigationTests(h.MultipleDrawingTests):
+         self.assertJS('views.navigation.mode==="relative" && a.cad.log.textContent.includes("off, world or relative")')
+         self.page.evaluate('() => {rb.execute("skia-tile-grid"); }');self.settle();self.assertJS('a.visible && b.visible')
+ 
++    def test_nav_15_closing_last_source_resets_camera_not_link_mode(self):
++        self.two();self.focus('a');self.command('RENDERLINK world');self.command('ZOOM 2')
++        self.page.evaluate('() => {for(const id of [...views.records.keys()])dw.remove(dw.findByTab(id)); }');self.settle()
++        self.assertJS('views.records.size===0 && views.navigation.snapshot===null && views.navigation.pending===null && views.navigation.mode==="world"')
++        source=h.h.drawing([(0,'LINE'),(5,'AB'),(10,10000),(20,10000),(11,10040),(21,10030)])
++        self.page.locator('#fileInputLeft').set_input_files({'name':'fresh-origin.dxf','mimeType':'application/dxf','buffer':source.encode()})
++        self.page.wait_for_function('app.tabs.length===1')
++        self.page.evaluate('() => {views.renderAll(); }');self.settle()
++        self.page.wait_for_function('views.active?.visible && views.active.overlay.surfaceManager.stats')
++        self.assertJS('views.navigation.mode==="world" && views.active.overlay.surfaceManager.lastFrame.worldCenter.x===10020 && views.active.overlay.surfaceManager.lastFrame.worldCenter.y===10015')
++
+ if __name__=='__main__':
+     suite=unittest.TestSuite(DrawingNavigationTests(n) for n in sorted(n for n in dir(DrawingNavigationTests) if n.startswith('test_nav_')))
+     result=unittest.TextTestRunner(verbosity=2).run(suite)
+diff --git a/tests/drawing-view-tools.test.cjs b/tests/drawing-view-tools.test.cjs
+index 2d2bbd9..ead74c9 100644
+--- a/tests/drawing-view-tools.test.cjs
++++ b/tests/drawing-view-tools.test.cjs
+@@ -152,3 +152,14 @@ test('32 retained views have finite shallow grid layouts across repeated arrange
+     const h=dock(32);
+     for(const mode of ['grid','horizontal','vertical','grid']){T.tileDrawings(h.manager,liveModels(h),mode,1200,900);assert.ok(D.validateLayout(h.manager.Layout).nodes<100);assert.equal(new Set(liveModels(h).map(m=>m.Parent)).size,32);}
+ });
++
++
++test('clearing a closed source set retains link mode but drops the obsolete camera', () => {
++    const h=linkHarness();h.link.setMode('world');h.move(h.records[0],250);
++    h.records.splice(0,h.records.length);h.link.reset();h.flush();
++    assert.equal(h.link.snapshot,null);assert.equal(h.link.pending,null);assert.equal(h.link.mode,'world');
++    const fresh={open:true,visible:true,frame:frame(10000),layout:'Model'},original=fresh.frame;
++    h.records.push(fresh);h.focus(fresh);h.flush();
++    assert.equal(fresh.frame,original);assert.deepEqual(h.link.snapshot.center,original.worldCenter);
++    h.link.dispose();h.link.reset();
++});
