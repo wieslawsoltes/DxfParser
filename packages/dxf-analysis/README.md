@@ -25,6 +25,9 @@ imports require no window, custom elements, storage, application or vendor APIs.
 Register compatible TreeDataGridWeb custom elements in the target window, supply
 the matching core/web API objects, and load this package's `styles.css`. Supply
 GridWeb and register its `grid-web` element when spreadsheet mode will be used.
+Without GridWeb, the spreadsheet button is disabled and programmatic switching
+is rejected before changing presentation state. Containers must belong to the
+supplied window.
 
 ```js
 import { createAnalysisUI } from '@wieslawsoltes/dxf-analysis';

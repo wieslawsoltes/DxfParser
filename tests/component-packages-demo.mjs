@@ -23,4 +23,4 @@ const Tree = createTreeDataGrid({ window, isHandleCode: inspector.isHandleCode,
     navigateToClassById: id => actions.push('class:' + id) });
 const treeView = new Tree(document.getElementById('tree'), document.getElementById('tree-content'), { headerElement: document.getElementById('header') });
 treeView.setData(tree);
-window.componentDemo = { ui, secondUI, view, second, treeView, actions, sourceIds, createDrawingViewTools };
+window.componentDemo = { createAnalysisUI, host, ui, secondUI, view, second, treeView, actions, sourceIds, createDrawingViewTools };

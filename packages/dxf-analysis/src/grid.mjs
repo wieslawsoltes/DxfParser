@@ -37,7 +37,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
 
   class GridView {
     constructor(container, { title = 'Data', columns = [], rows = [], height, onSelect, showDetails = true } = {}) {
-      if (!GridWeb) throw new Error('The local GridWeb distribution is not loaded.');
+      if (container?.ownerDocument !== document) throw new TypeError('GridView container must belong to the supplied window.');
+      if (!GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
       this.container = container;
       this.columns = columns.map(c => typeof c === 'string' ? { title: c } : c);
       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;

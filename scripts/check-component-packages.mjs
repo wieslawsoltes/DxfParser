@@ -70,8 +70,8 @@ const view = new ui.AnalysisView<number>(document.body, { rows });
 view.selectKey(key); view.setTheme('dark'); view.dispose();
 const SourceView = createTreeDataGrid({ window, isHandleCode });
 const sourceView = new SourceView(document.body, document.createElement('div'));
-sourceView.setData(tree); sourceView.dispose();
-const tools = createDrawingViewTools(renderer, dockyard); tools.gridShape(4, 1200, 800);
+sourceView.setData(tree); sourceView.selectedRowId = id; sourceView.dispose();
+const tools = createDrawingViewTools(renderer, dockyard); tools.gridShape(4, 1200, 800); tools.gridShape(4);
 // @ts-expect-error Camera linking modes are deliberately finite.
 tools.transferCamera({}, {}, 'invalid');
 void [id, diff, diagnosis];

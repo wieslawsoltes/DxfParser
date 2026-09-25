@@ -3,7 +3,7 @@ export interface TreeViewOptions {
     itemHeight?: number; headerRootId?: string; headerElement?: HTMLElement;
     columnWidths?: Record<string, number | string>; minimumColumnWidths?: Record<string, number>;
     onEdit?: (node: SourceNode) => void; onRowSelect?: (node: SourceNode) => void;
-    onToggleExpand?: (id: string) => void; onHandleClick?: (handle: string) => void;
+    onToggleExpand?: (id: number | string) => void; onHandleClick?: (handle: string) => void;
     copyCallback?: (node: SourceNode) => void; openCallback?: (node: SourceNode) => void;
     openAndZoomCallback?: (node: SourceNode) => void; openAndZoomPredicate?: (node: SourceNode) => boolean;
     openBlockCallback?: (node: SourceNode) => void; openBlockPredicate?: (node: SourceNode) => boolean;
@@ -16,7 +16,7 @@ export interface TreeViewOptions {
 export interface TreeDataGrid {
     readonly container: HTMLElement; readonly content: HTMLElement;
     readonly lifetime: AbortController; treeData: SourceNode[]; flatData: unknown[];
-    selectedRowId: string | null; columnWidths: Record<string, number | string>;
+    selectedRowId: number | string | null; columnWidths: Record<string, number | string>;
     setData(nodes: SourceNode[]): void; refresh(): void; updateVisibleNodes(): void;
     setIndexMap(map: (number | null)[] | null): void; setOverrideTotalRows(count: number | null): void;
     setRowClassProvider(provider: TreeViewOptions['rowClassProvider']): void;

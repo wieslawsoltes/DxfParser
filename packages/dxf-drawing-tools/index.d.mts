@@ -21,7 +21,7 @@ export interface NavigationHost<R extends NavigationRecord, Ticket = unknown> {
 export interface NavigationLink<R extends NavigationRecord> {
     readonly mode: LinkMode; readonly snapshot: CameraSnapshot | null;
     setMode(mode: LinkMode): void; onFrame(record: R, frame: CameraFrame): void;
-    apply(record: R, snapshot?: CameraSnapshot, mode?: LinkMode, history?: boolean): void;
+    apply(record: R, snapshot?: CameraSnapshot | null, mode?: LinkMode, history?: boolean): void;
     focus(record: R): void; flush(): void;
     match(): void; reset(): void; dispose(): void;
 }
@@ -30,7 +30,7 @@ export interface DrawingViewTools {
     transferCamera(snapshot: CameraSnapshot, target: CameraFrame, mode?: Exclude<LinkMode, 'off'>, layout?: string): CameraTransfer | null;
     sameCamera(frame: CameraFrame, camera: CameraTransfer): boolean;
     NavigationLink: new <R extends NavigationRecord, Ticket>(host: NavigationHost<R, Ticket>) => NavigationLink<R>;
-    gridShape(count: number, width: number, height: number): {columns: number; rows: number};
+    gridShape(count: number, width?: number, height?: number): {columns: number; rows: number};
     tileDrawings(manager: object, documents: object[], mode?: TileMode, width?: number, height?: number): {columns: number; rows: number} | undefined;
 }
 /** Inject the same renderer and Dockyard API instances as the surrounding host. */

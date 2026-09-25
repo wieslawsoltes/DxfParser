@@ -52,7 +52,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
 
   class AnalysisView {
     constructor(container, options = {}) {
-      if (!C || !W) throw new Error('The pinned TreeDataGridWeb control is not loaded.');
+      if (container?.ownerDocument !== document) throw new TypeError('AnalysisView container must belong to the supplied window.');
+      if (!C || !W) throw new Error('TreeDataGrid core and web APIs must be supplied.');
       this.container = container; this.title = options.title || 'Records'; this.options = options;
       this.columns = (options.columns?.length ? options.columns : ['Value']).map(c => typeof c === 'string' ? { title: c } : { ...c });
       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;
@@ -69,6 +70,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.modeButtons.setAttribute('aria-label', 'Report presentation');
       this.recordsButton = button('Records', () => this.setMode('records'), this.modeButtons);
       this.sheetButton = button('Spreadsheet', () => this.setMode('spreadsheet'), this.modeButtons);
+      this.sheetButton.disabled = !GridWeb;
       this.detailButton = button('Details', () => this.toggleDetails(), this.modeButtons);
       this.detailButton.setAttribute('aria-pressed', 'true'); this.heading.append(this.modeButtons);
       this.bar = el('div', 'dxf-grid-toolbar analysis-toolbar');
@@ -485,6 +487,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.host.classList.toggle('analysis-details-hidden', !value); this.detailButton.setAttribute('aria-pressed', String(value));
     }
     setMode(mode) {
+      if (this.disposed) return;
+      if (mode === 'spreadsheet' && !GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
       if (!['records', 'spreadsheet'].includes(mode)) mode = 'records';
       if (this.visuals?.state.layout === 'visual') this.visuals.setLayout('split');
       this.mode = mode; this.recordsButton.setAttribute('aria-pressed', String(mode === 'records')); this.sheetButton.setAttribute('aria-pressed', String(mode === 'spreadsheet'));

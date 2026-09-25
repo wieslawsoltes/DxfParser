@@ -49,4 +49,27 @@ class ComponentPackagesTests(unittest.TestCase):
         self.page.evaluate('() => { componentDemo.view.dispose();componentDemo.view.dispose();componentDemo.treeView.dispose();componentDemo.treeView.dispose(); }')
         self.assertTrue(self.page.evaluate('componentDemo.view.disposed && componentDemo.treeView.lifetime.signal.aborted && !componentDemo.second.disposed && componentDemo.second.host.isConnected'))
 
+    def test_packages_08_optional_spreadsheet_rejects_before_mutation(self):
+        self.assertTrue(self.page.evaluate("""() => {
+            const {createAnalysisUI, host}=componentDemo;
+            const api=createAnalysisUI({...host,gridWeb:undefined});
+            const container=document.createElement('div');document.body.append(container);
+            const view=new api.AnalysisView(container,{rows:[{key:1,values:['A']}],visualization:false});
+            const html=container.innerHTML;
+            let error;try{view.setMode('spreadsheet');}catch(e){error=e;}
+            const valid=view.sheetButton.disabled && view.mode==='records' && !view.spreadsheet && container.innerHTML===html && error?.message.includes('GridWeb');
+            view.dispose();container.remove();return valid;
+        }"""))
+    def test_packages_09_foreign_document_containers_reject_without_mutation(self):
+        self.assertTrue(self.page.evaluate("""() => {
+            const foreign=document.implementation.createHTMLDocument('foreign');
+            const parent=foreign.createElement('div');foreign.body.append(parent);
+            const before=parent.innerHTML;
+            for(const Type of [componentDemo.ui.GridView,componentDemo.ui.AnalysisView]) {
+                let error;try{new Type(parent);}catch(e){error=e;}
+                if(!(error instanceof TypeError) || parent.innerHTML!==before) return false;
+            }
+            return true;
+        }"""))
+
 if __name__ == '__main__': unittest.main(verbosity=2)
