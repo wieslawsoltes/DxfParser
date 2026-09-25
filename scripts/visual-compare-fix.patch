@@ -1,0 +1,23 @@
+diff --git a/tests/docking-workspace.py b/tests/docking-workspace.py
+index 125f15d..6cd1643 100644
+--- a/tests/docking-workspace.py
++++ b/tests/docking-workspace.py
+@@ -172,3 +172,3 @@ class DockingTests(unittest.TestCase):
+         self.load()
+-        self.assertJS('w.definitions.size === 29')
++        self.assertJS('w.definitions.size === 30 && w.definitions.has("render-compare")')
+         self.assertJS("['tree-left','tree-right'].every(id=>w.isOpen(id)) && ['commands','tools','render-controls'].every(id=>!w.definitions.has(id)) && !!rb.shadowRoot")
+@@ -381,3 +381,3 @@ class DockingTests(unittest.TestCase):
+         self.load('editor/index.html')
+-        self.assertJS('w.definitions.size===9')
++        self.assertJS('w.definitions.size===10 && w.definitions.has("render-compare")')
+         self.page.locator('#editorOpenFileInput').set_input_files(str(ROOT/'tests/data/sample.dxf'))
+diff --git a/tests/gridweb-previews.py b/tests/gridweb-previews.py
+index ed0a218..b1b209e 100644
+--- a/tests/gridweb-previews.py
++++ b/tests/gridweb-previews.py
+@@ -198,3 +198,3 @@ class GridPreviewTests(unittest.TestCase):
+         self.context.close();harness.DockingTests.setUp(self);self.load('editor/index.html')
+-        self.assertJS("w.definitions.size===9 && !!DxfEditorApp.officePreview && ![...document.scripts].some(s=>s.src.startsWith('https:'))")
++        self.assertJS("w.definitions.size===10 && w.definitions.has('render-compare') && !!DxfEditorApp.officePreview && ![...document.scripts].some(s=>s.src.startsWith('https:'))")
+         self.assertTrue(self.page.evaluate("async()=>await DxfEditorApp.officePreview.open(new TextEncoder().encode('Editor,Preview\\nExcel,1'),'test.csv')"))
