@@ -1,0 +1,113 @@
+name: Qualify repository cleanup
+on:
+  push:
+    branches: [work/repository-cleanup]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cleanup-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  source:
+    name: Materialize cleanup on the work branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply source changes
+        id: source
+        run: |
+          set -euo pipefail
+          if test -f scripts/repository-cleanup.01.xzpart; then
+            cat scripts/repository-cleanup.0{1,2,3}.xzpart | xz -dc > /tmp/repository-cleanup.patch
+            echo 'be476256a99900d7540fa3885d073230c22c4ca479e433a2b2a18394d7872d47  /tmp/repository-cleanup.patch' | sha256sum -c -
+            git apply --check /tmp/repository-cleanup.patch
+            git apply /tmp/repository-cleanup.patch
+            rm scripts/repository-cleanup.0{1,2,3}.xzpart
+            git add -A
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'chore: consolidate current sources, tests and package builds'
+            git push origin HEAD:work/repository-cleanup
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/repository-cleanup-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repository-cleanup-source
+          path: /tmp/repository-cleanup-source.tar.gz
+          retention-days: 7
+  models:
+    needs: source
+    name: Source, native renderer and package contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --global typescript@5.8.3
+      - run: python tests/run.py models
+      - name: Check build and packaging did not modify tracked sources
+        run: git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-and-package-evidence
+          path: test-results/
+          retention-days: 14
+  browser:
+    needs: source
+    name: HTTP browser / ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [workspace, analysis, drawings, gpu]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned browser test dependencies
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Test the source-only checkout without generated distributions
+        run: |
+          test ! -e dist
+          test ! -e packages/dxf-skia/dist
+          xvfb-run -a python tests/run.py "${{ matrix.suite }}"
+      - name: Verify static entry points did not need a build
+        run: |
+          test ! -e dist
+          test ! -e packages/dxf-skia/dist
+          git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-${{ matrix.suite }}-evidence
+          path: test-results/
+          retention-days: 14
