@@ -122,6 +122,8 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 | [`@wieslawsoltes/dxf-inspector`](packages/dxf-inspector/README.md) | Source-tree parser, structural diff, diagnostics and binary inspection helpers. |
 | [`@wieslawsoltes/dxf-analysis`](packages/dxf-analysis/README.md) | Pure aggregation models and host-injected record/spreadsheet/visual report UI. |
 | [`@wieslawsoltes/dxf-tree-view`](packages/dxf-tree-view/README.md) | Source-tree viewport, editing callbacks, diff alignment and overview rail. |
+| [`@wieslawsoltes/dxf-workspace`](packages/dxf-workspace/README.md) | Host-injected Dockyard shell, panel registration, layout persistence and lifecycle. |
+| [`@wieslawsoltes/dxf-office-preview`](packages/dxf-office-preview/README.md) | Host-injected Office/text/image/archive preview UI and legacy decoder helpers. |
 | [`@wieslawsoltes/dxf-drawing-tools`](packages/dxf-drawing-tools/README.md) | Host-injected camera linking and transactional drawing layout helpers. |
 
 ```sh
@@ -131,18 +133,23 @@ npm pack ./packages/dxf-inspector
 npm pack ./packages/dxf-analysis
 npm pack ./packages/dxf-tree-view
 npm pack ./packages/dxf-drawing-tools
+npm pack ./packages/dxf-workspace
+npm pack ./packages/dxf-office-preview
 ```
 
 The renderer's `prepack` builds its CJS, ESM, and classic-browser artifacts from
 source. These commands produce local tarballs; they do not publish to npm.
-The four extracted component packages use canonical ES modules and need no build.
+The extracted component packages use canonical ES modules and need no build.
 Their CJS facades use synchronous ESM loading on Node 22.13+, so `import` and
 `require` share the same API instance. UI factories receive browser/vendor APIs
 explicitly and do not install globals. Package-owned CSS is exported as
-`@wieslawsoltes/dxf-analysis/styles.css` and `@wieslawsoltes/dxf-tree-view/styles.css`.
+the `styles.css` subpaths of `dxf-analysis`, `dxf-tree-view`, `dxf-workspace`,
+and `dxf-office-preview`.
 
 `components/` retains application orchestration, source-owned document controllers,
-renderer adapters, persistence, report builders and startup. Small service adapters
+renderer adapters, source persistence, report builders and startup. Docking and
+Office adapters provide panel identities, storage namespaces and host callbacks;
+the reusable packages contain no application or vendor-relative imports. Small service adapters
 connect package exports to the existing app API. The diagnostics engine no longer
 starts the application; `components/app-startup.mjs` owns workbench startup.
 Both browser entry points import the same packages without generated `dist` files.

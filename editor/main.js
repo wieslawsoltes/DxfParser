@@ -1,3 +1,4 @@
+import '../components/docking-editor.js';
 import '../components/inspection-services.mjs';
 import '../components/analysis-services.mjs';
 import '../components/office-preview.js';

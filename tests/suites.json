@@ -4,7 +4,8 @@
     "docking-workspace",
     "ribbon-workspace",
     "gridweb-previews",
-    "component-packages"
+    "component-packages",
+    "workspace-office"
   ],
   "analysis": [
     "analysis-views",

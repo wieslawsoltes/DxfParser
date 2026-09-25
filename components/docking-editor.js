@@ -1,3 +1,4 @@
+import './docking-services.mjs';
 /* Dock the editor's existing ribbon, viewport, tools, status and command palette. */
 (function (global) {
   'use strict';

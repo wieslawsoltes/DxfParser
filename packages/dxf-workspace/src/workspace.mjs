@@ -1,11 +1,24 @@
-/* DXF Parser Dockyard integration. Application content stays in its original DOM nodes. */
-(function (global) {
-  'use strict';
+export const FORMAT = 'dxfparser-dockyard-workspace';
+export const VERSION = 1;
+export const MAX_LAYOUT_BYTES = 1024 * 1024;
 
-  const FORMAT = 'dxfparser-dockyard-workspace';
-  const VERSION = 1;
-  const MAX_LAYOUT_BYTES = 1024 * 1024;
-
+/** Bind a workspace implementation to a browser realm and a host-owned Dockyard API. */
+export function createDockingWorkspace({ window: win, dockyard, storage, storagePrefix = 'dxf.workspace' } = {}) {
+  if (!win?.document?.createElement || !win.HTMLElement || !win.AbortController || !win.ResizeObserver)
+    throw new TypeError('A browser window with DOM observers is required.');
+  if (!dockyard?.DockingManager || !dockyard.JsonLayoutSerializer || !dockyard.LayoutDocument)
+    throw new TypeError('A compatible Dockyard API is required.');
+  if (storage != null && (typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function'))
+    throw new TypeError('Storage must implement getItem/setItem or be null.');
+  const global = win, document = win.document;
+  const { HTMLElement, AbortController, MutationObserver, ResizeObserver, Option, TextEncoder, Blob, URL } = win;
+  const requestAnimationFrame = win.requestAnimationFrame.bind(win), cancelAnimationFrame = win.cancelAnimationFrame.bind(win);
+  const setTimeout = win.setTimeout.bind(win), clearTimeout = win.clearTimeout.bind(win), queueMicrotask = win.queueMicrotask.bind(win);
+  // Do not access localStorage during import or factory construction (sandboxed realms can throw).
+  const getStorage = () => storage === undefined ? win.localStorage : storage;
+  const assertNode = (node, label) => {
+    if (!(node instanceof HTMLElement) || node.ownerDocument !== document) throw new TypeError(`${label} must belong to the supplied window.`);
+  };
   function element(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -16,14 +29,30 @@
   /** One manager, one registry of stable ContentIds, no serialized drawing data. */
   class Workspace {
     constructor(options) {
-      if (!global.AvalonDock) throw new Error('The local Dockyard distribution is not loaded.');
-      this.api = global.AvalonDock;
+      assertNode(options?.shell, 'Workspace shell');
+      if (typeof options.id !== 'string' || !options.id || typeof options.layout !== 'function' ||
+          !Array.isArray(options.panels) || !Array.isArray(options.presets) || !options.presets.includes(options.defaultPreset))
+        throw new TypeError('Workspace id, panels, presets, defaultPreset and layout factory are required.');
+      if (options.shouldRestorePanel != null && typeof options.shouldRestorePanel !== 'function')
+        throw new TypeError('shouldRestorePanel must be a function.');
+      const ids = new Set(), nodes = new Set();
+      for (const panel of options.panels) {
+        assertNode(panel.node, 'Panel content');
+        if (panel.titleNode) assertNode(panel.titleNode, 'Panel title');
+        if (panel.resizeNode) assertNode(panel.resizeNode, 'Panel resize target');
+        if (!panel.id || ids.has(panel.id)) throw new Error(`Duplicate dock panel: ${panel.id}`);
+        if (nodes.has(panel.node)) throw new Error('Each panel must own distinct content.');
+        ids.add(panel.id); nodes.add(panel.node);
+      }
+      this.api = dockyard;
       this.options = options;
       this.id = options.id;
-      this.storageKey = `dxfparser.dockyard.${this.id}.v${VERSION}`;
+      this.storageKey = `${storagePrefix}.${this.id}.v${VERSION}`;
       this.definitions = new Map();
       this.abort = new AbortController();
       this.unsubscribers = [];
+      this.disposers = new Set();
+      this.importGeneration = 0;
       this.disposed = false;
       this.ready = false;
       this.suppress = 0;
@@ -63,16 +92,7 @@
         this.manager.Error.add((_sender, args) => this.notify(args.Error?.message || 'Docking operation failed.', true))
       );
       this.observer = new MutationObserver(records => this.observePresentation(records));
-      for (const definition of this.definitions.values()) {
-        if (definition.bridge) {
-          this.observer.observe(definition.node, {
-            attributes: true, attributeFilter: definition.bridge === 'hidden' ? ['hidden'] : ['style']
-          });
-        }
-        if (definition.titleNode) {
-          this.observer.observe(definition.titleNode, { childList: true, characterData: true, subtree: true });
-        }
-      }
+      this.observeDefinitions();
       this.resizeObserver = new ResizeObserver(() => this.scheduleResize());
       this.resizeObserver.observe(this.host);
       for (const definition of this.definitions.values()) {
@@ -91,7 +111,11 @@
 
     register(definition) {
       if (!definition.id || this.definitions.has(definition.id)) throw new Error(`Duplicate dock panel: ${definition.id}`);
-      if (!(definition.node instanceof HTMLElement)) throw new TypeError(`Missing dock content: ${definition.id}`);
+      if (this.disposed) throw new Error('Workspace is disposed.');
+      assertNode(definition.node, 'Panel content');
+      if ([...this.definitions.values()].some(d => d.node === definition.node)) throw new Error('Each panel must own distinct content.');
+      if (definition.titleNode) assertNode(definition.titleNode, 'Panel title');
+      if (definition.resizeNode) assertNode(definition.resizeNode, 'Panel resize target');
       const record = {
         kind: 'tool', side: 'Right', closable: true, bridge: null,
         ...definition, bridgeVisible: false, wasOpen: false, everOpened: false, size: ''
@@ -102,10 +126,26 @@
       this.parking.append(record.node);
       this.definitions.set(record.id, record);
       if (this.resizeObserver && record.onResize) this.resizeObserver.observe(record.resizeNode || record.node);
-      if (this.observer && record.bridge) this.observer.observe(record.node, {
-        attributes: true, attributeFilter: record.bridge === 'hidden' ? ['hidden'] : ['style']
-      });
+      this.observeDefinitions();
       return record;
+    }
+
+    observeDefinitions() {
+      if (!this.observer) return;
+      // MutationObserver has no unobserve; reconnect to release removed source nodes.
+      this.observer.disconnect();
+      for (const d of this.definitions.values()) {
+        if (d.bridge) this.observer.observe(d.node, { attributes: true, attributeFilter: d.bridge === 'hidden' ? ['hidden'] : ['style'] });
+        if (d.titleNode) this.observer.observe(d.titleNode, { childList: true, characterData: true, subtree: true });
+      }
+    }
+
+    /** Register owned cleanup without replacing dispose(). Returns a detach function. */
+    onDispose(callback) {
+      if (typeof callback !== 'function') throw new TypeError('A disposal callback is required.');
+      if (this.disposed) { callback(); return () => {}; }
+      this.disposers.add(callback);
+      return () => { this.disposers.delete(callback); };
     }
 
     unregister(id) {
@@ -116,6 +156,7 @@
       if (model?.Parent?.Children) model.Parent.Children.Remove(model);
       if (model?.IsHidden) this.manager.Layout.Hidden.Remove(model);
       this.definitions.delete(id);
+      this.observeDefinitions();
       this.manager.Layout.CollectGarbage();
       this.manager.ReleaseContent(id);
       d.node.remove();
@@ -308,11 +349,13 @@
     }
 
     importLayout(text) {
+      if (this.disposed) throw new Error('Workspace is disposed.');
+      this.importGeneration++;
       if (typeof text !== 'string' || new TextEncoder().encode(text).length > MAX_LAYOUT_BYTES) {
         throw new Error('Workspace file must be UTF-8 JSON no larger than 1 MiB.');
       }
       const data = JSON.parse(text);
-      if (data.format !== FORMAT || data.version !== VERSION || data.workspace !== this.id || !data.layout) {
+      if (!data || data.format !== FORMAT || data.version !== VERSION || data.workspace !== this.id || !data.layout) {
         throw new Error('This file is not a compatible workspace layout for this application.');
       }
       const serializer = new this.api.JsonLayoutSerializer(this.manager);
@@ -342,7 +385,7 @@
         if (['light', 'dark', 'contrast'].includes(data.theme)) this.manager.Theme = data.theme;
         for (const d of this.definitions.values()) {
           if ((!d.closable || d.keepOpen) && !this.manager.Find(d.id) &&
-              !(d.emptySide && [...this.definitions.values()].some(item => item.fileSide === d.emptySide))) {
+              this.options.shouldRestorePanel?.(d, this) !== false) {
             this.manager.AddDocument(this.make(d.id));
           }
         }
@@ -367,6 +410,7 @@
 
     applyPreset(preset) {
       if (!this.options.presets.includes(preset)) throw new Error(`Unknown workspace preset: ${preset}`);
+      this.importGeneration++;
       this.preset = preset;
       this.manager.Layout = this.buildLayout(preset);
       this.presetSelect.value = preset;
@@ -379,7 +423,9 @@
       if (this.disposed) return false;
       clearTimeout(this.saveTimer);
       try {
-        localStorage.setItem(this.storageKey, this.exportLayout());
+        const target = getStorage();
+        if (!target) return false;
+        target.setItem(this.storageKey, this.exportLayout());
         return true;
       } catch (error) {
         this.notify(`Layout is usable but cannot be saved locally: ${error.message}`, true);
@@ -389,7 +435,7 @@
 
     restore() {
       try {
-        const saved = localStorage.getItem(this.storageKey);
+        const saved = getStorage()?.getItem(this.storageKey);
         if (saved) this.importLayout(saved);
       } catch (error) {
         this.notify(`Saved layout was not restored; using the default workspace. ${error.message}`, true);
@@ -450,14 +496,17 @@
       this.fileInput.addEventListener('change', async () => {
         const file = this.fileInput.files?.[0]; this.fileInput.value = '';
         if (!file) return;
+        const generation = ++this.importGeneration;
+        let applying = false;
         try {
           if (file.size > MAX_LAYOUT_BYTES) throw new Error('Workspace files are limited to 1 MiB.');
           const text = await file.text();
-          if (this.disposed) return;
+          if (this.disposed || generation !== this.importGeneration) return;
+          applying = true;
           this.importLayout(text);
           this.options.onRestore?.(this);
           this.notify('Workspace layout imported. Drawing data was not changed.');
-        } catch (error) { this.notify(`Layout import rejected: ${error.message}`, true); }
+        } catch (error) { if (!this.disposed && (applying || generation === this.importGeneration)) this.notify(`Layout import rejected: ${error.message}`, true); }
       }, { signal: this.abort.signal });
       bar.append(this.fileInput);
       button('Import layout', () => this.fileInput.click());
@@ -478,17 +527,23 @@
       if (this.disposed) return;
       this.save();
       this.disposed = true;
+      this.importGeneration++;
+      const errors = [];
+      for (const callback of this.disposers) { try { callback(); } catch (error) { errors.push(error); } }
+      this.disposers.clear();
       clearTimeout(this.saveTimer);
       cancelAnimationFrame(this.resizeFrame);
       this.abort.abort();
       this.observer.disconnect(); this.resizeObserver.disconnect();
-      for (const unsubscribe of this.unsubscribers) unsubscribe();
+      for (const unsubscribe of this.unsubscribers) { try { unsubscribe(); } catch (error) { errors.push(error); } }
+      this.unsubscribers.length = 0;
       // The application owns the nodes, not the docking manager.
       for (const d of this.definitions.values()) this.parking.append(d.node);
       this.manager.Dispose();
       this.host.remove(); this.toolbar.remove(); this.status.remove();
+      if (errors.length) throw new AggregateError(errors, 'Workspace cleanup failed.');
     }
   }
 
-  global.DxfDocking = { Workspace, FORMAT, VERSION, MAX_LAYOUT_BYTES, element };
-})(window);
+  return { Workspace, element, FORMAT, VERSION, MAX_LAYOUT_BYTES };
+}

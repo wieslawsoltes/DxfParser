@@ -10,14 +10,9 @@
 .dxf-grid-values{font-size:11px}.dxf-grid-values summary{cursor:pointer;padding-bottom:4px}.dxf-grid-values dl{display:grid;grid-template-columns:minmax(65px,1fr) minmax(0,3fr);gap:4px;margin:6px 0}.dxf-grid-values dt{font-weight:600}.dxf-grid-values dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .dxf-grid-field{display:flex;align-items:center;gap:5px}.dxf-grid-field input[type=range]{width:100px}.dxf-grid-revealed pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .dxf-grid-projection{min-width:0;width:100%}
-.batch-tab-content>.dxf-grid-view{height:100%;margin:0}.dxf-office-preview{height:100%;min-height:240px;display:flex;flex-direction:column;gap:5px;padding:6px;box-sizing:border-box}
-.dxf-office-toolbar,.dxf-office-tabs{display:flex;gap:5px;flex-wrap:wrap;align-items:center;flex:none}.dxf-office-toolbar input{max-width:230px;min-width:80px;flex:1}.dxf-office-toolbar button,.dxf-office-toolbar select,.dxf-office-tabs button{font:12px system-ui;padding:4px 8px}
-.dxf-office-tabs button[aria-selected=true]{font-weight:600;border-bottom:2px solid #276caa}.dxf-office-stage{flex:1;min-width:0;min-height:150px;overflow:hidden;position:relative;display:flex;flex-direction:column}
-.dxf-office-stage>grid-web,.dxf-office-stage>rich-text-page-editor{height:100%;width:100%;flex:1;display:block;min-height:150px}.dxf-office-stage>pre{overflow:auto;white-space:pre-wrap;padding:8px;margin:0}.dxf-office-stage img{object-fit:contain;max-width:100%;max-height:100%}
-.dxf-office-status{font:12px system-ui;margin:0;padding:5px;white-space:pre-wrap}.dxf-office-status[data-error=true]{color:#b42318}.dxf-office-status[data-warning=true]{color:#915b05}
+.batch-tab-content>.dxf-grid-view{height:100%;margin:0}
 #objectSizeList>.dxf-grid-view,#hexContent>.dxf-grid-view{height:100%;min-height:240px;margin:0}#hexContent{white-space:normal!important}
 :is(#renderingOverlayLayerManager,[data-render-source-id="renderingOverlayLayerManager"])>.dxf-grid-projection>.dxf-grid-view{min-height:270px}.rendering-property-grid>.dxf-grid-view{height:100%;min-height:260px}
 .dxf-dock-host .layer-manager-container,.dxf-dock-host .rendering-blocks-grid{overflow:auto}
-.dxf-office-launcher{white-space:nowrap}
 
 .dxf-grid-thumbnail{max-width:200px;max-height:140px;object-fit:contain}.dxf-grid-related{margin:6px 0}.dxf-grid-details:has(.dxf-grid-related[open]){max-height:65%}.dxf-hex-pager{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.dxf-hex-pager input{max-width:90px}
