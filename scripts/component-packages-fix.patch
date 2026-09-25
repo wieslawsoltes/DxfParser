@@ -1,0 +1,160 @@
+diff --git a/packages/dxf-analysis/README.md b/packages/dxf-analysis/README.md
+index 4f23630..5eb66a9 100644
+--- a/packages/dxf-analysis/README.md
++++ b/packages/dxf-analysis/README.md
+@@ -25,6 +25,9 @@ imports require no window, custom elements, storage, application or vendor APIs.
+ Register compatible TreeDataGridWeb custom elements in the target window, supply
+ the matching core/web API objects, and load this package's `styles.css`. Supply
+ GridWeb and register its `grid-web` element when spreadsheet mode will be used.
++Without GridWeb, the spreadsheet button is disabled and programmatic switching
++is rejected before changing presentation state. Containers must belong to the
++supplied window.
+ 
+ ```js
+ import { createAnalysisUI } from '@wieslawsoltes/dxf-analysis';
+diff --git a/packages/dxf-analysis/src/grid.mjs b/packages/dxf-analysis/src/grid.mjs
+index c95b7fd..6691184 100644
+--- a/packages/dxf-analysis/src/grid.mjs
++++ b/packages/dxf-analysis/src/grid.mjs
+@@ -37,7 +37,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
+ 
+   class GridView {
+     constructor(container, { title = 'Data', columns = [], rows = [], height, onSelect, showDetails = true } = {}) {
+-      if (!GridWeb) throw new Error('The local GridWeb distribution is not loaded.');
++      if (container?.ownerDocument !== document) throw new TypeError('GridView container must belong to the supplied window.');
++      if (!GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
+       this.container = container;
+       this.columns = columns.map(c => typeof c === 'string' ? { title: c } : c);
+       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;
+diff --git a/packages/dxf-analysis/src/view.mjs b/packages/dxf-analysis/src/view.mjs
+index 82d5103..c09aa1d 100644
+--- a/packages/dxf-analysis/src/view.mjs
++++ b/packages/dxf-analysis/src/view.mjs
+@@ -52,7 +52,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
+ 
+   class AnalysisView {
+     constructor(container, options = {}) {
+-      if (!C || !W) throw new Error('The pinned TreeDataGridWeb control is not loaded.');
++      if (container?.ownerDocument !== document) throw new TypeError('AnalysisView container must belong to the supplied window.');
++      if (!C || !W) throw new Error('TreeDataGrid core and web APIs must be supplied.');
+       this.container = container; this.title = options.title || 'Records'; this.options = options;
+       this.columns = (options.columns?.length ? options.columns : ['Value']).map(c => typeof c === 'string' ? { title: c } : { ...c });
+       this.rows = []; this.visibleRows = []; this.selectedKey = null; this.direction = 1;
+@@ -69,6 +70,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
+       this.modeButtons.setAttribute('aria-label', 'Report presentation');
+       this.recordsButton = button('Records', () => this.setMode('records'), this.modeButtons);
+       this.sheetButton = button('Spreadsheet', () => this.setMode('spreadsheet'), this.modeButtons);
++      this.sheetButton.disabled = !GridWeb;
+       this.detailButton = button('Details', () => this.toggleDetails(), this.modeButtons);
+       this.detailButton.setAttribute('aria-pressed', 'true'); this.heading.append(this.modeButtons);
+       this.bar = el('div', 'dxf-grid-toolbar analysis-toolbar');
+@@ -485,6 +487,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
+       this.host.classList.toggle('analysis-details-hidden', !value); this.detailButton.setAttribute('aria-pressed', String(value));
+     }
+     setMode(mode) {
++      if (this.disposed) return;
++      if (mode === 'spreadsheet' && !GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
+       if (!['records', 'spreadsheet'].includes(mode)) mode = 'records';
+       if (this.visuals?.state.layout === 'visual') this.visuals.setLayout('split');
+       this.mode = mode; this.recordsButton.setAttribute('aria-pressed', String(mode === 'records')); this.sheetButton.setAttribute('aria-pressed', String(mode === 'spreadsheet'));
+diff --git a/packages/dxf-drawing-tools/index.d.mts b/packages/dxf-drawing-tools/index.d.mts
+index 0e606ee..7353e9e 100644
+--- a/packages/dxf-drawing-tools/index.d.mts
++++ b/packages/dxf-drawing-tools/index.d.mts
+@@ -21,7 +21,7 @@ export interface NavigationHost<R extends NavigationRecord, Ticket = unknown> {
+ export interface NavigationLink<R extends NavigationRecord> {
+     readonly mode: LinkMode; readonly snapshot: CameraSnapshot | null;
+     setMode(mode: LinkMode): void; onFrame(record: R, frame: CameraFrame): void;
+-    apply(record: R, snapshot?: CameraSnapshot, mode?: LinkMode, history?: boolean): void;
++    apply(record: R, snapshot?: CameraSnapshot | null, mode?: LinkMode, history?: boolean): void;
+     focus(record: R): void; flush(): void;
+     match(): void; reset(): void; dispose(): void;
+ }
+@@ -30,7 +30,7 @@ export interface DrawingViewTools {
+     transferCamera(snapshot: CameraSnapshot, target: CameraFrame, mode?: Exclude<LinkMode, 'off'>, layout?: string): CameraTransfer | null;
+     sameCamera(frame: CameraFrame, camera: CameraTransfer): boolean;
+     NavigationLink: new <R extends NavigationRecord, Ticket>(host: NavigationHost<R, Ticket>) => NavigationLink<R>;
+-    gridShape(count: number, width: number, height: number): {columns: number; rows: number};
++    gridShape(count: number, width?: number, height?: number): {columns: number; rows: number};
+     tileDrawings(manager: object, documents: object[], mode?: TileMode, width?: number, height?: number): {columns: number; rows: number} | undefined;
+ }
+ /** Inject the same renderer and Dockyard API instances as the surrounding host. */
+diff --git a/packages/dxf-tree-view/index.d.mts b/packages/dxf-tree-view/index.d.mts
+index a842f03..197ce0f 100644
+--- a/packages/dxf-tree-view/index.d.mts
++++ b/packages/dxf-tree-view/index.d.mts
+@@ -3,7 +3,7 @@ export interface TreeViewOptions {
+     itemHeight?: number; headerRootId?: string; headerElement?: HTMLElement;
+     columnWidths?: Record<string, number | string>; minimumColumnWidths?: Record<string, number>;
+     onEdit?: (node: SourceNode) => void; onRowSelect?: (node: SourceNode) => void;
+-    onToggleExpand?: (id: string) => void; onHandleClick?: (handle: string) => void;
++    onToggleExpand?: (id: number | string) => void; onHandleClick?: (handle: string) => void;
+     copyCallback?: (node: SourceNode) => void; openCallback?: (node: SourceNode) => void;
+     openAndZoomCallback?: (node: SourceNode) => void; openAndZoomPredicate?: (node: SourceNode) => boolean;
+     openBlockCallback?: (node: SourceNode) => void; openBlockPredicate?: (node: SourceNode) => boolean;
+@@ -16,7 +16,7 @@ export interface TreeViewOptions {
+ export interface TreeDataGrid {
+     readonly container: HTMLElement; readonly content: HTMLElement;
+     readonly lifetime: AbortController; treeData: SourceNode[]; flatData: unknown[];
+-    selectedRowId: string | null; columnWidths: Record<string, number | string>;
++    selectedRowId: number | string | null; columnWidths: Record<string, number | string>;
+     setData(nodes: SourceNode[]): void; refresh(): void; updateVisibleNodes(): void;
+     setIndexMap(map: (number | null)[] | null): void; setOverrideTotalRows(count: number | null): void;
+     setRowClassProvider(provider: TreeViewOptions['rowClassProvider']): void;
+diff --git a/scripts/check-component-packages.mjs b/scripts/check-component-packages.mjs
+index cfc884e..f4589a3 100644
+--- a/scripts/check-component-packages.mjs
++++ b/scripts/check-component-packages.mjs
+@@ -70,8 +70,8 @@ const view = new ui.AnalysisView<number>(document.body, { rows });
+ view.selectKey(key); view.setTheme('dark'); view.dispose();
+ const SourceView = createTreeDataGrid({ window, isHandleCode });
+ const sourceView = new SourceView(document.body, document.createElement('div'));
+-sourceView.setData(tree); sourceView.dispose();
+-const tools = createDrawingViewTools(renderer, dockyard); tools.gridShape(4, 1200, 800);
++sourceView.setData(tree); sourceView.selectedRowId = id; sourceView.dispose();
++const tools = createDrawingViewTools(renderer, dockyard); tools.gridShape(4, 1200, 800); tools.gridShape(4);
+ // @ts-expect-error Camera linking modes are deliberately finite.
+ tools.transferCamera({}, {}, 'invalid');
+ void [id, diff, diagnosis];
+diff --git a/tests/component-packages-demo.mjs b/tests/component-packages-demo.mjs
+index 0df68d7..28c0962 100644
+--- a/tests/component-packages-demo.mjs
++++ b/tests/component-packages-demo.mjs
+@@ -23,4 +23,4 @@ const Tree = createTreeDataGrid({ window, isHandleCode: inspector.isHandleCode,
+     navigateToClassById: id => actions.push('class:' + id) });
+ const treeView = new Tree(document.getElementById('tree'), document.getElementById('tree-content'), { headerElement: document.getElementById('header') });
+ treeView.setData(tree);
+-window.componentDemo = { ui, secondUI, view, second, treeView, actions, sourceIds, createDrawingViewTools };
++window.componentDemo = { createAnalysisUI, host, ui, secondUI, view, second, treeView, actions, sourceIds, createDrawingViewTools };
+diff --git a/tests/component-packages.py b/tests/component-packages.py
+index c30395c..92d8b8c 100644
+--- a/tests/component-packages.py
++++ b/tests/component-packages.py
+@@ -49,4 +49,27 @@ class ComponentPackagesTests(unittest.TestCase):
+         self.page.evaluate('() => { componentDemo.view.dispose();componentDemo.view.dispose();componentDemo.treeView.dispose();componentDemo.treeView.dispose(); }')
+         self.assertTrue(self.page.evaluate('componentDemo.view.disposed && componentDemo.treeView.lifetime.signal.aborted && !componentDemo.second.disposed && componentDemo.second.host.isConnected'))
+ 
++    def test_packages_08_optional_spreadsheet_rejects_before_mutation(self):
++        self.assertTrue(self.page.evaluate("""() => {
++            const {createAnalysisUI, host}=componentDemo;
++            const api=createAnalysisUI({...host,gridWeb:undefined});
++            const container=document.createElement('div');document.body.append(container);
++            const view=new api.AnalysisView(container,{rows:[{key:1,values:['A']}],visualization:false});
++            const html=container.innerHTML;
++            let error;try{view.setMode('spreadsheet');}catch(e){error=e;}
++            const valid=view.sheetButton.disabled && view.mode==='records' && !view.spreadsheet && container.innerHTML===html && error?.message.includes('GridWeb');
++            view.dispose();container.remove();return valid;
++        }"""))
++    def test_packages_09_foreign_document_containers_reject_without_mutation(self):
++        self.assertTrue(self.page.evaluate("""() => {
++            const foreign=document.implementation.createHTMLDocument('foreign');
++            const parent=foreign.createElement('div');foreign.body.append(parent);
++            const before=parent.innerHTML;
++            for(const Type of [componentDemo.ui.GridView,componentDemo.ui.AnalysisView]) {
++                let error;try{new Type(parent);}catch(e){error=e;}
++                if(!(error instanceof TypeError) || parent.innerHTML!==before) return false;
++            }
++            return true;
++        }"""))
++
+ if __name__ == '__main__': unittest.main(verbosity=2)
