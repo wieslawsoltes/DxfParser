@@ -7,11 +7,14 @@ permissions:
   contents: write
 concurrency:
   group: qualify-visual-compare
-  cancel-in-progress: false
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
 jobs:
   qualify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,15 +23,14 @@ jobs:
         with:
           node-version: 22
       - name: Materialize and publish implementation on work branch
-        shell: bash
         run: |
           set -euo pipefail
-          if test -f scripts/visual-compare-update.01.xzpart; then
-            cat scripts/visual-compare-update.0{1,2,3}.xzpart | xz -dc > /tmp/visual-compare.patch
-            echo '2fa5900d944da71618849921a3141bc5d606721fbc07d4683cfd5e74431f2e06  /tmp/visual-compare.patch' | sha256sum -c -
-            git apply --check /tmp/visual-compare.patch
-            git apply /tmp/visual-compare.patch
-            rm scripts/visual-compare-update.0{1,2,3}.xzpart
+          if test -f scripts/visual-compare-fix.patch.xz; then
+            xz -dc scripts/visual-compare-fix.patch.xz > /tmp/visual-compare-fix.patch
+            echo 'f88bc9481e59f68e0a3017bdf3cb36c1be996e7f309544804a10b1ce9bb314b1  /tmp/visual-compare-fix.patch' | sha256sum -c -
+            git apply --check /tmp/visual-compare-fix.patch
+            git apply /tmp/visual-compare-fix.patch
+            rm scripts/visual-compare-fix.patch.xz
           fi
           if test -f scripts/visual-compare-fix.patch; then
             git apply --check scripts/visual-compare-fix.patch
@@ -40,7 +42,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'feat(compare): implement native DXF visual comparison and guarded import'
+            git commit -m 'fix(compare): guard refreshed selection, binary sources and atomic import history'
             git push origin HEAD:work/visual-compare-engine
           fi
           mkdir -p test-results/qualification
@@ -60,17 +62,22 @@ jobs:
         run: python tests/check-docking-regressions.py 2>&1 | tee test-results/qualification/native.log
       - name: Native compare browser workflows
         if: '!cancelled()'
-        run: python tests/visual-compare.py 2>&1 | tee test-results/qualification/compare-browser.log
+        run: timeout 300s python -u tests/visual-compare.py 2>&1 | tee test-results/qualification/compare-browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-compare-browser-evidence
+          path: test-results/
+          retention-days: 7
       - name: Native renderer browser regression
         if: '!cancelled()'
-        run: python tests/skia-workspace.py 2>&1 | tee test-results/qualification/skia-browser.log
+        run: timeout 300s python -u tests/skia-workspace.py 2>&1 | tee test-results/qualification/skia-browser.log
       - name: Retained workspace and analysis regression
         if: '!cancelled()'
-        shell: bash
         run: |
           failed=0
           for suite in workspace-startup docking-workspace gridweb-previews ribbon-workspace analysis-views analysis-visuals; do
-            python tests/$suite.py 2>&1 | tee test-results/qualification/$suite.log || failed=1
+            timeout 180s python -u tests/$suite.py 2>&1 | tee test-results/qualification/$suite.log || failed=1
           done
           exit $failed
       - uses: actions/upload-artifact@v4
