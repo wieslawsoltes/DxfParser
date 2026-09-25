@@ -19,21 +19,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Materialize drawing views on work branch
+      - name: Materialize validated source changes
+        id: prepare
         run: |
           set -euo pipefail
-          for patch in scripts/multiple-drawings-fix*.patch; do
-            test -f "$patch" || continue
-            git apply --check --recount "$patch"
-            git apply --recount "$patch"
-            rm "$patch"
-          done
+          if test -f scripts/multiple-drawings-recovery.patch.xz; then
+            xz -dc scripts/multiple-drawings-recovery.patch.xz > /tmp/multiple-drawings.patch
+            echo 'def60228a81f4a365c097f512548393f59bde9f8d6acb1129bb8a2aa8d6a61ec  /tmp/multiple-drawings.patch' | sha256sum -c -
+            git apply --check /tmp/multiple-drawings.patch
+            git apply /tmp/multiple-drawings.patch
+            rm scripts/multiple-drawings-recovery.patch.xz
+          fi
+          if test -f scripts/multiple-drawings-fix.patch; then
+            git apply --check scripts/multiple-drawings-fix.patch
+            git apply scripts/multiple-drawings-fix.patch
+            rm scripts/multiple-drawings-fix.patch
+          fi
           node scripts/build-rendering-bundle.js
           git add components packages dist docs scripts tests styles.css index.html README.md .github/workflows
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix(rendering): select tiled drawings and guard source-owned lifetimes'
+            git commit -m 'fix(rendering): restore tiled visibility, source lifetimes and accessible active-view tools'
             git push origin HEAD:work/multiple-drawings
           fi
           mkdir -p test-results/qualification
@@ -44,21 +51,22 @@ jobs:
           name: multiple-drawings-source
           path: /tmp/multiple-drawings-source.tar.gz
           retention-days: 7
-      - name: Comparison and analysis models
-        run: node --test packages/dxf-compare/tests/*.test.js tests/analysis-visual-model.test.cjs 2>&1 | tee test-results/qualification/models.log
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install pinned test tooling
+        id: dependencies
         run: |
           python -m pip install -r tests/requirements-browser.txt
           python -m playwright install --with-deps chromium
           npm install -g typescript@5.8.3
+      - name: Comparison and analysis models
+        run: node --test packages/dxf-compare/tests/*.test.js tests/analysis-visual-model.test.cjs 2>&1 | tee test-results/qualification/models.log
       - name: Native and package regression
-        if: '!cancelled()'
+        if: '!cancelled() && steps.prepare.outcome == ''success'' && steps.dependencies.outcome == ''success'''
         run: python -u tests/check-docking-regressions.py 2>&1 | tee test-results/qualification/native.log
       - name: Multiple drawing browser workflows
-        if: '!cancelled()'
+        if: '!cancelled() && steps.prepare.outcome == ''success'' && steps.dependencies.outcome == ''success'''
         run: timeout 360s python -u tests/multiple-drawings.py 2>&1 | tee test-results/qualification/multiple-drawings.log
       - uses: actions/upload-artifact@v4
         if: always()
@@ -67,13 +75,19 @@ jobs:
           path: test-results/
           retention-days: 7
       - name: Comparison browser workflows
-        if: '!cancelled()'
+        if: '!cancelled() && steps.prepare.outcome == ''success'' && steps.dependencies.outcome == ''success'''
         run: timeout 300s python -u tests/visual-compare.py 2>&1 | tee test-results/qualification/compare-browser.log
       - name: Native renderer browser regression
-        if: '!cancelled()'
+        if: '!cancelled() && steps.prepare.outcome == ''success'' && steps.dependencies.outcome == ''success'''
         run: timeout 300s python -u tests/skia-workspace.py 2>&1 | tee test-results/qualification/skia-browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: multiple-drawings-renderer-evidence
+          path: test-results/qualification
+          retention-days: 7
       - name: Retained workspace regression
-        if: '!cancelled()'
+        if: '!cancelled() && steps.prepare.outcome == ''success'' && steps.dependencies.outcome == ''success'''
         run: |
           failed=0
           for suite in workspace-startup docking-workspace gridweb-previews ribbon-workspace analysis-views analysis-visuals; do
