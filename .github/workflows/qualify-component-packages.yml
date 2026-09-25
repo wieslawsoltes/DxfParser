@@ -1,0 +1,59 @@
+name: Qualify standalone component packages
+on:
+  push:
+    branches: [work/component-packages]
+permissions:
+  contents: read
+concurrency:
+  group: qualify-component-packages
+  cancel-in-progress: true
+jobs:
+  source:
+    name: Materialize source refactor on work branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified source changes
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/component-packages.01.xzpart; then
+            cat scripts/component-packages.0{1,2,3}.xzpart | xz -dc > /tmp/component-packages.patch
+            echo '960f2fb2df8756ec61d7bec215bf98769041fedeac0240e2fe06c611769b729f  /tmp/component-packages.patch' | sha256sum -c -
+            git apply --check /tmp/component-packages.patch
+            git apply /tmp/component-packages.patch
+            rm scripts/component-packages.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/component-packages-fix.patch; then
+            git apply --check scripts/component-packages-fix.patch
+            git apply scripts/component-packages-fix.patch
+            rm scripts/component-packages-fix.patch
+          fi
+          git add -A components packages scripts tests README.md package.json index.html editor styles.css
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor: extract standalone inspection, analysis, tree and drawing tools'
+            git push origin HEAD:work/component-packages
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/component-packages-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: component-packages-source
+          path: /tmp/component-packages-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate refactored sources
+    needs: source
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      revision: ${{ needs.source.outputs.sha }}
