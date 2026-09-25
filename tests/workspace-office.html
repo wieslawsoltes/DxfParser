@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Standalone workspaces and Office previews</title>
+<link rel="stylesheet" href="../vendor/dockyard/avalondock.css">
+<link rel="stylesheet" href="../packages/dxf-workspace/styles.css">
+<link rel="stylesheet" href="../packages/dxf-office-preview/styles.css">
+<link rel="stylesheet" href="../packages/dxf-analysis/styles.css">
+<style>body{margin:16px;font:14px system-ui}main{display:grid;grid-template-columns:1fr 1fr;gap:16px}.demo.dxf-dock-shell{height:660px!important}.dxf-dock-brand{display:none}</style>
+<script src="../vendor/dockyard/avalondock.js"></script>
+<script src="../vendor/gridweb/gridweb.global.js"></script>
+<script src="../vendor/treedatagridweb/treedatagrid.global.js"></script>
+<script src="../vendor/richtextweb/richtextweb.global.js"></script>
+<script src="../vendor/office-compat/jszip.min.js"></script>
+<script src="../vendor/office-compat/xlsx.min.js"></script>
+<script src="gridweb-fixtures.js"></script>
+<script type="module" src="workspace-office-demo.mjs"></script>
+</head><body><h1>Independent workspaces and Office controls</h1>
+<p>No application controllers or application globals are loaded.</p>
+<main><section id="one" class="demo"></section><section id="two" class="demo"></section></main>
+</body></html>

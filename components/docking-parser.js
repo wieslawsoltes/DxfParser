@@ -1,3 +1,4 @@
+import './docking-services.mjs';
 /* Presentation adapter for the parser, comparison grids and rendering tools. */
 (function (global) {
   'use strict';
@@ -112,6 +113,7 @@
       panel.node = slot;
     }
     const workspace = new Workspace({
+      shouldRestorePanel: (d, w) => !(d.emptySide && [...w.definitions.values()].some(item => item.fileSide === d.emptySide)),
       id: 'parser', title: 'DXF Parser', shell, panels, deferRestore: true,
       presets: ['Compare', 'Review', 'Focus', 'CAD'],
       defaultPreset: global.matchMedia('(max-width: 700px)').matches ? 'Focus' : 'Compare',

@@ -1,3 +1,4 @@
+import './docking-services.mjs';
 /* Retained, independently dockable DXF documents. The DXF TreeDataGrid engine is reused. */
 (function (global) {
   'use strict';

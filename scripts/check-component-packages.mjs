@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, 'test-results/component-packages');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dxf-component-consumer-'));
-const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools'];
+const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview'];
 const run = (command, args, cwd = temp) => execFileSync(command, args, {
     cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000
 });
@@ -48,7 +48,7 @@ const model = await import('@wieslawsoltes/dxf-analysis/models');
 assert.equal(model.aggregate, require('@wieslawsoltes/dxf-analysis/models').aggregate);
 assert.equal(model.aggregate([{ key: 1, values: ['Pipe', 8] }], 0, 1).buckets[0].value, 8);
 assert.deepEqual(Reflect.ownKeys(globalThis).filter(key => !before.has(key)), []);
-console.log('All four installed component packages: isolated ESM/CJS identity, public subpaths, source parsing and models pass.');
+console.log('All installed component packages: isolated ESM/CJS identity, public subpaths, source parsing and models pass.');
 `;
     fs.writeFileSync(path.join(temp, 'consumer.mjs'), consumer);
     process.stdout.write(run(process.execPath, ['consumer.mjs']));
@@ -74,6 +74,14 @@ sourceView.setData(tree); sourceView.selectedRowId = id; sourceView.dispose();
 const tools = createDrawingViewTools(renderer, dockyard); tools.gridShape(4, 1200, 800); tools.gridShape(4);
 // @ts-expect-error Camera linking modes are deliberately finite.
 tools.transferCamera({}, {}, 'invalid');
+import { createDockingWorkspace } from '@wieslawsoltes/dxf-workspace';
+import { createOfficePreview, bytesOf } from '@wieslawsoltes/dxf-office-preview';
+const { Workspace } = createDockingWorkspace({ window, dockyard, storage: null });
+const previewType = createOfficePreview({ window });
+const preview = new previewType(); preview.open(bytesOf(new ArrayBuffer(0)), 'file.txt');
+preview.dispose();
+// @ts-expect-error Workspace hosts must supply a layout factory.
+new Workspace({ id: 'invalid', shell: document.body });
 void [id, diff, diagnosis];
 `);
     fs.writeFileSync(path.join(temp, 'consumer.cts'), `import inspector = require('@wieslawsoltes/dxf-inspector');

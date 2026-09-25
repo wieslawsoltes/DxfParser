@@ -1,3 +1,5 @@
+import './docking-parser.js';
+import './docking-documents.js';
 import './inspection-services.mjs';
 import './tree-view.mjs';
 import './analysis-services.mjs';
