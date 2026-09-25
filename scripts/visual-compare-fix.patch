@@ -1,0 +1,53 @@
+diff --git a/tests/skia-workspace.py b/tests/skia-workspace.py
+index 9cc3214..7a62b44 100644
+--- a/tests/skia-workspace.py
++++ b/tests/skia-workspace.py
+@@ -61,3 +61,3 @@ class SkiaWorkspaceTests(unittest.TestCase):
+         self.page.wait_for_function('app.tabs.length===1')
+-        self.page.evaluate("app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace")
++        self.page.evaluate("() => { app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace; }")
+         self.settle();self.page.wait_for_function('m.host.paintCount>0 && !!m.stats');self.settle()
+@@ -174,3 +174,3 @@ class SkiaWorkspaceTests(unittest.TestCase):
+         self.page.wait_for_function('app.tabs.length===1')
+-        self.page.evaluate("app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace")
++        self.page.evaluate("() => { app.dockingWorkspace.applyPreset('CAD');window.o=app.renderingOverlayController;window.m=o.surfaceManager;window.cad=app.cadWorkspace; }")
+         self.page.wait_for_function('m.host.paintCount>0 && !!m.stats');self.settle()
+diff --git a/tests/visual-compare.py b/tests/visual-compare.py
+index 4427485..4b953cb 100644
+--- a/tests/visual-compare.py
++++ b/tests/visual-compare.py
+@@ -11,2 +11,4 @@ h = importlib.util.module_from_spec(spec); spec.loader.exec_module(h)
+ class VisualCompareTests(h.SkiaWorkspaceTests):
++    # Side-effect evaluations must not return the app/native WASM object graph.
++    # Only explicit scalar assertions and bounded export headers cross the driver pipe.
+     # Reuse setup/render helpers, not the inherited baseline tests.
+@@ -23,3 +25,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+         source = h.drawing(entities if entities is not None else h.CIRCLE + [(0,'LINE'),(5,'AB'),(8,'DRAFT'),(10,30),(20,0),(11,50),(21,10)], tables=h.TABLES)
+-        self.page.evaluate("cad.compare.open();window.compare=cad.compare")
++        self.page.evaluate("() => { cad.compare.open();window.compare=cad.compare; }")
+         self.page.locator('.dxf-compare-panel input[type=file][accept=".dxf"]').set_input_files({'name':'revision.dxf','mimeType':'application/dxf','buffer':source.encode()})
+@@ -35,3 +37,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+     def test_compare_02_visibility_toggle_and_camera_cache(self):
+-        self.render();self.reference();self.page.evaluate('window.composed=m.lastFrame.scene;window.result=m.comparison.result')
++        self.render();self.reference();self.page.evaluate('() => { window.composed=m.lastFrame.scene;window.result=m.comparison.result; }')
+         self.command('ZOOM 2');self.command('PAN 20 10');self.assertJS('m.lastFrame.scene===composed && m.comparison.result===result')
+@@ -55,3 +57,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+         self.assertEqual(value['referenceText'],ref);self.assertEqual(value['format'],'dxf-render-compare');self.assertIn('currentText',value)
+-        self.page.evaluate('window.snapshotValue='+json.dumps(value))
++        self.page.evaluate('(value)=>{ window.snapshotValue=value; }',value)
+         self.page.evaluate('compare.restoreSnapshot(JSON.stringify(snapshotValue))');self.settle()
+@@ -67,3 +69,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+     def test_compare_06_unsupported_dependency_import_is_atomic(self):
+-        self.render();self.reference(h.CIRCLE+[(0,'LINE'),(5,'FF'),(10,50),(20,0),(11,70),(21,0),(102,'{ACAD_XDICTIONARY'),(360,'BEEF'),(102,'}')]);self.command('COMPARENEXT');self.command('COMPARENEXT')
++        self.render();self.reference(h.CIRCLE+[(0,'LINE'),(5,'FF'),(10,50),(20,0),(11,70),(21,0),(102,'{ACAD_XDICTIONARY'),(360,'BEEF'),(102,'}')]);self.page.evaluate('() => { compare.view.selectKey(m.comparison.result.changes.find(c=>c.reference).id); }');self.settle()
+         self.page.evaluate('window.before=compare.currentText()')
+@@ -88,3 +90,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+         ref=h.drawing(h.CIRCLE + [(0,'LINE'),(5,'D1'),(10,40),(20,0),(11,45),(21,5),(0,'LINE'),(5,'D2'),(10,80),(20,0),(11,90),(21,5)],tables=h.TABLES)
+-        self.page.evaluate('(text)=>compare.start(text,"new-reference.dxf")',ref);self.settle()
++        self.page.evaluate('(text)=>{ compare.start(text,"new-reference.dxf"); }',ref);self.settle()
+         self.page.evaluate('compare.view.selectKey(m.comparison.result.changes[2].id)');self.settle()
+@@ -98,3 +100,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+     def test_compare_12_binary_reference_uses_decoded_native_source(self):
+-        self.render();self.page.evaluate('cad.compare.open();window.compare=cad.compare')
++        self.render();self.page.evaluate('() => { cad.compare.open();window.compare=cad.compare; }')
+         self.page.locator('.dxf-compare-panel input[type=file][accept=".dxf"]').set_input_files({'name':'binary-reference.dxf','mimeType':'application/dxf','buffer':h.binary_drawing()})
