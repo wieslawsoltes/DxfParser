@@ -1,0 +1,16 @@
+diff --git a/tests/visual-compare.py b/tests/visual-compare.py
+index 4b953cb..9a6504b 100644
+--- a/tests/visual-compare.py
++++ b/tests/visual-compare.py
+@@ -39,2 +39,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+         self.command('ZOOM 2');self.command('PAN 20 10');self.assertJS('m.lastFrame.scene===composed && m.comparison.result===result')
++        self.page.evaluate('() => { compare.open(); }');self.settle()
+         self.page.locator('[data-compare=showReference]').uncheck();self.settle()
+@@ -103,3 +104,6 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+         self.page.wait_for_function('!!m.comparison?.result');self.settle()
+-        self.assertJS('m.comparison.result.counts.common===1 && typeof compare.referenceText==="string" && m.comparison.reference.entities.length===2')
++        self.assertJS('m.comparison.result.counts.modified===1 && typeof compare.referenceText==="string" && m.comparison.reference.entities.length===2')
++        # Binary fixture omits the current drawing's yellow DRAFT layer definition.
++        # Its LINE is geometrically unchanged but visibly changed until properties are ignored.
++        self.command('COMPAREPROPS 0');self.assertJS('m.comparison.result.counts.common===1')
+ 
