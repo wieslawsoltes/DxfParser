@@ -170,7 +170,7 @@ class DockingTests(unittest.TestCase):
 
     def test_01_main_registry_and_connected_retained_nodes(self):
         self.load()
-        self.assertJS('w.definitions.size === 29')
+        self.assertJS('w.definitions.size === 30 && w.definitions.has("render-compare")')
         self.assertJS("['tree-left','tree-right'].every(id=>w.isOpen(id)) && ['commands','tools','render-controls'].every(id=>!w.definitions.has(id)) && !!rb.shadowRoot")
         self.assertJS('[...w.definitions.values()].every(d=>d.node.isConnected)')
         self.assertJS("new Set([...document.querySelectorAll('[id]')].map(n=>n.id)).size === document.querySelectorAll('[id]').length")
@@ -379,7 +379,7 @@ class DockingTests(unittest.TestCase):
 
     def test_16_editor_layout_palette_and_rendering_retention(self):
         self.load('editor/index.html')
-        self.assertJS('w.definitions.size===9')
+        self.assertJS('w.definitions.size===10 && w.definitions.has("render-compare")')
         self.page.locator('#editorOpenFileInput').set_input_files(str(ROOT/'tests/data/sample.dxf'))
         self.page.wait_for_function('!!DxfEditorApp.getActiveDocument()'); self.settle()
         self.page.evaluate('window.record=DxfEditorApp.getActiveDocument();window.canvas=document.getElementById("editorCanvas2D")')

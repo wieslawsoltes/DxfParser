@@ -1712,7 +1712,7 @@ const module = undefined;
             this.vertices += points.length;
             if (this.vertices > this.options.maxVertices)
                 throw new RangeError('Vertex budget exceeded.');
-            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
+            const primitive = { ...data, id: `${e.id}:${this.primitives.length}`, source: e, rootSource: context.rootSource || e, handle: context.handles[0] || e.handle || e.id, entityHandle: e.handle || e.id, type: e.type, blockPath: context.blocks.slice(), instancePath: context.handles.slice(), style: { ...style }, clips: context.clips.slice(), bounds: data.path ? G.pathBounds(data.path) : bounds(points) };
             delete primitive.matrix;
             if (data.infinite)
                 primitive.bounds = { minX: -1e30, minY: -1e30, maxX: 1e30, maxY: 1e30, minZ: 0, maxZ: 0 };
@@ -1730,6 +1730,7 @@ const module = undefined;
         }
         path(e, c, s, points, close = false, fill = false, extra = {}) { return this.emit(e, c, s, { kind: 'path', path: pathFromPoints(points, close), fill, closed: close, ...extra }); }
         compileEntity(e, c) {
+            if (!c.rootSource) c = { ...c, rootSource: e };
             const s = this.style(e, c);
             if (!s)
                 return;
@@ -2556,7 +2557,7 @@ const module = undefined;
         for (const entry of candidates) {
             if (!G.intersects(entry.bounds, frame.viewport)) continue;
             const pick = frame.pick(entry), item = entry.primitive;
-            if (item.style.alpha <= 0 || !unclipped(frame, item, p))
+            if (item.comparisonDecoration || item.comparisonSide === 'reference' || item.style.alpha <= 0 || !unclipped(frame, item, p))
                 continue;
             if (!item.infinite && !G.inBounds(p, pick.entry.bounds, t))
                 continue;
@@ -2598,7 +2599,7 @@ const module = undefined;
         for (const entry of [...candidates].sort((a,b)=>a.index-b.index)) {
             if (!G.intersects(entry.bounds, frame.viewport)) continue;
             const pick = frame.pick(entry), p = entry.primitive;
-            if (p.style.alpha <= 0) continue;
+            if (p.comparisonDecoration || p.comparisonSide === 'reference' || p.style.alpha <= 0) continue;
             // Arc centers can lie outside the arc's bounding box.
             if (p.center) consider(p.center, 'center', pick);
             if (!G.inBounds(screenPoint, pick.screenBounds, tolerance)) continue;
@@ -3325,7 +3326,7 @@ const module = undefined;
                 throw new Error('No drawing is loaded.');
             if (!(width > 0 && height > 0 && width <= 14400 && height <= 14400))
                 throw new RangeError('Invalid PDF page dimensions.');
-            const scene = new A.SceneCompiler(this.lastFrame.scene.document, { ...this.lastFrame.scene.compileOptions, background, printing: true }).compile(this.lastFrame.scene.layout), frame = A.prepareFrame(scene, { width, height, background, viewDirection: this.lastFrame.basis.z, viewState: { mode: 'auto', rotationRad: this.lastFrame.rotationRad } }), document = this.S.SKDocument.CreatePdf(null, { NativeBackend: true });
+            const scene = this.lastFrame.scene.preserveForExport ? this.lastFrame.scene : new A.SceneCompiler(this.lastFrame.scene.document, { ...this.lastFrame.scene.compileOptions, background, printing: true }).compile(this.lastFrame.scene.layout), frame = A.prepareFrame(scene, { width, height, background, viewDirection: this.lastFrame.basis.z, viewState: { mode: 'auto', rotationRad: this.lastFrame.rotationRad } }), document = this.S.SKDocument.CreatePdf(null, { NativeBackend: true });
             try {
                 const canvas = document.BeginPage(width, height);
                 this.painter.draw(canvas, frame, { background });
