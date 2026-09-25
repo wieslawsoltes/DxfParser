@@ -16,7 +16,7 @@ class AnalysisTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         h.DockingTests.setUpClass.__func__(cls);ARTIFACTS.mkdir(parents=True,exist_ok=True)
-        (ARTIFACTS/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'injected':h.INJECTED},indent=2))
+        (ARTIFACTS/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'transport':'http'},indent=2))
     @classmethod
     def tearDownClass(cls):h.DockingTests.tearDownClass.__func__(cls)
     def setUp(self):h.DockingTests.setUp(self);self.load();self.fixture()
@@ -228,5 +228,5 @@ class AnalysisTests(unittest.TestCase):
         self.assertJS("v.selectedKey===selected && v.selectedRow.values[1]==='MTEXT'")
 
 if __name__=='__main__':
-    print('Injected harness' if h.INJECTED else 'HTTP + native analysis controls',flush=True)
+    print('HTTP + native analysis controls',flush=True)
     unittest.main(verbosity=2)

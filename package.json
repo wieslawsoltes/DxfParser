@@ -1,0 +1,19 @@
+{
+  "name": "dxf-parser-workbench",
+  "private": true,
+  "license": "MIT",
+  "description": "DXF inspection, visual comparison and multi-drawing Skia rendering workbench",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "python3 -m http.server 8080 --bind 127.0.0.1",
+    "build": "node scripts/build-rendering-bundle.js",
+    "build:check": "node scripts/build-rendering-bundle.js --check",
+    "clean": "node scripts/clean.mjs",
+    "test": "python3 tests/run.py models",
+    "test:browser": "python3 tests/run.py browser",
+    "test:gpu": "python3 tests/run.py gpu",
+    "test:all": "python3 tests/run.py all"
+  }
+}

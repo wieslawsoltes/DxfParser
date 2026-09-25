@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """RibbonWeb + document ownership + source-aware navigation integration.
 
-Normal mode loads native ESM over HTTP; --injected is an explicit offline harness.
+Tests load native ESM over HTTP and use real browser storage.
 """
 from __future__ import annotations
 import importlib.util
@@ -18,7 +18,7 @@ class RibbonTests(unittest.TestCase):
     def setUpClass(cls):
         h.DockingTests.setUpClass.__func__(cls)
         ARTIFACTS.mkdir(parents=True,exist_ok=True)
-        (ARTIFACTS/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'injected':h.INJECTED},indent=2))
+        (ARTIFACTS/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'transport':'http'},indent=2))
     @classmethod
     def tearDownClass(cls): h.DockingTests.tearDownClass.__func__(cls)
     def setUp(self): h.DockingTests.setUp(self)
@@ -29,8 +29,8 @@ class RibbonTests(unittest.TestCase):
     assertJS=h.DockingTests.assertJS
     settle=h.DockingTests.settle
     colors=h.DockingTests.colors
-    def load(self,path='index.html',storage=None):
-        h.DockingTests.load(self,path,storage)
+    def load(self,path='index.html'):
+        h.DockingTests.load(self,path)
         self.page.wait_for_function('(window.app||window.DxfEditorApp).ribbonWorkspace?.ribbon?.model')
         self.page.evaluate('window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon;window.dw=window.app?.documentWorkspace')
     def file(self,name='one.dxf',side='Left',text=None):
@@ -193,13 +193,9 @@ class RibbonTests(unittest.TestCase):
     def test_15_session_and_layout_reload_rebinds_dynamic_documents(self):
         self.load();self.file('one.dxf');self.file('two.dxf','Right');self.record_globals()
         self.page.evaluate('dw.activate(a);dw.markModified(a);a.tab.minLine=7;app.stateManager.saveTabState(a.tab);app.saveCurrentState();w.manager.Float(w.manager.Find(a.id),{FloatingWidth:620,FloatingHeight:420});w.save()');self.settle()
-        storage=self.page.evaluate('Object.fromEntries(Array.from({length:localStorage.length},(_,i)=>{const k=localStorage.key(i);return[k,localStorage.getItem(k)];}))')
-        if h.INJECTED:
-            self.page.close();self.page=self.context.new_page();self.page.on('pageerror',lambda e:self.errors.append(str(e)));self.page.on('dialog',lambda d:d.dismiss());self.load(storage=storage)
-        else:
-            # The test's own dirty data needs an explicit beforeunload acceptance.
-            self.page.evaluate("window.onbeforeunload=null;for(const r of dw.records.values())r.tab.isModified=false")
-            self.page.reload(wait_until='domcontentloaded');self.page.wait_for_function('app?.dockingWorkspace?.ready');self.page.evaluate('window.w=app.dockingWorkspace;window.dw=app.documentWorkspace;window.rb=app.ribbonWorkspace.ribbon')
+        # The test's own dirty data needs an explicit beforeunload acceptance.
+        self.page.evaluate("window.onbeforeunload=null;for(const r of dw.records.values())r.tab.isModified=false")
+        self.page.reload(wait_until='domcontentloaded');self.page.wait_for_function('app?.dockingWorkspace?.ready');self.page.evaluate('window.w=app.dockingWorkspace;window.dw=app.documentWorkspace;window.rb=app.ribbonWorkspace.ribbon')
         self.assertJS('dw.records.size===2 && [...dw.records.values()].every(r=>w.manager.Find(r.id))')
         self.assertJS('[...dw.records.values()].find(r=>r.tab.name==="one.dxf").tab.isModified')
         self.assertJS('w.manager.Find([...dw.records.values()].find(r=>r.tab.name==="one.dxf").id).IsFloating')
@@ -360,5 +356,5 @@ class RibbonTests(unittest.TestCase):
         self.assertJS('app.renderingOverlayController.currentTabId===a.tab.id && w.require("render-info").sourceTabId===a.tab.id')
 
 if __name__=='__main__':
-    print('INJECTED OFFLINE HARNESS' if h.INJECTED else 'HTTP + native ESM + real browser storage',flush=True)
+    print('HTTP + native ESM + real browser storage',flush=True)
     unittest.main(verbosity=2)

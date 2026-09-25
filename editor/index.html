@@ -27,7 +27,24 @@
   <script src="../scripts/workspace-startup.js" onerror="document.documentElement.dataset.workspaceState='error'"></script>
   <script src="../components/utils.js" defer></script>
   <script src="../components/dxf-parser.js" defer></script>
-  <script src="../dist/dxf-rendering.global.js" defer></script>
+  <!-- DXF rendering sources: dependency order checked by the distribution gate. -->
+<script defer src="../packages/dxf-skia/src/geometry.js"></script>
+<script defer src="../packages/dxf-skia/src/input.js"></script>
+<script defer src="../packages/dxf-skia/src/document.js"></script>
+<script defer src="../packages/dxf-skia/src/resources.js"></script>
+<script defer src="../packages/dxf-skia/src/proxy.js"></script>
+<script defer src="../packages/dxf-skia/src/text.js"></script>
+<script defer src="../packages/dxf-skia/src/compiler.js"></script>
+<script defer src="../packages/dxf-skia/src/renderer.js"></script>
+<script defer src="../packages/dxf-skia/src/surface-host.js"></script>
+<script defer src="../components/skia-rendering-adapter.js"></script>
+<script defer src="../components/rendering-property-grid.js"></script>
+<script defer src="../components/rendering-overlay.js"></script>
+<script defer src="../packages/dxf-compare/clouds.js"></script>
+<script defer src="../packages/dxf-compare/index.js"></script>
+<script defer src="../packages/dxf-compare/import.js"></script>
+<script defer src="../components/visual-compare.js"></script>
+<!-- End DXF rendering sources. -->
   <script src="../scripts/dxf-app-bootstrap.js" defer></script>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="../vendor/dockyard/avalondock.css">

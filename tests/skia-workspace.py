@@ -40,7 +40,6 @@ TABLES=[(0,'LAYER'),(2,'DRAFT'),(62,2)]
 class SkiaWorkspaceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if h.INJECTED: raise RuntimeError('Native rendering must use normal HTTP loading.')
         h.DockingTests.setUpClass.__func__(cls);OUT.mkdir(parents=True,exist_ok=True)
         (OUT/'environment.json').write_text(json.dumps({'browser':cls.browser.version,'injected':False,'graphics':'real native SkiaSharpWeb WASM','gpuQualification':'software environment, not physical-device certification'},indent=2))
     @classmethod

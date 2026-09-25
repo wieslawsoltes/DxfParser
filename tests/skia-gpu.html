@@ -1,7 +1,24 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><title>Native Skia graphics qualification</title>
 <style>body{margin:0;background:#212830}canvas{display:block;width:640px;height:480px}</style>
 <canvas id="drawing" width="640" height="480"></canvas>
-<script src="../dist/dxf-rendering.global.js"></script>
+<!-- DXF rendering sources: dependency order checked by the distribution gate. -->
+<script src="../packages/dxf-skia/src/geometry.js"></script>
+<script src="../packages/dxf-skia/src/input.js"></script>
+<script src="../packages/dxf-skia/src/document.js"></script>
+<script src="../packages/dxf-skia/src/resources.js"></script>
+<script src="../packages/dxf-skia/src/proxy.js"></script>
+<script src="../packages/dxf-skia/src/text.js"></script>
+<script src="../packages/dxf-skia/src/compiler.js"></script>
+<script src="../packages/dxf-skia/src/renderer.js"></script>
+<script src="../packages/dxf-skia/src/surface-host.js"></script>
+<script src="../components/skia-rendering-adapter.js"></script>
+<script src="../components/rendering-property-grid.js"></script>
+<script src="../components/rendering-overlay.js"></script>
+<script src="../packages/dxf-compare/clouds.js"></script>
+<script src="../packages/dxf-compare/index.js"></script>
+<script src="../packages/dxf-compare/import.js"></script>
+<script src="../components/visual-compare.js"></script>
+<!-- End DXF rendering sources. -->
 <script type="module">
 window.S = await DxfRendering.initializeSkia();
 window.makeScene = text => new DxfSkia.SceneCompiler(new DxfSkia.DxfDocument(text)).compile();

@@ -26,9 +26,12 @@
     "dist",
     "README.md",
     "LICENSE",
-    "COMPATIBILITY.md"
+    "build.cjs"
   ],
   "scripts": {
+    "build": "node build.cjs",
+    "prepack": "node build.cjs",
+    "pretest": "node build.cjs",
     "test": "node --test tests/*.test.js"
   },
   "engines": {

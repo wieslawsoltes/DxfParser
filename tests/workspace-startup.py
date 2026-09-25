@@ -42,8 +42,6 @@ PROBE = '''() => {
 class StartupTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if h.INJECTED:
-            raise RuntimeError('Startup qualification requires native HTTP; injection cannot test first paint.')
         h.DockingTests.setUpClass.__func__(cls)
         ARTIFACTS.mkdir(parents=True, exist_ok=True)
         (ARTIFACTS / 'environment.json').write_text(json.dumps({
