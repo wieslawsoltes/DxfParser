@@ -1,11 +1,9 @@
-/* Pure camera transfer and transactional layouts for independent DXF views.
- * Factory dependencies keep Node tests and browser hosts in the same API realm. */
-(function (root, factory) {
+export function createDrawingViewTools(S, D) {
     'use strict';
-    if (typeof module === 'object' && module.exports) module.exports = factory;
-    else root.DxfDocking.DrawingViewTools = factory(root.DxfSkia, root.AvalonDock);
-})(globalThis, function createDrawingViewTools(S, D) {
-    'use strict';
+    if (!S?.geometry || typeof S.projectedScene !== 'function')
+        throw new TypeError('A DxfSkia-compatible geometry and projectedScene API is required.');
+    if (typeof D?.LayoutDocument !== 'function')
+        throw new TypeError('A Dockyard-compatible API is required.');
     const G = S.geometry, modes = new Set(['off', 'world', 'relative']);
     const layoutKey = value => String(value || 'Model').trim().toUpperCase();
     const finite = (value, name) => {
@@ -166,4 +164,4 @@
         return shape;
     }
     return Object.freeze({ captureCamera, transferCamera, sameCamera, NavigationLink, gridShape, tileDrawings });
-});
+}

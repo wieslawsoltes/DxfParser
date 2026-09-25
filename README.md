@@ -101,7 +101,7 @@ Skia/WebGPU/WebGL APIs but are not physical-device performance certification.
 
 ## Development and packages
 
-Node.js **22 or later** is required for builds and JavaScript tests. The root npm
+Node.js **22.13 or later** is required for builds and JavaScript tests. The root npm
 package is private and has no install-time dependencies.
 
 ```sh
@@ -119,14 +119,33 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 | --- | --- |
 | [`@wieslawsoltes/dxf-skia`](packages/dxf-skia/README.md) | DXF input/document model, retained scene compiler, geometry, picking/snapping, native painter, and surface lifetime management. |
 | [`@wieslawsoltes/dxf-compare`](packages/dxf-compare/README.md) | Rendered-object comparison, change grouping/clouds, snapshots/reports, and guarded reference import. |
+| [`@wieslawsoltes/dxf-inspector`](packages/dxf-inspector/README.md) | Source-tree parser, structural diff, diagnostics and binary inspection helpers. |
+| [`@wieslawsoltes/dxf-analysis`](packages/dxf-analysis/README.md) | Pure aggregation models and host-injected record/spreadsheet/visual report UI. |
+| [`@wieslawsoltes/dxf-tree-view`](packages/dxf-tree-view/README.md) | Source-tree viewport, editing callbacks, diff alignment and overview rail. |
+| [`@wieslawsoltes/dxf-drawing-tools`](packages/dxf-drawing-tools/README.md) | Host-injected camera linking and transactional drawing layout helpers. |
 
 ```sh
 npm pack ./packages/dxf-skia
 npm pack ./packages/dxf-compare
+npm pack ./packages/dxf-inspector
+npm pack ./packages/dxf-analysis
+npm pack ./packages/dxf-tree-view
+npm pack ./packages/dxf-drawing-tools
 ```
 
 The renderer's `prepack` builds its CJS, ESM, and classic-browser artifacts from
 source. These commands produce local tarballs; they do not publish to npm.
+The four extracted component packages use canonical ES modules and need no build.
+Their CJS facades use synchronous ESM loading on Node 22.13+, so `import` and
+`require` share the same API instance. UI factories receive browser/vendor APIs
+explicitly and do not install globals. Package-owned CSS is exported as
+`@wieslawsoltes/dxf-analysis/styles.css` and `@wieslawsoltes/dxf-tree-view/styles.css`.
+
+`components/` retains application orchestration, source-owned document controllers,
+renderer adapters, persistence, report builders and startup. Small service adapters
+connect package exports to the existing app API. The diagnostics engine no longer
+starts the application; `components/app-startup.mjs` owns workbench startup.
+Both browser entry points import the same packages without generated `dist` files.
 
 ## Tests
 
@@ -139,7 +158,7 @@ python3 -m playwright install --with-deps chromium
 ```
 
 ```sh
-npm test                         # Source/build contracts, models, native pixels, packed consumers.
+npm test                         # Source/build contracts, models, native pixels, isolated packed consumers.
 npm run test:browser              # All current HTTP application suites.
 npm run test:all                  # Models and browser suites, excluding the strict GPU group.
 python3 tests/run.py gpu          # Required WebGPU/WebGL pipelines and current cache checks.
@@ -162,9 +181,9 @@ Browser CI deliberately runs without generated distributions or injected scripts
 ## Repository layout
 
 ```text
-components/  Workbench controllers, source inspection, docking, ribbon and rendering integration.
+components/  App startup, orchestration, service adapters, docking, ribbon and rendering integration.
 editor/      Single-file editor entry point and editing integration.
-packages/    Reusable renderer and comparison sources and unit tests.
+packages/    Reusable inspection, report UI, source-tree, navigation, renderer and comparison packages.
 scripts/     Build, cleanup, vendor maintenance and distribution/package checks.
 tests/       Current native and HTTP regression suites, fixtures and shared runner.
 vendor/      Pinned runtime dependencies, licenses, notices and checksums.

@@ -1,3 +1,4 @@
+import './analysis-services.mjs';
 /* Local-only Excel/Word previews in retained Dockyard content. */
 (function (global) {
   'use strict';

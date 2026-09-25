@@ -1,6 +1,18 @@
+/** Bind source-tree view constructors to a host browser realm and navigation callbacks. */
+export function createTreeDataGrid({ window, isHandleCode, getClassNameById, navigateToClassById } = {}) {
+    if (!window?.document) throw new TypeError('createTreeDataGrid requires a browser window.');
+    if (typeof isHandleCode !== 'function') throw new TypeError('isHandleCode must be supplied by the DXF model.');
+    const { document, AbortController } = window;
+    const requestAnimationFrame = window.requestAnimationFrame.bind(window);
+    const cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
     class TreeDataGrid {
       constructor(container, content, options = {}) {
         this.lifetime = new AbortController();
+        if (container?.ownerDocument !== document || content?.ownerDocument !== document)
+          throw new TypeError('TreeDataGrid elements must belong to the supplied window.');
+        container.classList.add('dxf-source-tree'); content.classList.add('dxf-source-tree-content');
+        this.getClassNameById = options.getClassNameById || getClassNameById;
+        this.navigateToClassById = options.navigateToClassById || navigateToClassById;
         this.onEdit = options.onEdit || null;
         this.container = container;
         this.content = content;
@@ -17,6 +29,9 @@
         this.onRowSelect = options.onRowSelect || null;
         // Optional: ID of the header root element this grid should sync with
         this.headerRootId = options.headerRootId || null;
+        this.headerElement = options.headerElement || (this.headerRootId ? document.getElementById(this.headerRootId) : null);
+        if (this.headerElement && this.headerElement.ownerDocument !== document)
+          throw new TypeError('The tree header must belong to the supplied window.');
         // Optional: per-row class provider for diff highlighting
         this.rowClassProvider = options.rowClassProvider || null;
         // Optional: per-cell class provider, signature (rowIndex, flatItem|null, columnKey) -> className|string|null
@@ -40,7 +55,7 @@
         this.listen(this.container, "scroll", () => {
           if (this.renderFrame) return;
           this.renderFrame = requestAnimationFrame(() => { this.renderFrame = 0; this.updateVisibleNodes(); });
-          const header = document.getElementById(this.headerRootId);
+          const header = this.headerElement;
           if (header?.parentElement.classList.contains('dxf-tree-header-clip')) header.parentElement.scrollLeft = this.container.scrollLeft;
         });
         this.attachHeaderResizerEvents();
@@ -94,6 +109,8 @@
         this.lifetime.abort(); cancelAnimationFrame(this.renderFrame);
         this._overview.remove(); this.flatData = []; this.treeData = [];
         this.copyCallback = this.openCallback = this.onEdit = this.onRowSelect = null;
+        this.getClassNameById = this.navigateToClassById = this.openAndZoomCallback = this.openBlockCallback = null;
+        this.openAndZoomPredicate = this.openBlockPredicate = this.onToggleExpand = this.onHandleClick = this.hexViewerCallback = null;
       }
 
       setRowClassProvider(provider) {
@@ -125,8 +142,7 @@
       }
       
       attachHeaderResizerEvents() {
-        const scopeSelector = this.headerRootId ? `#${this.headerRootId}` : '#treeGridHeader';
-        const headerResizers = document.querySelectorAll(`${scopeSelector} .header-cell .resizer`);
+        const headerResizers = this.headerElement?.querySelectorAll('.header-cell .resizer') || [];
         headerResizers.forEach(resizer => {
           this.listen(resizer, "mousedown", (e) => this.handleResizerMouseDown(e));
         });
@@ -166,7 +182,7 @@
             fixedTotal += def;
           } else if (typeof def === "string") {
             if (def.toLowerCase() === "auto") {
-              const headerCell = document.querySelector(`#treeGridHeader .tree-${col}`);
+              const headerCell = this.headerElement?.querySelector(`[data-field="${col}"]`);
               let autoWidth = headerCell ? headerCell.scrollWidth : 100;
               finalWidths[col] = autoWidth;
               fixedTotal += autoWidth;
@@ -207,7 +223,7 @@
       }
       
       syncHeaderWidths() {
-        const header = this.headerRootId ? document.getElementById(this.headerRootId) : document.getElementById("treeGridHeader");
+        const header = this.headerElement;
         if (!header) return;
         const colWidths = this.computeColumnFinalWidths();
         if (Object.values(this.minimumColumnWidths).some(value => Number.isFinite(value) && value > 0)) {
@@ -609,7 +625,7 @@
               const classProp = node.properties.find(prop => Number(prop.code) === 91);
               if (classProp) {
                 const spanClass = document.createElement("span");
-                const clsName = window.app.getClassNameById(Number(classProp.value));
+                const clsName = this.getClassNameById?.(Number(classProp.value));
                 spanClass.textContent =
                   " (CLASS ID=" +
                   classProp.value +
@@ -621,7 +637,7 @@
                 spanClass.addEventListener("click", (e) => {
                   e.preventDefault();
                   // Call a function to navigate to the CLASS definition.
-                  window.app.navigateToClassById(classProp.value);
+                  this.navigateToClassById?.(classProp.value);
                 });
                 dataDiv.appendChild(spanClass);
               }
@@ -925,3 +941,6 @@
         this._overview.style.top = st + 'px';
       }
     }
+
+    return TreeDataGrid;
+}

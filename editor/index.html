@@ -25,8 +25,6 @@
     #workspaceStartup [hidden], html[data-workspace-state="ready"] #workspaceStartup { display:none!important; }
   </style>
   <script src="../scripts/workspace-startup.js" onerror="document.documentElement.dataset.workspaceState='error'"></script>
-  <script src="../components/utils.js" defer></script>
-  <script src="../components/dxf-parser.js" defer></script>
   <!-- DXF rendering sources: dependency order checked by the distribution gate. -->
 <script defer src="../packages/dxf-skia/src/geometry.js"></script>
 <script defer src="../packages/dxf-skia/src/input.js"></script>
@@ -58,20 +56,11 @@
   <script src="../vendor/office-compat/xlsx.min.js" defer></script>
   <script src="../vendor/gridweb/gridweb.global.js" defer></script>
   <script src="../vendor/richtextweb/richtextweb.global.js" defer></script>
-  <script src="../components/data-grid.js" defer></script>
 <script src="../vendor/treedatagridweb/treedatagrid.global.js" defer></script>
-<script src="../components/analysis-view.js" defer></script>
-<script src="../components/analysis-visual-model.js" defer></script>
-<script src="../components/analysis-visuals.js" defer></script>
-  <script src="../components/office-preview.js" defer></script>
-  <script src="../components/tabular-reports.js" defer></script>
-<script src="../components/analysis-reports.js" defer></script>
-<link rel="stylesheet" href="../components/data-grid.css">
-<link rel="stylesheet" href="../components/analysis-view.css">
-<link rel="stylesheet" href="../components/analysis-visuals.css">
-  <script src="main.js" defer></script>
+  <script type="module" src="main.js"></script>
   <script src="editing-adapter.js" defer></script>
 <script src="../components/cad-workspace.js"></script>
+<link rel="stylesheet" href="../packages/dxf-analysis/styles.css">
 <link rel="stylesheet" href="../components/cad-workspace.css">
 </head>
 <body>

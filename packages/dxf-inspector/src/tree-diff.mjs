@@ -1,4 +1,4 @@
-    class TreeDiffEngine {
+    export class TreeDiffEngine {
       // Extract a stable, human-meaningful name for semantic IDs and labels
       // Prefers DXF group code 2 for TABLE records and related named types; uses
       // code 1 for certain OBJECT types like LAYOUT. Parent context (TABLE) is
@@ -401,6 +401,4 @@
         return { aligned, totalRows, leftRowClasses, rightRowClasses, leftCellClasses, rightCellClasses };
       }
     }
-
-    window.TreeDiffEngine = TreeDiffEngine;
 

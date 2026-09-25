@@ -1,32 +1,4 @@
-(function (root, factory) {
-  if (typeof define === "function" && define.amd) {
-    define([], factory);
-  } else if (typeof module === "object" && module.exports) {
-    module.exports = factory();
-  } else {
-    root.DxfParser = factory();
-  }
-}(function () {
-  if (typeof globalThis !== "undefined") return globalThis;
-  if (typeof self !== "undefined") return self;
-  if (typeof window !== "undefined") return window;
-  if (typeof global !== "undefined") return global;
-  return {};
-}(), function () {
-  "use strict";
-
-  function isHandleCode(code) {
-    return code === 5 ||
-           code === 105 ||
-           (code >= 320 && code <= 329) ||
-           (code >= 330 && code <= 339) ||
-           (code >= 340 && code <= 349) ||
-           (code >= 350 && code <= 359) ||
-           (code >= 360 && code <= 369) ||
-           (code >= 390 && code <= 399) ||
-           (code >= 480 && code <= 481) ||
-           code === 1005;
-  }
+import { isHandleCode } from './utils.mjs';
 
   function getSectionName(node) {
     if (!node || !Array.isArray(node.properties)) {
@@ -40,7 +12,7 @@
     return trimmed ? trimmed : null;
   }
 
-  class DxfParser {
+  export class DxfParser {
     constructor() {
       this.containerMapping = {
         "SECTION": "ENDSEC",
@@ -479,5 +451,3 @@
     }
   }
 
-  return DxfParser;
-}));

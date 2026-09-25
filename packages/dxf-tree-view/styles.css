@@ -1,0 +1,164 @@
+/* Tree Grid Header */
+.tree-header {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  font-weight: bold;
+  border-bottom: 1px solid #ccc;
+  background: #eee;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  will-change: transform;
+}
+.header-cell {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  position: relative;
+  padding: 0 4px;
+  border-right: 1px solid #ccc;
+  cursor: pointer;
+}
+.header-cell.flex-fixed { flex: none; }
+.header-cell.flex-grow { flex: 1; }
+.header-cell:last-child { border-right: none; }
+.header-cell .resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+}
+.header-cell .sort-indicator {
+  margin-left: 4px;
+  font-size: 0.8em;
+}
+.tree-line,
+.tree-code,
+.tree-object-count,
+.tree-data-size {
+  flex: none;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  border-right: 1px solid #ccc;
+  height: 100%;
+}
+.tree-data {
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid #ccc;
+  height: 100%;
+}
+.tree-line:last-child,
+.tree-code:last-child,
+.tree-data:last-child,
+.tree-object-count:last-child,
+.tree-data-size:last-child { border-right: none; }
+/* Tree View Container */
+.dxf-source-tree {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  border: 1px solid #ccc;
+  clip-path: inset(0);
+}
+.dxf-source-tree .diff-overview {
+  position: absolute; /* anchored rail */
+  top: 0; /* JS offsets this with scrollTop to stay fixed */
+  right: 0; /* flush with scrollbar */
+  width: 16px; /* twice as wide */
+  height: 100%;
+  z-index: 3; /* above content/header */
+  pointer-events: auto;
+  background: rgba(0,0,0,0.05);
+  border-left: 1px solid rgba(0,0,0,0.08);
+}
+.diff-overview .markers { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.diff-overview .marker {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 2px;
+}
+.diff-overview .viewport {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border: 1px solid rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.12);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3);
+  pointer-events: none; /* ignore clicks so rail gets them */
+}
+.dxf-source-tree-content { position: relative; overflow: hidden; }
+/* Tree row styling – with row selection support */
+.tree-row {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  border-bottom: 1px solid #eee;
+  overflow: hidden;
+  cursor: pointer;
+}
+.tree-row.selected {
+  background-color: #bde4ff;
+}
+.tree-row.placeholder {
+  background: repeating-linear-gradient(45deg, #f8f9fa, #f8f9fa 10px, #f3f4f6 10px, #f3f4f6 20px);
+}
+.tree-row.diff-added { background-color: #e6ffed; }
+.tree-row.diff-removed { background-color: #ffeef0; }
+.tree-row.diff-changed { background-color: #fff5b1; }
+
+/* Cell-level diff highlighting */
+.cell-added { background-color: #e6ffed !important; }
+.cell-removed { background-color: #ffeef0 !important; }
+.cell-changed { background-color: #fff5b1 !important; }
+.toggle {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  user-select: none;
+  cursor: pointer;
+}
+.copy-button, .open-button, .open-zoom-button, .block-button, .hex-button {
+  margin-left: 8px;
+  font-size: 0.8em;
+  display: none;
+}
+.tree-row:hover .copy-button,
+.tree-row:hover .open-button,
+.tree-row:hover .block-button,
+.tree-row:hover .open-zoom-button,
+.tree-row:hover .hex-button { display: inline; }
+/* Use monospace font for the tree grid display */
+.tree-row,
+.tree-line,
+.tree-code,
+.tree-object-count,
+.tree-data-size,
+.tree-data {
+  font-family: monospace;
+}
+.tree-line,
+.tree-code,
+.tree-data,
+.tree-object-count,
+.tree-data-size {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+/* Filter Panel – controls now stacked vertically */
+.tree-row,
+.tree-row * {
+  user-select: text;
+}

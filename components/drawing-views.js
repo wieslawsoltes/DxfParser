@@ -1,3 +1,5 @@
+import './drawing-tools.mjs';
+import './analysis-services.mjs';
 /* Retained, source-owned native drawing documents. Dock placement, comparison
  * operands and render-view ownership are deliberately independent concepts. */
 (function (global) {

@@ -31,8 +31,6 @@
   <!-- Use style-enabled XLSX build to support cell background colors in exports -->
   <script src="vendor/office-compat/xlsx.min.js"></script>
   <!-- Load components in dependency order -->
-  <script src="components/utils.js"></script>
-  <script src="components/dxf-parser.js"></script>
   <!-- DXF rendering sources: dependency order checked by the distribution gate. -->
   <script src="packages/dxf-skia/src/geometry.js"></script>
   <script src="packages/dxf-skia/src/input.js"></script>
@@ -52,38 +50,26 @@
   <script src="components/visual-compare.js"></script>
   <!-- End DXF rendering sources. -->
   <script src="scripts/dxf-app-bootstrap.js"></script>
-  <script src="components/tree-data-grid.js"></script>
   <script src="components/batch-data-grid.js"></script>
   <script src="components/state-manager.js"></script>
-  <script src="components/tree-diff-engine.js"></script>
-  <script src="components/dxf-diagnostics-engine.js"></script>
   <script src="vendor/dockyard/avalondock.js"></script>
   <script src="components/docking-workspace.js"></script>
   <script src="components/docking-documents.js"></script>
   <script src="components/docking-parser.js"></script>
   <script type="module" src="components/ribbon-workspace.mjs"></script>
   <script src="components/app.js"></script>
+  <link rel="stylesheet" href="packages/dxf-tree-view/styles.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="vendor/dockyard/avalondock.css">
   <link rel="stylesheet" href="components/docking.css">
   <link rel="stylesheet" href="components/ribbon-workspace.css">
 <script src="vendor/gridweb/gridweb.global.js"></script>
 <script src="vendor/richtextweb/richtextweb.global.js"></script>
-<script src="components/data-grid.js"></script>
 <script src="vendor/treedatagridweb/treedatagrid.global.js"></script>
-<script src="components/analysis-view.js"></script>
-<script src="components/analysis-visual-model.js"></script>
-<script src="components/analysis-visuals.js"></script>
-<script src="components/office-preview.js"></script>
-<script src="components/tabular-reports.js"></script>
-<script src="components/analysis-reports.js"></script>
-<link rel="stylesheet" href="components/data-grid.css">
-<link rel="stylesheet" href="components/analysis-view.css">
-<link rel="stylesheet" href="components/analysis-visuals.css">
 <script src="components/cad-workspace.js"></script>
-<script src="components/drawing-view-tools.js"></script>
-<script src="components/drawing-views.js"></script>
+<link rel="stylesheet" href="packages/dxf-analysis/styles.css">
 <link rel="stylesheet" href="components/cad-workspace.css">
+<script type="module" src="components/app-startup.mjs"></script>
 </head>
 <body>
   <section id="workspaceStartup" role="status" aria-live="polite" aria-atomic="true">

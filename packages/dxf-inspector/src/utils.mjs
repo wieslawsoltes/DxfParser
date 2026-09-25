@@ -1,5 +1,5 @@
     // Convert a concatenated hex string into a Uint8Array.
-    function hexStringToByteArray(hexString) {
+    export function hexStringToByteArray(hexString) {
       hexString = hexString.replace(/\s+/g, "");
       const byteLength = Math.floor(hexString.length / 2);
       const result = new Uint8Array(byteLength);
@@ -10,7 +10,7 @@
     }
     
     // Produce a hex dump from a Uint8Array.
-    function hexDump(buffer) {
+    export function hexDump(buffer) {
       const bytesPerLine = 16;
       let result = "";
       for (let i = 0; i < buffer.length; i += bytesPerLine) {
@@ -31,7 +31,7 @@
     }
     
     // Attempt to detect a common file header from a Uint8Array.
-    function detectHeader(buffer) {
+    export function detectHeader(buffer) {
       // Define a list of known file signatures.
       // Each signature can be defined as an array of byte values or as a string.
       // (You can add an "offset" property if the signature does not start at 0.)
@@ -79,7 +79,7 @@
       return null;
     }
     
-    function isHandleCode(code) {
+    export function isHandleCode(code) {
       return code === 5 ||
              code === 105 ||
              (code >= 320 && code <= 329) ||
