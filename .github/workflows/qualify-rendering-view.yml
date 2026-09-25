@@ -1,0 +1,57 @@
+name: Qualify rendering view package
+on:
+  push:
+    branches: [work/rendering-view-package]
+permissions:
+  contents: write
+concurrency:
+  group: qualify-rendering-view
+  cancel-in-progress: true
+jobs:
+  materialize:
+    name: Materialize verified rendering view sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified extraction
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/rendering-view.01.xzpart; then
+            cat scripts/rendering-view.0{1,2,3}.xzpart | xz -dc > /tmp/rendering-view.patch
+            echo '42f91d35a311f347520146db5afaa4201ce38df18928252cb95d63c64d97bf14  /tmp/rendering-view.patch' | sha256sum -c -
+            git apply --check /tmp/rendering-view.patch
+            git apply /tmp/rendering-view.patch
+            rm scripts/rendering-view.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/rendering-view-fix.patch; then
+            git apply --check scripts/rendering-view-fix.patch
+            git apply scripts/rendering-view-fix.patch
+            rm scripts/rendering-view-fix.patch
+          fi
+          git add components packages scripts tests styles.css index.html editor README.md
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor: extract host-injected rendering view services'
+            git push origin HEAD:work/rendering-view-package
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/rendering-view-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rendering-view-source
+          path: /tmp/rendering-view-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate rendering view extraction
+    needs: materialize
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      revision: ${{ needs.materialize.outputs.revision }}
