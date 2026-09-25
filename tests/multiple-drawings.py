@@ -158,7 +158,14 @@ class MultipleDrawingTests(h.SkiaWorkspaceTests):
         self.page.evaluate('() => { views.maxViews=2;window.sourceA=a.overlay.currentDoc;window.budgetError="";try{a.cad.compare.restoreSnapshot(DxfCompare.snapshot(a.cad.compare.currentText(),a.cad.compare.referenceText,a.cad.compare.settings));}catch(e){budgetError=e.message;} }');self.settle()
         self.assertJS('budgetError.includes("Close a source") && app.tabs.length===2 && views.records.size===2 && a.overlay.currentDoc===sourceA')
 
+    def test_multi_20_closed_primary_detaches_workspace_theme_listener(self):
+        self.two();self.focus('a')
+        self.page.evaluate('() => { window.oldCad=a.cad;window.listeners=w.manager.ThemeChanged.Count;dw.remove(dw.findByTab(a.tab.id)); }');self.settle()
+        self.assertJS('oldCad.disposed && oldCad.detachWorkspace===null && w.manager.ThemeChanged.Count===listeners-1')
+        self.assertJS('app.cadWorkspace instanceof DxfCad.CadWorkspace && app.cadWorkspace.manager===b.overlay.surfaceManager && b.visible')
+        self.command('ZOOM 2');self.assertJS('b.overlay.surfaceManager.viewState.mode==="custom"')
+
 if __name__ == '__main__':
     suite=unittest.TestSuite(MultipleDrawingTests(name) for name in sorted(n for n in dir(MultipleDrawingTests) if n.startswith('test_multi_')))
-    result=unittest.TextTestRunner(verbosity=2, failfast=True).run(suite)
+    result=unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)

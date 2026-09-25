@@ -102,8 +102,23 @@
             this.write('Native Skia drawing. Type HELP for available view commands.');
         }
         panels() { return [...(this.compare ? [{ id: 'render-compare', title: 'Drawing Compare', node: this.compare.panel, side: 'Right', width: 520 }] : []), { id: 'render-console', title: 'CAD Command Line', node: this.console, side: 'Bottom', height: 135 }, { id: 'render-diagnostics', title: 'Rendering Diagnostics', node: this.issuePanel, side: 'Right', width: 420 }, { id: 'render-resources', title: 'Drawing Resources', node: this.resourcePanel, side: 'Right', width: 380 }]; }
-        attach(workspace) { this.workspace = workspace; workspace.abort.signal.addEventListener('abort', () => this.dispose(), { once: true }); workspace.unsubscribers.push(workspace.manager.ThemeChanged.add(() => { const theme = String(workspace.manager.Theme?.Name || workspace.manager.Theme || 'light'); for (const view of this.views)
-            view.setTheme(theme); })); }
+        attach(workspace) {
+            this.detachWorkspace?.(); this.workspace = workspace;
+            if (this.disposed) return;
+            if (workspace.abort.signal.aborted) { this.dispose(); return; }
+            const onAbort = () => this.dispose();
+            workspace.abort.signal.addEventListener('abort', onAbort, { once: true });
+            const unsubscribeTheme = workspace.manager.ThemeChanged.add(() => {
+                const theme = String(workspace.manager.Theme?.Name || workspace.manager.Theme || 'light');
+                for (const view of this.views) view.setTheme(theme);
+            });
+            // Source closure can precede workspace disposal. Do not retain this
+            // controller in the workspace's long-lived unsubscriber collection.
+            this.detachWorkspace = () => {
+                workspace.abort.signal.removeEventListener('abort', onAbort);
+                unsubscribeTheme(); this.detachWorkspace = null;
+            };
+        }
         write(message, error = false) { if (this.disposed)
             return; const line = el('div', error ? 'dxf-cad-error' : '', message); this.log.append(line); while (this.log.children.length > 150)
             this.log.firstChild.remove(); this.log.scrollTop = this.log.scrollHeight; }
@@ -315,7 +330,7 @@
         }
         updateRibbon(r) { if (this.app.drawingViews) r.update('skia-drawing', {items: this.app.drawingViews.tabs().map(t => ({value: String(t.id), label: t.name})), value: String(this.overlay.currentTabId ?? '')}); const m = this.manager; r.update('skia-backend', {value:m.host.backend}); r.update('skia-layout', { items: [...(m.sceneGraph?.document.layouts.values() || [])].map(l => ({ value: l.name, label: l.name })), value: m.layout }); r.update('skia-grid', { checked: !!m.gridVisible }); r.update('skia-snap', { checked: m.snapEnabled !== false }); }
         dispose() { if (this.disposed)
-            return; this.disposed = true; this.compare?.dispose(); this.abort.abort(); for (const v of this.views)
+            return; this.disposed = true; this.detachWorkspace?.(); this.compare?.dispose(); this.abort.abort(); for (const v of this.views)
             v.dispose(); this.views = []; this.footer.remove(); this.manager.onPaint = this.previousPaint; this.manager.onError = this.previousError; this.manager.dispose(); }
     }
     global.DxfCad = { CadWorkspace, create(app, mode) { return app.cadWorkspace = new CadWorkspace(app, mode); } };

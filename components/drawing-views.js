@@ -22,7 +22,10 @@
             // The ribbon keeps this facade. Every asynchronous action is bound to
             // its original CadWorkspace; only ribbon factory closures remain dynamic.
             const owner = this;
-            app.cadWorkspace = new Proxy(this.base.cad, {
+            // Never use a source-owned controller as the Proxy target: even a
+            // disposed target would otherwise stay reachable for the entire app.
+            const facadeTarget = Object.create(Object.getPrototypeOf(this.base.cad));
+            app.cadWorkspace = new Proxy(facadeTarget, {
                 get(_target, key) {
                     const cad = owner.active?.cad || owner.base.cad, value = cad[key];
                     return typeof value === 'function' && key !== 'ribbonGroups' ? value.bind(cad) : value;
