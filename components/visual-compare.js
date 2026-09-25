@@ -18,7 +18,12 @@
             this.file = element('input'); this.file.type = 'file'; this.file.accept = '.dxf'; this.file.hidden = true;
             this.file.addEventListener('change', () => this.run(async () => { const file = this.file.files[0]; this.file.value = ''; if (file) await this.loadFile(file); }), { signal: this.abort.signal });
             this.snapshotFile = element('input'); this.snapshotFile.type = 'file'; this.snapshotFile.accept = '.json'; this.snapshotFile.hidden = true;
-            this.snapshotFile.addEventListener('change', () => this.run(async () => { const file = this.snapshotFile.files[0]; this.snapshotFile.value = ''; if (file) { if (file.size > 128 * 1024 * 1024) throw new RangeError('Snapshot is too large.'); this.restoreSnapshot(await file.text()); } }), { signal: this.abort.signal });
+            this.snapshotFile.addEventListener('change', () => this.run(async () => { const file = this.snapshotFile.files[0]; this.snapshotFile.value = ''; if (file) {
+                if (file.size > 128 * 1024 * 1024) throw new RangeError('Snapshot is too large.');
+                const generation = ++this.loadGeneration, target = this.manager.sceneGraph?.document, text = await file.text();
+                if (generation !== this.loadGeneration || this.abort.signal.aborted || target !== this.manager.sceneGraph?.document) return;
+                this.restoreSnapshot(text);
+            } }), { signal: this.abort.signal });
             this.summary = element('p', 'Choose a reference drawing to compare with the active rendered DXF.', 'dxf-compare-summary'); this.summary.setAttribute('role', 'status'); this.summary.setAttribute('aria-live', 'polite');
             this.message = element('p', '', 'dxf-compare-message'); this.message.setAttribute('role', 'alert');
             const nav = element('div', null, 'dxf-compare-tools');

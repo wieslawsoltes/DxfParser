@@ -108,6 +108,18 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         # Its LINE is geometrically unchanged but visibly changed until properties are ignored.
         self.command('COMPAREPROPS 0');self.assertJS('m.comparison.result.counts.common===1')
 
+    def test_compare_13_stale_snapshot_read_cannot_restore_after_end(self):
+        self.render();self.reference()
+        snapshot=self.page.evaluate('DxfCompare.snapshot(compare.currentText(),compare.referenceText,compare.settings)')
+        self.page.evaluate("""() => {
+            const original=File.prototype.text;
+            File.prototype.text=function(){ return new Promise((resolve,reject)=>setTimeout(()=>original.call(this).then(resolve,reject),200)); };
+            window.sourceBeforeSnapshot=compare.currentText();
+        }""")
+        self.page.locator('.dxf-compare-panel input[type=file][accept=".json"]').set_input_files({'name':'delayed.snapshot.json','mimeType':'application/json','buffer':snapshot.encode()})
+        self.page.evaluate('compare.end()');self.page.wait_for_timeout(300);self.settle()
+        self.assertJS('m.comparison===null && app.tabs.length===1 && compare.currentText()===sourceBeforeSnapshot')
+
 if __name__ == '__main__':
     names=[name for name in dir(VisualCompareTests) if name.startswith('test_compare_')]
     suite=unittest.TestSuite(VisualCompareTests(name) for name in names)
