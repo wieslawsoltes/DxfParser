@@ -1,0 +1,19 @@
+diff --git a/tests/run-all.sh b/tests/run-all.sh
+index c077bc4..ede55f0 100755
+--- a/tests/run-all.sh
++++ b/tests/run-all.sh
+@@ -4,3 +4,4 @@ cd "$(dirname "$0")/.."
+ python tests/check-docking-regressions.py
+-for suite in skia-workspace docking-workspace ribbon-workspace gridweb-previews analysis-views; do
++node --test packages/dxf-compare/tests/*.test.js
++for suite in skia-workspace visual-compare docking-workspace ribbon-workspace gridweb-previews analysis-views; do
+   python "tests/$suite.py"
+diff --git a/tests/visual-compare.py b/tests/visual-compare.py
+index 4d5322d..b6a3880 100644
+--- a/tests/visual-compare.py
++++ b/tests/visual-compare.py
+@@ -40,3 +40,3 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
+         self.page.evaluate('() => { compare.open(); }');self.settle()
+-        self.page.locator('.dxf-compare-panel summary').click();self.settle()
++        self.page.locator('.dxf-compare-settings > summary').click();self.settle()
+         self.page.locator('[data-compare=showReference]').uncheck();self.settle()
