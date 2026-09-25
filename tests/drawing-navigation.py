@@ -108,6 +108,17 @@ class DrawingNavigationTests(h.MultipleDrawingTests):
         self.assertJS('views.navigation.mode==="relative" && a.cad.log.textContent.includes("off, world or relative")')
         self.page.evaluate('() => {rb.execute("skia-tile-grid"); }');self.settle();self.assertJS('a.visible && b.visible')
 
+    def test_nav_15_closing_last_source_resets_camera_not_link_mode(self):
+        self.two();self.focus('a');self.command('RENDERLINK world');self.command('ZOOM 2')
+        self.page.evaluate('() => {for(const id of [...views.records.keys()])dw.remove(dw.findByTab(id)); }');self.settle()
+        self.assertJS('views.records.size===0 && views.navigation.snapshot===null && views.navigation.pending===null && views.navigation.mode==="world"')
+        source=h.h.drawing([(0,'LINE'),(5,'AB'),(10,10000),(20,10000),(11,10040),(21,10030)])
+        self.page.locator('#fileInputLeft').set_input_files({'name':'fresh-origin.dxf','mimeType':'application/dxf','buffer':source.encode()})
+        self.page.wait_for_function('app.tabs.length===1')
+        self.page.evaluate('() => {views.renderAll(); }');self.settle()
+        self.page.wait_for_function('views.active?.visible && views.active.overlay.surfaceManager.stats')
+        self.assertJS('views.navigation.mode==="world" && views.active.overlay.surfaceManager.lastFrame.worldCenter.x===10020 && views.active.overlay.surfaceManager.lastFrame.worldCenter.y===10015')
+
 if __name__=='__main__':
     suite=unittest.TestSuite(DrawingNavigationTests(n) for n in sorted(n for n in dir(DrawingNavigationTests) if n.startswith('test_nav_')))
     result=unittest.TextTestRunner(verbosity=2).run(suite)

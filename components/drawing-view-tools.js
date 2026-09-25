@@ -114,6 +114,7 @@
             const snapshot = captureCamera(this.host.frame(source), this.host.layout(source));
             for (const record of this.host.records()) if (record !== source) this.apply(record, snapshot, 'world', true);
         }
+        reset() { if (!this.disposed) { this.cancel(); this.snapshot = null; this.key = null; } }
         dispose() { if (!this.disposed) { this.cancel(); this.disposed = true; this.snapshot = null; this.host = null; } }
     }
 

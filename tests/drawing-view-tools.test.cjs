@@ -152,3 +152,14 @@ test('32 retained views have finite shallow grid layouts across repeated arrange
     const h=dock(32);
     for(const mode of ['grid','horizontal','vertical','grid']){T.tileDrawings(h.manager,liveModels(h),mode,1200,900);assert.ok(D.validateLayout(h.manager.Layout).nodes<100);assert.equal(new Set(liveModels(h).map(m=>m.Parent)).size,32);}
 });
+
+
+test('clearing a closed source set retains link mode but drops the obsolete camera', () => {
+    const h=linkHarness();h.link.setMode('world');h.move(h.records[0],250);
+    h.records.splice(0,h.records.length);h.link.reset();h.flush();
+    assert.equal(h.link.snapshot,null);assert.equal(h.link.pending,null);assert.equal(h.link.mode,'world');
+    const fresh={open:true,visible:true,frame:frame(10000),layout:'Model'},original=fresh.frame;
+    h.records.push(fresh);h.focus(fresh);h.flush();
+    assert.equal(fresh.frame,original);assert.deepEqual(h.link.snapshot.center,original.worldCenter);
+    h.link.dispose();h.link.reset();
+});

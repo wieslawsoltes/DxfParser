@@ -16,7 +16,7 @@ The **Navigation** dropdown defaults to **Independent**. **Linked coordinates** 
 
 Pan, wheel/pinch zoom, view history, fit, projection and comparison-change navigation all feed the same camera path. Updates are coalesced once per animation frame. Propagated frames cannot feed back into the leader, and repeated follower updates do not append hundreds of local history entries. Focus changes apply the latest queued camera before a new gesture. Hidden/closed views remain suspended and catch up when shown; views with different layout names are skipped. Source scenes, resources, selections, layers and comparison sessions remain independent.
 
-**Match active view** performs a one-time coordinate-camera transfer into compatible visible drawings without enabling a link. Command equivalents are `RENDERLINK off|world|relative`, `RENDERLINK` (report current mode), and `RENDERMATCH`. Turning navigation off cancels queued transfers. The mode and each source camera are saved with view metadata; camera-only changes are debounce-saved, and page hiding flushes the existing workspace save path.
+**Match active view** performs a one-time coordinate-camera transfer into compatible visible drawings without enabling a link. Command equivalents are `RENDERLINK off|world|relative`, `RENDERLINK` (report current mode), and `RENDERMATCH`. Turning navigation off cancels queued transfers. Closing the last source clears the linked camera but retains the chosen mode, so the next source starts with its own camera. The mode and each source camera are saved with view metadata; camera-only changes are debounce-saved, and page hiding flushes the existing workspace save path.
 
 ## Ownership and active tools
 

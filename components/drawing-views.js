@@ -378,6 +378,8 @@
         release(tabId) {
             const r = this.records.get(tabId); if (!r || r.disposed) return;
             this.records.delete(tabId); r.disposed = true; r.open = false; r.abort.abort();
+            // A fresh source must not inherit coordinates from a fully closed set.
+            if (!this.records.size) this.navigation.reset();
             if (this.active === r) {
                 for (const [id, tool] of r.tools) if (this.slots.get(id)?.contains(tool)) r.stash.append(tool);
                 this.active = null;
