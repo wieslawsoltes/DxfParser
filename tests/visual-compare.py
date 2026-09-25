@@ -37,6 +37,7 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
     def test_compare_02_visibility_toggle_and_camera_cache(self):
         self.render();self.reference();self.page.evaluate('() => { window.composed=m.lastFrame.scene;window.result=m.comparison.result; }')
         self.command('ZOOM 2');self.command('PAN 20 10');self.assertJS('m.lastFrame.scene===composed && m.comparison.result===result')
+        self.page.evaluate('() => { compare.open(); }');self.settle()
         self.page.locator('[data-compare=showReference]').uncheck();self.settle()
         self.assertJS("!m.lastFrame.scene.primitives.some(p=>p.comparisonSide==='reference')")
         self.command('COMPARETOGGLE');self.assertJS('m.lastFrame.scene===m.compiled')
@@ -101,7 +102,10 @@ class VisualCompareTests(h.SkiaWorkspaceTests):
         self.render();self.page.evaluate('() => { cad.compare.open();window.compare=cad.compare; }')
         self.page.locator('.dxf-compare-panel input[type=file][accept=".dxf"]').set_input_files({'name':'binary-reference.dxf','mimeType':'application/dxf','buffer':h.binary_drawing()})
         self.page.wait_for_function('!!m.comparison?.result');self.settle()
-        self.assertJS('m.comparison.result.counts.common===1 && typeof compare.referenceText==="string" && m.comparison.reference.entities.length===2')
+        self.assertJS('m.comparison.result.counts.modified===1 && typeof compare.referenceText==="string" && m.comparison.reference.entities.length===2')
+        # Binary fixture omits the current drawing's yellow DRAFT layer definition.
+        # Its LINE is geometrically unchanged but visibly changed until properties are ignored.
+        self.command('COMPAREPROPS 0');self.assertJS('m.comparison.result.counts.common===1')
 
 if __name__ == '__main__':
     names=[name for name in dir(VisualCompareTests) if name.startswith('test_compare_')]
