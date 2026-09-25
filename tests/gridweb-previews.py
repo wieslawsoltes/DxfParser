@@ -196,7 +196,7 @@ class GridPreviewTests(unittest.TestCase):
 
     def test_20_editor_has_document_preview_and_local_dependencies(self):
         self.context.close();harness.DockingTests.setUp(self);self.load('editor/index.html')
-        self.assertJS("w.definitions.size===9 && !!DxfEditorApp.officePreview && ![...document.scripts].some(s=>s.src.startsWith('https:'))")
+        self.assertJS("w.definitions.size===10 && w.definitions.has('render-compare') && !!DxfEditorApp.officePreview && ![...document.scripts].some(s=>s.src.startsWith('https:'))")
         self.assertTrue(self.page.evaluate("async()=>await DxfEditorApp.officePreview.open(new TextEncoder().encode('Editor,Preview\\nExcel,1'),'test.csv')"))
         self.assertJS('DxfEditorApp.officePreview.control instanceof GridWeb.GridWebElement')
         self.page.evaluate('w.dispose()');self.assertJS('DxfEditorApp.officePreview.disposed')
