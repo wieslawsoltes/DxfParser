@@ -6,8 +6,6 @@ const renderer = require('../packages/dxf-skia/build.cjs');
 const root = path.resolve(__dirname, '..');
 const modules = Object.freeze([
     ...renderer.core.map(name => 'packages/dxf-skia/src/' + name + '.js'),
-    'components/skia-rendering-adapter.js',
-    'components/rendering-property-grid.js',
     'components/rendering-overlay.js',
     'packages/dxf-compare/clouds.js',
     'packages/dxf-compare/index.js',
@@ -15,9 +13,37 @@ const modules = Object.freeze([
     'components/visual-compare.js'
 ]);
 
+const viewSources = Object.freeze(['documents', 'surface-manager', 'services', 'property-inspector']);
+function renderingServicesBundle() {
+    const source = viewSources.map(name => {
+        const file = 'packages/dxf-rendering-view/src/' + name + '.mjs';
+        const text = fs.readFileSync(path.join(root, file), 'utf8')
+            .replace(/^import \{[^\n]+\} from '[^']+';\n/gm, '')
+            .replace(/^export function /gm, 'function ');
+        if (/^\s*(?:import|export)\s/m.test(text)) throw new Error('Unsupported classic factory syntax: ' + file);
+        return '// ' + file + '\n' + text;
+    }).join('\n');
+    return '(function(root){\n' + source + `
+const url = typeof document === 'undefined' ? null : document.currentScript?.src;
+let runtime;
+const initializeSkia = () => runtime ||= (url
+    ? import(new URL('../vendor/skiasharpweb/dist/package/browser.js', url).href).then(m => m.Initialize({fonts:false}))
+    : Promise.reject(new Error('Inject a native Skia initializer.'))).catch(error => {runtime=null;throw error;});
+const services = createRenderingServices({renderer:root.DxfSkia, initialize:initializeSkia, onObserverError:error=>console.warn(error)});
+Object.assign(root.DxfRendering ||= {}, services, {initializeSkia});
+if (typeof window !== 'undefined') root.DxfRendering.RenderingPropertyGrid = createPropertyInspector({window,
+    createRecordView:(container,options)=>new (root.DxfAnalysis?.AnalysisView || root.DxfGrid.GridView)(container,options)});
+})(globalThis);\n`;
+}
+function applicationBundle() {
+    const core = modules.slice(0, renderer.core.length);
+    const rest = modules.slice(renderer.core.length);
+    return renderer.bundle(core, root) + '\n' + renderingServicesBundle() + renderer.bundle(rest, root);
+}
+
 function artifacts() {
     return new Map([
-        ['dist/dxf-rendering.global.js', renderer.bundle(modules, root)],
+        ['dist/dxf-rendering.global.js', applicationBundle()],
         ...[...renderer.artifacts()].map(([file, content]) => ['packages/dxf-skia/' + file, content])
     ]);
 }
@@ -30,7 +56,7 @@ function build() {
     }
 }
 
-module.exports = {modules, artifacts, build};
+module.exports = {modules, viewSources, artifacts, build};
 if (require.main === module) {
     const args = process.argv.slice(2);
     if (!args.length) {

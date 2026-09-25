@@ -1,3 +1,4 @@
+import './rendering-services.mjs';
 import './docking-parser.js';
 import './docking-documents.js';
 import './inspection-services.mjs';

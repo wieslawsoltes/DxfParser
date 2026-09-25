@@ -5,7 +5,8 @@
     "ribbon-workspace",
     "gridweb-previews",
     "component-packages",
-    "workspace-office"
+    "workspace-office",
+    "rendering-view"
   ],
   "analysis": [
     "analysis-views",

@@ -1108,7 +1108,7 @@
     dispose() {
       if (this.disposed) return;
       this.disposed = true;
-      this.propertyGrid?.gridView?.dispose();
+      this.propertyGrid?.dispose();
       this.propertyGrid = null;
       this.currentDoc = this.currentSceneGraph = this.currentTabId = this.currentPane = null;
       this.currentLayerCatalog = this.currentLayerOverrides = this.currentBlockMetadata = null;

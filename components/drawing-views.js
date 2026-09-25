@@ -62,7 +62,7 @@ import './analysis-services.mjs';
                     for (const r of this.records.values()) {
                         const theme = workspace.manager.Theme?.Name || workspace.manager.Theme;
                         for (const view of r.cad.views) view.setTheme(theme);
-                        r.registry?.setTheme(theme); r.overlay.propertyGrid?.gridView?.setTheme(theme); r.cad.compare?.view?.setTheme(theme);
+                        r.registry?.setTheme(theme); r.overlay.propertyGrid?.setTheme(theme); r.cad.compare?.view?.setTheme(theme);
                     }
                 })
             );

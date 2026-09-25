@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, 'test-results/component-packages');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dxf-component-consumer-'));
-const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview'];
+const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view'];
 const run = (command, args, cwd = temp) => execFileSync(command, args, {
     cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000
 });
@@ -82,12 +82,26 @@ const preview = new previewType(); preview.open(bytesOf(new ArrayBuffer(0)), 'fi
 preview.dispose();
 // @ts-expect-error Workspace hosts must supply a layout factory.
 new Workspace({ id: 'invalid', shell: document.body });
+import { createRenderingServices, createPropertyInspector } from '@wieslawsoltes/dxf-rendering-view';
+const rendering = createRenderingServices({ renderer });
+const store = new rendering.RenderingDataController();
+const doc = store.ingestDocument({tabId:'source', sourceText:''});
+const surface = new rendering.RenderingSurfaceManager({initialize:async()=>({}), backend:'canvas'});
+if (doc) surface.renderScene(doc.sceneGraph);
+surface.subscribeFrame(frame => frame.screenToWorld({x:0,y:0}));
+const Properties = createPropertyInspector({window});
+const properties = new Properties(document.body);properties.setSections([{title:'Object',properties:[{name:'Layer',value:'PIPES'}]}]);
+properties.dispose();surface.dispose();store.dispose();
+// @ts-expect-error Backend names are finite.
+new rendering.RenderingSurfaceManager({backend:'svg'});
 void [id, diff, diagnosis];
 `);
     fs.writeFileSync(path.join(temp, 'consumer.cts'), `import inspector = require('@wieslawsoltes/dxf-inspector');
 const parser = new inspector.DxfParser();
 const tree = parser.parse('');
-void tree;
+import rendering = require('@wieslawsoltes/dxf-rendering-view');
+const factory: typeof rendering.createRenderingServices = rendering.createRenderingServices;
+void [tree, factory];
 `);
     process.stdout.write(run(process.env.TSC || 'tsc', ['--noEmit', '--strict', '--module', 'nodenext', '--moduleResolution', 'nodenext', '--target', 'es2022', '--lib', 'es2022,dom', 'consumer.mts', 'consumer.cts']));
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ packages: names, version: '0.1.0', node: process.version, offline: true, cjsEsmIdentity: true, declarations: true }, null, 2) + '\n');
