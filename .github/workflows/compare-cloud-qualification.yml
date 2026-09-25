@@ -3,17 +3,89 @@ on:
   push:
     branches: [work/compare-cloud-groups]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: compare-cloud-qualification
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
 jobs:
-  source:
+  qualify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          persist-credentials: false
-      - run: git archive HEAD --format=tar.gz -o /tmp/compare-cloud-source.tar.gz
+          node-version: '22'
+      - name: Materialize comparison cloud implementation on work branch
+        run: |
+          set -euo pipefail
+          if test -f scripts/compare-cloud.01.xzpart; then
+            cat scripts/compare-cloud.0{1,2,3}.xzpart | xz -dc > /tmp/compare-cloud.patch
+            echo '0fe8c7053f7a3dc7af5ba2229f945948a307ecc315a183222cf33d20dedfc62a  /tmp/compare-cloud.patch' | sha256sum -c -
+            git apply --check /tmp/compare-cloud.patch
+            git apply /tmp/compare-cloud.patch
+            rm scripts/compare-cloud.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/compare-cloud-fix.patch; then
+            git apply --check scripts/compare-cloud-fix.patch
+            git apply scripts/compare-cloud-fix.patch
+            rm scripts/compare-cloud-fix.patch
+          fi
+          node scripts/build-rendering-bundle.js
+          git add components packages dist docs scripts tests
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'feat(compare): group nearby changes and draw polygonal revision clouds'
+            git push origin HEAD:work/compare-cloud-groups
+          fi
+          mkdir -p test-results/qualification
+          git rev-parse HEAD HEAD^{tree} > test-results/qualification/tested-source.txt
+          git archive HEAD --format=tar.gz -o /tmp/compare-cloud-implementation.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: compare-cloud-source
-          path: /tmp/compare-cloud-source.tar.gz
-          retention-days: 3
+          name: compare-cloud-implementation
+          path: /tmp/compare-cloud-implementation.tar.gz
+          retention-days: 7
+      - name: Compare models, exact unions and native pixels
+        run: node --test packages/dxf-compare/tests/*.test.js 2>&1 | tee test-results/qualification/compare.log
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser and package test tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+          npm install -g typescript@5.8.3
+      - name: Native renderer and package qualification
+        if: '!cancelled()'
+        run: python -u tests/check-docking-regressions.py 2>&1 | tee test-results/qualification/native.log
+      - name: Native comparison browser workflows
+        if: '!cancelled()'
+        run: timeout 300s python -u tests/visual-compare.py 2>&1 | tee test-results/qualification/compare-browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compare-cloud-browser-evidence
+          path: test-results/
+          retention-days: 7
+      - name: Native renderer browser regression
+        if: '!cancelled()'
+        run: timeout 300s python -u tests/skia-workspace.py 2>&1 | tee test-results/qualification/skia-browser.log
+      - name: Retained workspace and analysis regression
+        if: '!cancelled()'
+        run: |
+          failed=0
+          for suite in workspace-startup docking-workspace gridweb-previews ribbon-workspace analysis-views analysis-visuals; do
+            timeout 180s python -u tests/$suite.py 2>&1 | tee test-results/qualification/$suite.log || failed=1
+          done
+          exit $failed
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compare-cloud-qualification
+          path: test-results/
+          retention-days: 14
