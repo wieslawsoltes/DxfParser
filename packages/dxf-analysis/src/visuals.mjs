@@ -95,25 +95,32 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             s.append(o);
         } s.value = String(value); s.onchange = () => run(s.value); this.tools.append(s); return s; }
         setLayout(layout) { if (!['auto', 'split', 'data', 'visual'].includes(layout))
-            return; this.state.layout = layout; this.layout(); this.view.refreshLayout(); }
+            return;
+            this.state.layout = layout;
+            if (this.view.docking) {
+                if (layout === 'visual') this.view.docking.focus('visual');
+                else { this.view.docking.restoreFocus(); if (layout === 'data') this.view.docking.hide('visual'); else this.view.docking.show('visual'); }
+            }
+            this.layout(); this.view.refreshLayout(); }
         resizeHeight(h) { this.height = Math.round(Math.max(150, Math.min(420, this.view.host.clientHeight * .6, h))); this.view.host.style.setProperty('--analysis-visual-height', this.height + 'px'); }
         layout() {
             if (this.disposed)
                 return;
+            if (this.view.docking) this.host.hidden = !this.view.docking.isOpen('visual');
             const w = this.view.host.clientWidth, h = this.view.host.clientHeight;
-            const mode = this.state.layout === 'auto' ? (w >= 820 && h >= 490 ? 'split' : 'data') : this.state.layout;
+            const mode = this.view.docking ? this.view.docking.visualMode() : this.state.layout === 'auto' ? (w >= 820 && h >= 490 ? 'split' : 'data') : this.state.layout;
             if (this.view.host.dataset.visualLayout !== mode) {
                 this.dirty = true;
                 this.view.host.dataset.visualLayout = mode;
-                this.host.hidden = mode === 'data';
-                this.grip.hidden = mode !== 'split';
+                this.host.hidden = this.view.docking ? !this.view.docking.isOpen('visual') : mode === 'data';
+                this.grip.hidden = !!this.view.docking || mode !== 'split';
                 this.toggle.setAttribute('aria-pressed', String(mode !== 'data'));
                 this.focus.textContent = mode === 'visual' ? 'Visual + data' : 'Focus visual';
             }
             if (w && h && mode !== 'data' && this.dirty)
                 this.schedule();
         }
-        schedule() { this.dirty = true; if (this.disposed || this.host.hidden || this.frame)
+        schedule() { this.dirty = true; if (this.disposed || this.host.hidden || this.frame || this.view.docking && !this.view.docking.isVisible('visual'))
             return; this.frame = requestAnimationFrame(() => { this.frame = 0; if (!this.disposed && !this.host.hidden)
             this.render(); }); }
         selection() { if (this.state.kind === 'relationships')

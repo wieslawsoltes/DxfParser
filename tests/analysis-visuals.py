@@ -40,7 +40,7 @@ class VisualTests(unittest.TestCase):
     def bare(self,rows,columns=('Group','Count','Category')):
         self.page.evaluate('''({rows,columns})=>{
             const host=document.createElement('div');host.id='visual-test';host.style.cssText='position:fixed;inset:210px 25px 25px;z-index:10000;background:white';document.body.append(host);
-            window.v=new DxfAnalysis.AnalysisView(host,{title:'Visual test',columns,rows,height:600});v.visuals.setLayout('split');
+            window.v=new DxfAnalysis.AnalysisView(host,{title:'Visual test',columns,rows,height:600,docking:false});v.visuals.setLayout('split');
         }''',{'rows':rows,'columns':list(columns)})
         self.settle()
 

@@ -73,6 +73,8 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.sheetButton.disabled = !GridWeb;
       this.detailButton = button('Details', () => this.toggleDetails(), this.modeButtons);
       this.detailButton.setAttribute('aria-pressed', 'true'); this.heading.append(this.modeButtons);
+      if (env.onExpand && options.docking !== false) button('Expand analysis', () => this.runAction(() => env.onExpand(this), false), this.modeButtons,
+        'Use the full workspace for this analysis');
       this.bar = el('div', 'dxf-grid-toolbar analysis-toolbar');
       this.search = el('input'); this.search.type = 'search'; this.search.placeholder = `Search ${this.title.toLowerCase()}…`;
       this.search.setAttribute('aria-label', `Filter ${this.title}`);
@@ -160,7 +162,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         if ((e.ctrlKey || e.metaKey) && key === 'f') { e.preventDefault(); this.search.focus(); this.search.select(); }
         if (e.key === 'Escape' && e.target === this.search) { this.search.value = ''; this.refresh(); }
         // Don't let grid navigation or text editing trigger Dockyard's layout history.
-        if (e.composedPath().includes(this.grid) || (e.ctrlKey || e.metaKey) && ['f', 'a', 'c'].includes(key)) e.stopPropagation();
+        if (this.docking || e.composedPath().includes(this.grid) || (e.ctrlKey || e.metaKey) && ['f', 'a', 'c'].includes(key)) e.stopPropagation();
       }, { signal: this.abort.signal });
       this.splitter.addEventListener('keydown', e => {
         if (!['ArrowLeft','ArrowRight','Home'].includes(e.key)) return;
@@ -179,6 +181,21 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       for (const type of ['pointerup','pointercancel','lostpointercapture']) this.splitter.addEventListener(type, () => this.drag = null, { signal: this.abort.signal });
       this.setRows(options.rows || []); this.setMode('records');
       if (options.visualization !== false && AVisuals()) this.visuals = new (AVisuals())(this);
+      if (env.createLayout && options.docking !== false) {
+        this.host.classList.add('has-analysis-docking');
+        this.docking = env.createLayout({ container: this.main, records: this.stage, details: this.details,
+          visual: this.visuals?.host, title: this.title,
+          onResize: id => { if (id === 'records') this.refreshLayout(); if (id === 'visual') this.visuals?.schedule(); },
+          onChange: () => {
+            if (!this.docking || this.disposed) return;
+            this.host.classList.toggle('analysis-details-hidden', !this.docking.isOpen('details'));
+            this.detailButton.setAttribute('aria-pressed', String(this.docking.isVisible('details')));
+            this.visuals?.layout();
+          }
+        });
+        this.splitter.remove(); this.visuals?.grip.remove(); this.visuals?.layout();
+        if (options.showDetails === false) this.toggleDetails(false);
+      }
     }
     option(select, value, label) { const node = el('option', '', label); node.value = String(value); select.append(node); }
     setRows(rows) {
@@ -443,7 +460,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         this.detailBody.append(toolbar); const host = el('div', 'analysis-related-host'); this.detailBody.append(host);
         const update = () => {
           this.relatedView?.dispose(); host.replaceChildren();
-          this.relatedView = new AnalysisView(host, { visualization: false, ...this.related[Number(select.value)], height: 290 });
+          this.relatedView = new AnalysisView(host, { visualization: false, ...this.related[Number(select.value)], height: 290, docking: false });
           this.relatedView.toggleDetails(false); this.relatedView.setTheme(this.theme);
         };
         select.addEventListener('change', update); update(); return;
@@ -483,7 +500,10 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
     renderRevealed(source) {
       if (source?.querySelector('pre')) { this.selectRow(this.selectedRow, false); this.showDetail('raw'); }
     }
-    toggleDetails(value = this.host.classList.contains('analysis-details-hidden')) {
+    toggleDetails(value) {
+      if (this.disposed) return;
+      value ??= this.docking ? !this.docking.isVisible('details') : this.host.classList.contains('analysis-details-hidden');
+      if (this.docking) { value ? this.docking.show('details') : this.docking.hide('details'); }
       this.host.classList.toggle('analysis-details-hidden', !value); this.detailButton.setAttribute('aria-pressed', String(value));
     }
     setMode(mode) {
@@ -491,6 +511,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       if (mode === 'spreadsheet' && !GridWeb) throw new Error('GridWeb must be supplied to use spreadsheet presentation.');
       if (!['records', 'spreadsheet'].includes(mode)) mode = 'records';
       if (this.visuals?.state.layout === 'visual') this.visuals.setLayout('split');
+      if (this.docking) this.docking.show('records');
       this.mode = mode; this.recordsButton.setAttribute('aria-pressed', String(mode === 'records')); this.sheetButton.setAttribute('aria-pressed', String(mode === 'spreadsheet'));
       this.grid.hidden = mode !== 'records'; this.host.dataset.mode = mode;
       if (mode === 'spreadsheet' && !this.spreadsheet) {
@@ -525,7 +546,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     refreshLayout() { if (!this.disposed) { this.grid.InvalidateRowHeights(); this.spreadsheet?.grid.Refresh(); } }
-    saveState() { return { search: this.search.value, scope: this.scope.value, sort: this.sort.value, direction: this.direction, selectedKey: this.selectedKey, expanded: [...this.expanded], facets: [...this.facetValues], mode: this.mode, details: !this.host.classList.contains('analysis-details-hidden'), detailTab: this.detailTab, visual: this.visuals?.saveState(), visualFilter: this.visualFilter ? {label:this.visualFilter.label,keys:[...this.visualFilter.keys]} : null, pinned: this.pinned, width: this.detailWidth, view: this.grid.SaveViewState() }; }
+    saveState() { return { docking: this.docking?.saveState(), search: this.search.value, scope: this.scope.value, sort: this.sort.value, direction: this.direction, selectedKey: this.selectedKey, expanded: [...this.expanded], facets: [...this.facetValues], mode: this.mode, details: !this.host.classList.contains('analysis-details-hidden'), detailTab: this.detailTab, visual: this.visuals?.saveState(), visualFilter: this.visualFilter ? {label:this.visualFilter.label,keys:[...this.visualFilter.keys]} : null, pinned: this.pinned, width: this.detailWidth, view: this.grid.SaveViewState() }; }
     restoreState(state) {
       if (!state) return;
       this.search.value = state.search || ''; this.scope.value = state.scope || '-1'; this.sort.value = state.sort || '-1'; this.direction = state.direction || 1;
@@ -534,17 +555,18 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.buildFacets(); this.refresh(); this.applySort();
       if (state.view) { try { this.grid.RestoreViewState(state.view); } catch (_) { /* Column schemas can evolve independently. */ } }
       this.toggleDetails(state.details !== false); this.setMode(state.mode || 'records'); this.visuals?.restore(state.visual);
+      if (state.docking && this.docking) { try { this.docking.restoreState(state.docking); } catch (_) { this.docking.reset(); } }
       if (state.width) { this.detailWidth = state.width; this.host.style.setProperty('--analysis-detail-width', state.width + 'px'); }
       for (const [column, check] of this.columnChecks) check.checked = column.IsVisible !== false;
       if (this.detailTabs?.querySelector(`[data-tab="${state.detailTab}"]`)) this.showDetail(state.detailTab);
     }
     setTheme(theme) {
       this.theme = theme; this.host.dataset.theme = /dark|contrast/i.test(theme) ? 'dark' : 'light';
-      this.spreadsheet?.setTheme(theme); this.relatedView?.setTheme(theme); this.drillView?.setTheme(theme); this.visuals?.schedule();
+      this.docking?.setTheme(theme); this.spreadsheet?.setTheme(theme); this.relatedView?.setTheme(theme); this.drillView?.setTheme(theme); this.visuals?.schedule();
     }
     dispose() {
       if (this.disposed) return; this.disposed = true; clearTimeout(this.searchTimer); this.abort.abort();
-      this.resizeObserver.disconnect(); this.visuals?.dispose(); this.closeDrill(); this.relatedView?.dispose(); this.spreadsheet?.dispose(); this.off.forEach(off => off());
+      this.resizeObserver.disconnect(); this.docking?.dispose(); this.visuals?.dispose(); this.closeDrill(); this.relatedView?.dispose(); this.spreadsheet?.dispose(); this.off.forEach(off => off());
       this.grid.Dispose(); this.treeModel.Dispose(); this.rows = this.allRows = this.visibleRows = this.filteredRows = this.filteredTree = this.contextRows = this.matchingRows = []; this.related = []; this.selectedRow = this.pinned = this.visualFilter = null; this.byKey.clear(); this.details.replaceChildren(); this.host.remove();
     }
   }

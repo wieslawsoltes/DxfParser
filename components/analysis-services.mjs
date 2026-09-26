@@ -1,7 +1,29 @@
 // Browser application composition only. Reusable views have no window.app dependency.
-import { createAnalysisUI } from '../packages/dxf-analysis/index.mjs';
+import { createAnalysisUI, createAnalysisDocking } from '../packages/dxf-analysis/index.mjs';
 import * as models from '../packages/dxf-analysis/src/models.mjs';
+const AnalysisDocking = createAnalysisDocking({ window, dockyard: window.AvalonDock });
 const ui = createAnalysisUI({
+    createLayout(options) {
+        let storage = null; try { storage = window.localStorage; } catch (_) {}
+        return new AnalysisDocking({ ...options, storage, storageKey: 'dxfparser.analysis-layout.v1.' + options.title });
+    },
+    onExpand(view) {
+        const workspace = (window.app || window.DxfEditorApp)?.dockingWorkspace;
+        const id = view.host.closest('[data-ad-content]')?.dataset.adContent;
+        const model = workspace?.manager.Find(id);
+        if (!model) return;
+        const A = window.AvalonDock, manager = workspace.manager;
+        manager.Transaction('Expand analysis', () => {
+            if (!model.IsFloating) manager.Float(model, {
+                FloatingWidth: Math.max(320, workspace.host.clientWidth - 24),
+                FloatingHeight: Math.max(240, workspace.host.clientHeight - 24), FloatingLeft: 12, FloatingTop: 12
+            });
+            const floating = model.FindParent(A.LayoutFloatingWindow);
+            if (floating) floating.IsMaximized = !floating.IsMaximized;
+            manager.Activate(model);
+        });
+        workspace.scheduleResize();
+    },
     window,
     gridWeb: window.GridWeb,
     treeDataGridCore: window.TreeDataGridCore,

@@ -31,7 +31,7 @@ The `.nojekyll` file allows branch-based GitHub Pages hosting of the source tree
 | Drawing rendering | Retained geometry compilation, model and paper layouts, layer controls, selection and snapping, measurements, local font/image resources, and native PNG/vector PDF export. |
 | Visual comparison | Rendered-object matching, current/reference/common categories, appearance and text/hatch filters, change ledger, proximity groups, rectangular/polygonal revision clouds, and change navigation. |
 | Multiple drawings | A separate dockable viewport per source, independent rendering state, balanced linear/grid tiling, and optional linked camera navigation. |
-| Analysis and previews | Searchable/sortable records, linked charts and graphs, optional inspection spreadsheets, CSV/copy/export, and spreadsheet/document previews. |
+| Analysis and previews | Searchable/sortable records, linked charts and graphs, independent dockable records/visualization/details panes, optional inspection spreadsheets, CSV/copy/export, and spreadsheet/document previews. |
 
 The standalone editor uses the same renderer and docking/ribbon controls, but
 retains a single-file UI. It is not a complete CAD authoring system.
@@ -60,6 +60,22 @@ coordinates and scale; **Linked relative view** shares proportional position and
 fit-relative zoom. Only compatible visible layouts participate. Commands are
 `RENDERLINK off|world|relative` and `RENDERMATCH` for a one-time camera match.
 Linking does not convert units, register geometry, georeference, or overlay files.
+
+### Arrange analysis views
+
+Each full analysis report has its own dockable **Records**, **Visualization**, and
+**Details** panes. Drag their tabs to split, float, redock or reorder panels. The
+**Analysis layout** dropdown provides adaptive, side-by-side, stacked and tabbed
+arrangements, with local undo/redo and **Reset layout**. Small report hosts default
+to tabs instead of squeezing the table and details into unusably small regions.
+**Expand analysis** toggles the entire tool to a maximized workspace view;
+**Focus visual** temporarily dedicates the report area to its chart.
+
+Tables, chart filters, selection and source actions are retained when moving panes.
+Layout preferences are stored per report title; Reset layout clears the manual
+arrangement. Embedded related tables stay compact, while full drill-down reports
+have their own layout. The standalone analysis package can opt into docking with
+an injected Dockyard factory, without loading the application.
 
 ### Compare revisions
 
@@ -120,7 +136,7 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 | [`@wieslawsoltes/dxf-rendering-view`](packages/dxf-rendering-view/README.md) | Host-injected document services, retained native viewports and property inspection. |
 | [`@wieslawsoltes/dxf-skia`](packages/dxf-skia/README.md) | DXF input/document model, retained scene compiler, geometry, picking/snapping, native painter, and surface lifetime management. |
 | [`@wieslawsoltes/dxf-compare`](packages/dxf-compare/README.md) | Rendered-object comparison, change grouping/clouds, snapshots/reports, and guarded reference import. |
-| [`@wieslawsoltes/dxf-inspector`](packages/dxf-inspector/README.md) | Source-tree parser, structural diff, diagnostics and binary inspection helpers. |
+| [`@wieslawsoltes/dxf-inspector`](packages/dxf-inspector/README.md) | Source-tree parser, structural diff, diagnostics, report/reference indexes and binary inspection helpers. |
 | [`@wieslawsoltes/dxf-analysis`](packages/dxf-analysis/README.md) | Pure aggregation models and host-injected record/spreadsheet/visual report UI. |
 | [`@wieslawsoltes/dxf-tree-view`](packages/dxf-tree-view/README.md) | Source-tree viewport, editing callbacks, diff alignment and overview rail. |
 | [`@wieslawsoltes/dxf-workspace`](packages/dxf-workspace/README.md) | Host-injected Dockyard shell, panel registration, layout persistence and lifecycle. |

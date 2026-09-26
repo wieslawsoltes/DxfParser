@@ -146,7 +146,8 @@ class AnalysisTests(unittest.TestCase):
 
     def test_15_detail_splitter_column_resize_and_keyboard_search(self):
         self.launch('showStatsOverlayBtn','overlayStatsContent')
-        self.page.evaluate("window.width=v.details.clientWidth");self.page.locator('#statsOverlay .analysis-splitter').focus();self.page.keyboard.press('ArrowLeft');self.settle()
+        self.page.evaluate("() => {v.docking.setPreset('balanced');}");self.settle()
+        self.page.evaluate("window.width=v.details.clientWidth");self.page.locator('#statsOverlay .analysis-dock-host .ad-splitter').last.focus();self.page.keyboard.press('ArrowLeft');self.settle()
         self.assertJS('v.details.clientWidth>width')
         grid=self.page.locator('#statsOverlay tree-data-grid');grip=grid.locator('.resize-grip').first;box=grip.bounding_box()
         self.page.mouse.move(box['x']+4,box['y']+15);self.page.mouse.down();self.page.mouse.move(box['x']+64,box['y']+15,steps=6);self.page.mouse.up();self.settle()
@@ -157,9 +158,11 @@ class AnalysisTests(unittest.TestCase):
     def test_16_compact_docked_details_and_dark_theme(self):
         self.launch('showTextsOverlayBtn','overlayTextsContent')
         self.page.evaluate("w.manager.Theme='dark';w.manager.Float(w.manager.Find('textsOverlay'),{FloatingLeft:15,FloatingTop:15,FloatingWidth:430,FloatingHeight:670})");self.settle()
-        self.assertJS("v.host.dataset.theme==='dark' && getComputedStyle(v.main).gridTemplateRows.split(' ').length===2 && v.grid.clientHeight>100")
+        self.assertJS("v.host.dataset.theme==='dark' && v.main.dataset.arrangement==='tabs' && v.grid.clientHeight>180")
         self.page.locator('#textsOverlay .analysis-modes').get_by_role('button',name='Details',exact=True).click();self.settle()
-        self.assertJS("v.host.classList.contains('analysis-details-hidden') && v.grid.clientHeight>200")
+        self.assertJS("v.docking.isVisible('details') && !v.docking.isVisible('records') && v.details.clientHeight>200")
+        self.page.locator('#textsOverlay .analysis-modes').get_by_role('button',name='Records',exact=True).click();self.settle()
+        self.assertJS("v.docking.isVisible('records') && v.grid.clientHeight>200")
 
     def test_17_large_records_virtualized_and_filter_without_workbook_recreation(self):
         self.launch('showStatsOverlayBtn','overlayStatsContent')

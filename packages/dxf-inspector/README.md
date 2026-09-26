@@ -51,3 +51,14 @@ included. Tests and app adapters are not shipped.
 ## License
 
 [MIT](LICENSE). Host-supplied libraries retain their own licenses.
+
+## Report source indexes
+
+`inspectTree({ id, originalTreeData })` builds source-owned object, type, group-code,
+handle, incoming-reference and subtree-size indexes without browser dependencies.
+`referenceIndex(index)` builds and caches named/handle relationships for that
+snapshot, retaining every ambiguous candidate and explicit unresolved endpoints.
+The caller must rebuild after changing the source tree. Traversal terminates for
+shared/cyclic malformed trees; only first-visit parent edges contribute to subtree
+character totals. Character estimates are not DXF byte lengths. `mtextPlain` is a
+bounded readable preview, not a replacement for renderer typography.

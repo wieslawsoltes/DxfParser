@@ -10,7 +10,8 @@
   ],
   "analysis": [
     "analysis-views",
-    "analysis-visuals"
+    "analysis-visuals",
+    "analysis-docking"
   ],
   "drawings": [
     "skia-workspace",

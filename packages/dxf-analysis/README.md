@@ -62,6 +62,31 @@ with `data-source-tab-id`. Without that callback, source lifecycle belongs entir
 to the host. Do not pass executable actions from untrusted documents. Clipboard
 and download actions retain the browser's normal permission requirements.
 
+## Dockable analysis panels
+
+`createAnalysisDocking({ window, dockyard })` returns a retained panel-layout
+controller using the host's Dockyard instance and stylesheet. Supply it through
+`createAnalysisUI({ ...host, createLayout: options => new Layout(options) })`.
+Every full analysis view then owns independent Records, Visualization, and Details
+panes: drag their tabs to resize, split, reorder, float or redock them. Records and
+Spreadsheet remain alternate presentations of the same records pane. The original
+record model, chart filter, selection and detail content are retained across moves.
+
+Adaptive layout chooses side-by-side or stacked panes for large hosts and tabs for
+narrow/short hosts. Manual arrangements are retained until Reset layout; automatic
+resizing does not undo a user's docking choices. Focus visual and Restore panes
+provide temporary full-size inspection. The compact Details/Visuals buttons reveal
+the corresponding tab. Layout history belongs to the report, not its outer workspace.
+`onExpand` is an optional host callback for expanding an entire analysis tool.
+
+The controller supports `setPreset('auto' | 'balanced' | 'stacked' | 'tabs')`,
+`show`, `hide`, `focus`, `restoreFocus`, `saveState`, `restoreState`, and `dispose`.
+States contain layout metadata only, validate known pane identities and types, and
+are limited to 64 KiB, 64 nodes and 12 levels. Optional injected storage persists
+presentation under a host-selected `storageKey`. No storage is accessed by default.
+Use `docking: false` for small embedded related tables; full drill-down views can
+still have docking. Disposing a report retires its layout and all owned controls.
+
 ## Integration boundary
 
 There are no imports of the DxfParser app, its selectors, or its vendor paths.

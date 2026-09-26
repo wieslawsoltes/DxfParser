@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Standalone dockable analysis</title>
+<link rel="stylesheet" href="../vendor/dockyard/avalondock.css">
+<link rel="stylesheet" href="../packages/dxf-analysis/styles.css">
+<style>
+body{font:14px system-ui;margin:18px;background:#eef2f6;color:#182a3b}h1{font-size:22px}p{margin:8px 0}
+#primary{width:1280px;height:720px;max-width:100%;display:flex}#secondary{width:440px;height:480px;margin-top:16px;display:flex}
+#primary>.dxf-analysis-view,#secondary>.dxf-analysis-view{height:100%;flex:1;min-height:0}
+</style>
+<script src="../vendor/dockyard/avalondock.js"></script>
+<script src="../vendor/gridweb/gridweb.global.js"></script>
+<script src="../vendor/treedatagridweb/treedatagrid.global.js"></script>
+<script type="module" src="analysis-docking-demo.mjs"></script>
+</head><body><h1>Dockable analysis · standalone package</h1>
+<p>Retained records, linked charts and full details. Drag a panel tab to split, float or redock it.</p>
+<div id="primary"></div><div id="secondary"></div></body></html>
