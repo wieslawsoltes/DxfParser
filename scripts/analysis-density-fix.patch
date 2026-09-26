@@ -1,0 +1,63 @@
+diff --git a/packages/dxf-analysis/styles/compact-controls.css b/packages/dxf-analysis/styles/compact-controls.css
+index 41ab06c..32ba56f 100644
+--- a/packages/dxf-analysis/styles/compact-controls.css
++++ b/packages/dxf-analysis/styles/compact-controls.css
+@@ -48,7 +48,8 @@
+    popup underneath a parent's overflow clip on browsers without the top layer. */
+ .analysis-control-inline.is-open { display: contents; }
+ .dxf-analysis-view > .analysis-toolbar:has(> .analysis-control-inline.is-open),
+-.dxf-analysis-view > .analysis-heading:has(> .analysis-control-inline.is-open) { flex-wrap: wrap; }
++.dxf-analysis-view > .analysis-heading:has(> .analysis-control-inline.is-open),
++.dxf-analysis-view .analysis-visual-tools:has(> .analysis-control-inline.is-open) { flex-wrap: wrap; overflow: visible; }
+ .analysis-control-inline .analysis-control-panel { flex-basis: 100%; width: 100%; max-height: 180px; }
+ .dxf-analysis-view .analysis-visual-tools {
+   flex-wrap: nowrap; gap: 4px; padding: 3px 5px; min-height: 33px; max-height: none;
+diff --git a/tests/analysis-density.py b/tests/analysis-density.py
+index 1ff03d6..dcb12aa 100644
+--- a/tests/analysis-density.py
++++ b/tests/analysis-density.py
+@@ -86,7 +86,7 @@ class DensityTests(h.DockingAnalysisTests):
+         self.menu('filter');self.page.evaluate('() => {window.panel=v.filterMenu.panel;v.dispose();}');self.settle()
+         self.assertJS('!panel.isConnected && !panel.matches(":popover-open") && !s.disposed')
+         self.menu('filter','#secondary')
+-        self.page.evaluate('() => {document.getElementById("secondary").hidden=true;}');self.settle()
++        self.page.evaluate('() => {document.getElementById("secondary").style.display="none";}');self.settle()
+         self.assertJS('!s.filterMenu.panel.matches(":popover-open")')
+ 
+     def test_density_09_error_status_survives_compact_headers(self):
+@@ -120,6 +120,21 @@ class DensityTests(h.DockingAnalysisTests):
+         self.menu('filter');self.page.keyboard.press('Escape');self.settle()
+         self.assertJS('v.spreadsheet.book===book && v.filteredRows.length===40 && v.mode==="spreadsheet" && v.facetValues.get(1)==="Valve"')
+ 
++    def test_density_13_fallback_disclosures_are_bounded_and_keyboard_accessible(self):
++        self.page.evaluate("""() => {
++            Object.defineProperty(HTMLElement.prototype,'showPopover',{configurable:true,value:undefined});
++            const options=v.options,container=v.container;v.dispose();
++            v=new analysisDemo.ui.AnalysisView(container,options);d=v.docking;
++        }""");self.settle()
++        self.menu('filter')
++        self.assertJS('v.filterMenu.root.classList.contains("analysis-control-inline") && !v.filterMenu.panel.hidden && v.filterMenu.panel.clientHeight<=180')
++        self.page.get_by_role('combobox',name='Type filter',exact=True).select_option('Pump');self.settle()
++        self.page.keyboard.press('Escape');self.settle()
++        self.assertJS('v.filterMenu.panel.hidden && v.filteredRows.length===20 && document.activeElement===v.filterMenu.trigger')
++        self.menu('chart')
++        self.assertTrue(self.page.get_by_role('combobox',name='Measure visual by',exact=True).is_visible())
++        self.assertJS('v.visuals.optionsMenu.panel.clientHeight<=180 && v.host.scrollWidth<=v.host.clientWidth+2')
++
+ if __name__=='__main__':
+     suite=unittest.TestSuite(DensityTests(name) for name in sorted(n for n in dir(DensityTests) if n.startswith('test_density_')))
+     raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+diff --git a/tests/analysis-visuals.py b/tests/analysis-visuals.py
+index dd0602d..003f235 100644
+--- a/tests/analysis-visuals.py
++++ b/tests/analysis-visuals.py
+@@ -97,7 +97,9 @@ class VisualTests(unittest.TestCase):
+         self.page.evaluate("window.v=[...app.tabularReports.projections].find(p=>p.source.id==='ruleConfigContent').view;w.manager.Find('ruleConfigOverlay').Dock();v.visuals.setLayout('split')")
+         self.settle();self.assertJS("v.visuals.state.kind==='matrix'")
+         self.page.evaluate("window.otherRules=[...document.querySelectorAll('.rule-item:not([data-category=security]) input')].map(x=>x.checked);let b=v.visuals.chartData.find(b=>/security/i.test(b.label)&&b.value);v.visuals.filter(b)")
++        self.page.locator('[data-grid-title="Diagnostic Rules"] .analysis-filter-menu > button').first.click();self.settle()
+         self.settle();self.page.locator('[data-grid-title="Diagnostic Rules"]').get_by_role('button',name='Disable filtered',exact=True).click();self.settle()
++        self.page.keyboard.press('Escape');self.settle()
+         self.assertJS("[...document.querySelectorAll('.rule-item[data-category=security] input')].every(i=>!i.checked) && JSON.stringify(otherRules)===JSON.stringify([...document.querySelectorAll('.rule-item:not([data-category=security]) input')].map(x=>x.checked))")
+ 
+     def test_08_fonts_count_roots_once_and_allow_leaf_population(self):

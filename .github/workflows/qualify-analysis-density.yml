@@ -21,13 +21,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if test -f scripts/analysis-density.patch.xz; then
-            xz -dc scripts/analysis-density.patch.xz > /tmp/analysis-density.patch
-            echo '2a065cb6d43b9fb1d72dfa45b45dff1e1521acb8d0218f04d4de4ffae06367fc  /tmp/analysis-density.patch' | sha256sum -c -
-            git apply --check --unidiff-zero /tmp/analysis-density.patch
-            git apply --unidiff-zero /tmp/analysis-density.patch
-            rm scripts/analysis-density.patch.xz
-          fi
           if test -f scripts/analysis-density-fix.patch; then
             git apply --check scripts/analysis-density-fix.patch
             git apply scripts/analysis-density-fix.patch
@@ -37,7 +30,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'feat(analysis): compact shared report headers and retain secondary controls in disclosures'
+            git commit -m 'fix(analysis): retain fallback controls and qualify compact layouts'
             git push origin HEAD:work/compact-analysis-controls
           fi
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -55,3 +48,63 @@ jobs:
       contents: read
     with:
       revision: ${{ needs.materialize.outputs.revision }}
+  measure:
+    name: Compare unchanged layout fixtures
+    needs: materialize
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.materialize.outputs.revision }}
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: 8dbe567b154bb06f66c68d75d59df3ed96c6b253
+          path: baseline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser tooling
+        run: |
+          python -m pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Measure identical standalone and application reports
+        shell: bash
+        run: |
+          cat > /tmp/measure.py <<'PY'
+          import importlib.util,json,sys,unittest,subprocess
+          from pathlib import Path
+          root=Path(sys.argv[1]).resolve();out=Path(sys.argv[2]).resolve();out.mkdir(parents=True,exist_ok=True)
+          spec=importlib.util.spec_from_file_location('measure_harness',root/'tests/analysis-docking.py')
+          h=importlib.util.module_from_spec(spec);spec.loader.exec_module(h)
+          class Measure(h.DockingAnalysisTests):
+              def test_measure(self):
+                  values=[]
+                  for width,height in [(1280,720),(760,520),(390,320),(320,260)]:
+                      self.page.evaluate('([w,h])=>Object.assign(document.getElementById("primary").style,{width:w+"px",height:h+"px"})',[width,height]);self.settle()
+                      value=self.page.evaluate('() => ({width:v.host.clientWidth,height:v.host.clientHeight,header:v.main.getBoundingClientRect().top-v.host.getBoundingClientRect().top,records:v.grid.clientHeight,chart:v.visuals.body.clientHeight})')
+                      values.append(value)
+                      if width==390:self.page.screenshot(path=str(out/'standalone-390.png'))
+                  h.h.DockingTests.load(self);h.a.AnalysisTests.fixture(self);h.a.AnalysisTests.launch(self,'showStatsOverlayBtn','overlayStatsContent')
+                  stats=self.page.evaluate('() => ({header:v.main.getBoundingClientRect().top-v.host.getBoundingClientRect().top,records:v.grid.clientHeight,chart:v.visuals.body.clientHeight,summary:document.querySelector("#statsOverlay .analysis-kpis").clientHeight,view:v.host.clientHeight})')
+                  self.page.screenshot(path=str(out/'statistics.png'))
+                  (out/'metrics.json').write_text(json.dumps({'source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),'standalone':values,'statistics':stats},indent=2))
+              def tearDown(self):
+                  self.context.close();self.assertEqual([],self.errors)
+          result=unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite([Measure('test_measure')]))
+          raise SystemExit(not result.wasSuccessful())
+          PY
+          xvfb-run -a python /tmp/measure.py baseline test-results/density-comparison/before
+          xvfb-run -a python /tmp/measure.py . test-results/density-comparison/after
+      - name: Direct compact controls regression
+        run: xvfb-run -a python tests/analysis-density.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: density-comparison
+          path: |
+            test-results/density-comparison
+            test-results/analysis-density
+          retention-days: 14
