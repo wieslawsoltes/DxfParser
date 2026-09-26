@@ -1,0 +1,116 @@
+diff --git a/packages/dxf-state/README.md b/packages/dxf-state/README.md
+index 5b53f10a2cb475d0681cb2e4176c494b2ab86657..bed70a0dbbc5fba8606b4f495acb34e9d3b68c0f 100644
+--- a/packages/dxf-state/README.md
++++ b/packages/dxf-state/README.md
+@@ -31,7 +31,9 @@ const detachedSnapshot = codec.restoreSnapshot(text);
+ ```
+ 
+ The codec reads the existing version-1 DxfParser file format and legacy unversioned
+-storage manifests with `tabIds`/`activeTabId`. Default keys remain
++storage manifests with `tabIds`/`activeTabId`. File snapshots require a source tree
++for every tab (an empty tree is valid); metadata-only storage fallbacks cannot
++replace open sources through snapshot import. Default keys remain
+ `dxf_parser_state` and `dxf_tab_`. Layouts, images, fonts and comparison sessions
+ belong to their own components; they are not part of these source snapshots.
+ 
+ diff --git a/packages/dxf-state/src/codec.mjs b/packages/dxf-state/src/codec.mjs
+index 38c1a698a633221f23272b61bfe70909bab4946b..971b6198d9f137444ea994e45fe45d2bab9735b9 100644
+--- a/packages/dxf-state/src/codec.mjs
++++ b/packages/dxf-state/src/codec.mjs
+@@ -215,7 +215,12 @@ export class StateCodec {
+         const left = input.leftTabs ?? [], right = input.rightTabs ?? [];
+         if (!Array.isArray(left) || !Array.isArray(right)) throw new TypeError('Snapshot tabs must be arrays.');
+         tabIds(left.map(tab => tab?.id), right.map(tab => tab?.id), this.limits);
+-        const leftTabs = left.map(tab => normalizeTab(tab, this.limits)), rightTabs = right.map(tab => normalizeTab(tab, this.limits));
++        const normalizeSource = tab => {
++            const source = normalizeTab(tab, this.limits);
++            if (source.originalTreeData === null) throw new TypeError('Snapshot sources must contain a source tree.');
++            return source;
++        };
++        const leftTabs = left.map(normalizeSource), rightTabs = right.map(normalizeSource);
+         const result = { app: appState(input.app ?? {}, leftTabs.map(tab => tab.id), rightTabs.map(tab => tab.id)), leftTabs, rightTabs };
+         checkText(JSON.stringify(result), this.limits);
+         return result;
+diff --git a/packages/dxf-state/src/store.mjs b/packages/dxf-state/src/store.mjs
+index be1a7506b926b8c2274903cb1ddcc5663a994604..3838dca8120953d265b302a5a59999fd56421f3c 100644
+--- a/packages/dxf-state/src/store.mjs
++++ b/packages/dxf-state/src/store.mjs
+@@ -38,10 +38,11 @@ export class StateManager {
+         // not a multi-key transaction; individual failures remain observable.
+         try {
+             const manifest = this.codec.buildManifest(left, right, activeLeft, activeRight, widths, this.getUiState(), this.now());
++            const manifestText = this.codec.stringify(manifest);
+             const tabs = [...left, ...right].map(tab => this.encodeTab(tab));
+             let complete = true;
+             for (const tab of tabs) if (this.writeTab(tab) !== 'saved') complete = false;
+-            this.storage.setItem(this.storageKey, this.codec.stringify(manifest));
++            this.storage.setItem(this.storageKey, manifestText);
+             return complete;
+         } catch (error) { this.report(error, 'save-state'); return false; }
+     }
+diff --git a/tests/docking-workspace.py b/tests/docking-workspace.py
+index 2402fb81417e2902e503231c83eaac6d05b51776..9bcd2d2273112f591c6b0f93d4bf3e671960eb36 100644
+--- a/tests/docking-workspace.py
++++ b/tests/docking-workspace.py
+@@ -53,7 +53,9 @@ class DockingTests(unittest.TestCase):
+         self.context.set_default_timeout(7000)
+         self.page = self.context.new_page()
+         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+-        self.page.on('dialog', lambda dialog: dialog.dismiss())
++        self.page.on('dialog', lambda dialog: dialog.accept()
++                     if dialog.type == 'beforeunload' and getattr(self, 'confirm_navigation', False)
++                     else dialog.dismiss())
+ 
+     def tearDown(self):
+         self.page.screenshot(path=str(ARTIFACTS / f'{self._testMethodName}.png'))
+diff --git a/tests/state-persistence.py b/tests/state-persistence.py
+index 12137594954e15c3c5aef9db6111d4557981d01a..16c438a5cf55cc3c7a6ef064a6c5d24b0302ed2c 100644
+--- a/tests/state-persistence.py
++++ b/tests/state-persistence.py
+@@ -60,8 +60,9 @@ class StatePersistenceTests(h.DockingTests):
+         self.page.evaluate('''() => {
+             window.rejected=app.handleApplyStateSnapshot({...stateSnapshot,version:999});
+             window.duplicateRejected=app.handleApplyStateSnapshot({...stateSnapshot,rightTabs:[stateSnapshot.leftTabs[0]]});
++            window.missingTreeRejected=app.handleApplyStateSnapshot({...stateSnapshot,leftTabs:[{...stateSnapshot.leftTabs[0],originalTreeData:null}]});
+         }''')
+-        self.assertJS('rejected===false && duplicateRejected===false && app.tabs[0]===sourceTab && dw.records.size===1')
++        self.assertJS('rejected===false && duplicateRejected===false && missingTreeRejected===false && app.tabs[0]===sourceTab && dw.records.size===1')
+     def test_state_04_file_import_is_copy_isolated_and_survives_reload(self):
+         self.state()
+         value=self.page.evaluate('stateSnapshot')
+@@ -69,6 +70,8 @@ class StatePersistenceTests(h.DockingTests):
+         value['leftTabs'][0]['name']='restored-state.dxf'
+         self.upload(value)
+         self.page.wait_for_function('app.tabs[0]?.name==="restored-state.dxf"')
++        # Keep the modified flag and explicitly accept the real unsaved-source prompt.
++        self.confirm_navigation=True
+         self.page.reload(wait_until='domcontentloaded')
+         self.page.wait_for_function('window.app?.tabs[0]?.name==="restored-state.dxf"')
+         self.assertJS('app.tabs[0].isModified && app.tabs[0].originalTreeData.length>0')
+diff --git a/tests/state.test.mjs b/tests/state.test.mjs
+index f7da04c42c3ab35f62186f1484d893a3fdb3372d..ca4c012e90ec66847e6fd666b52dbe7841387f48 100644
+--- a/tests/state.test.mjs
++++ b/tests/state.test.mjs
+@@ -182,3 +182,22 @@ test('constructor rejects invalid storage contracts and overlapping or empty key
+     assert.throws(()=>new StateManager({storage:{}}),/Storage/);
+     for(const options of [{tabStatePrefix:''},{storageKey:''},{storageKey:'tab.a',tabStatePrefix:'tab.'},{getUiState:0},{maxAge:-1}]) assert.throws(()=>new StateManager(options));
+ });
++
++
++test('file snapshots require source trees while storage can retain metadata-only records', () => {
++    const codec=new StateCodec(), value=snapshot();
++    value.leftTabs[0].originalTreeData=null;
++    assert.throws(()=>codec.restoreSnapshot(value),/source tree/);
++    assert.equal(codec.parseTab(JSON.stringify(value.leftTabs[0]),0).originalTreeData,null);
++    value.leftTabs[0].originalTreeData=[];
++    assert.deepEqual(codec.restoreSnapshot(value).leftTabs[0].originalTreeData,[]);
++});
++
++test('manifest encoding completes before source writes start', () => {
++    const storage=new Storage(), manager=new StateManager({storage,limits:{maxBytes:500}});
++    const sources=Array.from({length:120},(_,id)=>({id,name:'',originalTreeData:[]}));
++    // Each source fits independently; the complete manifest exceeds the byte budget.
++    assert.ok(manager.encodeTab(sources[0]).text.length<500);
++    assert.equal(manager.saveAppState(sources,[],0,null,null),false);
++    assert.equal(storage.length,0);
++});
