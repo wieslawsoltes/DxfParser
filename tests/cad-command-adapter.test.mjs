@@ -54,10 +54,31 @@ test('CAD cleanup retires all owners even if a comparison controller throws', as
         detachPaint:()=>h.calls.push('paint'),detachError:()=>h.calls.push('error'),detachWorkspace:()=>h.calls.push('workspace'),
         compare:{dispose(){throw new Error('broken consumer');}},views:[{dispose:()=>h.calls.push('view')}],footer:{remove:()=>h.calls.push('footer')}});
     cad.downloadUrls.set('blob:existing',8);const done=cad.dispose();assert.equal(cad.dispose(),done);await done;
-    assert.deepEqual(h.calls,['console','abort','paint','error','workspace','view','footer','native']);
+    assert.deepEqual(h.calls,['console','abort','paint','error','workspace','view','footer']);
     assert.deepEqual(h.revoked,['blob:existing']);assert.equal(h.warnings.length,1);assert.equal(cad.views.length,0);
 });
 test('retired CAD owners cannot reconstruct resource views or retry a native backend', async () => {
     const h=host();h.cad.disposed=true;h.cad.createView=()=>assert.fail('late view creation');
     h.cad.refreshResources();await h.cad.setBackend('canvas');assert.equal(h.calls.length,0);
+});
+
+
+test('disposing the CAD adapter leaves its host-supplied renderer alive', async () => {
+    const h=host(),cad=h.cad;
+    Object.assign(cad,{commandLine:{dispose(){}},abort:{abort(){}},footer:{remove(){}}});
+    const manager=cad.manager;
+    await cad.dispose();
+    assert.equal(cad.manager,manager);
+    assert.equal(h.calls.length,0,'only the document owner may retire the native surface');
+    await manager.dispose();
+    assert.deepEqual(h.calls,['native']);
+});
+
+test('stale overlay resize callbacks do not touch retired canvases or surfaces', () => {
+    const realm={};
+    vm.runInNewContext(readFileSync(new URL('../components/rendering-overlay.js',import.meta.url),'utf8'),realm);
+    const resize=realm.DxfRendering.RenderingOverlayController.prototype.resizeCanvas;
+    const canvas={get parentElement(){assert.fail('a retired canvas must not be measured');}};
+    resize.call({disposed:true,canvas});
+    resize.call({disposed:false,canvas,surfaceManager:{disposed:true}});
 });

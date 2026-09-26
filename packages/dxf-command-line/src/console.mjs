@@ -12,6 +12,7 @@ export function createCommandConsole({ window } = {}) {
         const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
     };
     return class CommandConsole {
+        #inputId;
         constructor({ inputId, label = 'Command:', title = 'Command history', placeholder = 'Enter a command',
             maxLines = 150, maxOutputLength = 8192, onError, ...sessionOptions } = {}) {
             this.maxLines = positiveInteger(maxLines, 'maxLines');
@@ -37,6 +38,7 @@ export function createCommandConsole({ window } = {}) {
             this.status.hidden = true;
             this.form.append(caption, this.input, this.runButton, this.status); this.node.append(this.log, this.form);
             this.onError = onError;
+            this.#inputId = inputId;
             owner.reserved.add(inputId);
             this.detach = this.session.subscribe(event => {
                 if (event.type === 'submitted') this.append('> ' + event.request.text);
@@ -80,7 +82,7 @@ export function createCommandConsole({ window } = {}) {
             this.disposed = true; this.detach(); this.abort.abort(); this.session.dispose();
             this.onError = null; this.input.disabled = this.runButton.disabled = true;
             this.node.setAttribute('aria-busy', 'false'); this.status.hidden = true;
-            this.node.remove(); this.log.replaceChildren(); owner.reserved.delete(this.input.id);
+            this.node.remove(); this.log.replaceChildren(); owner.reserved.delete(this.#inputId);
         }
     };
 }

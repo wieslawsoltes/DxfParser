@@ -336,9 +336,9 @@ import { createCommandConsole } from '../packages/dxf-command-line/index.mjs';
             if (this.disposed) return this.disposal;
             this.disposed = true;
             const report = error => console.warn('CAD workspace cleanup:', error);
-            // Queue native retirement first, so repeated calls share its completion.
-            this.disposal = Promise.resolve().then(() => this.manager.dispose());
-            this.disposal.catch(report);
+            // The document/overlay owner supplies the renderer. Retiring this
+            // controller must not dispose a surface still used by other consumers.
+            this.disposal = Promise.resolve();
             const cleanup = [
                 () => this.commandLine.dispose(), () => this.abort.abort(),
                 () => this.detachPaint?.(), () => this.detachError?.(),

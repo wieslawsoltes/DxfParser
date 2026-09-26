@@ -78,12 +78,34 @@ class CommandLineTests(h.MultipleDrawingTests):
         self.assertJS('''async () => {
             let count=0;const legacy=m.onPaint,detach=m.subscribePaint(()=>count++);
             await cad.execute('REGEN');const working=count>0 && m.onPaint===legacy;
-            const console=cad.commandLine;cad.dispose();await m.dispose();detach();
-            return working && console.disposed && m.paintListeners.size===0 && m.errorListeners.size===0;
+            const console=cad.commandLine;await cad.dispose();
+            const before=count;m.renderScene(m.sceneGraph);await m.ready;
+            const independent=console.disposed && !m.disposed && count>before && m.onPaint===legacy;
+            detach();o.dispose();await m.dispose();
+            return working && independent && m.paintListeners.size===0 && m.errorListeners.size===0;
         }''')
     def test_command_12_invalid_quotes_cannot_change_native_layout(self):
         self.app();self.render();self.command('LAYOUT "bad')
         self.assertJS('m.layout==="Model" && cad.log.textContent.includes("Unterminated") && !m.error')
+    def test_command_14_changed_dom_id_cannot_leak_or_release_another_console_reservation(self):
+        self.assertJS('''() => {
+            const first=new d.Console({inputId:'owner-a',execute(){}});
+            const neighbor=new d.Console({inputId:'owner-b',execute(){}});
+            first.input.id='owner-b';first.dispose();let rejected=false;
+            try{new d.Console({inputId:'owner-b',execute(){}});}catch{rejected=true;}
+            const replacement=new d.Console({inputId:'owner-a',execute(){}});
+            replacement.dispose();neighbor.dispose();return rejected;
+        }''')
+    def test_command_15_stale_resize_after_native_retirement_is_ignored(self):
+        self.app();self.render()
+        self.page.evaluate('''async () => {
+            await cad.dispose();await m.dispose();
+            const before={width:o.canvas.width,height:o.canvas.height};
+            o.resizeCanvas();requestAnimationFrame(()=>o.resizeCanvas());
+            window.retiredCanvasUnchanged=o.canvas.width===before.width && o.canvas.height===before.height;
+        }''')
+        self.page.wait_for_timeout(180)
+        self.assertJS('retiredCanvasUnchanged && m.disposed')
     def test_command_13_editor_consumes_same_package(self):
         self.load('editor/index.html')
         self.assertJS('DxfEditorApp.cadWorkspace.commandLine.session && !DxfEditorApp.cadWorkspace.commandLine.disposed')

@@ -128,7 +128,9 @@ The parser and editor use the standalone command-line component. Each drawing ow
 its command queue and recall history. Up/Down preserves an unsubmitted draft;
 malformed quoted arguments reject without changing the drawing. Commands execute
 serially per drawing, with a bounded queue; closing the drawing cancels its queued
-commands. The host retains all CAD dispatch and source ownership.
+commands. The host retains all CAD dispatch and source ownership. Disposing the
+CAD controller detaches its observers and UI without disposing the renderer it
+borrows; the owning document retires the native surface.
 
 Source filtering, sorting, expansion and batch matching use the standalone inspector
 query APIs. They retain canonical source ownership and ancestor context, use bounded

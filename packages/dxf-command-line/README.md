@@ -27,7 +27,8 @@ terminal.dispose();
 
 Each console owns its session, event listeners, history and log. Generated input
 IDs are unique across factories targeting the same document; explicit IDs are
-reserved even while a console is detached. The log is text-only, capped at 150
+reserved even while a console is detached. Disposal releases the originally
+allocated ID, even when host code changes the input element's DOM ID. The log is text-only, capped at 150
 lines and 8,192 characters per line by default. It follows new output only when
 already scrolled to the end. Up/Down recall keeps the unsubmitted draft; Escape
 clears the input without cancelling an executing command. Composition and modified
