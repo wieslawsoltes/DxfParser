@@ -6,7 +6,8 @@
     "gridweb-previews",
     "component-packages",
     "workspace-office",
-    "rendering-view"
+    "rendering-view",
+    "state-persistence"
   ],
   "analysis": [
     "analysis-views",

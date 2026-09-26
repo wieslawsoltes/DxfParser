@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Standalone source-state consumer</title></head>
+<body><main><h1>Source-state package</h1><pre id="result"></pre></main>
+<script type="module">
+import { StateManager } from '../packages/dxf-state/index.mjs';
+class MemoryStorage {
+    #data = new Map();
+    get length() { return this.#data.size; }
+    key(index) { return [...this.#data.keys()][index] ?? null; }
+    getItem(key) { return this.#data.get(key) ?? null; }
+    setItem(key, value) { this.#data.set(key, value); }
+    removeItem(key) { this.#data.delete(key); }
+}
+const a = new StateManager({storage:new MemoryStorage()}), b = new StateManager({storage:new MemoryStorage()});
+const tab = {id:0,name:'standalone.dxf',originalTreeData:[{id:1,type:'LINE',properties:[],children:[],expanded:true}]};
+a.saveAppState([tab],[],0,null,null);
+const restored = a.restoreFromSnapshot(a.codec.stringify(a.buildExportSnapshot([tab],[],0,null)));
+window.demo = {a,b,restored,standalone:true};
+document.getElementById('result').textContent = JSON.stringify(restored,null,2);
+</script></body></html>

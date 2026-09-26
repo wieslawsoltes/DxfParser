@@ -108,6 +108,20 @@ presentation. Appends are frame-coalesced; closing a result cancels pending UI w
 without affecting other results. Defaults are 32 retained results and 250,000 rows
 per result. Existing file-at-line actions and Excel export remain available.
 
+### Source-state persistence
+
+Source session storage is provided by `dxf-state` through an application adapter.
+Version-1 state files and existing local-storage keys remain readable. Snapshot
+imports validate and copy all sources before replacing current document identities;
+modified flags, per-source widths, filters, navigation and expansion are preserved.
+Unsupported versions, duplicate identities, cyclic trees and oversized snapshots
+are rejected without clearing open drawings. The default file limit is 64 MiB.
+Autosave and pending state-file reads stop when their workspace is disposed.
+
+Storage is best-effort, not a multi-key transaction. Quota failures preserve the
+last saved source rather than overwrite it with a metadata-only record. Use
+**Save state to file** for an explicit export; browser storage is not a backup.
+
 ## Rendering boundaries
 
 The renderer supports common lines, curves, polylines, blocks, meshes, hatches,
@@ -147,6 +161,7 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 | [`@wieslawsoltes/dxf-rendering-view`](packages/dxf-rendering-view/README.md) | Host-injected document services, retained native viewports and property inspection. |
 | [`@wieslawsoltes/dxf-skia`](packages/dxf-skia/README.md) | DXF input/document model, retained scene compiler, geometry, picking/snapping, native painter, and surface lifetime management. |
 | [`@wieslawsoltes/dxf-compare`](packages/dxf-compare/README.md) | Rendered-object comparison, change grouping/clouds, snapshots/reports, and guarded reference import. |
+| [`@wieslawsoltes/dxf-state`](packages/dxf-state/README.md) | Bounded source snapshots and host-injected, legacy-compatible session persistence. |
 | [`@wieslawsoltes/dxf-inspector`](packages/dxf-inspector/README.md) | Source-tree parser, structural diff, diagnostics, report/reference indexes and binary inspection helpers. |
 | [`@wieslawsoltes/dxf-analysis`](packages/dxf-analysis/README.md) | Pure aggregation models and host-injected record/spreadsheet/visual report UI. |
 | [`@wieslawsoltes/dxf-tree-view`](packages/dxf-tree-view/README.md) | Source-tree viewport, editing callbacks, diff alignment and overview rail. |
@@ -156,6 +171,7 @@ cleaning build output. `node scripts/clean.mjs --tests` also removes test eviden
 
 ```sh
 npm pack ./packages/dxf-rendering-view
+npm pack ./packages/dxf-state
 npm pack ./packages/dxf-skia
 npm pack ./packages/dxf-compare
 npm pack ./packages/dxf-inspector
