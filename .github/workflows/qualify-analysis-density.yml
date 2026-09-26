@@ -1,0 +1,57 @@
+name: Qualify compact analysis controls
+on:
+  push:
+    branches: [work/compact-analysis-controls]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  materialize:
+    name: Materialize compact controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified source changes
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/analysis-density.patch.xz; then
+            xz -dc scripts/analysis-density.patch.xz > /tmp/analysis-density.patch
+            echo '2a065cb6d43b9fb1d72dfa45b45dff1e1521acb8d0218f04d4de4ffae06367fc  /tmp/analysis-density.patch' | sha256sum -c -
+            git apply --check --unidiff-zero /tmp/analysis-density.patch
+            git apply --unidiff-zero /tmp/analysis-density.patch
+            rm scripts/analysis-density.patch.xz
+          fi
+          if test -f scripts/analysis-density-fix.patch; then
+            git apply --check scripts/analysis-density-fix.patch
+            git apply scripts/analysis-density-fix.patch
+            rm scripts/analysis-density-fix.patch
+          fi
+          git add components packages scripts tests README.md
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'feat(analysis): compact shared report headers and retain secondary controls in disclosures'
+            git push origin HEAD:work/compact-analysis-controls
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/analysis-density-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: analysis-density-source
+          path: /tmp/analysis-density-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate compact analysis controls
+    needs: materialize
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      revision: ${{ needs.materialize.outputs.revision }}
