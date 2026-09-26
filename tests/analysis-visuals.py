@@ -57,6 +57,7 @@ class VisualTests(unittest.TestCase):
         self.assertJS("v.matchingRows.length===1 && v.matchingRows[0].values[0]==='LINE' && v.visuals.chartData.length===diagram && v.rows.reduce((n,r)=>n+r.values[1],0)===total")
         self.page.locator('#statsOverlay').get_by_role('button',name='Spreadsheet',exact=True).click();self.settle()
         self.assertJS("v.spreadsheet.book.ActiveWorksheet.GetCell('A2').Value==='LINE' && v.spreadsheet.visibleRows.length===1")
+        self.page.locator('#statsOverlay .analysis-dock-host .ad-tab[data-tab-id=visual]').click();self.settle()
         visual.get_by_role('button',name='LINE:',exact=False).click();self.settle();self.assertJS('!v.visualFilter && v.matchingRows.length===v.allRows.length')
 
     def test_03_chart_data_keeps_exact_sources_and_returns_to_parent(self):
@@ -221,7 +222,10 @@ class VisualTests(unittest.TestCase):
         self.visual();self.page.locator('#statsOverlay .av-bar').first.focus();self.page.keyboard.press('Enter');self.settle()
         self.assertJS("v.visualFilter && document.activeElement.matches('.av-bar')")
         self.page.keyboard.press('Enter');self.settle();self.assertJS('!v.visualFilter')
-        self.page.locator('#statsOverlay [aria-label="Resize visualization"]').focus();self.page.keyboard.press('ArrowDown');self.assertJS('v.visuals.height>210')
+        self.page.locator('#statsOverlay .analysis-layout-toolbar select').select_option('stacked');self.settle()
+        self.page.evaluate('() => {window.visualHeight=v.visuals.host.clientHeight;}')
+        self.page.locator('#statsOverlay .analysis-dock-host .ad-splitter[aria-orientation=horizontal]').focus();self.page.keyboard.press('ArrowDown');self.settle()
+        self.assertJS('v.visuals.host.clientHeight>visualHeight')
 
     def test_29_visual_errors_do_not_hide_or_corrupt_records(self):
         self.bare([{'key':1,'values':['Overflow',1e308,'A']},{'key':2,'values':['Overflow',1e308,'A']}]);self.page.evaluate('v.visuals.state.measure=1;v.visuals.schedule()');self.settle()

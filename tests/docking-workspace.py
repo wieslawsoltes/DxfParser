@@ -221,6 +221,7 @@ class DockingTests(unittest.TestCase):
         self.settle()
         self.assertJS("w.manager.Find('render-blocks').IsSelected && w.isOpen('render-layers')")
         self.page.evaluate("w.show('render-layers')"); self.settle()
+        self.page.locator('#renderingOverlayLayerManager .analysis-heading').get_by_role('button', name='Details', exact=True).click(); self.settle()
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).uncheck(); self.settle()
         self.assertJS("!document.querySelector('input[data-action=\"toggle-on\"]').checked")
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).check(); self.settle()

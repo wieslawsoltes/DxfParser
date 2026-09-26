@@ -95,6 +95,10 @@ Factories require a real browser window when called, but module import is safe i
 Node/SSR. Dispose every view and registry when its owner is removed; this package
 does not own or dispose the supplied browser or vendor libraries.
 
+Docked bar charts use pane-sized SVG geometry to retain readable labels. Dense
+matrices and relationship graphs scroll instead of reducing text to miniature sizes;
+preview cards adapt to the pane width.
+
 ## Packaging
 
 ES modules are the canonical sources. Native browser imports need no build or

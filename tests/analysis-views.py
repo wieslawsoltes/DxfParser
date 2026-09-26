@@ -133,6 +133,7 @@ class AnalysisTests(unittest.TestCase):
         self.launch('showHandleMapOverlayBtn','overlayHandleMapContent')
         self.page.evaluate("window.source=app.documentWorkspace.active;window.target=v.allRows.filter(r=>r.values[0]==='E1')[1];v.search.value='E1';v.refresh();v.selectKey(target.key);w.manager.Find('handleMapOverlay').Dock()")
         self.fixture('Right','other.dxf');self.page.evaluate("w.show('handleMapOverlay')");self.settle()
+        self.page.locator('#handleMapOverlay').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.locator('#handleMapOverlay > .overlay-content .analysis-details > .dxf-grid-actions').get_by_role('button',name='Show in Tree',exact=True).click();self.settle()
         self.assertJS("app.documentWorkspace.active===source && source.grid.selectedRowId===target.node.id && w.isOpen('handleMapOverlay')")
 

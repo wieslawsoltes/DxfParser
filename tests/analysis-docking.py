@@ -83,10 +83,10 @@ class DockingAnalysisTests(unittest.TestCase):
                 self.page.evaluate('() => {for(const model of [...w.manager.Layout.FloatingWindows]) for(const item of model.Descendents()) if(item.ContentId) w.hide(item.ContentId);}')
     def test_dock_11_expand_analysis_preserves_source_selection(self):
         h.DockingTests.load(self);a.AnalysisTests.fixture(self);a.AnalysisTests.launch(self,'showStatsOverlayBtn','overlayStatsContent')
-        self.page.evaluate('() => {v.selectIndex(0);window.key=v.selectedKey;window.grid=v.grid;}')
+        self.page.evaluate('() => {v.selectIndex(0);window.key=v.selectedKey;window.grid=v.grid;window.beforeExpand=v.main.clientHeight;}')
         self.page.locator('#statsOverlay').get_by_role('button',name='Expand analysis',exact=True).click();self.settle()
         self.assertJS('w.manager.Find("statsOverlay").FindParent(AvalonDock.LayoutFloatingWindow).IsMaximized && v.selectedKey===key && v.grid===grid')
-        self.assertJS('v.main.clientHeight>450')
+        self.assertJS('v.main.clientHeight>beforeExpand+40 && v.main.clientHeight>350')
     def test_dock_12_workspace_disposal_retires_report_layouts(self):
         h.DockingTests.load(self);a.AnalysisTests.fixture(self);a.AnalysisTests.launch(self,'showStatsOverlayBtn','overlayStatsContent')
         self.page.evaluate('() => {window.old=v.docking;w.dispose();}');self.settle()
@@ -102,5 +102,12 @@ class DockingAnalysisTests(unittest.TestCase):
         self.page.reload(wait_until='domcontentloaded');self.page.wait_for_function('window.analysisDemo?.v.docking');self.settle()
         self.assertJS("analysisDemo.v.docking.preset==='stacked' && !analysisDemo.v.docking.isOpen('visual') && analysisDemo.v.docking.isVisible('records') && analysisDemo.v.rows.length===60")
         self.assertJS("!localStorage.getItem('demo.analysis.Equipment analysis').includes('Equipment 59')")
+
+    def test_dock_15_chart_labels_remain_readable_in_split_panes(self):
+        self.assertJS('v.visuals.diagram.viewBox.baseVal.width < 400 && v.visuals.diagram.getScreenCTM().a >= .98')
+        self.page.evaluate("() => {d.focus('visual');}");self.settle()
+        self.assertJS('v.visuals.diagram.viewBox.baseVal.width > 1000 && v.visuals.diagram.getScreenCTM().a >= .98')
+        self.page.locator('#primary').get_by_role('button',name='Restore panes',exact=True).click();self.settle()
+        self.assertJS('v.visuals.diagram.viewBox.baseVal.width < 400 && v.visuals.diagram.getScreenCTM().a >= .98')
 
 if __name__=='__main__':unittest.main(verbosity=2)

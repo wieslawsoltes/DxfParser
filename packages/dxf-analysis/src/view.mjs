@@ -139,12 +139,14 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       // A frozen 220px identity column must not cover every action in a narrow dock.
       this.resizeObserver = new ResizeObserver(entries => {
         if (this.disposed) return;
-        const width = entries[0]?.contentRect.width || 0;
+        const size = entries.find(entry => entry.target === this.host)?.contentRect;
+        if (size && this.docking) this.host.classList.toggle('analysis-compact', size.height < 380);
+        const width = entries.find(entry => entry.target === this.grid)?.contentRect.width || 0;
         if (!width) return;
         const frozen = width >= 500 ? 1 : 0;
         if (this.grid.FrozenColumns !== frozen) this.grid.FrozenColumns = frozen;
       });
-      this.resizeObserver.observe(this.grid);
+      this.resizeObserver.observe(this.grid); this.resizeObserver.observe(this.host);
       this.off = [this.treeModel.RowSelection.SelectionChanged.Subscribe(() => {
         if (this.updating) return;
         this.selectRow(this.treeModel.RowSelection.SelectedItems[0] || null);
@@ -557,8 +559,9 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.visualFilter = state.visualFilter ? {label:state.visualFilter.label,keys:new Set(state.visualFilter.keys)} : null; this.pinned = state.pinned;
       this.buildFacets(); this.refresh(); this.applySort();
       if (state.view) { try { this.grid.RestoreViewState(state.view); } catch (_) { /* Column schemas can evolve independently. */ } }
-      this.toggleDetails(state.details !== false); this.setMode(state.mode || 'records'); this.visuals?.restore(state.visual);
+      this.toggleDetails(state.details !== false); this.setMode(state.mode || 'records');
       if (state.docking && this.docking) { try { this.docking.restoreState(state.docking); } catch (_) { this.docking.reset(); } }
+      this.visuals?.restore(state.visual);
       if (state.width) { this.detailWidth = state.width; this.host.style.setProperty('--analysis-detail-width', state.width + 'px'); }
       for (const [column, check] of this.columnChecks) check.checked = column.IsVisible !== false;
       if (this.detailTabs?.querySelector(`[data-tab="${state.detailTab}"]`)) this.showDetail(state.detailTab);

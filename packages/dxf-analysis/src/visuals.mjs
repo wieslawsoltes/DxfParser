@@ -98,7 +98,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             return;
             this.state.layout = layout;
             if (this.view.docking) {
-                if (layout === 'visual') this.view.docking.focus('visual');
+                if (layout === 'visual') { if (this.view.docking.focused !== 'visual') this.view.docking.focus('visual'); }
                 else { this.view.docking.restoreFocus(); if (layout === 'data') this.view.docking.hide('visual'); else this.view.docking.show('visual'); }
             }
             this.layout(); this.view.refreshLayout(); }
@@ -241,17 +241,22 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             e.stopPropagation();
             fn();
         } }; }
-        makeSvg(height = 240) { const n = svg('svg', { viewBox: `0 0 760 ${height}`, role: 'group', 'aria-label': this.view.title + ' ' + this.state.kind, preserveAspectRatio: 'xMidYMid meet' }); n.append(svg('title', {}, this.view.title)); this.body.append(n); this.diagram = n; this.save.disabled = false; return n; }
+        makeSvg(height = 240, width = 760) { const n = svg('svg', { viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-label': this.view.title + ' ' + this.state.kind, preserveAspectRatio: 'xMidYMid meet' }); n.append(svg('title', {}, this.view.title)); if (this.view.docking) n.style.minWidth = width + 'px'; this.body.append(n); this.diagram = n; this.save.disabled = false; return n; }
         drawBars(buckets, unit) {
-            const n = this.makeSvg(Math.max(145, buckets.length * 27 + 26)), max = Math.max(1, ...buckets.map(b => b.value));
-            n.append(svg('text', { x: 280, y: 15, class: 'av-muted' }, unit));
+            // Docked charts use CSS-pixel geometry so a narrow pane does not shrink
+            // twelve-pixel labels to four pixels. Only dense diagrams scroll.
+            const width = this.view.docking ? Math.max(240, Math.min(1600, this.body.clientWidth - 16)) : 760;
+            const labelWidth = this.view.docking ? Math.max(80, Math.min(270, width * .36)) : 280;
+            const plotWidth = this.view.docking ? Math.max(60, width - labelWidth - 86) : 384;
+            const n = this.makeSvg(Math.max(145, buckets.length * 27 + 26), width), max = Math.max(1, ...buckets.map(b => b.value));
+            n.append(svg('text', { x: labelWidth, y: 15, class: 'av-muted' }, short(unit, Math.max(8, Math.floor((width - labelWidth) / 7)))));
             buckets.forEach((b, i) => {
                 const y = 24 + i * 27, g = svg('g', { 'data-bucket': b.key, class: 'av-bar' });
                 g.append(svg('title', {}, `${b.label}: ${fmt(b.value)} ${unit}; ${fmt(b.count)} records`));
-                g.append(svg('rect', { x: 0, y, width: 758, height: 25, fill: 'transparent' }));
-                g.append(svg('text', { x: 8, y: y + 17, class: 'av-label' }, short(b.label, 37)));
-                g.append(svg('rect', { x: 280, y: y + 4, width: Math.max(0, b.value / max * 384), height: 17, rx: 3, class: 'av-fill' }));
-                g.append(svg('text', { x: 750, y: y + 17, 'text-anchor': 'end', class: 'av-number' }, fmt(b.value)));
+                g.append(svg('rect', { x: 0, y, width: width - 2, height: 25, fill: 'transparent' }));
+                g.append(svg('text', { x: 8, y: y + 17, class: 'av-label' }, short(b.label, Math.max(8, Math.floor((labelWidth - 12) / 7)))));
+                g.append(svg('rect', { x: labelWidth, y: y + 4, width: Math.max(0, b.value / max * plotWidth), height: 17, rx: 3, class: 'av-fill' }));
+                g.append(svg('text', { x: width - 10, y: y + 17, 'text-anchor': 'end', class: 'av-number' }, fmt(b.value)));
                 const active = this.view.visualFilter && b.keys.length && b.keys.every(k => this.view.visualFilter.keys.has(k));
                 g.setAttribute('aria-pressed', String(!!active));
                 this.activate(g, () => this.filter(b), `${b.label}: ${fmt(b.value)} ${unit}; filter ${b.count} records`);
@@ -261,16 +266,18 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         drawMatrix(rows) {
             const m = M.matrix(rows, this.state.x, this.state.y), max = Math.max(1, ...m.cells.flat().map(c => c.value));
             this.chartTitle = 'Matrix cells';
-            const n = this.makeSvg(Math.max(150, 42 + m.ys.length * 28)), width = 520 / Math.max(1, m.xs.length);
-            m.xs.forEach((b, i) => n.append(svg('text', { x: 230 + (i + .5) * width, y: 23, 'text-anchor': 'middle', class: 'av-muted' }, short(b.label, Math.floor(width / 7)))));
+            const labelWidth = this.view.docking ? 172 : 230;
+            const totalWidth = this.view.docking ? Math.max(labelWidth + m.xs.length * 64 + 10, this.body.clientWidth - 16) : 760;
+            const n = this.makeSvg(Math.max(150, 42 + m.ys.length * 28), totalWidth), width = (totalWidth - labelWidth - 10) / Math.max(1, m.xs.length);
+            m.xs.forEach((b, i) => n.append(svg('text', { x: labelWidth + (i + .5) * width, y: 23, 'text-anchor': 'middle', class: 'av-muted' }, short(b.label, Math.floor(width / 7)))));
             m.ys.forEach((b, y) => {
-                n.append(svg('text', { x: 8, y: 61 + y * 28, class: 'av-label' }, short(b.label, 30)));
+                n.append(svg('text', { x: 8, y: 61 + y * 28, class: 'av-label' }, short(b.label, Math.floor((labelWidth - 12) / 7))));
                 m.xs.forEach((x, i) => {
                     const c = m.cells[y][i], bucket = { ...c, label: b.label + ' / ' + x.label, count: c.value, key: `${y}:${i}` };
                     this.chartData.push(bucket);
                     const g = svg('g', { class: 'av-cell' });
-                    g.append(svg('rect', { x: 230 + i * width, y: 42 + y * 28, width: width - 3, height: 25, rx: 3, class: 'av-fill', opacity: c.value ? .22 + .68 * c.value / max : .08 }));
-                    g.append(svg('text', { x: 230 + (i + .5) * width, y: 60 + y * 28, 'text-anchor': 'middle', class: 'av-number' }, c.value));
+                    g.append(svg('rect', { x: labelWidth + i * width, y: 42 + y * 28, width: width - 3, height: 25, rx: 3, class: 'av-fill', opacity: c.value ? .22 + .68 * c.value / max : .08 }));
+                    g.append(svg('text', { x: labelWidth + (i + .5) * width, y: 60 + y * 28, 'text-anchor': 'middle', class: 'av-number' }, c.value));
                     g.append(svg('title', {}, bucket.label + ': ' + c.value));
                     if (c.value) {
                         g.setAttribute('aria-pressed', String(!!this.view.visualFilter && c.keys.every(k => this.view.visualFilter.keys.has(k))));

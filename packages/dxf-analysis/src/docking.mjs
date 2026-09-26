@@ -186,8 +186,9 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
             const next = analysisArrangement(width, height, this.preset);
             if (width > 0 && height > 0 && !this.custom && !this.focused && next !== this.arrangement) {
                 const visible = [...this.panels.keys()].filter(id => this.isOpen(id));
+                const active = this.manager.ActiveModel?.ContentId;
                 this.arrangement = next; this.suppress++;
-                try { this.manager.Layout = this.build(next, visible); this.manager.Activate('records'); }
+                try { this.manager.Layout = this.build(next, visible); this.manager.Activate(visible.includes(active) ? active : 'records'); }
                 finally { this.fingerprint = this.structure(); this.suppress--; }
             }
             this.container.dataset.arrangement = this.custom ? 'custom' : this.arrangement;
