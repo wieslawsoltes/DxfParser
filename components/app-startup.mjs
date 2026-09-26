@@ -4,6 +4,7 @@ import './docking-documents.js';
 import './inspection-services.mjs';
 import './tree-view.mjs';
 import './analysis-services.mjs';
+import './batch-data-grid.js';
 import './office-preview.js';
 import './tabular-reports.js';
 import './analysis-reports.js';

@@ -87,6 +87,60 @@ presentation under a host-selected `storageKey`. No storage is accessed by defau
 Use `docking: false` for small embedded related tables; full drill-down views can
 still have docking. Disposing a report retires its layout and all owned controls.
 
+## Dockable result documents
+
+`createReportWorkspace` hosts several independent report documents and optional
+host-owned query controls in a native Dockyard layout. It receives a registered
+Dockyard API and a report-view factory; it does not import an application or start
+one. Load the host's Dockyard theme and this package's `styles.css`.
+
+```js
+import { createReportWorkspace } from '@wieslawsoltes/dxf-analysis';
+const Results = createReportWorkspace({
+    window, dockyard: Dockyard,
+    createView: (container, options) => new ui.AnalysisView(container, options)
+});
+const reports = new Results({
+    container: document.getElementById('results'),
+    controls: document.getElementById('query'), controlsTitle: 'Query'
+});
+const first = reports.add({ title: 'Equipment', columns: ['Tag', 'Type'] });
+reports.appendMany(first.id, [
+    { key: 1, values: ['P-101', 'Pump'] },
+    { key: 2, values: ['V-201', 'Valve'] }
+]);
+reports.arrange('horizontal');
+// When removing the owning component:
+reports.dispose();
+```
+
+Result tabs can be split, floated in-page, redocked, and closed independently.
+Query controls use a resizable sidebar when there is sufficient space, and share
+the tab strip in compact hosts. **Focus results** hides the query pane without
+resetting the report; **Query** reveals it again. Automatic width changes preserve
+the active pane and stop rearranging a manually customized layout. Explicit result
+arrangements reset that customization. Nested AnalysisView records, charts, details,
+filters, selection and spreadsheet state are retained when moving documents.
+
+Each result owns a `ReportBuffer`: appends publish once per animation frame;
+`flush(id)` provides synchronous publication. Default limits are 32 open results
+and 250,000 rows per result. Exceeding a limit rejects before appending rows or
+creating a document. These are configurable host budgets, not rendering-performance
+claims. Closing a result cancels pending publication, disposes its view and releases
+Dockyard's retained content. Late appends to closed IDs reject. Cleanup observers
+cannot stop other documents from being disposed. Query controls remain host-owned
+and are returned to the container on disposal.
+
+The outer result-document manager intentionally has no layout history or storage:
+closing a query result is final and cannot resurrect disposed callbacks or source
+files through layout undo. Per-report pane history remains available. Hosts own
+query execution, cancellation, row actions and any result export/persistence.
+
+`ReportBuffer` is also usable without a DOM. Its scheduler must invoke callbacks
+asynchronously. Failed publication keeps rows for an explicit retry and reports the
+error without creating an automatic retry loop. Snapshot arrays are copies; row
+objects and action closures remain host-owned values, not serialized data.
+
 ## Integration boundary
 
 There are no imports of the DxfParser app, its selectors, or its vendor paths.

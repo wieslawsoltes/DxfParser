@@ -11,7 +11,8 @@
   "analysis": [
     "analysis-views",
     "analysis-visuals",
-    "analysis-docking"
+    "analysis-docking",
+    "report-workspace"
   ],
   "drawings": [
     "skia-workspace",

@@ -9,8 +9,14 @@ const ui = createAnalysisUI({
     },
     onExpand(view) {
         const workspace = (window.app || window.DxfEditorApp)?.dockingWorkspace;
-        const id = view.host.closest('[data-ad-content]')?.dataset.adContent;
-        const model = workspace?.manager.Find(id);
+        // Reports can live in a result-document manager inside this workspace.
+        // Resolve the actual enclosing application content, not the nearest
+        // nested manager's ContentId (which may also be reused by other views).
+        let model = null;
+        for (let node = view.host; workspace?.host.contains(node); node = node.parentElement) {
+            const id = node.dataset?.adContent, candidate = id && workspace.manager.Find(id);
+            if (candidate?.Content?.contains?.(view.host)) { model = candidate; break; }
+        }
         if (!model) return;
         const A = window.AvalonDock, manager = workspace.manager;
         manager.Transaction('Expand analysis', () => {

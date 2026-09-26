@@ -1,57 +1,55 @@
-/* Batch query results use interactive records with an optional GridWeb sheet. */
+import { createReportWorkspace } from '../packages/dxf-analysis/index.mjs';
+import './analysis-services.mjs';
+
+// Application bridge only: result hosting and buffering belong to dxf-analysis.
+const ReportWorkspace = createReportWorkspace({
+    window, dockyard: window.AvalonDock,
+    createView: (container, options) => new window.DxfAnalysis.AnalysisView(container, options)
+});
+
 class BatchDataGrid {
-  constructor(tabHeadersContainer, tabContentsContainer) {
-    this.tabHeadersContainer = tabHeadersContainer;
-    this.tabContentsContainer = tabContentsContainer;
-    this.tabs = Object.create(null); this.activeTabId = null; this.sequence = 0;
-  }
-  addTab(fileName) {
-    const id = 'batch-tab-' + ++this.sequence;
-    const header = document.createElement('div'); header.className = 'batch-tab-header';
-    header.dataset.tabId = id; header.textContent = fileName; header.tabIndex = 0;
-    header.setAttribute('role', 'tab');
-    const close = document.createElement('button'); close.type = 'button'; close.textContent = '×';
-    close.setAttribute('aria-label', 'Close ' + fileName);
-    close.addEventListener('click', e => { e.stopPropagation(); this.removeTab(id); });
-    header.append(close); header.addEventListener('click', () => this.switchTab(id));
-    header.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.switchTab(id); } });
-    const content = document.createElement('div'); content.className = 'batch-tab-content'; content.dataset.tabId = id;
-    content.style.height = '100%'; content.setAttribute('role', 'tabpanel');
-    this.tabHeadersContainer.append(header); this.tabContentsContainer.append(content);
-    const view = new (window.DxfAnalysis?.AnalysisView || DxfGrid.GridView)(content, { title: 'Batch Results · ' + fileName,
-      columns: [{ title: '#', width: 70 }, { title: 'File', width: 300 }, { title: 'Line', width: 90 }, { title: 'Data', width: 500 }] });
-    this.tabs[id] = { fileName, header, content, view, rows: [], frame: 0 };
-    this.switchTab(id); return id;
-  }
-  addRow(id, row) {
-    const tab = this.tabs[id]; if (!tab) return;
-    tab.rows.push(row);
-    // A batch query can append thousands of results in a single turn. Rebuild once per frame.
-    if (!tab.frame) tab.frame = requestAnimationFrame(() => { tab.frame = 0; this.updateVirtualizedResults(id); });
-  }
-  updateVirtualizedResults(id) {
-    const tab = this.tabs[id]; if (!tab) return;
-    tab.view.setRows(tab.rows.map((row, index) => ({ key: index, values: [index + 1, row.file, row.line, row.data],
-      actions: [{ label: 'Open file at line', run: () => window.app.openFileTab(row.fileObject, row.line) }] })));
-  }
-  syncHeaderWidths(id) { const view=this.tabs[id]?.view; if(view?.refreshLayout) view.refreshLayout(); else view?.grid.Refresh(); }
-  switchTab(id) {
-    if (!this.tabs[id]) return;
-    this.activeTabId = id;
-    for (const [key, tab] of Object.entries(this.tabs)) {
-      tab.content.style.display = key === id ? 'block' : 'none';
-      tab.header.setAttribute('aria-selected', String(key === id));
-      tab.header.style.fontWeight = key === id ? 'bold' : 'normal';
-      if (key === id) { if(tab.view.refreshLayout) tab.view.refreshLayout(); else tab.view.grid.Refresh(); }
+    constructor(tabHeadersContainer, tabContentsContainer) {
+        this.tabs = Object.create(null);
+        this.sequence = 0;
+        this.disposed = false;
+        this.tabHeadersContainer = tabHeadersContainer;
+        this.tabContentsContainer = tabContentsContainer;
+        const overlay = document.getElementById('batchProcessingOverlay');
+        const controls = overlay.querySelector('.batch-search-container');
+        this.controls = controls;
+        tabHeadersContainer.hidden = true;
+        overlay.classList.add('analysis-batch-workspace');
+        controls.classList.add('analysis-batch-query');
+        this.documents = new ReportWorkspace({
+            container: tabContentsContainer, controls, title: 'Batch analysis', controlsTitle: 'Query',
+            onClose: entry => { delete this.tabs[entry.id]; }
+        });
     }
-  }
-  removeTab(id) {
-    const tab = this.tabs[id]; if (!tab) return;
-    cancelAnimationFrame(tab.frame); tab.view.dispose(); tab.header.remove(); tab.content.remove(); delete this.tabs[id];
-    if (this.activeTabId === id) { this.activeTabId = null; const next = Object.keys(this.tabs)[0]; if (next) this.switchTab(next); }
-  }
-  getAllTabs() { return this.tabs; }
-  dispose() { for (const id of Object.keys(this.tabs)) this.removeTab(id); }
+
+    get activeTabId() { return this.documents.activeId; }
+    addTab(fileName) {
+        const id = 'batch-tab-' + ++this.sequence;
+        const entry = this.documents.add({ id, title: 'Batch Results · ' + fileName,
+            columns: [{ title: '#', width: 70 }, { title: 'File', width: 300 }, { title: 'Line', width: 90 }, { title: 'Data', width: 500 }] });
+        this.tabs[id] = { fileName, content: entry.content, view: entry.view, rows: [] };
+        return id;
+    }
+    addRow(id, row) {
+        const tab = this.tabs[id]; if (!tab || this.disposed) return;
+        const index = tab.rows.length;
+        this.documents.append(id, { key: index, values: [index + 1, row.file, row.line, row.data],
+            actions: [{ label: 'Open file at line', run: () => window.app.openFileTab(row.fileObject, row.line) }] });
+        tab.rows.push(row);
+    }
+    updateVirtualizedResults(id) { if (this.tabs[id]) this.documents.flush(id); }
+    syncHeaderWidths() { this.documents.refreshLayout(); }
+    switchTab(id) { if (this.tabs[id]) this.documents.activate(id); }
+    removeTab(id) { return this.documents.remove(id); }
+    getAllTabs() { return this.tabs; }
+    setTheme(theme) { if (!this.disposed) this.documents.setTheme(theme); }
+    dispose() {
+        if (this.disposed) return;
+        this.disposed = true; this.documents.dispose(); this.tabs = Object.create(null);
+    }
 }
-let gOldText = '';
-let gNewText = '';
+window.BatchDataGrid = BatchDataGrid;

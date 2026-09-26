@@ -94,3 +94,48 @@ export interface AnalysisLayout {
     setTheme(theme: string): void; dispose(): void;
 }
 export function createAnalysisDocking(host: { window: Window & typeof globalThis; dockyard: object }): new (options: AnalysisLayoutOptions) => AnalysisLayout;
+
+/** A bounded record sink with host-supplied asynchronous scheduling. */
+export class ReportBuffer<T = ReportRow> {
+    constructor(options: {
+        publish: (rows: T[]) => void;
+        schedule: (callback: () => void) => unknown;
+        cancel: (token: unknown) => void;
+        onError?: (error: unknown) => void;
+        maxRows?: number;
+    });
+    readonly count: number; readonly disposed: boolean;
+    snapshot(): T[]; append(row: T): number; appendMany(rows: T[]): number;
+    replace(rows: T[]): void; flush(): void; dispose(): void;
+}
+export type ResultLayout = 'tabs' | 'horizontal' | 'vertical';
+export function reportWorkspaceArrangement(width: number, height: number, mode?: ResultLayout): {
+    compact: boolean; mode: ResultLayout;
+};
+export interface ResultDocument<K = RowKey> {
+    readonly id: string; readonly title: string; readonly content: HTMLElement;
+    readonly view: RecordView<K> & { refreshLayout?(): void };
+    readonly buffer: ReportBuffer<ReportRow<K>>; readonly disposed: boolean;
+}
+export interface ReportWorkspaceOptions<K = RowKey> {
+    container: HTMLElement; controls?: HTMLElement | null; controlsTitle?: string; title?: string;
+    maxDocuments?: number; maxRows?: number;
+    onClose?: (entry: ResultDocument<K>) => void;
+    onActiveChange?: (entry: ResultDocument<K> | null) => void;
+    onError?: (error: unknown) => void;
+}
+export interface ReportWorkspace<K = RowKey> {
+    readonly root: HTMLElement; readonly host: HTMLElement; readonly container: HTMLElement;
+    readonly disposed: boolean; readonly activeId: string | null;
+    readonly entries: ReadonlyMap<string, ResultDocument<K>>;
+    add(options?: ReportOptions<K> & { id?: string }): ResultDocument<K>;
+    append(id: string, row: ReportRow<K>): number;
+    appendMany(id: string, rows: ReportRow<K>[]): number;
+    flush(id: string): void; activate(id: string): void; remove(id: string): boolean;
+    arrange(mode: ResultLayout): void; showControls(): void; focusResults(): void;
+    refreshLayout(): void; setTheme(theme: string): void; dispose(): void;
+}
+export function createReportWorkspace<K = RowKey>(host: {
+    window: Window & typeof globalThis; dockyard: object;
+    createView(container: HTMLElement, options: ReportOptions<K>): RecordView<K> & { refreshLayout?(): void };
+}): new (options: ReportWorkspaceOptions<K>) => ReportWorkspace<K>;
