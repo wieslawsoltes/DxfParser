@@ -1,0 +1,139 @@
+diff --git a/components/batch-data-grid.js b/components/batch-data-grid.js
+index 96b49fc..fac9bd8 100644
+--- a/components/batch-data-grid.js
++++ b/components/batch-data-grid.js
+@@ -30,7 +30,7 @@ class BatchDataGrid {
+     addTab(fileName) {
+         const id = 'batch-tab-' + ++this.sequence;
+         const entry = this.documents.add({ id, title: 'Batch Results · ' + fileName,
+-            columns: [{ title: '#', width: 70 }, { title: 'File', width: 300 }, { title: 'Line', width: 90 }, { title: 'Data', width: 500 }] });
++            columns: [{ title: '#', width: 56, minWidth: 48 }, { title: 'File', width: 180 }, { title: 'Line', width: 80 }, { title: 'Data', width: '2*' }] });
+         this.tabs[id] = { fileName, content: entry.content, view: entry.view, rows: [] };
+         return id;
+     }
+diff --git a/packages/dxf-analysis/README.md b/packages/dxf-analysis/README.md
+index 85d8b07..62034ed 100644
+--- a/packages/dxf-analysis/README.md
++++ b/packages/dxf-analysis/README.md
+@@ -56,6 +56,10 @@ The returned API includes `GridView`, `AnalysisView`, `AnalysisVisuals`,
+ factory call owns its dependency references and presentation bookkeeping; the
+ factory does not overwrite `window.DxfGrid` or `window.DxfAnalysis`.
+ 
++Column `width` accepts pixel numbers or host grid-length strings such as `2*`.
++`minWidth` overrides the default minimum in CSS pixels (with a 32-pixel floor),
++so short index columns do not consume the width needed for record content.
++
+ Rows may supply action callbacks, child rows, metadata, or retained DOM sources.
+ Source-bound actions invoke `activateSource` when the view is beneath an element
+ with `data-source-tab-id`. Without that callback, source lifecycle belongs entirely
+diff --git a/packages/dxf-analysis/index.d.mts b/packages/dxf-analysis/index.d.mts
+index fbcd155..bf279b2 100644
+--- a/packages/dxf-analysis/index.d.mts
++++ b/packages/dxf-analysis/index.d.mts
+@@ -5,7 +5,7 @@ export interface ReportRow<K = RowKey> {
+     source?: HTMLElement; actions?: ReportAction<K>[]; metadata?: unknown;
+     related?: () => ReportOptions<K>[]; [metadata: string]: unknown;
+ }
+-export interface ReportColumn { title: string; width?: number; [option: string]: unknown; }
++export interface ReportColumn { title: string; width?: number | string; minWidth?: number; [option: string]: unknown; }
+ export interface ReportOptions<K = RowKey> {
+     title?: string; columns?: (string | ReportColumn)[]; rows?: ReportRow<K>[];
+     height?: number; showDetails?: boolean; docking?: false; emptyMessage?: string;
+diff --git a/packages/dxf-analysis/src/report-workspace.mjs b/packages/dxf-analysis/src/report-workspace.mjs
+index 5758f5a..373f858 100644
+--- a/packages/dxf-analysis/src/report-workspace.mjs
++++ b/packages/dxf-analysis/src/report-workspace.mjs
+@@ -73,14 +73,14 @@ export function createReportWorkspace({ window: win, dockyard: D, createView } =
+             this.controlsButton.hidden = !controls;
+             this.select = element('select', 'report-workspace-select');
+             this.select.setAttribute('aria-label', 'Active result');
+-            this.select.addEventListener('change', () => this.activate(this.select.value), { signal: this.abort.signal });
++            this.select.addEventListener('change', () => this.perform(() => this.activate(this.select.value)), { signal: this.abort.signal });
+             this.toolbar.append(this.select);
+             this.layoutSelect = element('select', 'report-workspace-arrangement');
+             this.layoutSelect.setAttribute('aria-label', 'Result layout');
+             for (const [value, label] of [['tabs', 'Tabbed results'], ['horizontal', 'Results side by side'], ['vertical', 'Results stacked']]) {
+                 const option = element('option', '', label); option.value = value; this.layoutSelect.append(option);
+             }
+-            this.layoutSelect.addEventListener('change', () => this.arrange(this.layoutSelect.value), { signal: this.abort.signal });
++            this.layoutSelect.addEventListener('change', () => this.perform(() => this.arrange(this.layoutSelect.value)), { signal: this.abort.signal });
+             this.toolbar.append(this.layoutSelect);
+             this.focusButton = this.button('Focus results', () => this.focusResults());
+             this.focusButton.hidden = !controls;
+@@ -122,9 +122,12 @@ export function createReportWorkspace({ window: win, dockyard: D, createView } =
+ 
+         button(label, action) {
+             const node = element('button', '', label); node.type = 'button';
+-            node.addEventListener('click', () => { try { action(); } catch (error) { this.error(error); } }, { signal: this.abort.signal });
++            node.addEventListener('click', () => this.perform(action), { signal: this.abort.signal });
+             this.toolbar.append(node); return node;
+         }
++        perform(action) {
++            try { action(); } catch (error) { this.error(error); this.updateUI(); }
++        }
+         error(error) {
+             if (!this.disposed) { this.message.textContent = String(error?.message || error); this.message.hidden = false; }
+             try { this.onError?.(error); } catch (_) { /* An observer does not own report lifetime. */ }
+@@ -308,7 +311,10 @@ export function createReportWorkspace({ window: win, dockyard: D, createView } =
+                 const size = rect.width > 0 && rect.height > 0 ? `${rect.width}:${rect.height}` : 'hidden';
+                 if (size !== this.sizes.get(entry.id)) {
+                     this.sizes.set(entry.id, size);
+-                    if (size !== 'hidden') { entry.buffer.flush(); entry.view.refreshLayout?.(); }
++                    if (size !== 'hidden') {
++                        try { entry.buffer.flush(); entry.view.refreshLayout?.(); }
++                        catch (error) { this.error(error); }
++                    }
+                 }
+             }
+             this.updateUI();
+diff --git a/packages/dxf-analysis/src/view.mjs b/packages/dxf-analysis/src/view.mjs
+index 1609fb0..a10854b 100644
+--- a/packages/dxf-analysis/src/view.mjs
++++ b/packages/dxf-analysis/src/view.mjs
+@@ -113,7 +113,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
+         presentation.Columns.Add(key, { create: row => this.cell(row, i) });
+         const coreColumn = new C.TemplateColumn(column.title, key,
+           column.width || (i === 0 ? 220 : /description|text|value|details/i.test(column.title) ? '2*' : 140), {
+-            MinWidth: new C.GridLength(i === 0 ? 130 : 65), CompareAscending: valueCompare,
++            MinWidth: new C.GridLength(Number.isFinite(column.minWidth) ? Math.max(32, column.minWidth) : (i === 0 ? 130 : 65)), CompareAscending: valueCompare,
+             CompareDescending: (a, b) => -valueCompare(a, b)
+           }, 'analysis-column-' + i);
+         this.treeModel.Columns.Add(i === 0 ? new C.HierarchicalExpanderColumn(coreColumn, row => row.children || [],
+diff --git a/tests/report-workspace.py b/tests/report-workspace.py
+index dc75b29..89269d8 100644
+--- a/tests/report-workspace.py
++++ b/tests/report-workspace.py
+@@ -71,7 +71,7 @@ class ReportWorkspaceTests(unittest.TestCase):
+         self.assertJS('a.view.spreadsheet===sheet && a.view.treeModel===model && a.view.selectedKey===2 && !a.view.spreadsheet.grid.hidden')
+         self.page.evaluate("() => {r.arrange('horizontal');a.view.setMode('records');}");self.settle()
+         self.assertJS('a.view.selectedKey===2 && a.view.grid.clientHeight>300 && b.view.grid.clientHeight>300')
+-    def test_results_10_failed_factory_and_failed_dock_insertion_leave_no_ghost_documents(self):
++    def test_results_10_failed_dock_insertion_leaves_no_ghost_documents(self):
+         self.assertJS('''() => {const container=document.createElement('div');document.body.append(container);
+             const Type=reportDemo.Results;const workspace=new Type({container});const original=workspace.manager.AddDocument.bind(workspace.manager);
+             workspace.manager.AddDocument=model=>{original(model);throw new Error('insertion failed');};
+@@ -95,6 +95,7 @@ class ReportWorkspaceTests(unittest.TestCase):
+     def test_results_13_application_batch_results_use_full_height_docked_documents(self):
+         self.app()
+         self.assertJS('batch.documents.entries.size===2 && batch.tabs[batchA].view.grid.clientHeight>250 && batch.tabs[batchB].view.grid.clientHeight>250')
++        self.assertJS('batch.tabs[batchA].view.grid.shadowRoot.querySelector("[role=columnheader]").getBoundingClientRect().width<90')
+         self.assertJS('batch.controls.clientHeight>400 && batch.tabs[batchA].rows.length===30 && document.getElementById("batchJsQuery").isConnected')
+     def test_results_14_application_expand_resolves_outer_owner_and_actions_keep_files(self):
+         self.app()
+@@ -115,4 +116,16 @@ class ReportWorkspaceTests(unittest.TestCase):
+         self.page.keyboard.press('ArrowRight');self.settle()
+         self.assertJS('r.controls.clientWidth!==queryWidth && !a.view.disposed && !b.view.disposed')
+ 
++    def test_results_17_locked_layout_change_reports_error_without_changing_selection(self):
++        self.page.evaluate('() => {r.manager.Find(b.id).CanMove=false;}')
++        field=self.page.locator('#primary [aria-label="Result layout"]');field.focus();self.settle()
++        self.page.evaluate('() => {window.beforeLocked=r.manager.SaveLayout();}')
++        field.select_option('vertical');self.settle()
++        self.assertJS('r.mode==="horizontal" && r.layoutSelect.value==="horizontal" && r.manager.SaveLayout()===beforeLocked')
++        self.assertIn('movable',self.page.locator('#primary .report-workspace-message').inner_text())
++    def test_results_18_one_report_resize_failure_does_not_interrupt_its_neighbor(self):
++        self.page.evaluate('() => {window.siblingResized=0;a.view.refreshLayout=()=>{throw new Error("report resize failed");};b.view.refreshLayout=()=>{siblingResized++;};r.sizes.clear();r.refreshLayout();}')
++        self.assertJS('siblingResized>0 && !a.disposed && !b.disposed')
++        self.assertIn('report resize failed',self.page.locator('#primary .report-workspace-message').inner_text())
++
+ if __name__=='__main__':unittest.main(verbosity=2)
