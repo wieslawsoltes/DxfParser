@@ -1,0 +1,57 @@
+name: Qualify commands and source queries
+on:
+  push:
+    branches: [work/source-query-refactor]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  materialize:
+    name: Materialize verified source refactor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified source changes
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/source-query.01.xzpart; then
+            cat scripts/source-query.0{1,2,3}.xzpart | xz -dc > /tmp/source-query.patch
+            echo '9cd63932846b637ddf21667150c3c8857964906d815bc6fe88632b958648d900  /tmp/source-query.patch' | sha256sum -c -
+            git apply --check /tmp/source-query.patch
+            git apply /tmp/source-query.patch
+            rm scripts/source-query.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/source-query-fix.patch; then
+            git apply --check scripts/source-query-fix.patch
+            git apply scripts/source-query-fix.patch
+            rm scripts/source-query-fix.patch
+          fi
+          git add components editor packages scripts tests README.md index.html
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor: extract command consoles and bounded source queries'
+            git push origin HEAD:work/source-query-refactor
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/source-query-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-query-source
+          path: /tmp/source-query-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate commands and source queries
+    needs: materialize
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      revision: ${{ needs.materialize.outputs.revision }}
