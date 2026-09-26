@@ -148,3 +148,32 @@ test('app and GPU entry points import the rendering adapter without relying on D
     const adapter = readFileSync(new URL('../components/rendering-services.mjs',import.meta.url),'utf8');
     assert.doesNotMatch(adapter, /class Rendering|SceneCompiler|new .*SurfaceHost/);
 });
+
+test('paint observers detach independently and do not overwrite the legacy callback', async () => {
+    const view=createView(),calls=[];const legacy=()=>calls.push('legacy');view.onPaint=legacy;
+    const callback=()=>calls.push('subscriber');const first=view.subscribePaint(callback),second=view.subscribePaint(callback);
+    first();assert.equal(first(),false);view.host.onPaint({diagnostics:[]});
+    assert.deepEqual(calls,['legacy','subscriber']);assert.equal(view.onPaint,legacy);second();
+    view.host.onPaint({diagnostics:[]});assert.deepEqual(calls,['legacy','subscriber','legacy']);await view.dispose();
+});
+test('paint and error delivery isolate exceptions and respect removal during dispatch', async () => {
+    const errors=[];const Factory=createRenderingServices({renderer:A,onObserverError:e=>errors.push(e.message)});
+    const view=new Factory.RenderingSurfaceManager({initialize:async()=>{throw new Error('unused');}});view.suspend();
+    const calls=[];let remove;
+    view.subscribePaint(()=>{calls.push(1);remove();view.subscribePaint(()=>calls.push(3));throw new Error('paint observer');});
+    remove=view.subscribePaint(()=>calls.push(2));view.host.onPaint({diagnostics:[]});assert.deepEqual(calls,[1]);
+    view.subscribeError(()=>{throw new Error('error observer');});view.subscribeError(e=>calls.push(e.message));
+    view.host.onError(new Error('native failure'));assert.equal(calls.at(-1),'native failure');
+    assert.deepEqual(errors,['paint observer','error observer']);await view.dispose();
+});
+test('disposal from a paint observer stops followers and drops every subscription', async () => {
+    const view=createView();let called=0;view.subscribePaint(()=>view.dispose());view.subscribePaint(()=>called++);
+    view.subscribeError(()=>called++);view.host.onPaint({diagnostics:[]});
+    assert.equal(called,0);assert.equal(view.paintListeners.size,0);assert.equal(view.errorListeners.size,0);
+    view.host.onError(new Error('late'));assert.equal(called,0);await view.dispose();
+    assert.throws(()=>view.subscribePaint(()=>{}),/disposed/);assert.throws(()=>view.subscribeError(()=>{}),/disposed/);
+});
+test('event subscription arguments fail before changing live listener sets', async () => {
+    const view=createView();for(const name of ['subscribeFrame','subscribePaint','subscribeError'])assert.throws(()=>view[name](42),TypeError);
+    assert.equal(view.frameListeners.size+view.paintListeners.size+view.errorListeners.size,0);await view.dispose();
+});

@@ -1,3 +1,4 @@
+import '../components/cad-workspace.js';
 import '../components/rendering-services.mjs';
 import '../components/docking-editor.js';
 import '../components/inspection-services.mjs';

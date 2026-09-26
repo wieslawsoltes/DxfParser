@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, 'test-results/component-packages');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dxf-component-consumer-'));
-const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view', 'dxf-state'];
+const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view', 'dxf-state', 'dxf-command-line'];
 const run = (command, args, cwd = temp) => execFileSync(command, args, {
     cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000
 });
@@ -37,8 +37,12 @@ for (const name of ${JSON.stringify(names)}) {
     const specifier = '@wieslawsoltes/' + name;
     const esm = await import(specifier), cjs = require(specifier);
     assert.equal(esm, cjs);
-    assert.equal(require(specifier + '/package.json').version, name === 'dxf-analysis' ? '0.3.0' : name === 'dxf-inspector' ? '0.2.0' : '0.1.0');
+    assert.equal(require(specifier + '/package.json').version, ['dxf-analysis','dxf-inspector'].includes(name) ? '0.3.0' : name === 'dxf-rendering-view' ? '0.2.0' : '0.1.0');
 }
+const commands = await import('@wieslawsoltes/dxf-command-line');
+assert.deepEqual(commands.parseCommand('layout "Sheet A"').args, ['Sheet A']);
+const commandSession = new commands.CommandSession({execute: command => command.command});
+assert.equal((await commandSession.submit('help')).value, 'HELP');commandSession.dispose();
 const I = await import('@wieslawsoltes/dxf-inspector');
 const source = ${JSON.stringify(['0','SECTION','2','ENTITIES','0','CIRCLE','5','A','10','0','20','0','40','2','0','ENDSEC','0','EOF',''].join('\n'))};
 const tree = new I.DxfParser().parse(source);
@@ -46,6 +50,12 @@ assert.equal(tree[0].children[0].type, 'CIRCLE');
 assert.equal(I.TreeDiffEngine.computeDiff(tree, tree).leftRowClasses.size, 0);
 assert.equal(I.inspectTree({originalTreeData:tree}).nodes.length,4);
 assert.equal(I.referenceIndex(I.inspectTree({originalTreeData:tree})).outgoing.size,0);
+const sourceMap = new WeakMap(), projected = I.filterSourceTree(tree, {objectTypes:['CIRCLE'],sourceMap});
+assert.equal(sourceMap.get(projected[0]), tree[0]);
+assert.equal(I.searchSourceTree(tree, {searchCode:5})[0].property, tree[0].children[0].properties.find(p=>p.code===5));
+assert.equal(I.selectSourceNodes(tree,node=>node.type==='CIRCLE')[0], tree[0].children[0]);
+I.sortSourceTree(projected,'objectCount');I.setSourceExpansion(projected,false);
+
 const dock=await import('@wieslawsoltes/dxf-analysis');
 assert.equal(dock.analysisArrangement(400,600),'tabs');
 const model = await import('@wieslawsoltes/dxf-analysis/models');
@@ -57,6 +67,14 @@ console.log('All installed component packages: isolated ESM/CJS identity, public
     fs.writeFileSync(path.join(temp, 'consumer.mjs'), consumer);
     process.stdout.write(run(process.execPath, ['consumer.mjs']));
     fs.writeFileSync(path.join(temp, 'consumer.mts'), `
+import { createCommandConsole, CommandSession, type CommandContext } from '@wieslawsoltes/dxf-command-line';
+const session = new CommandSession<number>({execute: (context: CommandContext) => context.args.length});
+session.submit('HELP').then(commandResult => { if (commandResult.status === 'ok') { const value: number = commandResult.value; } });
+const Console = createCommandConsole({window});
+const terminal = new Console({execute: context => context.write('Ready')});
+terminal.write('Test');terminal.dispose();session.dispose();
+// @ts-expect-error Commands are text, not arbitrary objects.
+session.submit({command:'HELP'});
 import { DxfParser, TreeDiffEngine, DXFDiagnosticsEngine, isHandleCode, inspectTree, referenceIndex, mtextPlain } from '@wieslawsoltes/dxf-inspector';
 import { createAnalysisUI, createAnalysisDocking, analysisArrangement, createReportWorkspace, ReportBuffer, type ReportRow } from '@wieslawsoltes/dxf-analysis';
 import { aggregate } from '@wieslawsoltes/dxf-analysis/models';
@@ -125,13 +143,30 @@ state.dispose();
 new StateManager({storage:{setItem(){}}});
 // @ts-expect-error Codec budgets are numbers, not strings.
 new StateCodec({maxTabs:'many'});
-void [id, diff, diagnosis, saveResult, restoredId];
+import { filterSourceTree, searchSourceTree, selectSourceNodes, sortSourceTree,
+    sourceSortValue, setSourceExpansion, DEFAULT_QUERY_LIMITS } from '@wieslawsoltes/dxf-inspector';
+const projected = filterSourceTree(tree,{objectTypes:['CIRCLE'],sourceMap:new WeakMap(),limits:{maxDepth:128}});
+const matchLine: number = searchSourceTree(tree,{searchCode:5,exact:true,maxResults:8})[0].line;
+const selectedNodes = selectSourceNodes(tree, node => node.type==='CIRCLE');
+sortSourceTree(projected,'objectCount',false);setSourceExpansion(projected,true);
+sourceSortValue(projected[0],'dataSize');
+// @ts-expect-error Unknown sort fields cannot be passed by typed consumers.
+sortSourceTree(tree,'unknown');
+// @ts-expect-error Predicates must be synchronous.
+selectSourceNodes(tree,async node => node.type==='CIRCLE');
+// @ts-expect-error Default budgets are immutable.
+DEFAULT_QUERY_LIMITS.maxDepth=4;
+void [id, diff, diagnosis, saveResult, restoredId,matchLine,selectedNodes];
 `);
     fs.writeFileSync(path.join(temp, 'consumer.cts'), `import inspector = require('@wieslawsoltes/dxf-inspector');
 const parser = new inspector.DxfParser();
 const tree = parser.parse('');
 import rendering = require('@wieslawsoltes/dxf-rendering-view');
 const factory: typeof rendering.createRenderingServices = rendering.createRenderingServices;
+import commands = require('@wieslawsoltes/dxf-command-line');
+const terminal = new commands.CommandSession({execute: context => context.command});
+terminal.submit('HELP').then(result => { if(result.status === 'ok') { const name: string = result.value; } });
+terminal.dispose();
 import state = require('@wieslawsoltes/dxf-state');
 const codec = new state.StateCodec({maxTreeNodes:8});
 void [tree, factory, codec];

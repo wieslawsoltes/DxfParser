@@ -1,7 +1,7 @@
 {
-  "name": "@wieslawsoltes/dxf-inspector",
-  "version": "0.3.0",
-  "description": "DXF source-tree parsing, structural comparison, diagnostics and binary inspection utilities",
+  "name": "@wieslawsoltes/dxf-command-line",
+  "version": "0.1.0",
+  "description": "Host-injected command console, bounded serial execution, argument parsing and draft-aware history",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -16,7 +16,8 @@
       "import": "./index.mjs",
       "require": "./index.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./styles.css": "./styles.css"
   },
   "files": [
     "src/",
@@ -24,15 +25,18 @@
     "index.cjs",
     "index.d.mts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "styles.css"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wieslawsoltes/DxfParser.git",
-    "directory": "packages/dxf-inspector"
+    "directory": "packages/dxf-command-line"
   }
 }

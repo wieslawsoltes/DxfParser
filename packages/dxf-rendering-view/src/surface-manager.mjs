@@ -27,6 +27,8 @@ export function createSurfaceManager(A, initialize, reportObserverError) {
             this.error = null;
             this.diagnostics = [];
             this.frameListeners = new Set();
+            this.paintListeners = new Set();
+            this.errorListeners = new Set();
             this.host = new A.SurfaceHost({
                 initialize: options.initialize || initialize, Skia: options.Skia,
                 backend: options.backend || 'auto', allowFallback: options.allowFallback,
@@ -42,12 +44,14 @@ export function createSurfaceManager(A, initialize, reportObserverError) {
                     this.stats = stats;
                     this.diagnostics = stats.diagnostics;
                     this.notify(this.onPaint, stats);
+                    this.emit(this.paintListeners, stats);
                     this.dispatch('dxf-skia-painted', stats);
                 },
                 onError: error => {
                     if (this.disposed) return;
                     this.error = error;
                     this.notify(this.onError, error);
+                    this.emit(this.errorListeners, error);
                     this.dispatch('dxf-skia-error', error);
                 }
             });
@@ -73,12 +77,23 @@ export function createSurfaceManager(A, initialize, reportObserverError) {
             }
         }
 
-        subscribeFrame(listener) {
+        subscribe(listeners, listener) {
             this.assertAlive();
-            if (typeof listener !== 'function') throw new TypeError('A frame listener is required.');
-            this.frameListeners.add(listener);
-            return () => this.frameListeners.delete(listener);
+            if (typeof listener !== 'function') throw new TypeError('An observer function is required.');
+            // Separate tokens allow independent consumers to subscribe the same callback.
+            const entry = { listener };
+            listeners.add(entry);
+            return () => listeners.delete(entry);
         }
+        emit(listeners, value) {
+            for (const entry of [...listeners]) {
+                if (this.disposed) break;
+                if (listeners.has(entry)) this.notify(entry.listener, value);
+            }
+        }
+        subscribeFrame(listener) { return this.subscribe(this.frameListeners, listener); }
+        subscribePaint(listener) { return this.subscribe(this.paintListeners, listener); }
+        subscribeError(listener) { return this.subscribe(this.errorListeners, listener); }
 
         static getVisualStylePresets() {
             return [
@@ -197,10 +212,7 @@ export function createSurfaceManager(A, initialize, reportObserverError) {
             this.lastFrame = frame;
             this.diagnostics = displayScene.diagnostics;
             this.host.request(frame, { selection: this.selectionHandles, blockHighlights: this.blockHighlights, grid: this.gridVisible });
-            for (const listener of [...this.frameListeners]) {
-                if (this.disposed) break;
-                if (this.frameListeners.has(listener)) this.notify(listener, frame);
-            }
+            this.emit(this.frameListeners, frame);
             return frame;
         }
 
@@ -253,6 +265,8 @@ export function createSurfaceManager(A, initialize, reportObserverError) {
                 this.clear();
                 this.disposed = true;
                 this.frameListeners.clear();
+                this.paintListeners.clear();
+                this.errorListeners.clear();
                 this.onPaint = this.onError = this.onCanvasReplaced = this.canPresent = null;
                 this.disposePromise = this.host.dispose();
             }

@@ -1,3 +1,4 @@
+import './cad-workspace.js';
 import './state-services.mjs';
 import './rendering-services.mjs';
 import './docking-parser.js';

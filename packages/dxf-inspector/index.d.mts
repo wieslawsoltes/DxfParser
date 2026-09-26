@@ -78,3 +78,35 @@ export function inspectTree<T extends InspectionSource>(source?: T | null): Insp
 export function referenceIndex(index: InspectionIndex): NonNullable<InspectionIndex['references']>;
 /** Bounded MTEXT text preview, not CAD typesetting. Source values remain unchanged. */
 export function mtextPlain(raw: unknown): string;
+
+/** Synchronous query budgets. Zero is valid for an empty source/result. */
+export interface SourceQueryLimits { maxNodes?: number; maxProperties?: number; maxDepth?: number; }
+export const DEFAULT_QUERY_LIMITS: Readonly<Required<SourceQueryLimits>>;
+export interface SourceQueryOptions { limits?: SourceQueryLimits; signal?: AbortSignal; }
+export interface SourceFilterOptions extends SourceQueryOptions {
+    codeTerms?: readonly (string | number)[]; dataTerms?: readonly string[];
+    dataExact?: boolean; dataCase?: boolean; minLine?: number | null; maxLine?: number | null;
+    objectTypes?: readonly string[];
+    /** Projection-to-canonical ownership. Properties retain their source identity. */
+    sourceMap?: WeakMap<DxfNode, DxfNode>;
+}
+export interface SourceSearchOptions extends SourceQueryOptions {
+    objectType?: string; searchText?: string; searchCode?: string | number;
+    exact?: boolean; dataCase?: boolean; maxResults?: number;
+}
+export interface SourceSearchMatch {
+    node: DxfNode; property: DxfTag | null; line: number; data: string;
+}
+/** New node/array projections retaining the existing workbench filter semantics. */
+export function filterSourceTree(nodes: DxfNode[], options?: SourceFilterOptions): DxfNode[];
+/** Original source node/property references, ordered in preorder; never truncated. */
+export function searchSourceTree(nodes: DxfNode[], options?: SourceSearchOptions): SourceSearchMatch[];
+/** A host-owned synchronous predicate; strings are never compiled or evaluated. */
+export function selectSourceNodes(nodes: DxfNode[], predicate: (node: DxfNode) => boolean,
+    options?: SourceQueryOptions & { maxResults?: number }): DxfNode[];
+export function sourceSortValue(node: DxfNode, field: ColumnKey, options?: SourceQueryOptions): string | number;
+/** In-place stable ordering. Preflight rejects invalid graphs/budgets/non-writable arrays before writes. */
+export function sortSourceTree(nodes: DxfNode[], field: ColumnKey, ascending?: boolean,
+    options?: SourceQueryOptions): DxfNode[];
+/** In-place expansion with preflight validation; expanding leaves without content is a no-op. */
+export function setSourceExpansion(nodes: DxfNode[], expanded: boolean, options?: SourceQueryOptions): DxfNode[];

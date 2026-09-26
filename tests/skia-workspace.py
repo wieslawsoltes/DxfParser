@@ -64,7 +64,7 @@ class SkiaWorkspaceTests(unittest.TestCase):
         self.settle();self.page.wait_for_function('m.host.paintCount>0 && !!m.stats');self.settle()
         self.assertJS('!m.error && m.lastFrame.scene===m.compiled')
     def command(self, value):
-        self.page.locator('#parserCadCommand').fill(value);self.page.locator('#parserCadCommand').press('Enter');self.settle()
+        self.page.locator('[data-cad-command=parser]').fill(value);self.page.locator('[data-cad-command=parser]').press('Enter');self.settle()
     def test_01_real_native_backend_and_no_old_renderer(self):
         self.render();self.assertJS("!!DxfSkia.SkiaPainter && m.host.painter instanceof DxfSkia.SkiaPainter && !!m.activeSurface && !DxfRendering.RenderEntityFactories && !DxfRendering.CanvasSurface && !DxfRendering.WebGLSurface")
         self.assertJS("m.canvas.dataset.renderer==='DxfSkia' && ['canvas','webgl','webgpu'].includes(m.canvas.dataset.skiaBackend)")
@@ -79,7 +79,7 @@ class SkiaWorkspaceTests(unittest.TestCase):
         self.render();self.page.evaluate('window.initial=m.lastFrame.scale')
         self.command('ZOOM 2');self.assertJS('Math.abs(m.lastFrame.scale/initial-2)<.0001')
         self.page.evaluate('window.before={...m.lastFrame.worldCenter}');self.command('PAN 30 15');self.assertJS('m.lastFrame.worldCenter.x!==before.x || m.lastFrame.worldCenter.y!==before.y')
-        self.page.locator('#parserCadCommand').press('ArrowUp');self.assertEqual('PAN 30 15',self.page.locator('#parserCadCommand').input_value())
+        self.page.locator('[data-cad-command=parser]').press('ArrowUp');self.assertEqual('PAN 30 15',self.page.locator('[data-cad-command=parser]').input_value())
         self.command('ZOOM EXTENTS');self.assertJS("m.lastFrame.viewState.mode==='auto' || m.viewState.mode==='auto'")
     def test_04_ribbon_views_use_real_three_dimensional_projection(self):
         self.render(drawing(LINE+[(0,'LINE'),(5,'Z1'),(10,0),(20,0),(30,0),(11,0),(21,0),(31,10)]))

@@ -62,3 +62,55 @@ The caller must rebuild after changing the source tree. Traversal terminates for
 shared/cyclic malformed trees; only first-visit parent edges contribute to subtree
 character totals. Character estimates are not DXF byte lengths. `mtextPlain` is a
 bounded readable preview, not a replacement for renderer typography.
+
+## Source filtering, search and ordering
+
+Version 0.3.0 includes source-level queries used by the workbench and batch search:
+
+```js
+import { filterSourceTree, searchSourceTree, sortSourceTree, selectSourceNodes,
+    setSourceExpansion } from '@wieslawsoltes/dxf-inspector';
+
+const sourceMap = new WeakMap();
+const visible = filterSourceTree(current, {
+    objectTypes: ['LINE'], dataTerms: ['PIPES'], dataExact: true, sourceMap
+});
+const matches = searchSourceTree(current, { objectType: 'LINE', searchCode: 8 });
+const objects = selectSourceNodes(current, node => node.type === 'INSERT');
+sortSourceTree(visible, 'dataSize', false);
+setSourceExpansion(visible, true);
+```
+
+Filtering produces fresh node and child/property arrays. The optional `sourceMap`
+resolves projected nodes back to their canonical source; properties themselves
+retain their original identity. Matching children retain their ancestors. Code
+filters restrict properties rather than remove the containing object. Object-type
+filters restrict objects but preserve parents of retained descendants. Text filters
+match property values or object types. Line bounds are inclusive. No source is
+mutated by filtering or search. Batch search returns every matching group pair,
+including duplicate values, with its source node, property and line. Exact batch
+values are case-sensitive by default; substrings are case-insensitive. `dataCase`
+can explicitly override that choice. Empty criteria return no batch matches.
+
+Stable sorting mutates only the supplied arrays, retaining node/tag identities.
+Sort projections to avoid changing the original DXF order. Supported fields are
+`line`, `code`, `type`, `objectCount` and `dataSize`. Subtree keys are computed once
+per node, not on each comparison. Counts exclude property pseudo-nodes; data size
+is a text-character estimate, not serialized or encoded DXF length. Expansion,
+filtering, sorting and search are iterative, including deeply nested source trees.
+
+All queries preflight tree topology with configurable `limits`: one million nodes,
+four million properties and 16,384 levels by default. Cycles, shared node instances,
+invalid array entries and exhausted budgets reject rather than silently dropping
+source records. Duplicate handles or node ID values are not object identity and
+are not deduplicated. Search and predicate selection also default to 250,000
+results and reject overflow instead of returning a partial result. Sorting and
+expansion validate their write targets before mutation. Inputs should be ordinary
+host-owned data, not hostile proxies or accessors.
+
+An optional `signal` supports pre-aborted and cooperatively interrupted operations.
+Queries are synchronous; they do not yield to the event loop, run on a worker or
+provide CPU isolation. `selectSourceNodes` accepts only a host-owned synchronous
+predicate. Async predicates reject. The package never evaluates query strings;
+the application's advanced JavaScript input remains explicitly trusted host code,
+not a sandbox for code obtained from a DXF or another untrusted source.
