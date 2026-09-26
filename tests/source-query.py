@@ -72,6 +72,12 @@ class SourceQueryTests(h.DockingTests):
         self.finish_batch()
         self.assertJS('Object.values(batch.tabs)[0].rows.length===0 && w.status.textContent.includes("maxResults")')
 
+    def test_query_08_inverted_line_filter_is_empty_and_recovers_without_losing_sources(self):
+        self.page.evaluate('() => {tab.minLine=20;tab.maxLine=10;app.applyTabFilters(tab);}')
+        self.assertJS('tab.currentTreeData.length===0 && app.dxfParser.serializeTree(tab.originalTreeData)===original')
+        self.page.evaluate('() => {tab.minLine=null;tab.maxLine=null;app.applyTabFilters(tab);}')
+        self.assertJS('tab.currentTreeData.length>0 && app.searchDxfTree(tab.originalTreeData,"LINE","",false,"8").length===2')
+
 if __name__=='__main__':
     suite=unittest.TestSuite(SourceQueryTests(n) for n in sorted(n for n in dir(SourceQueryTests) if n.startswith('test_query_')))
     result=unittest.TextTestRunner(verbosity=2).run(suite)

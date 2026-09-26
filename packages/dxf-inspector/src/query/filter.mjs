@@ -22,7 +22,7 @@ export function filterSourceTree(nodes, { codeTerms = [], dataTerms = [], dataEx
     const data = terms(dataTerms, 'dataTerms', !dataCase);
     const types = new Set(terms(objectTypes, 'objectTypes', true));
     const lower = lineLimit(minLine, 'minLine'), upper = lineLimit(maxLine, 'maxLine');
-    if (lower !== null && upper !== null && lower > upper) throw new RangeError('minLine exceeds maxLine.');
+    // A temporarily inverted UI range is an empty interval, not an exceptional state.
     const lineMatches = value => {
         if (lower === null && upper === null) return true;
         const line = Number.parseInt(value, 10);

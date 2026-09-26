@@ -128,7 +128,7 @@ test('invalid nodes and exhausted traversal budgets reject before any sort/expan
     assert.throws(()=>filterSourceTree([node('LINE',[],{})]),/children must be an array/);
 });
 test('invalid configuration and sort fields reject at the API boundary',()=>{
-    assert.throws(()=>filterSourceTree([], {minLine:4,maxLine:3}),/minLine/);
+    assert.deepEqual(filterSourceTree(fixture(), {minLine:4,maxLine:3}),[]);
     assert.throws(()=>filterSourceTree([], {minLine:NaN}),/finite/);
     assert.throws(()=>filterSourceTree([], {codeTerms:'8'}),/array/);
     assert.throws(()=>searchSourceTree([], {maxResults:-1}),/nonnegative/);

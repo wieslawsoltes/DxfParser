@@ -86,7 +86,8 @@ resolves projected nodes back to their canonical source; properties themselves
 retain their original identity. Matching children retain their ancestors. Code
 filters restrict properties rather than remove the containing object. Object-type
 filters restrict objects but preserve parents of retained descendants. Text filters
-match property values or object types. Line bounds are inclusive. No source is
+match property values or object types. Line bounds are inclusive; an inverted
+range produces no matches, allowing either bound to be edited independently. No source is
 mutated by filtering or search. Batch search returns every matching group pair,
 including duplicate values, with its source node, property and line. Exact batch
 values are case-sensitive by default; substrings are case-insensitive. `dataCase`
