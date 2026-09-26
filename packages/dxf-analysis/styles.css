@@ -3,3 +3,5 @@
 @import url("./styles/analysis-visuals.css");
 @import url("./styles/docking.css");
 @import './styles/report-workspace.css';
+
+@import url("./styles/compact-controls.css");

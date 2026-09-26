@@ -36,6 +36,11 @@ The `.nojekyll` file allows branch-based GitHub Pages hosting of the source tree
 The standalone editor uses the same renderer and docking/ribbon controls, but
 retains a single-file UI. It is not a complete CAD authoring system.
 
+Analysis reports reserve vertical space for data: two compact control rows,
+on-demand **Filters**, **Layout** and **Chart options** menus, single-line KPI
+summaries, and expandable **About this report** scope notes. These controls retain
+the existing filters, selection, spreadsheet and docking state.
+
 ### Render and arrange drawings
 
 Open your DXF sources and choose **CAD View → Drawing Views → Render all drawings**.

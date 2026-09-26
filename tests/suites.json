@@ -15,7 +15,8 @@
     "analysis-visuals",
     "analysis-docking",
     "report-workspace",
-    "source-query"
+    "source-query",
+    "analysis-density"
   ],
   "drawings": [
     "skia-workspace",

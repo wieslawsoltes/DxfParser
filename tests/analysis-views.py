@@ -54,7 +54,9 @@ class AnalysisTests(unittest.TestCase):
     def test_03_fonts_resolve_styles_hierarchy_and_filtered_ancestors(self):
         self.launch('showFontsOverlayBtn','overlayFontsContent')
         self.assertJS("v.rows.some(r=>r.values[0]==='arial.ttf' && r.children.length===2 && r.values[3]===14) && v.rows.some(r=>r.values[4]==='Unresolved')")
+        self.page.locator('#fontsOverlay .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('#fontsOverlay').get_by_role('button',name='Expand all',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("v.visibleRows.length===v.allRows.length")
         self.page.locator('#fontsOverlay').get_by_role('searchbox').fill('MTEXT');self.page.wait_for_function('v.filtering')
         self.assertJS("v.visibleRows.length===3 && v.visibleRows[0].values[0]==='arial.ttf' && v.visibleRows[1].values[0]==='TITLE'")
@@ -75,7 +77,9 @@ class AnalysisTests(unittest.TestCase):
 
     def test_06_texts_include_continuations_formatting_and_safe_markup(self):
         self.launch('showTextsOverlayBtn','overlayTextsContent')
+        self.page.locator('#textsOverlay .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('#textsOverlay').get_by_role('combobox',name='Type filter',exact=True).select_option('MTEXT');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("v.visibleRows.length===1 && v.selectedRow.values[0].includes('Plant inspection\\nPumps') && v.selectedRow.values[0].includes('Review corrosion') && !v.selectedRow.values[0].includes('\\\\C1;')")
         self.page.evaluate("app.getActiveTab().originalTreeData.push({id:90000,type:'TEXT',line:9999,properties:[{code:1,value:'<img src=x onerror=window.analysisInjection=1>'}],children:[]});app.updateTexts();v.clearFilters();v.search.value='onerror';v.refresh()")
         self.assertJS("v.visibleRows.length===1 && !window.analysisInjection && !v.host.querySelector('img')")
@@ -101,8 +105,12 @@ class AnalysisTests(unittest.TestCase):
     def test_09_rule_inline_controls_bulk_filter_and_apply(self):
         self.page.evaluate("document.getElementById('configureRulesBtn').click()");self.settle()
         self.page.evaluate("window.v=[...app.tabularReports.projections].find(p=>p.source.id==='ruleConfigContent').view;window.before=[...document.querySelectorAll('.rule-item')].map(r=>[r.dataset.category,r.querySelector('input').checked]);w.manager.Find('ruleConfigOverlay').Dock()")
+        self.page.locator('[data-grid-title="Diagnostic Rules"] .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('[data-grid-title="Diagnostic Rules"]').get_by_role('combobox',name='Category filter',exact=True).select_option('security');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
+        self.page.locator('[data-grid-title="Diagnostic Rules"] .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('[data-grid-title="Diagnostic Rules"]').get_by_role('button',name='Disable filtered',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("[...document.querySelectorAll('.rule-item[data-category=security] input')].every(i=>!i.checked) && document.querySelector('.rule-item[data-category=structural] input').checked===before.find(r=>r[0]==='structural')[1]")
         self.page.locator('#applyRuleConfigBtn').click();self.settle()
         self.assertJS("w.isOpen('ruleConfigOverlay') && Object.values(app.ruleConfiguration.security).every(v=>v===false)")
@@ -185,7 +193,9 @@ class AnalysisTests(unittest.TestCase):
 
     def test_20_frequencies_show_all_code_occurrences_in_drilldown(self):
         self.launch('showCloudOverlayBtn','overlayObjectCloud')
+        self.page.locator('#cloudOverlay .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('#cloudOverlay').get_by_role('combobox',name='Kind filter',exact=True).select_option('Group code');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.page.evaluate("v.selectKey(v.visibleRows.find(r=>r.values[0]==='5').key);v.openRelated(v.related[0])");self.settle()
         self.assertJS("v.drillView.rows.length===v.selectedRow.values[2] && v.drillView.rows.length>50")
         self.page.keyboard.press('Escape');self.assertJS("!v.drill && v.facetValues.get(1)==='Group code'")

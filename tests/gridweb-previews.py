@@ -95,7 +95,9 @@ class GridPreviewTests(unittest.TestCase):
         self.page.evaluate("""()=>{app.getActiveTab().originalTreeData.push({type:'CLASS',id:'cls',line:30,handle:'C0',properties:[{code:1,value:'PumpClass'},{code:2,value:'PumpCpp'},{code:3,value:'CADTest'}],children:[]});document.getElementById('showClassesOverlayBtn').click();}""")
         self.settle()
         self.assertJS("document.querySelector('[data-grid-title=\"Classes\"]')?.gridView.rows[0].values[0].includes('PumpClass')")
+        self.page.locator('#classesOverlay .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('#classesOverlay').get_by_role('combobox',name='Application filter',exact=True).select_option('CADTest');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertTrue(self.page.locator('#classesOverlay').get_by_role('button',name='Reset filters',exact=True).is_visible())
         self.page.locator('#classesOverlay').get_by_role('button',name='Reset filters',exact=True).click();self.settle()
         self.assertEqual(1,self.page.locator('[data-grid-title="Classes"]').count())
@@ -166,8 +168,14 @@ class GridPreviewTests(unittest.TestCase):
     def test_15_archives_route_office_entries_to_real_controls(self):
         self.assertTrue(self.page.evaluate("async()=>{window.zip=GridWeb.writeZip({'Equipment.xlsx':gridFixtures.excel(),'Review.docx':await gridFixtures.word()});return await app.officePreview.open(zip,'Package.zip');}"))
         self.assertJS("app.officePreview.stage.querySelector('tree-data-grid')?.Model instanceof TreeDataGridCore.HierarchicalTreeDataGridSource")
-        self.page.locator('#officeDocumentPreview .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
-        self.page.get_by_role('button',name='Preview',exact=True).click();self.page.wait_for_function('!!app.officePreview.book')
+        # Compact report controls leave enough height for adaptive Details to be
+        # visible already. Reveal it only when needed; a blind toggle hides the
+        # very action this workflow is meant to exercise.
+        details=self.page.locator('#officeDocumentPreview .analysis-heading').get_by_role('button',name='Details',exact=True)
+        if details.get_attribute('aria-pressed') != 'true':
+            details.click();self.settle()
+        self.assertEqual('true',details.get_attribute('aria-pressed'))
+        self.page.locator('#officeDocumentPreview .dxf-grid-actions').get_by_role('button',name='Preview',exact=True).click();self.page.wait_for_function('!!app.officePreview.book')
         self.assertJS("app.officePreview.book.Worksheets.Count===2")
         self.assertTrue(self.page.evaluate("async()=>{const entries=await GridWeb.readZip(zip);return await app.officePreview.open(entries.get('Review.docx'),'Review.docx');}"))
         self.assertJS("app.officePreview.control.Document.Text.includes('Reviewed')")

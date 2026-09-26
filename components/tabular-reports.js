@@ -26,7 +26,7 @@ import './analysis-services.mjs';
       onMount: view => {
         for (const enabled of [true,false]) {
           const b=DxfGrid.element('button','',enabled?'Enable filtered':'Disable filtered');b.type='button';
-          b.addEventListener('click',()=>view.runAction(()=>{for(const row of view.filteredRows||view.visibleRows){const input=row.source?.querySelector('input[type=checkbox]');if(input&&!input.disabled){input.checked=enabled;input.dispatchEvent(new Event('change',{bubbles:true}));}}view.onSourceChange?.();}));view.bar.append(b);
+          b.addEventListener('click',()=>view.runAction(()=>{for(const row of view.filteredRows||view.visibleRows){const input=row.source?.querySelector('input[type=checkbox]');if(input&&!input.disabled){input.checked=enabled;input.dispatchEvent(new Event('change',{bubbles:true}));}}view.onSourceChange?.();}));(view.filterMenu?.content || view.bar).append(b);
         }
       } }
   ];
