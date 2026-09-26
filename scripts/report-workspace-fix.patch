@@ -1,0 +1,139 @@
+diff --git a/packages/dxf-analysis/README.md b/packages/dxf-analysis/README.md
+index 02285fc..0685831 100644
+--- a/packages/dxf-analysis/README.md
++++ b/packages/dxf-analysis/README.md
+@@ -84,6 +84,10 @@ resizing does not undo a user's docking choices. Focus visual and Restore panes
+ provide temporary full-size inspection. The compact Details/Visuals buttons reveal
+ the corresponding tab. Layout history belongs to the report, not its outer workspace.
+ `onExpand` is an optional host callback for expanding an entire analysis tool.
++Pane resize/change callbacks are isolated: failures are reported through optional
++`onError` and the layout hint without interrupting the other panes. AnalysisView
++also surfaces those errors in its compact status header. Error observers cannot
++interrupt layout cleanup or revive a disposed control.
+ 
+ The controller supports `setPreset('auto' | 'balanced' | 'stacked' | 'tabs')`,
+ `show`, `hide`, `focus`, `restoreFocus`, `saveState`, `restoreState`, and `dispose`.
+diff --git a/packages/dxf-analysis/index.d.mts b/packages/dxf-analysis/index.d.mts
+index bf279b2..5f9a34f 100644
+--- a/packages/dxf-analysis/index.d.mts
++++ b/packages/dxf-analysis/index.d.mts
+@@ -80,7 +80,7 @@ export type AnalysisPane = 'records' | 'visual' | 'details';
+ export function analysisArrangement(width: number, height: number, preset?: AnalysisPreset): Exclude<AnalysisPreset, 'auto'>;
+ export interface AnalysisLayoutOptions {
+     container: HTMLElement; records: HTMLElement; details: HTMLElement; visual?: HTMLElement;
+-    title?: string; onChange?: () => void; onResize?: (pane: AnalysisPane) => void;
++    title?: string; onChange?: () => void; onResize?: (pane: AnalysisPane) => void; onError?: (error: unknown) => void;
+     storage?: Pick<Storage, 'getItem' | 'setItem'> | null; storageKey?: string | null;
+ }
+ export interface AnalysisLayout {
+diff --git a/packages/dxf-analysis/src/docking.mjs b/packages/dxf-analysis/src/docking.mjs
+index 963db62..15cae0f 100644
+--- a/packages/dxf-analysis/src/docking.mjs
++++ b/packages/dxf-analysis/src/docking.mjs
+@@ -27,7 +27,7 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
+     };
+ 
+     return class AnalysisDocking {
+-        constructor({ container, records, details, visual, title = 'Analysis', onChange, onResize,
++        constructor({ container, records, details, visual, title = 'Analysis', onChange, onResize, onError,
+             storage = null, storageKey = null } = {}) {
+             const panels = [['records', 'Records', records], ['visual', 'Visualization', visual], ['details', 'Details', details]]
+                 .filter(([, , node]) => node != null);
+@@ -39,10 +39,10 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
+                 throw new TypeError('Analysis panels must own distinct, non-nested content.');
+             if (storage != null && (typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function'))
+                 throw new TypeError('Analysis storage must implement getItem and setItem.');
+-            for (const callback of [onChange, onResize]) if (callback != null && typeof callback !== 'function')
++            for (const callback of [onChange, onResize, onError]) if (callback != null && typeof callback !== 'function')
+                 throw new TypeError('Analysis layout callbacks must be functions.');
+             this.container = container; this.panels = new Map(panels.map(([id, label, node]) => [id, { label, node }]));
+-            this.onChange = onChange; this.onResize = onResize; this.storage = storage; this.storageKey = storageKey;
++            this.onChange = onChange; this.onResize = onResize; this.onError = onError; this.storage = storage; this.storageKey = storageKey;
+             this.abort = new win.AbortController(); this.disposed = false; this.preset = 'auto'; this.custom = false;
+             this.focused = null; this.unfocused = null; this.frame = 0; this.timer = 0; this.suppress = 0;
+             this.sizes = new Map(); this.visibility = new Map();
+@@ -95,6 +95,17 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
+             const node = element('button', '', label); node.type = 'button';
+             node.addEventListener('click', action, { signal: this.abort.signal }); this.toolbar.append(node); return node;
+         }
++        notify(callback, ...args) {
++            if (this.disposed) return;
++            try { callback?.(...args); }
++            catch (error) {
++                if (this.disposed) return;
++                // Report a consumer failure without aborting other pane updates.
++                this.hint.textContent = String(error?.message || error);
++                this.hint.setAttribute('role', 'alert');
++                try { this.onError?.(error); } catch (_) { /* Error observers do not own layout lifetime. */ }
++            }
++        }
+         make(id) {
+             const { label, node } = this.panels.get(id);
+             return new D.LayoutAnchorable({ ContentId: id, Title: label, Content: node,
+@@ -196,10 +207,11 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
+             for (const [id, { node }] of this.panels) {
+                 const rect = node.getBoundingClientRect(), visible = this.isOpen(id) && rect.width > 0 && rect.height > 0;
+                 const key = visible ? `${rect.width}:${rect.height}` : 'hidden';
+-                if (this.sizes.get(id) !== key) { this.sizes.set(id, key); if (visible) this.onResize?.(id); }
++                if (this.sizes.get(id) !== key) { this.sizes.set(id, key); if (visible) this.notify(this.onResize, id); }
++                if (this.disposed) return;
+                 this.visibility.set(id, visible);
+             }
+-            this.onChange?.();
++            this.notify(this.onChange);
+         }
+         saveState() {
+             if (this.disposed) return null;
+@@ -262,7 +274,7 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
+             this.manager.Dispose(); this.host.remove(); this.toolbar.remove();
+             for (const { node } of this.panels.values()) this.container.append(node);
+             this.parking.remove(); this.panels.clear(); this.sizes.clear(); this.visibility.clear();
+-            this.onChange = this.onResize = this.storage = this.unfocused = null;
++            this.onChange = this.onResize = this.onError = this.storage = this.unfocused = null;
+         }
+     };
+ }
+diff --git a/packages/dxf-analysis/src/view.mjs b/packages/dxf-analysis/src/view.mjs
+index a10854b..65e61f6 100644
+--- a/packages/dxf-analysis/src/view.mjs
++++ b/packages/dxf-analysis/src/view.mjs
+@@ -191,6 +191,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
+         this.docking = env.createLayout({ container: this.main, records: this.stage, details: this.details,
+           visual: this.visuals?.host, title: this.title,
+           onResize: id => { if (id === 'records') this.refreshLayout(); if (id === 'visual') this.visuals?.schedule(); },
++          onError: error => { if (!this.disposed) { this.count.textContent = String(error?.message || error); this.count.dataset.error = 'true'; } },
+           onChange: () => {
+             if (!this.docking || this.disposed) return;
+             this.host.classList.toggle('analysis-details-hidden', !this.docking.isOpen('details'));
+diff --git a/tests/analysis-docking.test.mjs b/tests/analysis-docking.test.mjs
+index 6c82568..aa14071 100644
+--- a/tests/analysis-docking.test.mjs
++++ b/tests/analysis-docking.test.mjs
+@@ -90,3 +90,27 @@ test('analysis restore rejects foreign, duplicate and missing panels without rep
+         assert.equal(value.manager.Layout,original);
+     } finally {value.manager.Dispose();}
+ });
++
++
++test('analysis pane callbacks report errors without interrupting subsequent notifications', () => {
++    const value=layoutHarness(), seen=[];
++    value.hint={textContent:'',setAttribute(name,text){seen.push([name,text]);}};
++    value.onError=error=>{seen.push(error.message);throw new Error('observer failed');};
++    try {
++        assert.doesNotThrow(()=>value.notify(()=>{throw new Error('resize failed');}));
++        value.notify(id=>seen.push(id),'visual');
++        assert.equal(value.hint.textContent,'resize failed');
++        assert.deepEqual(seen,[['role','alert'],'resize failed','visual']);
++    } finally {value.manager.Dispose();}
++});
++
++test('disposing from an analysis callback suppresses late notifications and error reporting', () => {
++    const value=layoutHarness();let errors=0;
++    value.hint={setAttribute(){throw new Error('disposed UI accessed');}};
++    value.onError=()=>errors++;
++    try {
++        assert.doesNotThrow(()=>value.notify(()=>{value.disposed=true;throw new Error('late');}));
++        value.notify(()=>{throw new Error('must not run');});
++        assert.equal(errors,0);
++    } finally {value.manager.Dispose();}
++});
