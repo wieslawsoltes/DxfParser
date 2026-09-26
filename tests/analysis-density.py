@@ -98,7 +98,7 @@ class DensityTests(h.DockingAnalysisTests):
     def test_density_10_every_application_report_uses_compact_shared_chrome(self):
         h.h.DockingTests.load(self);h.a.AnalysisTests.fixture(self)
         results=[]
-        for button,container in [('showStatsOverlayBtn','overlayStatsContent'),('showCloudOverlayBtn','overlayObjectCloud'),('showDepsOverlayBtn','overlayDepsContent'),('showHandleMapOverlayBtn','overlayHandleMapContent'),('showFontsOverlayBtn','overlayFontsContent'),('showClassesOverlayBtn','overlayClassesContent'),('showLineTypesOverlayBtn','overlayLineTypesContent'),('showTextsOverlayBtn','overlayTextsContent'),('showBinaryObjectsOverlayBtn','binaryObjectsList'),('showProxyObjectsOverlayBtn','proxyObjectsList'),('showObjectSizeOverlayBtn','objectSizeList'),('showBlocksOverlayBtn','overlayBlocksContent')]:
+        for button,container in [('showStatsOverlayBtn','overlayStatsContent'),('showCloudOverlayBtn','overlayObjectCloud'),('showDepsOverlayBtn','overlayDepsContent'),('showHandleMapOverlayBtn','overlayHandleMapContent'),('showFontsOverlayBtn','overlayFontsContent'),('showClassesOverlayBtn','overlayClassesContent'),('showLineTypesOverlayBtn','overlayLineTypesContent'),('showTextsOverlayBtn','overlayTextsContent'),('showBinaryObjectsOverlayBtn','binaryObjectsList'),('showProxyObjectsOverlayBtn','proxyObjectsList'),('showObjectSizeOverlayBtn','objectSizeList'),('showBlocksOverlayBtn','overlayBlocksContent'),('showDiagnosticsOverlayBtn','analysisDiagnostics'),('configureRulesBtn','ruleConfigContent')]:
             h.a.AnalysisTests.launch(self,button,container)
             metric=self.page.evaluate('() => ({title:v.title,chrome:v.main.getBoundingClientRect().top-v.host.getBoundingClientRect().top,records:v.grid.clientHeight})')
             results.append(metric);self.assertLessEqual(metric['chrome'],84,metric);self.assertGreaterEqual(metric['records'],220,metric)
@@ -134,6 +134,22 @@ class DensityTests(h.DockingAnalysisTests):
         self.menu('chart')
         self.assertTrue(self.page.get_by_role('combobox',name='Measure visual by',exact=True).is_visible())
         self.assertJS('v.visuals.optionsMenu.panel.clientHeight<=180 && v.host.scrollWidth<=v.host.clientWidth+2')
+
+    def test_density_14_bottom_menu_inherits_host_theme_and_retains_small_checkboxes(self):
+        self.page.evaluate("""() => {
+            Object.assign(document.getElementById('primary').style,{marginTop:'650px',height:'260px'});
+            v.host.style.setProperty('--ad-panel','#19232d');v.host.style.setProperty('--ad-text','#eeeeee');
+            v.setTheme('dark');
+        }""");self.settle();self.menu('filter')
+        self.page.locator('#primary .analysis-column-menu > summary').click();self.settle()
+        self.assertJS("""(() => {
+            const r=v.filterMenu.panel.getBoundingClientRect(),a=v.filterMenu.trigger.getBoundingClientRect();
+            return r.top>=0 && r.bottom<=a.top && r.right<=innerWidth &&
+                getComputedStyle(v.filterMenu.panel).backgroundColor==='rgb(25, 35, 45)' &&
+                v.columnChecks.every(([,check])=>check.getBoundingClientRect().width===16);
+        })()""")
+        self.page.emulate_media(forced_colors='active');self.settle()
+        self.assertTrue(self.page.locator('#primary .analysis-control-panel:popover-open').is_visible())
 
 if __name__=='__main__':
     suite=unittest.TestSuite(DensityTests(name) for name in sorted(n for n in dir(DensityTests) if n.startswith('test_density_')))

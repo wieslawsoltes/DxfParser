@@ -42,6 +42,7 @@
 .analysis-control-content > .analysis-column-menu { display: block; width: 100%; }
 .analysis-control-content > .analysis-column-menu > div { position: static; min-width: 0; box-shadow: none; max-height: none; border: 0; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); }
 .analysis-control-content > .analysis-layout-toolbar { width: 100%; flex-wrap: wrap; overflow: visible; padding: 0; border: 0; background: none; }
+.analysis-control-panel input[type=checkbox] { flex: none; width: 16px; height: 16px; min-width: 16px; min-height: 16px; padding: 0; margin: 0; }
 .analysis-control-content .analysis-layout-hint { display: block; white-space: normal; width: 100%; margin: 0; }
 .analysis-control-content .analysis-visual-caption { max-height: none; padding: 2px 0; margin: 0; flex-basis: 100%; }
 /* The fallback expands in flow, with its own scrollbar, instead of creating a

@@ -32,7 +32,7 @@ export function createControlMenu(win, { label, text = label, className = '' } =
         const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
         const width = viewport?.width || doc.documentElement.clientWidth;
         const height = viewport?.height || doc.documentElement.clientHeight;
-        if (!trigger.isConnected || rect.width <= 0 || rect.height <= 0 || rect.bottom < top || rect.top > top + height) {
+        if (!trigger.isConnected || rect.width <= 0 || rect.height <= 0 || rect.bottom < top || rect.top > top + height || rect.right < left || rect.left > left + width) {
             hide(false); return;
         }
         if (!native) return;
@@ -82,8 +82,8 @@ export function createControlMenu(win, { label, text = label, className = '' } =
         doc.addEventListener('pointerdown', e => { if (open && !e.composedPath().includes(root)) hide(); }, options);
     }
     close.addEventListener('click', () => hide(true), options);
-    panel.addEventListener('keydown', e => {
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(true); }
+    root.addEventListener('keydown', e => {
+        if (open && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(true); }
     }, options);
     // Native light-dismiss restores focus on Escape; do not steal it on outside
     // pointer dismissal. All listeners and observers share the owner's lifetime.
