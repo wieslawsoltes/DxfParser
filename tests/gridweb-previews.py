@@ -168,8 +168,14 @@ class GridPreviewTests(unittest.TestCase):
     def test_15_archives_route_office_entries_to_real_controls(self):
         self.assertTrue(self.page.evaluate("async()=>{window.zip=GridWeb.writeZip({'Equipment.xlsx':gridFixtures.excel(),'Review.docx':await gridFixtures.word()});return await app.officePreview.open(zip,'Package.zip');}"))
         self.assertJS("app.officePreview.stage.querySelector('tree-data-grid')?.Model instanceof TreeDataGridCore.HierarchicalTreeDataGridSource")
-        self.page.locator('#officeDocumentPreview .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
-        self.page.get_by_role('button',name='Preview',exact=True).click();self.page.wait_for_function('!!app.officePreview.book')
+        # Compact report controls leave enough height for adaptive Details to be
+        # visible already. Reveal it only when needed; a blind toggle hides the
+        # very action this workflow is meant to exercise.
+        details=self.page.locator('#officeDocumentPreview .analysis-heading').get_by_role('button',name='Details',exact=True)
+        if details.get_attribute('aria-pressed') != 'true':
+            details.click();self.settle()
+        self.assertEqual('true',details.get_attribute('aria-pressed'))
+        self.page.locator('#officeDocumentPreview .dxf-grid-actions').get_by_role('button',name='Preview',exact=True).click();self.page.wait_for_function('!!app.officePreview.book')
         self.assertJS("app.officePreview.book.Worksheets.Count===2")
         self.assertTrue(self.page.evaluate("async()=>{const entries=await GridWeb.readZip(zip);return await app.officePreview.open(entries.get('Review.docx'),'Review.docx');}"))
         self.assertJS("app.officePreview.control.Document.Text.includes('Reviewed')")
