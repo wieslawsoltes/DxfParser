@@ -160,7 +160,7 @@ class VisualTests(unittest.TestCase):
     def test_18_saved_presentation_restores_chart_filter_and_native_table(self):
         self.visual();self.page.evaluate("v.visuals.filter(v.visuals.chartData[0]);v.pinSelection();v.visuals.setLayout('visual');window.state=v.saveState();window.oldGrid=v.grid;v.clearFilters();v.visuals.setLayout('data');v.restoreState(state)");self.settle()
         self.assertJS("v.grid===oldGrid && v.visualFilter && v.pinned && v.host.dataset.visualLayout==='visual' && v.matchingRows.length===1")
-        self.page.locator('#statsOverlay').get_by_role('button',name='Records',exact=True).click();self.settle();self.assertJS("v.host.dataset.visualLayout==='split' && !v.grid.hidden")
+        self.page.locator('#statsOverlay').get_by_role('button',name='Records',exact=True).click();self.settle();self.assertJS("v.docking.isVisible('records') && !v.docking.focused && v.mode==='records' && !v.grid.hidden")
 
     def test_19_disposal_releases_visuals_and_nested_grids(self):
         self.visual();self.page.evaluate('window.visual=v.visuals;v.visuals.openData();window.child=v.drillView;v.dispose();v.dispose()')
@@ -239,6 +239,7 @@ class VisualTests(unittest.TestCase):
     def test_31_closed_source_chart_data_can_filter_snapshot_records(self):
         self.visual();self.page.evaluate("window.source=app.documentWorkspace.active;w.manager.Find('statsOverlay').Dock();w.manager.Find(source.id).Close()")
         self.settle();self.page.locator('#statsOverlay').get_by_role('button',name='Chart data',exact=True).click();self.settle()
+        self.page.locator('#statsOverlay .analysis-drill .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.locator('#statsOverlay .analysis-drill .analysis-details > .dxf-grid-actions').get_by_role('button',name='Inspect records',exact=True).click();self.settle()
         self.assertJS('!v.drillView && v.visualFilter && v.matchingRows.length===1 && !app.documentWorkspace.active')
 

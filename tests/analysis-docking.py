@@ -110,4 +110,25 @@ class DockingAnalysisTests(unittest.TestCase):
         self.page.locator('#primary').get_by_role('button',name='Restore panes',exact=True).click();self.settle()
         self.assertJS('v.visuals.diagram.viewBox.baseVal.width < 400 && v.visuals.diagram.getScreenCTM().a >= .98')
 
+    def test_dock_16_visual_tab_focus_can_expand_and_restore_in_compact_mode(self):
+        self.page.evaluate("() => {document.getElementById('primary').style.width='390px';}");self.settle()
+        self.page.locator('#primary .analysis-dock-host .ad-tab[data-tab-id=visual]').click();self.settle()
+        self.assertJS("!d.focused && d.isVisible('visual') && v.visuals.focus.textContent==='Focus visual'")
+        self.page.locator('#primary').get_by_role('button',name='Focus visual',exact=True).click();self.settle()
+        self.assertJS("d.focused==='visual' && d.isVisible('visual')")
+        self.page.locator('#primary').get_by_role('button',name='Restore visual layout',exact=True).click();self.settle()
+        self.assertJS("!d.focused && d.isOpen('records') && d.isOpen('details')")
+        self.page.locator('#primary .analysis-modes').get_by_role('button',name='Records',exact=True).click();self.settle()
+        self.assertJS("d.isVisible('records') && !v.grid.hidden")
+
+    def test_dock_17_restoring_report_preserves_details_selection_not_chart_default(self):
+        self.page.evaluate("() => {document.getElementById('primary').style.width='390px';}");self.settle()
+        self.page.locator('#primary .analysis-modes').get_by_role('button',name='Details',exact=True).click();self.settle()
+        self.page.evaluate("""() => {
+            const state=v.saveState(),container=v.container,rows=v.rows,columns=v.columns;
+            v.dispose();v=new analysisDemo.ui.AnalysisView(container,{title:'Equipment analysis',rows,columns});
+            d=v.docking;v.restoreState(state);
+        }""");self.settle()
+        self.assertJS("d.isVisible('details') && !d.isVisible('visual') && !d.isVisible('records') && !d.focused && v.selectedKey===0")
+
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -551,7 +551,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     refreshLayout() { if (!this.disposed) { this.grid.InvalidateRowHeights(); this.spreadsheet?.grid.Refresh(); } }
-    saveState() { return { docking: this.docking?.saveState(), search: this.search.value, scope: this.scope.value, sort: this.sort.value, direction: this.direction, selectedKey: this.selectedKey, expanded: [...this.expanded], facets: [...this.facetValues], mode: this.mode, details: !this.host.classList.contains('analysis-details-hidden'), detailTab: this.detailTab, visual: this.visuals?.saveState(), visualFilter: this.visualFilter ? {label:this.visualFilter.label,keys:[...this.visualFilter.keys]} : null, pinned: this.pinned, width: this.detailWidth, view: this.grid.SaveViewState() }; }
+    saveState() { return { docking: this.docking?.saveState(), dockingFocus: this.docking?.focused || null, search: this.search.value, scope: this.scope.value, sort: this.sort.value, direction: this.direction, selectedKey: this.selectedKey, expanded: [...this.expanded], facets: [...this.facetValues], mode: this.mode, details: !this.host.classList.contains('analysis-details-hidden'), detailTab: this.detailTab, visual: this.visuals?.saveState(), visualFilter: this.visualFilter ? {label:this.visualFilter.label,keys:[...this.visualFilter.keys]} : null, pinned: this.pinned, width: this.detailWidth, view: this.grid.SaveViewState() }; }
     restoreState(state) {
       if (!state) return;
       this.search.value = state.search || ''; this.scope.value = state.scope || '-1'; this.sort.value = state.sort || '-1'; this.direction = state.direction || 1;
@@ -560,8 +560,16 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.buildFacets(); this.refresh(); this.applySort();
       if (state.view) { try { this.grid.RestoreViewState(state.view); } catch (_) { /* Column schemas can evolve independently. */ } }
       this.toggleDetails(state.details !== false); this.setMode(state.mode || 'records');
-      if (state.docking && this.docking) { try { this.docking.restoreState(state.docking); } catch (_) { this.docking.reset(); } }
-      this.visuals?.restore(state.visual);
+      let restoredLayout = false;
+      if (state.docking && this.docking) {
+        try { this.docking.restoreState(state.docking); restoredLayout = true; }
+        catch (_) { this.docking.reset(); }
+      }
+      // Chart parameters and native pane selection are independent. Restoring
+      // 'auto' must not steal Details focus after its source control rebuilds.
+      this.visuals?.restore(state.visual, !restoredLayout);
+      if (restoredLayout && ['records', 'details', ...(this.visuals ? ['visual'] : [])].includes(state.dockingFocus))
+        this.docking.focus(state.dockingFocus);
       if (state.width) { this.detailWidth = state.width; this.host.style.setProperty('--analysis-detail-width', state.width + 'px'); }
       for (const [column, check] of this.columnChecks) check.checked = column.IsVisible !== false;
       if (this.detailTabs?.querySelector(`[data-tab="${state.detailTab}"]`)) this.showDetail(state.detailTab);

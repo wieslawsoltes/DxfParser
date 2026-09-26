@@ -58,7 +58,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             this.section = this.select('Frequency population', [], this.state.section, v => { this.state.section = v; this.schedule(); });
             this.x = this.select('Matrix columns', view.columns.map((c, i) => [i, c.title]), this.state.x, v => { this.state.x = +v; this.schedule(); });
             this.y = this.select('Matrix rows', view.columns.map((c, i) => [i, c.title]), this.state.y, v => { this.state.y = +v; this.schedule(); });
-            this.focus = button('Focus visual', () => this.setLayout(this.view.host.dataset.visualLayout === 'visual' ? 'split' : 'visual'), this.tools, 'Expand the visualization without losing your record selection');
+            this.focus = button('Focus visual', () => this.setLayout((this.view.docking ? this.view.docking.focused === 'visual' : this.view.host.dataset.visualLayout === 'visual') ? 'split' : 'visual'), this.tools, 'Expand the visualization without losing your record selection');
             button('Chart data', () => this.openData(), this.tools, 'Inspect the exact numbers and source records used by the chart');
             this.save = button('Save SVG', () => this.saveSvg(), this.tools, 'Export the visible diagram as standalone SVG');
             this.caption = el('p', 'analysis-visual-caption', this.profile.caption || 'Explore distributions, numeric ranges and relationships without replacing the inspection table.');
@@ -115,8 +115,10 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
                 this.host.hidden = this.view.docking ? !this.view.docking.isOpen('visual') : mode === 'data';
                 this.grip.hidden = !!this.view.docking || mode !== 'split';
                 this.toggle.setAttribute('aria-pressed', String(mode !== 'data'));
-                this.focus.textContent = mode === 'visual' ? 'Visual + data' : 'Focus visual';
             }
+            // A selected visualization tab is not a transient focused layout.
+            // Update even when focus changes without changing visible pane count.
+            this.focus.textContent = this.view.docking ? (this.view.docking.focused === 'visual' ? 'Restore visual layout' : 'Focus visual') : (mode === 'visual' ? 'Visual + data' : 'Focus visual');
             if (w && h && mode !== 'data' && this.dirty)
                 this.schedule();
         }
@@ -420,15 +422,22 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
         saveState() { return { ...this.state, height: this.height }; }
-        restore(state) { if (!state)
-            return; if (['distribution', 'histogram', 'matrix', 'relationships', 'gallery', 'bytes'].includes(state.kind))
-            this.state.kind = state.kind; if (['all', 'roots', 'leaves'].includes(state.scope))
-            this.state.scope = state.scope; if (typeof state.section === 'string')
-            this.state.section = state.section; for (const key of ['group', 'measure', 'x', 'y'])
-            if (Number.isInteger(state[key]) && state[key] >= (key === 'measure' ? -1 : 0) && state[key] < this.view.columns.length)
-                this.state[key] = state[key]; for (const key of ['group', 'measure', 'x', 'y', 'scope'])
-            this[key].value = String(this.state[key]); if (Number.isFinite(state.height))
-            this.resizeHeight(state.height); this.setLayout(state.layout || 'auto'); this.schedule(); }
+        restore(state, restoreLayout = true) {
+            if (!state || this.disposed) return;
+            if (['distribution', 'histogram', 'matrix', 'relationships', 'gallery', 'bytes'].includes(state.kind)) this.state.kind = state.kind;
+            if (['all', 'roots', 'leaves'].includes(state.scope)) this.state.scope = state.scope;
+            if (typeof state.section === 'string') this.state.section = state.section;
+            for (const key of ['group', 'measure', 'x', 'y']) {
+                if (Number.isInteger(state[key]) && state[key] >= (key === 'measure' ? -1 : 0) && state[key] < this.view.columns.length)
+                    this.state[key] = state[key];
+            }
+            for (const key of ['kind', 'group', 'measure', 'x', 'y', 'scope']) this[key].value = String(this.state[key]);
+            if (Number.isFinite(state.height)) this.resizeHeight(state.height);
+            const layout = ['auto', 'split', 'data', 'visual'].includes(state.layout) ? state.layout : 'auto';
+            if (restoreLayout) this.setLayout(layout);
+            else { this.state.layout = layout; this.layout(); }
+            this.schedule();
+        }
         dispose() { if (this.disposed)
             return; this.disposed = true; cancelAnimationFrame(this.frame); this.observer.disconnect(); this.host.remove(); this.grip.remove(); this.filterBar.remove(); this.toggle.remove(); this.chartData = []; this.chartRows = []; this.relationRows = []; this.diagram = null; this.body.replaceChildren(); this.footer.replaceChildren(); this.tools.replaceChildren(); this.view = null; this.drag = null; }
     }
