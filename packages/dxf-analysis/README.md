@@ -84,6 +84,10 @@ resizing does not undo a user's docking choices. Focus visual and Restore panes
 provide temporary full-size inspection. The compact Details/Visuals buttons reveal
 the corresponding tab. Layout history belongs to the report, not its outer workspace.
 `onExpand` is an optional host callback for expanding an entire analysis tool.
+Pane resize/change callbacks are isolated: failures are reported through optional
+`onError` and the layout hint without interrupting the other panes. AnalysisView
+also surfaces those errors in its compact status header. Error observers cannot
+interrupt layout cleanup or revive a disposed control.
 
 The controller supports `setPreset('auto' | 'balanced' | 'stacked' | 'tabs')`,
 `show`, `hide`, `focus`, `restoreFocus`, `saveState`, `restoreState`, and `dispose`.

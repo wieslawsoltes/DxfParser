@@ -191,6 +191,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         this.docking = env.createLayout({ container: this.main, records: this.stage, details: this.details,
           visual: this.visuals?.host, title: this.title,
           onResize: id => { if (id === 'records') this.refreshLayout(); if (id === 'visual') this.visuals?.schedule(); },
+          onError: error => { if (!this.disposed) { this.count.textContent = String(error?.message || error); this.count.dataset.error = 'true'; } },
           onChange: () => {
             if (!this.docking || this.disposed) return;
             this.host.classList.toggle('analysis-details-hidden', !this.docking.isOpen('details'));

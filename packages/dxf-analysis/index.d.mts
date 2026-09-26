@@ -80,7 +80,7 @@ export type AnalysisPane = 'records' | 'visual' | 'details';
 export function analysisArrangement(width: number, height: number, preset?: AnalysisPreset): Exclude<AnalysisPreset, 'auto'>;
 export interface AnalysisLayoutOptions {
     container: HTMLElement; records: HTMLElement; details: HTMLElement; visual?: HTMLElement;
-    title?: string; onChange?: () => void; onResize?: (pane: AnalysisPane) => void;
+    title?: string; onChange?: () => void; onResize?: (pane: AnalysisPane) => void; onError?: (error: unknown) => void;
     storage?: Pick<Storage, 'getItem' | 'setItem'> | null; storageKey?: string | null;
 }
 export interface AnalysisLayout {
