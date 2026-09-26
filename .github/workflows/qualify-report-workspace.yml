@@ -1,0 +1,61 @@
+name: Qualify dockable report workspaces
+on:
+  push:
+    branches: [work/analysis-result-workspace]
+permissions:
+  contents: read
+concurrency:
+  group: qualify-report-workspace
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  materialize:
+    name: Materialize verified report workspace sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified extraction
+        id: source
+        run: |
+          set -euo pipefail
+          if test -f scripts/report-workspace.01.xzpart; then
+            cat scripts/report-workspace.0{1,2,3}.xzpart | xz -dc > /tmp/report-workspace.patch
+            echo 'f0d437c8006a144f0fbf087cec254a0a4cc2b0c9b7ae1b4dc047ad1a0b936a39  /tmp/report-workspace.patch' | sha256sum -c -
+            git apply --check /tmp/report-workspace.patch
+            git apply /tmp/report-workspace.patch
+            rm scripts/report-workspace.0{1,2,3}.xzpart
+          fi
+          if test -f scripts/report-workspace-fix.patch; then
+            git apply --check scripts/report-workspace-fix.patch
+            git apply scripts/report-workspace-fix.patch
+            rm scripts/report-workspace-fix.patch
+          fi
+          git add components packages tests scripts README.md index.html
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor(analysis): extract dockable result workspaces and batch adapters'
+            git push origin HEAD:work/analysis-result-workspace
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/report-workspace-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report-workspace-source
+          path: /tmp/report-workspace-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate dockable report workspaces
+    needs: materialize
+    uses: ./.github/workflows/ci.yml
+    with:
+      revision: ${{ needs.materialize.outputs.revision }}
+    permissions:
+      contents: read
