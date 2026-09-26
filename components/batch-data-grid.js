@@ -30,7 +30,7 @@ class BatchDataGrid {
     addTab(fileName) {
         const id = 'batch-tab-' + ++this.sequence;
         const entry = this.documents.add({ id, title: 'Batch Results · ' + fileName,
-            columns: [{ title: '#', width: 70 }, { title: 'File', width: 300 }, { title: 'Line', width: 90 }, { title: 'Data', width: 500 }] });
+            columns: [{ title: '#', width: 56, minWidth: 48 }, { title: 'File', width: 180 }, { title: 'Line', width: 80 }, { title: 'Data', width: '2*' }] });
         this.tabs[id] = { fileName, content: entry.content, view: entry.view, rows: [] };
         return id;
     }

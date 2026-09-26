@@ -113,7 +113,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         presentation.Columns.Add(key, { create: row => this.cell(row, i) });
         const coreColumn = new C.TemplateColumn(column.title, key,
           column.width || (i === 0 ? 220 : /description|text|value|details/i.test(column.title) ? '2*' : 140), {
-            MinWidth: new C.GridLength(i === 0 ? 130 : 65), CompareAscending: valueCompare,
+            MinWidth: new C.GridLength(Number.isFinite(column.minWidth) ? Math.max(32, column.minWidth) : (i === 0 ? 130 : 65)), CompareAscending: valueCompare,
             CompareDescending: (a, b) => -valueCompare(a, b)
           }, 'analysis-column-' + i);
         this.treeModel.Columns.Add(i === 0 ? new C.HierarchicalExpanderColumn(coreColumn, row => row.children || [],

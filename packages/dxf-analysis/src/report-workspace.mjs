@@ -73,14 +73,14 @@ export function createReportWorkspace({ window: win, dockyard: D, createView } =
             this.controlsButton.hidden = !controls;
             this.select = element('select', 'report-workspace-select');
             this.select.setAttribute('aria-label', 'Active result');
-            this.select.addEventListener('change', () => this.activate(this.select.value), { signal: this.abort.signal });
+            this.select.addEventListener('change', () => this.perform(() => this.activate(this.select.value)), { signal: this.abort.signal });
             this.toolbar.append(this.select);
             this.layoutSelect = element('select', 'report-workspace-arrangement');
             this.layoutSelect.setAttribute('aria-label', 'Result layout');
             for (const [value, label] of [['tabs', 'Tabbed results'], ['horizontal', 'Results side by side'], ['vertical', 'Results stacked']]) {
                 const option = element('option', '', label); option.value = value; this.layoutSelect.append(option);
             }
-            this.layoutSelect.addEventListener('change', () => this.arrange(this.layoutSelect.value), { signal: this.abort.signal });
+            this.layoutSelect.addEventListener('change', () => this.perform(() => this.arrange(this.layoutSelect.value)), { signal: this.abort.signal });
             this.toolbar.append(this.layoutSelect);
             this.focusButton = this.button('Focus results', () => this.focusResults());
             this.focusButton.hidden = !controls;
@@ -122,8 +122,11 @@ export function createReportWorkspace({ window: win, dockyard: D, createView } =
 
         button(label, action) {
             const node = element('button', '', label); node.type = 'button';
-            node.addEventListener('click', () => { try { action(); } catch (error) { this.error(error); } }, { signal: this.abort.signal });
+            node.addEventListener('click', () => this.perform(action), { signal: this.abort.signal });
             this.toolbar.append(node); return node;
+        }
+        perform(action) {
+            try { action(); } catch (error) { this.error(error); this.updateUI(); }
         }
         error(error) {
             if (!this.disposed) { this.message.textContent = String(error?.message || error); this.message.hidden = false; }
@@ -308,7 +311,10 @@ export function createReportWorkspace({ window: win, dockyard: D, createView } =
                 const size = rect.width > 0 && rect.height > 0 ? `${rect.width}:${rect.height}` : 'hidden';
                 if (size !== this.sizes.get(entry.id)) {
                     this.sizes.set(entry.id, size);
-                    if (size !== 'hidden') { entry.buffer.flush(); entry.view.refreshLayout?.(); }
+                    if (size !== 'hidden') {
+                        try { entry.buffer.flush(); entry.view.refreshLayout?.(); }
+                        catch (error) { this.error(error); }
+                    }
                 }
             }
             this.updateUI();

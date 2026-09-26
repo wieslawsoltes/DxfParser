@@ -71,7 +71,7 @@ class ReportWorkspaceTests(unittest.TestCase):
         self.assertJS('a.view.spreadsheet===sheet && a.view.treeModel===model && a.view.selectedKey===2 && !a.view.spreadsheet.grid.hidden')
         self.page.evaluate("() => {r.arrange('horizontal');a.view.setMode('records');}");self.settle()
         self.assertJS('a.view.selectedKey===2 && a.view.grid.clientHeight>300 && b.view.grid.clientHeight>300')
-    def test_results_10_failed_factory_and_failed_dock_insertion_leave_no_ghost_documents(self):
+    def test_results_10_failed_dock_insertion_leaves_no_ghost_documents(self):
         self.assertJS('''() => {const container=document.createElement('div');document.body.append(container);
             const Type=reportDemo.Results;const workspace=new Type({container});const original=workspace.manager.AddDocument.bind(workspace.manager);
             workspace.manager.AddDocument=model=>{original(model);throw new Error('insertion failed');};
@@ -95,6 +95,7 @@ class ReportWorkspaceTests(unittest.TestCase):
     def test_results_13_application_batch_results_use_full_height_docked_documents(self):
         self.app()
         self.assertJS('batch.documents.entries.size===2 && batch.tabs[batchA].view.grid.clientHeight>250 && batch.tabs[batchB].view.grid.clientHeight>250')
+        self.assertJS('batch.tabs[batchA].view.grid.shadowRoot.querySelector("[role=columnheader]").getBoundingClientRect().width<90')
         self.assertJS('batch.controls.clientHeight>400 && batch.tabs[batchA].rows.length===30 && document.getElementById("batchJsQuery").isConnected')
     def test_results_14_application_expand_resolves_outer_owner_and_actions_keep_files(self):
         self.app()
@@ -114,5 +115,17 @@ class ReportWorkspaceTests(unittest.TestCase):
         self.page.locator('#primary .report-workspace-host .ad-splitter').first.focus()
         self.page.keyboard.press('ArrowRight');self.settle()
         self.assertJS('r.controls.clientWidth!==queryWidth && !a.view.disposed && !b.view.disposed')
+
+    def test_results_17_locked_layout_change_reports_error_without_changing_selection(self):
+        self.page.evaluate('() => {r.manager.Find(b.id).CanMove=false;}')
+        field=self.page.locator('#primary [aria-label="Result layout"]');field.focus();self.settle()
+        self.page.evaluate('() => {window.beforeLocked=r.manager.SaveLayout();}')
+        field.select_option('vertical');self.settle()
+        self.assertJS('r.mode==="horizontal" && r.layoutSelect.value==="horizontal" && r.manager.SaveLayout()===beforeLocked')
+        self.assertIn('movable',self.page.locator('#primary .report-workspace-message').inner_text())
+    def test_results_18_one_report_resize_failure_does_not_interrupt_its_neighbor(self):
+        self.page.evaluate('() => {window.siblingResized=0;a.view.refreshLayout=()=>{throw new Error("report resize failed");};b.view.refreshLayout=()=>{siblingResized++;};r.sizes.clear();r.refreshLayout();}')
+        self.assertJS('siblingResized>0 && !a.disposed && !b.disposed')
+        self.assertIn('report resize failed',self.page.locator('#primary .report-workspace-message').inner_text())
 
 if __name__=='__main__':unittest.main(verbosity=2)

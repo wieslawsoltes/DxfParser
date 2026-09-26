@@ -56,6 +56,10 @@ The returned API includes `GridView`, `AnalysisView`, `AnalysisVisuals`,
 factory call owns its dependency references and presentation bookkeeping; the
 factory does not overwrite `window.DxfGrid` or `window.DxfAnalysis`.
 
+Column `width` accepts pixel numbers or host grid-length strings such as `2*`.
+`minWidth` overrides the default minimum in CSS pixels (with a 32-pixel floor),
+so short index columns do not consume the width needed for record content.
+
 Rows may supply action callbacks, child rows, metadata, or retained DOM sources.
 Source-bound actions invoke `activateSource` when the view is beneath an element
 with `data-source-tab-id`. Without that callback, source lifecycle belongs entirely

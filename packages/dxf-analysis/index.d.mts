@@ -5,7 +5,7 @@ export interface ReportRow<K = RowKey> {
     source?: HTMLElement; actions?: ReportAction<K>[]; metadata?: unknown;
     related?: () => ReportOptions<K>[]; [metadata: string]: unknown;
 }
-export interface ReportColumn { title: string; width?: number; [option: string]: unknown; }
+export interface ReportColumn { title: string; width?: number | string; minWidth?: number; [option: string]: unknown; }
 export interface ReportOptions<K = RowKey> {
     title?: string; columns?: (string | ReportColumn)[]; rows?: ReportRow<K>[];
     height?: number; showDetails?: boolean; docking?: false; emptyMessage?: string;
