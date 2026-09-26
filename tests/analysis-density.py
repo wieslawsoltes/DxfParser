@@ -99,7 +99,15 @@ class DensityTests(h.DockingAnalysisTests):
         h.h.DockingTests.load(self);h.a.AnalysisTests.fixture(self)
         results=[]
         for button,container in [('showStatsOverlayBtn','overlayStatsContent'),('showCloudOverlayBtn','overlayObjectCloud'),('showDepsOverlayBtn','overlayDepsContent'),('showHandleMapOverlayBtn','overlayHandleMapContent'),('showFontsOverlayBtn','overlayFontsContent'),('showClassesOverlayBtn','overlayClassesContent'),('showLineTypesOverlayBtn','overlayLineTypesContent'),('showTextsOverlayBtn','overlayTextsContent'),('showBinaryObjectsOverlayBtn','binaryObjectsList'),('showProxyObjectsOverlayBtn','proxyObjectsList'),('showObjectSizeOverlayBtn','objectSizeList'),('showBlocksOverlayBtn','overlayBlocksContent'),('showDiagnosticsOverlayBtn','analysisDiagnostics'),('configureRulesBtn','ruleConfigContent')]:
-            h.a.AnalysisTests.launch(self,button,container)
+            if container=='ruleConfigContent':
+                # The rule editor retains its source controls hidden beside the
+                # report projection, not inside the source node being observed.
+                self.page.evaluate('(id)=>document.getElementById(id).click()',button);self.settle()
+                self.page.wait_for_function('() => [...app.tabularReports.projections].some(p=>p.source.id==="ruleConfigContent")')
+                self.page.evaluate('() => {v=[...app.tabularReports.projections].find(p=>p.source.id==="ruleConfigContent").view;}')
+                self.assertJS('document.querySelector("#ruleConfigOverlay .rule-config-toolbar").clientHeight<=42')
+            else:
+                h.a.AnalysisTests.launch(self,button,container)
             metric=self.page.evaluate('() => ({title:v.title,chrome:v.main.getBoundingClientRect().top-v.host.getBoundingClientRect().top,records:v.grid.clientHeight})')
             results.append(metric);self.assertLessEqual(metric['chrome'],84,metric);self.assertGreaterEqual(metric['records'],220,metric)
         OUT.mkdir(parents=True,exist_ok=True);(OUT/'report-metrics.json').write_text(json.dumps(results,indent=2))

@@ -115,3 +115,15 @@
   .dxf-analysis-view > .analysis-toolbar > .analysis-filter-reset { font-size: 0; padding: 3px 6px; }
   .dxf-analysis-view > .analysis-toolbar > .analysis-filter-reset::before { content: '↺'; font-size: 15px; }
 }
+
+/* Rule configuration already has a native tool title; keep its global actions
+   and profile disclosure on one line instead of another heading and two rows. */
+#ruleConfigOverlay.analysis-enhanced .overlay-header { display: none; }
+.analysis-enhanced .rule-config-toolbar {
+  flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px;
+  background: var(--ad-chrome,#f5f8fb);
+}
+.analysis-enhanced .rule-config-actions { flex-wrap: nowrap; gap: 4px; max-width: 100%; overflow-x: auto; }
+.analysis-enhanced .rule-config-actions button { padding: 3px 6px; min-height: 27px; font-size: 11px; white-space: nowrap; }
+.analysis-enhanced .analysis-config-profiles { margin-left: auto; }
+.analysis-enhanced .analysis-config-profiles[open] { flex: 1 0 100%; margin-left: 0; max-height: 180px; overflow: auto; }
