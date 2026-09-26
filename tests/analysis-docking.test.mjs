@@ -49,3 +49,44 @@ test('MTEXT previews preserve raw source and safely return literal markup', () =
     assert.ok(raw.startsWith('{\\C1;'));
     assert.deepEqual(inspectTree().nodes,[]);
 });
+
+// Exercise the real serializer without mounting a browser host. This catches
+// iterator/collection assumptions in validation before any live DOM is changed.
+await import('../vendor/dockyard/avalondock.js');
+const D = globalThis.AvalonDock;
+function layoutHarness() {
+    const Type = createAnalysisDocking({window:{document:{},ResizeObserver:class{},AbortController,TextEncoder},dockyard:D});
+    const value=Object.assign(Object.create(Type.prototype),{
+        panels:new Map(['records','visual','details'].map(id=>[id,{label:id,node:{id}}])),
+        disposed:false,preset:'stacked',custom:false,suppress:0,focused:null,
+        layoutSelect:{value:'stacked'},restoreButton:{hidden:true},persist(){},schedule(){}
+    });
+    value.manager=new D.DockingManager({Layout:value.build('stacked'),EnableHistory:true});
+    value.fingerprint=value.structure();return value;
+}
+test('real Dockyard iterator-based hydration restores all panels and transient focus', () => {
+    const value=layoutHarness(), original=value.panels.get('records').node;
+    try {
+        const state=value.saveState();value.focus('visual');
+        assert.equal(value.focused,'visual');assert.ok(value.manager.Find('records').IsHidden);
+        value.restoreFocus();assert.equal(value.focused,null);
+        assert.equal(value.manager.Find('records').Content,original);
+        assert.ok(!value.manager.Find('records').IsHidden);
+        assert.deepEqual([...value.manager.Layout.Descendents()].filter(n=>n.ContentId).map(n=>n.ContentId).sort(),['details','records','visual']);
+        value.manager.Hide(value.manager.Find('visual'));const hidden=value.saveState();
+        value.restoreState(state);value.restoreState(hidden);assert.ok(value.manager.Find('visual').IsHidden);
+    } finally {value.manager.Dispose();}
+});
+test('analysis restore rejects foreign, duplicate and missing panels without replacing the live layout', () => {
+    const value=layoutHarness();
+    try {
+        const state=value.saveState(), original=value.manager.Layout;
+        const invalid=structuredClone(state);invalid.layout.layout.rootPanel.children=[];
+        assert.throws(()=>value.restoreState(invalid),/every known pane/);
+        assert.equal(value.manager.Layout,original);
+        const foreign=structuredClone(state);
+        const visit=x=>{if(x?.props?.ContentId==='details')x.props.ContentId='outside';for(const child of x?.children||[])visit(child);};
+        visit(foreign.layout.layout.rootPanel);assert.throws(()=>value.restoreState(foreign));
+        assert.equal(value.manager.Layout,original);
+    } finally {value.manager.Dispose();}
+});

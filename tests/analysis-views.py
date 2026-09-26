@@ -33,7 +33,7 @@ class AnalysisTests(unittest.TestCase):
     def launch(self,button,container):
         self.page.evaluate('(id)=>document.getElementById(id).click()',button);self.settle()
         self.page.wait_for_function('(id)=>!!document.getElementById(id).querySelector(".dxf-analysis-view")',arg=container)
-        self.page.evaluate('(id)=>window.v=document.getElementById(id).querySelector(".dxf-analysis-view").analysisView',container)
+        self.page.evaluate('(id)=>{window.v=document.getElementById(id).querySelector(".dxf-analysis-view").analysisView;}',container)
         return self.page.locator('#'+container+' > .dxf-analysis-view')
 
     def test_01_statistics_real_models_metrics_and_numeric_header_sort(self):
@@ -126,7 +126,7 @@ class AnalysisTests(unittest.TestCase):
     def test_12_rebuild_retains_filters_column_width_and_source_identity(self):
         self.launch('showBlocksOverlayBtn','overlayBlocksContent')
         self.page.evaluate("v.search.value='PUMP';v.refresh();v.treeModel.Columns.Get(0).Width=new TreeDataGridCore.GridLength(260);window.previous=v;app.updateBlocksOverlay()");self.settle()
-        self.page.evaluate("window.v=document.querySelector('#overlayBlocksContent .dxf-analysis-view').analysisView")
+        self.page.evaluate("() => {window.v=document.querySelector('#overlayBlocksContent .dxf-analysis-view').analysisView;}")
         self.assertJS("previous.disposed && v.search.value==='PUMP' && v.selectedKey==='block:PUMP' && v.treeModel.Columns.Get(0).Width.Value===260")
 
     def test_13_duplicate_handle_actions_navigate_canonical_node_and_stay_docked(self):

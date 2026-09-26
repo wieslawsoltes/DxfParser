@@ -92,4 +92,15 @@ class DockingAnalysisTests(unittest.TestCase):
         self.page.evaluate('() => {window.old=v.docking;w.dispose();}');self.settle()
         self.assertJS('old.disposed && !old.host.isConnected')
 
+    def test_dock_13_native_tab_gesture_floats_and_reset_restores_panes(self):
+        self.page.locator('#primary .analysis-dock-host .ad-tab[data-tab-id="details"]').dblclick();self.settle()
+        self.assertJS("d.manager.Find('details').IsFloating && d.isVisible('details') && d.custom")
+        self.page.locator('#primary .analysis-layout-toolbar').get_by_role('button',name='Reset layout',exact=True).click();self.settle()
+        self.assertJS("!d.manager.Find('details').IsFloating && d.isVisible('records') && !d.custom")
+    def test_dock_14_reload_restores_only_layout_metadata(self):
+        self.page.evaluate("() => {d.setPreset('stacked');d.hide('visual');d.flush();}");self.settle()
+        self.page.reload(wait_until='domcontentloaded');self.page.wait_for_function('window.analysisDemo?.v.docking');self.settle()
+        self.assertJS("analysisDemo.v.docking.preset==='stacked' && !analysisDemo.v.docking.isOpen('visual') && analysisDemo.v.docking.isVisible('records') && analysisDemo.v.rows.length===60")
+        self.assertJS("!localStorage.getItem('demo.analysis.Equipment analysis').includes('Equipment 59')")
+
 if __name__=='__main__':unittest.main(verbosity=2)

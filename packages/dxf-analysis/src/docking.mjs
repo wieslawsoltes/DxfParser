@@ -235,7 +235,7 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
                 const validation = new D.JsonLayoutSerializer(candidate);
                 validation.LayoutSerializationCallback.add((_sender, args) => { args.Content = null; });
                 validation.Deserialize(state.layout, { maxNodes: 64, maxDepth: 12, strict: true });
-                const content = candidate.Layout.Descendents().filter(n => n.ContentId != null);
+                const content = [...candidate.Layout.Descendents()].filter(n => n.ContentId != null);
                 if (content.length !== this.panels.size || content.some(n => !this.panels.has(n.ContentId) || !(n instanceof D.LayoutAnchorable)) ||
                     candidate.Find('records')?.IsHidden) throw new TypeError('Analysis layout must retain every known pane and visible records.');
             } finally { candidate.Dispose(); }
