@@ -65,9 +65,9 @@
 
 /* In short tools, avoid spending the viewport on wrapped toolbars. The controls
    remain reachable by horizontal scrolling; records keep the remaining height. */
-.has-analysis-docking.analysis-compact > .analysis-heading { padding: 3px 5px; gap: 4px; flex-wrap: nowrap; min-height: 30px; }
+.has-analysis-docking.analysis-compact > .analysis-heading { padding: 3px 5px; gap: 4px; flex-wrap: wrap; min-height: 30px; }
 .has-analysis-docking.analysis-compact > .analysis-heading > strong,
-.has-analysis-docking.analysis-compact > .analysis-heading > .dxf-grid-count { display: none; }
+.has-analysis-docking.analysis-compact > .analysis-heading > .dxf-grid-count:not([data-error=true]) { display: none; }
 .has-analysis-docking.analysis-compact > .analysis-heading > .analysis-modes { flex: 1; min-width: 0; flex-wrap: nowrap; margin: 0; }
 .has-analysis-docking.analysis-compact > .analysis-heading > .analysis-modes button { flex: none; min-height: 25px; font-size: 11px; padding: 2px 5px; }
 .has-analysis-docking.analysis-compact > .analysis-toolbar { flex-wrap: nowrap; padding: 3px 5px; overflow-x: auto; overflow-y: hidden; max-height: 34px; }
@@ -76,3 +76,5 @@
 .has-analysis-docking.analysis-compact > .analysis-facets { flex-wrap: nowrap; padding: 3px 5px; max-height: 34px; }
 .has-analysis-docking.analysis-compact > .analysis-facets > * { flex-shrink: 0; }
 .has-analysis-docking.analysis-compact .analysis-layout-toolbar { padding: 2px 4px; }
+
+.has-analysis-docking.analysis-compact > .analysis-heading > .dxf-grid-count[data-error=true] { display: block; flex: 1 0 100%; order: 1; white-space: normal; overflow-wrap: anywhere; max-height: 60px; overflow: auto; color: var(--analysis-error,#b42318); }

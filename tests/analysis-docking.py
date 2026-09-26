@@ -131,4 +131,11 @@ class DockingAnalysisTests(unittest.TestCase):
         }""");self.settle()
         self.assertJS("d.isVisible('details') && !d.isVisible('visual') && !d.isVisible('records') && !d.focused && v.selectedKey===0")
 
+    def test_dock_18_compact_toolbars_keep_action_errors_visible(self):
+        self.page.evaluate("() => {Object.assign(document.getElementById('primary').style,{width:'390px',height:'320px'});}");self.settle()
+        self.assertJS("v.host.classList.contains('analysis-compact') && v.grid.clientHeight>100")
+        self.page.evaluate("() => v.runAction(() => {throw new Error('The source is closed. Refresh from an open drawing.');},false)");self.settle()
+        self.assertTrue(self.page.locator('#primary .dxf-grid-count[data-error=true]').is_visible())
+        self.assertJS("v.host.scrollWidth<=v.host.clientWidth+2 && v.count.textContent.includes('source is closed')")
+
 if __name__=='__main__':unittest.main(verbosity=2)
