@@ -20,12 +20,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if test -f scripts/analysis-docking.01.xzpart; then
-            cat scripts/analysis-docking.0{1,2}.xzpart | xz -dc > /tmp/analysis-docking.patch
-            echo 'f8740ae80d4c3991dfd97f359101a9c72fdffc46ad479303db921dcdddb3dc37  /tmp/analysis-docking.patch' | sha256sum -c -
-            git apply --check /tmp/analysis-docking.patch
-            git apply /tmp/analysis-docking.patch
-            rm scripts/analysis-docking.0{1,2}.xzpart
+          if test -f scripts/analysis-docking-fix.patch.xz; then
+            xz -dc scripts/analysis-docking-fix.patch.xz > scripts/analysis-docking-fix.patch
+            rm scripts/analysis-docking-fix.patch.xz
           fi
           if test -f scripts/analysis-docking-fix.patch; then
             git apply --check scripts/analysis-docking-fix.patch
@@ -36,7 +33,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'refactor(analysis): add dockable report layouts and reusable source indexes'
+            git commit -m 'fix(analysis): validate native layout iterators and isolate test state'
             git push origin HEAD:work/analysis-docking-refactor
           fi
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -45,6 +42,37 @@ jobs:
         with:
           name: analysis-docking-source
           path: /tmp/analysis-docking-source.tar.gz
+          retention-days: 7
+  probe:
+    name: Focused docked analysis browser evidence
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - shell: bash
+        run: |
+          mkdir -p test-results/probe
+          timeout 150s python -u tests/analysis-docking.py -f 2>&1 | tee test-results/probe/standalone.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analysis-docking-probe
+          path: test-results/
           retention-days: 7
   validate:
     name: Validate dockable analysis and packages
