@@ -97,7 +97,9 @@ class VisualTests(unittest.TestCase):
         self.page.evaluate("window.v=[...app.tabularReports.projections].find(p=>p.source.id==='ruleConfigContent').view;w.manager.Find('ruleConfigOverlay').Dock();v.visuals.setLayout('split')")
         self.settle();self.assertJS("v.visuals.state.kind==='matrix'")
         self.page.evaluate("window.otherRules=[...document.querySelectorAll('.rule-item:not([data-category=security]) input')].map(x=>x.checked);let b=v.visuals.chartData.find(b=>/security/i.test(b.label)&&b.value);v.visuals.filter(b)")
+        self.page.locator('[data-grid-title="Diagnostic Rules"] .analysis-filter-menu > button').first.click();self.settle()
         self.settle();self.page.locator('[data-grid-title="Diagnostic Rules"]').get_by_role('button',name='Disable filtered',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("[...document.querySelectorAll('.rule-item[data-category=security] input')].every(i=>!i.checked) && JSON.stringify(otherRules)===JSON.stringify([...document.querySelectorAll('.rule-item:not([data-category=security]) input')].map(x=>x.checked))")
 
     def test_08_fonts_count_roots_once_and_allow_leaf_population(self):

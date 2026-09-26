@@ -86,7 +86,7 @@ class DensityTests(h.DockingAnalysisTests):
         self.menu('filter');self.page.evaluate('() => {window.panel=v.filterMenu.panel;v.dispose();}');self.settle()
         self.assertJS('!panel.isConnected && !panel.matches(":popover-open") && !s.disposed')
         self.menu('filter','#secondary')
-        self.page.evaluate('() => {document.getElementById("secondary").hidden=true;}');self.settle()
+        self.page.evaluate('() => {document.getElementById("secondary").style.display="none";}');self.settle()
         self.assertJS('!s.filterMenu.panel.matches(":popover-open")')
 
     def test_density_09_error_status_survives_compact_headers(self):
@@ -119,6 +119,21 @@ class DensityTests(h.DockingAnalysisTests):
         self.page.evaluate('() => {window.book=v.spreadsheet.book;document.getElementById("primary").style.width="390px";}');self.settle()
         self.menu('filter');self.page.keyboard.press('Escape');self.settle()
         self.assertJS('v.spreadsheet.book===book && v.filteredRows.length===40 && v.mode==="spreadsheet" && v.facetValues.get(1)==="Valve"')
+
+    def test_density_13_fallback_disclosures_are_bounded_and_keyboard_accessible(self):
+        self.page.evaluate("""() => {
+            Object.defineProperty(HTMLElement.prototype,'showPopover',{configurable:true,value:undefined});
+            const options=v.options,container=v.container;v.dispose();
+            v=new analysisDemo.ui.AnalysisView(container,options);d=v.docking;
+        }""");self.settle()
+        self.menu('filter')
+        self.assertJS('v.filterMenu.root.classList.contains("analysis-control-inline") && !v.filterMenu.panel.hidden && v.filterMenu.panel.clientHeight<=180')
+        self.page.get_by_role('combobox',name='Type filter',exact=True).select_option('Pump');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
+        self.assertJS('v.filterMenu.panel.hidden && v.filteredRows.length===20 && document.activeElement===v.filterMenu.trigger')
+        self.menu('chart')
+        self.assertTrue(self.page.get_by_role('combobox',name='Measure visual by',exact=True).is_visible())
+        self.assertJS('v.visuals.optionsMenu.panel.clientHeight<=180 && v.host.scrollWidth<=v.host.clientWidth+2')
 
 if __name__=='__main__':
     suite=unittest.TestSuite(DensityTests(name) for name in sorted(n for n in dir(DensityTests) if n.startswith('test_density_')))

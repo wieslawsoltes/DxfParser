@@ -48,7 +48,8 @@
    popup underneath a parent's overflow clip on browsers without the top layer. */
 .analysis-control-inline.is-open { display: contents; }
 .dxf-analysis-view > .analysis-toolbar:has(> .analysis-control-inline.is-open),
-.dxf-analysis-view > .analysis-heading:has(> .analysis-control-inline.is-open) { flex-wrap: wrap; }
+.dxf-analysis-view > .analysis-heading:has(> .analysis-control-inline.is-open),
+.dxf-analysis-view .analysis-visual-tools:has(> .analysis-control-inline.is-open) { flex-wrap: wrap; overflow: visible; }
 .analysis-control-inline .analysis-control-panel { flex-basis: 100%; width: 100%; max-height: 180px; }
 .dxf-analysis-view .analysis-visual-tools {
   flex-wrap: nowrap; gap: 4px; padding: 3px 5px; min-height: 33px; max-height: none;
