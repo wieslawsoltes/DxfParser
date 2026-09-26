@@ -182,6 +182,9 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.setRows(options.rows || []); this.setMode('records');
       if (options.visualization !== false && AVisuals()) this.visuals = new (AVisuals())(this);
       if (env.createLayout && options.docking !== false) {
+        // The non-docking presentation nests its chart inside the records stage.
+        // The docking host requires independently owned, non-nested pane content.
+        if (this.visuals) this.main.append(this.visuals.host);
         this.host.classList.add('has-analysis-docking');
         this.docking = env.createLayout({ container: this.main, records: this.stage, details: this.details,
           visual: this.visuals?.host, title: this.title,
