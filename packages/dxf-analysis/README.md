@@ -59,6 +59,8 @@ factory does not overwrite `window.DxfGrid` or `window.DxfAnalysis`.
 Column `width` accepts pixel numbers or host grid-length strings such as `2*`.
 `minWidth` overrides the default minimum in CSS pixels (with a 32-pixel floor),
 so short index columns do not consume the width needed for record content.
+Spreadsheet mode uses fixed pixel defaults for star/auto lengths and bounds them
+to the supplied GridWeb dimension range.
 
 Rows may supply action callbacks, child rows, metadata, or retained DOM sources.
 Source-bound actions invoke `activateSource` when the view is beneath an element

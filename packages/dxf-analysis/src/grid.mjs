@@ -103,7 +103,12 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         sheet.GetRange('A' + (start + 2)).Resize(batch.length, width).Values = batch;
       }
       sheet.FrozenRows = 1;
-      this.columns.forEach((column, i) => sheet.SetColumnWidth(i, column.width || (i === 0 ? 180 : 240)));
+      this.columns.forEach((column, i) => {
+        // Spreadsheet dimensions are pixels, not TreeDataGrid star lengths.
+        const width = Number.isFinite(column.width) && column.width > 0 ? column.width : (i === 0 ? 180 : 240);
+        const minimum = Number.isFinite(column.minWidth) ? column.minWidth : 32;
+        sheet.SetColumnWidth(i, Math.min(2000, Math.max(32, minimum, width)));
+      });
       sheet.GetRange('A1').Resize(1, width).SetStyle({ font: { bold: true }, fill: '#e4edf5' });
       book.ClearHistory(); this.book = book;
       this.updating = true;

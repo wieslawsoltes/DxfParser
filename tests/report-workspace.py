@@ -128,4 +128,22 @@ class ReportWorkspaceTests(unittest.TestCase):
         self.assertJS('siblingResized>0 && !a.disposed && !b.disposed')
         self.assertIn('report resize failed',self.page.locator('#primary .report-workspace-message').inner_text())
 
+    def test_results_19_application_star_widths_preserve_spreadsheet_mode(self):
+        self.app()
+        self.page.evaluate('() => {batch.tabs[batchA].view.setMode("spreadsheet");}');self.settle()
+        self.assertJS('batch.tabs[batchA].view.spreadsheet.book.ActiveWorksheet.GetCell("D2").Value==="Line 0"')
+        self.assertJS('batch.tabs[batchA].view.spreadsheet.grid.clientWidth>0 && batch.tabs[batchA].view.spreadsheet.grid.clientHeight>200')
+        self.page.evaluate('() => {batch.tabs[batchA].view.setMode("records");}');self.settle()
+        self.assertJS('batch.tabs[batchA].view.rows.length===30 && batch.tabs[batchB].rows.length===1')
+    def test_results_20_closed_query_ignores_a_pending_file_parse(self):
+        self.app()
+        self.page.evaluate("""() => {const transfer=new DataTransfer();transfer.items.add(new File(['0\\nEOF'],'delayed.dxf'));
+            document.getElementById('directoryInput').files=transfer.files;
+            document.getElementById('batchObjectType').value='LINE';
+            app.parseFileStream=()=>new Promise(resolve=>{window.finishRead=resolve;});
+            app.handleBatchProcess();window.closedQuery=batch.activeTabId;batch.removeTab(closedQuery);
+            finishRead({objects:[{type:'LINE',line:1,properties:[],children:[]}]});}""")
+        self.page.wait_for_function('document.getElementById("batchProgress").style.display==="none"')
+        self.assertJS('!batch.tabs[closedQuery] && !batch.documents.entries.has(closedQuery) && batch.tabs[batchA].rows.length===30 && batch.tabs[batchB].rows.length===1')
+
 if __name__=='__main__':unittest.main(verbosity=2)
