@@ -1,0 +1,58 @@
+name: Qualify source state package
+on:
+  push:
+    branches: [work/source-state-package]
+permissions:
+  contents: read
+concurrency:
+  group: qualify-source-state
+  cancel-in-progress: true
+jobs:
+  materialize:
+    name: Materialize verified source state refactor
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified source changes
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/source-state.01.xzpart; then
+            cat scripts/source-state.0{1,2}.xzpart | xz -dc > /tmp/source-state.patch
+            echo '403549d8f3d816b80e328d2e931c39a57ee5f1359b542b0a9f91a5259130f4f1  /tmp/source-state.patch' | sha256sum -c -
+            git apply --check --unidiff-zero /tmp/source-state.patch
+            git apply --unidiff-zero /tmp/source-state.patch
+            rm scripts/source-state.0{1,2}.xzpart
+          fi
+          if test -f scripts/source-state-fix.patch; then
+            git apply --check scripts/source-state-fix.patch
+            git apply scripts/source-state-fix.patch
+            rm scripts/source-state-fix.patch
+          fi
+          git add README.md components index.html packages scripts tests
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor: extract bounded source-state persistence and retire application lifetimes'
+            git push origin HEAD:work/source-state-package
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/source-state-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-state-source
+          path: /tmp/source-state-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate source state extraction
+    needs: materialize
+    uses: ./.github/workflows/ci.yml
+    with:
+      revision: ${{ needs.materialize.outputs.revision }}
+    permissions:
+      contents: read
