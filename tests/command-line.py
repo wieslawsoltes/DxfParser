@@ -81,7 +81,7 @@ class CommandLineTests(h.MultipleDrawingTests):
             const console=cad.commandLine;await cad.dispose();
             const before=count;m.renderScene(m.sceneGraph);await m.ready;
             const independent=console.disposed && !m.disposed && count>before && m.onPaint===legacy;
-            detach();o.dispose();await m.dispose();
+            detach();dw.remove(dw.findByTab(o.currentTabId));await m.dispose();
             return working && independent && m.paintListeners.size===0 && m.errorListeners.size===0;
         }''')
     def test_command_12_invalid_quotes_cannot_change_native_layout(self):
@@ -99,10 +99,10 @@ class CommandLineTests(h.MultipleDrawingTests):
     def test_command_15_stale_resize_after_native_retirement_is_ignored(self):
         self.app();self.render()
         self.page.evaluate('''async () => {
-            await cad.dispose();await m.dispose();
-            const before={width:o.canvas.width,height:o.canvas.height};
+            const canvas=o.canvas,before={width:canvas.width,height:canvas.height};
+            dw.remove(dw.findByTab(o.currentTabId));await m.dispose();
             o.resizeCanvas();requestAnimationFrame(()=>o.resizeCanvas());
-            window.retiredCanvasUnchanged=o.canvas.width===before.width && o.canvas.height===before.height;
+            window.retiredCanvasUnchanged=canvas.width===before.width && canvas.height===before.height;
         }''')
         self.page.wait_for_timeout(180)
         self.assertJS('retiredCanvasUnchanged && m.disposed')
