@@ -2322,22 +2322,10 @@
         });
       }
       
-      expandAllNodes(nodes) {
-        nodes.forEach(node => {
-          if ((node.properties && node.properties.length) || (node.children && node.children.length)) {
-            node.expanded = true;
-            this.expandAllNodes(node.children);
-          }
-        });
-      }
-      
-      collapseAllNodes(nodes) {
-        nodes.forEach(node => {
-          node.expanded = false;
-          this.collapseAllNodes(node.children);
-        });
-      }
-      
+      expandAllNodes(nodes) { setSourceExpansion(nodes, true); }
+
+      collapseAllNodes(nodes) { setSourceExpansion(nodes, false); }
+
       handleExpandAll() {
         // Allow expand-all even in diff mode; recompute diff if active
         const activeTab = this.getActiveTab();
@@ -2585,79 +2573,10 @@
         }
       }
       
-      getSortValue(node, field) {
-        if (field === "line") { return node.line ? Number(node.line) : 0; }
-        else if (field === "code") {
-          if (node.isProperty) {
-            const c = parseInt(node.code, 10);
-            return isNaN(c) ? Number.MAX_SAFE_INTEGER : c;
-          }
-          return 0;
-        } else if (field === "type") { return node.isProperty ? (node.data || "") : (node.type || ""); }
-        else if (field === "objectCount") {
-          if (node.isProperty) return 0;
-          function countDescendants(n) {
-            if (!n.children || n.children.length === 0) return 0;
-            let count = 0;
-            for (let child of n.children) {
-              if (!child.isProperty) {
-                count++;
-                if (child.children && child.children.length) { count += countDescendants(child); }
-              }
-            }
-            return count;
-          }
-          return countDescendants(node);
-        } else if (field === "dataSize") {
-          function computeSize(n) {
-            if (n.isProperty) { return n.data ? n.data.length : 0; }
-            else {
-              let size = n.type ? n.type.length : 0;
-              if (n.properties && n.properties.length) {
-                for (let prop of n.properties) { size += prop.value ? prop.value.length : 0; }
-              }
-              if (n.children && n.children.length) {
-                for (let child of n.children) { size += computeSize(child); }
-              }
-              return size;
-            }
-          }
-          return computeSize(node);
-        }
-        return "";
-      }
-      
-      sortTreeNodes(nodes, field, ascending) {
-        nodes.sort((a, b) => {
-          const aVal = this.getSortValue(a, field);
-          const bVal = this.getSortValue(b, field);
-          if (field === "code" || field === "line" || field === "objectCount" || field === "dataSize") {
-            return (aVal - bVal) * (ascending ? 1 : -1);
-          } else { return aVal.localeCompare(bVal) * (ascending ? 1 : -1); }
-        });
-        nodes.forEach(node => {
-          if (node.properties && node.properties.length) {
-            node.properties.sort((aProp, bProp) => {
-              if (field === "code") {
-                const aC = parseInt(aProp.code, 10) || 0;
-                const bC = parseInt(bProp.code, 10) || 0;
-                return (aC - bC) * (ascending ? 1 : -1);
-              } else if (field === "line") {
-                const aL = aProp.line || 0;
-                const bL = bProp.line || 0;
-                return (aL - bL) * (ascending ? 1 : -1);
-              } else if (field === "type") {
-                const aV = aProp.value || "";
-                const bV = bProp.value || "";
-                return aV.localeCompare(bV) * (ascending ? 1 : -1);
-              }
-              return 0;
-            });
-          }
-          if (node.children && node.children.length) { this.sortTreeNodes(node.children, field, ascending); }
-        });
-      }
-      
+      getSortValue(node, field) { return sourceSortValue(node, field); }
+
+      sortTreeNodes(nodes, field, ascending) { return sortSourceTree(nodes, field, ascending); }
+
       handleHeaderClick(headerCell) {
         const field = headerCell.getAttribute('data-field');
         const activeTab = this.getActiveTab();
@@ -2776,107 +2695,12 @@
       }
 
       filterTree(objects, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes) {
-        const filtered = [];
-        objects.forEach(obj => {
-          const filteredObj = this.filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes);
-          if (filteredObj !== null) { filtered.push(filteredObj); }
-        });
-        return filtered;
+        return filterSourceTree(objects, { codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine,
+          objectTypes, sourceMap: this.filteredNodeSources ||= new WeakMap() });
       }
 
       filterObject(obj, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes) {
-        // Determine if this node’s line number falls within the min/max range.
-        let nodeLine = parseInt(obj.line, 10);
-        let lineMatches = true;
-        if (minLine != null && !isNaN(minLine)) {
-          if (isNaN(nodeLine) || nodeLine < minLine) lineMatches = false;
-        }
-        if (maxLine != null && !isNaN(maxLine)) {
-          if (isNaN(nodeLine) || nodeLine > maxLine) lineMatches = false;
-        }
-
-        // Filter properties based on min/max and code/data filters.
-        const filteredProperties = obj.properties.filter(prop => {
-          let propLine = parseInt(prop.line, 10);
-          if (minLine != null && !isNaN(minLine)) {
-            if (isNaN(propLine) || propLine < minLine) return false;
-          }
-          if (maxLine != null && !isNaN(maxLine)) {
-            if (isNaN(propLine) || propLine > maxLine) return false;
-          }
-          const codeMatch = (codeTerms.length === 0) ||
-            codeTerms.some(term => String(prop.code) === term);
-          let dataMatch = true;
-          if (dataTerms.length > 0) {
-            if (dataExact) {
-              dataMatch = dataTerms.some(term =>
-                dataCase ? (prop.value === term)
-                         : (prop.value.toLowerCase() === term.toLowerCase())
-              );
-            } else {
-              dataMatch = dataTerms.some(term =>
-                dataCase ? prop.value.includes(term)
-                         : prop.value.toLowerCase().includes(term.toLowerCase())
-              );
-            }
-          }
-          return codeMatch && dataMatch;
-        });
-
-        // Recursively filter children.
-        const filteredChildren = (obj.children || [])
-          .map(child => this.filterObject(child, codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes))
-          .filter(child => child !== null);
-
-        // For data filtering: if any data search terms are active, check whether the node’s type matches.
-        const dataFilterActive = dataTerms.length > 0;
-        let typeMatchesData = false;
-        if (dataFilterActive) {
-          if (dataExact) {
-            typeMatchesData = dataTerms.some(term =>
-              dataCase ? (obj.type === term)
-                       : (obj.type.toLowerCase() === term.toLowerCase())
-            );
-          } else {
-            typeMatchesData = dataTerms.some(term =>
-              dataCase ? obj.type.includes(term)
-                       : obj.type.toLowerCase().includes(term.toLowerCase())
-            );
-          }
-        }
-
-        // Check if the node’s type matches any of the selected object types.
-        let typeMatchesFilter = true;
-        if (objectTypes && objectTypes.length > 0) {
-          typeMatchesFilter = objectTypes.some(filterType =>
-            obj.type.toLowerCase() === filterType.toLowerCase()
-          );
-        }
-
-        // NEW: If an object type filter is active, drop this node if:
-        //   • It does not match the filter (i.e. typeMatchesFilter is false)
-        //   • And it has no children that survive filtering.
-        if (objectTypes && objectTypes.length > 0) {
-          if (!typeMatchesFilter && filteredChildren.length === 0) {
-            return null;
-          }
-        }
-
-        // If a data filter is active but nothing in the node (or its children/properties) matches, drop it.
-        if (dataFilterActive && !(typeMatchesData || filteredProperties.length > 0 || filteredChildren.length > 0)) {
-          return null;
-        }
-
-        // If the node’s own line is out of range and there are no matching children or properties, drop it.
-        if (!lineMatches && filteredProperties.length === 0 && filteredChildren.length === 0) {
-          return null;
-        }
-
-        // Otherwise, return the node (with filtered properties and children).
-        const view = { ...obj, expanded: obj.expanded, properties: filteredProperties, children: filteredChildren };
-        // Preserve canonical ownership without putting back-pointers in serializable DXF records.
-        (this.filteredNodeSources ||= new WeakMap()).set(view, obj);
-        return view;
+        return this.filterTree([obj], codeTerms, dataTerms, dataExact, dataCase, minLine, maxLine, objectTypes)[0] || null;
       }
 
       handleCopy(nodeId) {
@@ -6187,79 +6011,8 @@ EOF`;
       }
 
       searchDxfTree(nodes, objectType, searchText, exact, searchCode) {
-        let results = [];
-        nodes.forEach(node => {
-          // If an object type is provided, only consider nodes of that type.
-          if (objectType) {
-            if (node.type && node.type.toLowerCase() === objectType.toLowerCase()) {
-              // If no code or data is provided, return the object itself.
-              if (!searchCode && !searchText) {
-                results.push({ line: node.line, data: node.type });
-              } else if (node.properties && node.properties.length > 0) {
-                node.properties.forEach(prop => {
-                  // If a code is provided, only consider properties with that code.
-                  if (searchCode) {
-                    if (String(prop.code) === searchCode) {
-                      if (searchText) {
-                        // When both code and data are provided, check data only on properties with the matching code.
-                        const isMatch = exact
-                          ? prop.value === searchText
-                          : prop.value.toLowerCase().includes(searchText.toLowerCase());
-                        if (isMatch) {
-                          results.push({ line: prop.line, data: prop.value });
-                        }
-                      } else {
-                        // If only code is provided, add the property.
-                        results.push({ line: prop.line, data: prop.value });
-                      }
-                    }
-                  } else if (searchText) {
-                    // If no code is provided but data is, check all properties.
-                    const isMatch = exact
-                      ? prop.value === searchText
-                      : prop.value.toLowerCase().includes(searchText.toLowerCase());
-                    if (isMatch) {
-                      results.push({ line: prop.line, data: prop.value });
-                    }
-                  }
-                });
-              }
-            }
-          } else {
-            // If no object type is provided, you can implement similar logic for all nodes.
-            if (node.properties && node.properties.length > 0) {
-              node.properties.forEach(prop => {
-                if (searchCode) {
-                  if (String(prop.code) === searchCode) {
-                    if (searchText) {
-                      const isMatch = exact
-                        ? prop.value === searchText
-                        : prop.value.toLowerCase().includes(searchText.toLowerCase());
-                      if (isMatch) {
-                        results.push({ line: prop.line, data: prop.value });
-                      }
-                    } else {
-                      results.push({ line: prop.line, data: prop.value });
-                    }
-                  }
-                } else if (searchText) {
-                  const isMatch = exact
-                    ? prop.value === searchText
-                    : prop.value.toLowerCase().includes(searchText.toLowerCase());
-                  if (isMatch) {
-                    results.push({ line: prop.line, data: prop.value });
-                  }
-                }
-              });
-            }
-          }
-          if (node.children && node.children.length > 0) {
-            results = results.concat(
-              this.searchDxfTree(node.children, objectType, searchText, exact, searchCode)
-            );
-          }
-        });
-        return results;
+        return searchSourceTree(nodes, { objectType, searchText, exact, searchCode })
+          .map(({ line, data }) => ({ line, data }));
       }
 
       openFileTab(file, targetLine) {
@@ -6333,27 +6086,25 @@ EOF`;
           return;
         }
 
-        const now = new Date();
-        const tabTitle = "Search " + now.toLocaleTimeString();
+        // This is explicitly host-authored JavaScript, not a sandboxed file query.
+        // Validate it before allocating a result document or showing progress.
+        let queryFn = null;
+        if (jsQuery) {
+          try {
+            queryFn = new Function("return (" + jsQuery + ");")();
+            if (typeof queryFn !== 'function') throw new TypeError('Query must evaluate to a predicate function.');
+          } catch (error) {
+            alert("Invalid JS query: " + error.message);
+            return;
+          }
+        }
+        const tabTitle = "Search " + new Date().toLocaleTimeString();
         let tabId;
         try { tabId = this.batchDataGrid.addTab(tabTitle); }
         catch (error) { alert(error.message); return; }
         const filesArray = Array.from(files);
         const progressBar = document.getElementById("batchProgress");
         progressBar.style.display = "block";
-
-        // Pre-compile the JS query once if provided.
-        let queryFn = null;
-        if (jsQuery) {
-          try {
-            queryFn = new Function("return (" + jsQuery + ");")();
-          } catch (e) {
-            console.error("Error compiling JS query:", e);
-            alert("Invalid JS query: " + e.message);
-            progressBar.style.display = "none";
-            return;
-          }
-        }
 
         const processFile = async (file) => {
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
@@ -6363,21 +6114,12 @@ EOF`;
             const dxfObjects = parseResult && Array.isArray(parseResult.objects) ? parseResult.objects : [];
             let matches = [];
             if (queryFn) {
-              // Use the pre-compiled function in the hot loop.
-              const searchJs = (nodes) => {
-                nodes.forEach((node) => {
-                  if (queryFn(node)) {
-                    matches.push({ line: node.line, data: node.type });
-                  }
-                  if (node.children && node.children.length > 0) {
-                    searchJs(node.children);
-                  }
-                });
-              };
-              searchJs(dxfObjects);
+              matches = selectSourceNodes(dxfObjects, queryFn, {
+                maxResults: this.batchDataGrid.documents.maxRows - this.batchDataGrid.tabs[tabId].rows.length
+              }).map(node => ({ line: node.line, data: node.type }));
             } else {
-              // Fallback to your existing simple search logic.
-              matches = this.searchDxfTree(dxfObjects, objectType, searchText, exact, searchCode);
+              matches = searchSourceTree(dxfObjects, { objectType, searchText, exact, searchCode,
+                maxResults: this.batchDataGrid.documents.maxRows - this.batchDataGrid.tabs[tabId].rows.length });
             }
             matches.forEach(match => {
               this.batchDataGrid.addRow(tabId, {
@@ -6389,6 +6131,9 @@ EOF`;
             });
           } catch (err) {
             console.error("Error processing file: " + file.name, err);
+            if (!this.batchDataGrid.disposed && this.batchDataGrid.tabs[tabId]) {
+              this.dockingWorkspace?.notify(file.name + ': ' + err.message, true);
+            }
           }
         };
 

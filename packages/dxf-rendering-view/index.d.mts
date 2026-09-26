@@ -78,6 +78,8 @@ export interface RenderingSurfaceManager {
     onError?: ((error: Error) => void) | null;
     canPresent?: (() => boolean) | null;
     initialize(canvas: HTMLCanvasElement): this;
+    subscribePaint(listener: (stats: unknown) => void): () => boolean;
+    subscribeError(listener: (error: Error) => void): () => boolean;
     subscribeFrame(listener: (frame: Frame) => void): () => boolean;
     setCanvasReplacementCallback(listener: (canvas: HTMLCanvasElement) => void): void;
     setLayerState(value: Map<string, unknown> | Record<string, unknown>): void;

@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
-const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view', 'dxf-state'];
+const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view', 'dxf-state', 'dxf-command-line'];
 const before = new Set(Reflect.ownKeys(globalThis));
 const packages = await Promise.all(names.map(name => import(`../packages/${name}/index.mjs`)));
 const [I, A, V, T] = packages;

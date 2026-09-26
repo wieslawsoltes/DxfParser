@@ -2640,7 +2640,9 @@
     }
 
     resizeCanvas() {
-      if (!this.canvas) {
+      // A queued dock/resize callback may outlive its source or native surface.
+      // Keep explicit calls to the disposed surface strict; drop stale UI work here.
+      if (this.disposed || this.surfaceManager?.disposed || !this.canvas) {
         return;
       }
       const container = this.canvas.parentElement;

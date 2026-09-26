@@ -85,7 +85,7 @@ class DrawingNavigationTests(h.MultipleDrawingTests):
         self.page.evaluate('() => {w.manager.Find(b.id).CanMove=false; }');self.settle()
         # Focus the console before the snapshot: UI focus is an independent dock
         # activation, not a mutation performed by the rejected tile transaction.
-        field=self.page.locator('#parserCadCommand');field.fill('RENDERTILE grid');self.settle()
+        field=self.page.locator('[data-cad-command=parser]');field.fill('RENDERTILE grid');self.settle()
         self.page.evaluate('() => {window.before=w.manager.SaveLayout(); }')
         field.press('Enter');self.settle()
         self.assertJS('a.cad.log.textContent.includes("movable")')

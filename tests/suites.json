@@ -7,13 +7,15 @@
     "component-packages",
     "workspace-office",
     "rendering-view",
-    "state-persistence"
+    "state-persistence",
+    "command-line"
   ],
   "analysis": [
     "analysis-views",
     "analysis-visuals",
     "analysis-docking",
-    "report-workspace"
+    "report-workspace",
+    "source-query"
   ],
   "drawings": [
     "skia-workspace",

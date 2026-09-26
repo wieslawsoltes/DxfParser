@@ -3,3 +3,8 @@ export { TreeDiffEngine } from './src/tree-diff.mjs';
 export { DXFDiagnosticsEngine } from './src/diagnostics.mjs';
 export { hexStringToByteArray, hexDump, detectHeader, isHandleCode } from './src/utils.mjs';
 export { inspectTree, referenceIndex, mtextPlain } from './src/analysis.mjs';
+export { DEFAULT_QUERY_LIMITS } from './src/query/forest.mjs';
+export { filterSourceTree } from './src/query/filter.mjs';
+export { searchSourceTree, selectSourceNodes } from './src/query/search.mjs';
+export { sourceSortValue, sortSourceTree } from './src/query/sort.mjs';
+export { setSourceExpansion } from './src/query/expansion.mjs';

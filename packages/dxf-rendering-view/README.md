@@ -37,7 +37,10 @@ browser or a Skia initializer; parsing and scene compilation belong to the rende
 
 `setLayout`, `setViewDirection`, layer/attribute/isolation controls, comparison
 composition and resource registration reuse the existing retained render path.
-Camera-only updates reuse compilation. Frame subscriptions are detachable; observer
+Camera-only updates reuse compilation. `subscribeFrame`, `subscribePaint` and `subscribeError` return independent,
+detachable subscriptions. Legacy `onPaint`/`onError` callbacks remain supported;
+subscribers never wrap or replace them. Delivery snapshots subscriptions, skips
+removed listeners and stops on disposal. All subscriptions are cleared on disposal; observer
 errors cannot corrupt the document store or quarantine a working GPU backend.
 DOM paint/error events are created in the attached canvas's browser realm.
 
