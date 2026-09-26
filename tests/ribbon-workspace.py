@@ -32,7 +32,7 @@ class RibbonTests(unittest.TestCase):
     def load(self,path='index.html'):
         h.DockingTests.load(self,path)
         self.page.wait_for_function('(window.app||window.DxfEditorApp).ribbonWorkspace?.ribbon?.model')
-        self.page.evaluate('window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon;window.dw=window.app?.documentWorkspace')
+        self.page.evaluate('() => {window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon;window.dw=window.app?.documentWorkspace;}')
     def file(self,name='one.dxf',side='Left',text=None):
         if text is None: text=(ROOT/'tests/data/sample.dxf').read_text()
         self.page.locator('#fileInput'+side).set_input_files({'name':name,'mimeType':'application/dxf','buffer':text.encode()})
@@ -45,7 +45,7 @@ class RibbonTests(unittest.TestCase):
         self.page.locator('ribbon-web').get_by_role('tab',name=tab,exact=True).click();self.settle()
     def click(self,label):
         self.page.locator('ribbon-web').get_by_role('button',name=label,exact=True).last.click();self.settle()
-    def record_globals(self): self.page.evaluate('window.records=[...dw.records.values()];window.a=records[0];window.b=records[1];window.c=records[2]')
+    def record_globals(self): self.page.evaluate('() => {window.records=[...dw.records.values()];window.a=records[0];window.b=records[1];window.c=records[2];}')
 
     def test_01_native_ribbon_and_no_legacy_command_panels(self):
         self.load()
@@ -139,6 +139,7 @@ class RibbonTests(unittest.TestCase):
         self.page.evaluate('dw.activate(a)');self.execute('analysis-handleMapOverlay')
         self.page.evaluate('w.manager.Dock(w.manager.Find("handleMapOverlay"),w.manager.Find(a.id).Parent,"Right");dw.activate(b)');self.settle()
         # The interactive row's action captures its canonical DXF node, not a formatted link label.
+        self.page.locator('#handleMapOverlay .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.locator('#handleMapOverlay .analysis-details > .dxf-grid-actions').get_by_role('button',name='Show in Tree',exact=True).click();self.settle()
         self.assertJS('dw.active===a && w.isOpen("handleMapOverlay") && a.grid.selectedRowId!==null')
 
@@ -195,7 +196,7 @@ class RibbonTests(unittest.TestCase):
         self.page.evaluate('dw.activate(a);dw.markModified(a);a.tab.minLine=7;app.stateManager.saveTabState(a.tab);app.saveCurrentState();w.manager.Float(w.manager.Find(a.id),{FloatingWidth:620,FloatingHeight:420});w.save()');self.settle()
         # The test's own dirty data needs an explicit beforeunload acceptance.
         self.page.evaluate("window.onbeforeunload=null;for(const r of dw.records.values())r.tab.isModified=false")
-        self.page.reload(wait_until='domcontentloaded');self.page.wait_for_function('app?.dockingWorkspace?.ready');self.page.evaluate('window.w=app.dockingWorkspace;window.dw=app.documentWorkspace;window.rb=app.ribbonWorkspace.ribbon')
+        self.page.reload(wait_until='domcontentloaded');self.page.wait_for_function('app?.dockingWorkspace?.ready');self.page.evaluate('() => {window.w=app.dockingWorkspace;window.dw=app.documentWorkspace;window.rb=app.ribbonWorkspace.ribbon;}')
         self.assertJS('dw.records.size===2 && [...dw.records.values()].every(r=>w.manager.Find(r.id))')
         self.assertJS('[...dw.records.values()].find(r=>r.tab.name==="one.dxf").tab.isModified')
         self.assertJS('w.manager.Find([...dw.records.values()].find(r=>r.tab.name==="one.dxf").id).IsFloating')

@@ -63,3 +63,18 @@ export function hexStringToByteArray(hex: string): Uint8Array;
 export function hexDump(bytes: Uint8Array): string;
 export function detectHeader(bytes: Uint8Array): string | null;
 export function isHandleCode(code: number): boolean;
+
+export interface InspectionSource { id?: string | number; originalTreeData?: DxfNode[]; [metadata: string]: unknown; }
+export interface InspectionReference { node: DxfNode | null; label: string; value?: string; }
+export interface InspectionIndex<T extends InspectionSource = InspectionSource> {
+    tab: T | null | undefined; nodes: DxfNode[];
+    types: Map<string, DxfNode[]>; codes: Map<number, { node: DxfNode; property: DxfTag }[]>;
+    handles: Map<string, DxfNode[]>; incoming: Map<string, { node: DxfNode; property: DxfTag }[]>;
+    size: Map<DxfNode, number>; positions: Map<DxfNode, number>;
+    depth: number; properties: number; characters: number;
+    references?: { incoming: Map<DxfNode, InspectionReference[]>; outgoing: Map<DxfNode, InspectionReference[]> };
+}
+export function inspectTree<T extends InspectionSource>(source?: T | null): InspectionIndex<T>;
+export function referenceIndex(index: InspectionIndex): NonNullable<InspectionIndex['references']>;
+/** Bounded MTEXT text preview, not CAD typesetting. Source values remain unchanged. */
+export function mtextPlain(raw: unknown): string;

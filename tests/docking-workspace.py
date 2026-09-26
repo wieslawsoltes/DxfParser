@@ -64,7 +64,7 @@ class DockingTests(unittest.TestCase):
         self.page.goto(self.base + path, wait_until='domcontentloaded')
         self.page.wait_for_function('window.app?.dockingWorkspace || window.DxfEditorApp?.dockingWorkspace')
         self.page.wait_for_timeout(180)  # App state restoration is scheduled at 100 ms.
-        self.page.evaluate('window.w = window.app?.dockingWorkspace || window.DxfEditorApp.dockingWorkspace;window.dw=window.app?.documentWorkspace;window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon')
+        self.page.evaluate('() => {window.w = window.app?.dockingWorkspace || window.DxfEditorApp.dockingWorkspace;window.dw=window.app?.documentWorkspace;window.rb=(window.app||window.DxfEditorApp).ribbonWorkspace.ribbon;}')
         self.assertJS('w.host.clientHeight > 300 && w.host.clientWidth > 300')
 
     def assertJS(self, expression, message=None):
@@ -221,6 +221,7 @@ class DockingTests(unittest.TestCase):
         self.settle()
         self.assertJS("w.manager.Find('render-blocks').IsSelected && w.isOpen('render-layers')")
         self.page.evaluate("w.show('render-layers')"); self.settle()
+        self.page.locator('#renderingOverlayLayerManager .analysis-heading').get_by_role('button', name='Details', exact=True).click(); self.settle()
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).uncheck(); self.settle()
         self.assertJS("!document.querySelector('input[data-action=\"toggle-on\"]').checked")
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox', name='On', exact=True).check(); self.settle()
@@ -242,7 +243,7 @@ class DockingTests(unittest.TestCase):
 
     def test_12_bad_import_is_atomic_and_capabilities_are_enforced(self):
         self.load()
-        self.page.evaluate('window.before=w.manager.Layout')
+        self.page.evaluate('() => {window.before=w.manager.Layout;}')
         for text in ['{', '{}', '{"format":"dxfparser-dockyard-workspace","version":999}', 'x'*1048577]:
             self.assertJS('''(text=>{try{w.importLayout(text);return false;}catch{return w.manager.Layout===before;}})('''+json.dumps(text)+')')
         self.assertJS('''() => {
@@ -260,18 +261,18 @@ class DockingTests(unittest.TestCase):
     def test_13_persistence_and_corruption_recovery(self):
         self.load()
         self.page.evaluate("w.hide('tree-right');w.manager.Theme='dark';w.save()")
-        self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
+        self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('() => {window.w=app.dockingWorkspace;}'); self.settle()
         self.assertJS("!w.isOpen('tree-right') && w.manager.Theme==='dark'")
         # Corrupt the next document before app startup, after the outgoing
         # workspace's pagehide autosave has finished. Poisoning the live
         # page instead would be repaired by its intentional reload save.
         self.page.add_init_script("localStorage.setItem('dxfparser.dockyard.parser.v1','broken')")
-        self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('window.w=app.dockingWorkspace'); self.settle()
+        self.page.reload(wait_until='domcontentloaded'); self.page.wait_for_function('window.app?.dockingWorkspace'); self.page.evaluate('() => {window.w=app.dockingWorkspace;}'); self.settle()
         self.assertJS("w.isOpen('tree-right') && w.status.dataset.error==='true'")
 
     def test_14_reset_layout_and_presets_do_not_reset_files(self):
         self.load(); self.sample(); self.sample(True)
-        self.page.evaluate('window.tab=app.tabs[0];window.right=app.tabsRight[0]')
+        self.page.evaluate('() => {window.tab=app.tabs[0];window.right=app.tabsRight[0];}')
         for preset in ['Review','Focus','Compare']:
             self.page.evaluate('(preset)=>rb.execute("workspace-preset",preset)',preset); self.settle()
             self.assertJS('app.tabs[0]===tab && app.tabsRight[0]===right')

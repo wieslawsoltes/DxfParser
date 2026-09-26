@@ -1,0 +1,80 @@
+/* A report owns one native Dockyard manager, not another fixed-height grid stack.
+   Scope overrides carefully: outer workspaces and no-docking embedded grids retain
+   their existing presentation. All content remains the same live DOM/control. */
+.has-analysis-docking { min-height: 200px; }
+.has-analysis-docking > .analysis-main {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1;
+  grid-template-columns: none; grid-template-rows: none; overflow: hidden;
+}
+.analysis-layout-toolbar {
+  display: flex; align-items: center; gap: 5px; flex: none; min-width: 0;
+  padding: 4px 6px; border-bottom: 1px solid var(--ad-border, #ccd7e1);
+  overflow-x: auto; background: var(--ad-chrome, #f4f7fa);
+}
+.analysis-layout-toolbar > button, .analysis-layout-toolbar > select { flex: none; font-size: 11px; padding: 2px 6px; min-height: 25px; }
+.analysis-layout-hint { margin-left: auto; font-size: 11px; color: var(--ad-muted, #596b7d); white-space: nowrap; }
+.analysis-dock-host { flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
+.analysis-dock-host .analysis-stage,
+.analysis-dock-host .analysis-details,
+.analysis-dock-host .analysis-visuals {
+  height: 100%; max-height: none; min-height: 0; min-width: 0; flex: 1;
+  margin: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; overflow: hidden;
+}
+.analysis-dock-host .analysis-stage > tree-data-grid,
+.analysis-dock-host .analysis-stage > .analysis-sheet-host { flex: 1; height: 100%; min-height: 0; }
+.analysis-dock-host .analysis-stage > tree-data-grid:not([hidden]),
+.analysis-dock-host .analysis-stage > .analysis-sheet-host:not([hidden]) { display: block !important; }
+.analysis-dock-host [hidden] { display: none !important; }
+.analysis-dock-host .analysis-visual-body { min-height: 0; }
+.analysis-dock-host .analysis-visual-tools { max-height: 110px; }
+.analysis-dock-host .analysis-detail-tabs { flex-wrap: wrap; }
+.analysis-dock-host .analysis-detail-body { overscroll-behavior: contain; }
+.analysis-dock-host .analysis-details > .analysis-empty { position: static; padding: 12px; }
+.analysis-dock-host .ad-tab { min-height: 28px; }
+.analysis-dock-host button.ad-button { min-height: 22px; min-width: 22px; padding: 2px; border: 0; }
+.analysis-dock-host .ad-splitter:focus-visible { outline: 2px solid var(--analysis-accent); outline-offset: -2px; }
+.analysis-dock-host .analysis-visuals .analysis-visual-body > svg { width: 100%; height: auto; }
+.analysis-dock-host .analysis-stage > .analysis-empty { pointer-events: none; }
+.analysis-dock-parking[hidden] { display: none !important; }
+@container (max-width: 700px) {
+  .has-analysis-docking > .analysis-main { display: flex; }
+  .analysis-layout-hint { display: none; }
+  .analysis-layout-toolbar > button { font-size: 10px; }
+  .has-analysis-docking .analysis-heading { flex-wrap: wrap; }
+  .has-analysis-docking > .analysis-heading > .analysis-modes { flex-wrap: wrap; }
+}
+/* App hosts expose available dock height instead of a second 480px scroll area. */
+.analysis-report-host > .has-analysis-docking,
+.analysis-diagnostics-host > .has-analysis-docking,
+.dxf-grid-projection > .has-analysis-docking,
+.rendering-property-grid > .has-analysis-docking { flex: 1; height: 100%; min-height: 180px; }
+.layer-manager-container:has(.has-analysis-docking),
+#renderingBlocksGrid:has(.has-analysis-docking) { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.layer-manager-container > .dxf-grid-projection:has(.has-analysis-docking),
+#renderingBlocksGrid > .dxf-grid-projection:has(.has-analysis-docking) { flex: 1; min-height: 0; display: flex; }
+.layer-manager-container > .dxf-grid-projection > .has-analysis-docking { height: 100%; min-height: 180px; }
+.has-analysis-docking > .analysis-heading .analysis-modes { overflow-x: auto; max-width: 100%; }
+.has-analysis-docking > .analysis-toolbar { max-height: 86px; overflow-y: auto; }
+/* The column chooser must escape the compact toolbar scroll clip. */
+.has-analysis-docking > .analysis-toolbar:has(.analysis-column-menu[open]) { overflow: visible; }
+.has-analysis-docking > .analysis-facets { max-height: 60px; overflow: auto; }
+:is(#renderingOverlayLayerManager,[data-render-source-id="renderingOverlayLayerManager"]) > .dxf-grid-projection > .has-analysis-docking { min-height: 180px; }
+
+/* Preview cards size to their pane, not to the enclosing workspace. */
+.analysis-dock-host .analysis-preview-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+
+/* In short tools, avoid spending the viewport on wrapped toolbars. The controls
+   remain reachable by horizontal scrolling; records keep the remaining height. */
+.has-analysis-docking.analysis-compact > .analysis-heading { padding: 3px 5px; gap: 4px; flex-wrap: wrap; min-height: 30px; }
+.has-analysis-docking.analysis-compact > .analysis-heading > strong,
+.has-analysis-docking.analysis-compact > .analysis-heading > .dxf-grid-count:not([data-error=true]) { display: none; }
+.has-analysis-docking.analysis-compact > .analysis-heading > .analysis-modes { flex: 1; min-width: 0; flex-wrap: nowrap; margin: 0; }
+.has-analysis-docking.analysis-compact > .analysis-heading > .analysis-modes button { flex: none; min-height: 25px; font-size: 11px; padding: 2px 5px; }
+.has-analysis-docking.analysis-compact > .analysis-toolbar { flex-wrap: nowrap; padding: 3px 5px; overflow-x: auto; overflow-y: hidden; max-height: 34px; }
+.has-analysis-docking.analysis-compact > .analysis-toolbar > * { flex-shrink: 0; }
+.has-analysis-docking.analysis-compact > .analysis-toolbar > input { min-width: 100px; flex-basis: 100px !important; }
+.has-analysis-docking.analysis-compact > .analysis-facets { flex-wrap: nowrap; padding: 3px 5px; max-height: 34px; }
+.has-analysis-docking.analysis-compact > .analysis-facets > * { flex-shrink: 0; }
+.has-analysis-docking.analysis-compact .analysis-layout-toolbar { padding: 2px 4px; }
+
+.has-analysis-docking.analysis-compact > .analysis-heading > .dxf-grid-count[data-error=true] { display: block; flex: 1 0 100%; order: 1; white-space: normal; overflow-wrap: anywhere; max-height: 60px; overflow: auto; color: var(--analysis-error,#b42318); }

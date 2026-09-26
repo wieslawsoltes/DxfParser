@@ -37,13 +37,17 @@ for (const name of ${JSON.stringify(names)}) {
     const specifier = '@wieslawsoltes/' + name;
     const esm = await import(specifier), cjs = require(specifier);
     assert.equal(esm, cjs);
-    assert.equal(require(specifier + '/package.json').version, '0.1.0');
+    assert.equal(require(specifier + '/package.json').version, ['dxf-analysis', 'dxf-inspector'].includes(name) ? '0.2.0' : '0.1.0');
 }
 const I = await import('@wieslawsoltes/dxf-inspector');
 const source = ${JSON.stringify(['0','SECTION','2','ENTITIES','0','CIRCLE','5','A','10','0','20','0','40','2','0','ENDSEC','0','EOF',''].join('\n'))};
 const tree = new I.DxfParser().parse(source);
 assert.equal(tree[0].children[0].type, 'CIRCLE');
 assert.equal(I.TreeDiffEngine.computeDiff(tree, tree).leftRowClasses.size, 0);
+assert.equal(I.inspectTree({originalTreeData:tree}).nodes.length,4);
+assert.equal(I.referenceIndex(I.inspectTree({originalTreeData:tree})).outgoing.size,0);
+const dock=await import('@wieslawsoltes/dxf-analysis');
+assert.equal(dock.analysisArrangement(400,600),'tabs');
 const model = await import('@wieslawsoltes/dxf-analysis/models');
 assert.equal(model.aggregate, require('@wieslawsoltes/dxf-analysis/models').aggregate);
 assert.equal(model.aggregate([{ key: 1, values: ['Pipe', 8] }], 0, 1).buckets[0].value, 8);
@@ -53,19 +57,26 @@ console.log('All installed component packages: isolated ESM/CJS identity, public
     fs.writeFileSync(path.join(temp, 'consumer.mjs'), consumer);
     process.stdout.write(run(process.execPath, ['consumer.mjs']));
     fs.writeFileSync(path.join(temp, 'consumer.mts'), `
-import { DxfParser, TreeDiffEngine, DXFDiagnosticsEngine, isHandleCode } from '@wieslawsoltes/dxf-inspector';
-import { createAnalysisUI, type ReportRow } from '@wieslawsoltes/dxf-analysis';
+import { DxfParser, TreeDiffEngine, DXFDiagnosticsEngine, isHandleCode, inspectTree, referenceIndex, mtextPlain } from '@wieslawsoltes/dxf-inspector';
+import { createAnalysisUI, createAnalysisDocking, analysisArrangement, type ReportRow } from '@wieslawsoltes/dxf-analysis';
 import { aggregate } from '@wieslawsoltes/dxf-analysis/models';
 import { createTreeDataGrid } from '@wieslawsoltes/dxf-tree-view';
 import { createDrawingViewTools, type NavigationHost } from '@wieslawsoltes/dxf-drawing-tools';
 const tree = new DxfParser().parse('');
 const id: number = tree[0].id;
 const diff = TreeDiffEngine.computeDiff(tree, tree, { ignoreHandles: true });
+const analysisIndex = inspectTree({id:'test',originalTreeData:tree});
+referenceIndex(analysisIndex);mtextPlain('preview');
 const diagnosis = new DXFDiagnosticsEngine(tree, 'test.dxf').runFullDiagnostics();
 const rows: ReportRow<number>[] = [{ key: 1, values: ['Valve', 4] }];
 const key: number = aggregate(rows, 0).buckets[0].keys[0];
 declare const core: object, web: object, grid: object, renderer: object, dockyard: object;
-const ui = createAnalysisUI({ window, treeDataGridCore: core, treeDataGridWeb: web, gridWeb: grid });
+const Docking = createAnalysisDocking({window, dockyard});
+const ui = createAnalysisUI({ window, treeDataGridCore: core, treeDataGridWeb: web, gridWeb: grid,
+    createLayout: options => new Docking({...options, storage:null}) });
+const mode: 'balanced' | 'stacked' | 'tabs' = analysisArrangement(400,600);
+// @ts-expect-error Analysis presets are deliberately finite.
+analysisArrangement(400,600,'invalid');
 const view = new ui.AnalysisView<number>(document.body, { rows });
 view.selectKey(key); view.setTheme('dark'); view.dispose();
 const SourceView = createTreeDataGrid({ window, isHandleCode });
@@ -104,7 +115,7 @@ const factory: typeof rendering.createRenderingServices = rendering.createRender
 void [tree, factory];
 `);
     process.stdout.write(run(process.env.TSC || 'tsc', ['--noEmit', '--strict', '--module', 'nodenext', '--moduleResolution', 'nodenext', '--target', 'es2022', '--lib', 'es2022,dom', 'consumer.mts', 'consumer.cts']));
-    fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ packages: names, version: '0.1.0', node: process.version, offline: true, cjsEsmIdentity: true, declarations: true }, null, 2) + '\n');
+    fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ packages: Object.fromEntries(names.map(name => [name, JSON.parse(fs.readFileSync(path.join(root, 'packages', name, 'package.json'), 'utf8')).version])), node: process.version, offline: true, cjsEsmIdentity: true, declarations: true }, null, 2) + '\n');
     console.log('Component package packing, offline installation and strict MTS/CTS declarations passed.');
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });

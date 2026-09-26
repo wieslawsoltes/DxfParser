@@ -108,10 +108,9 @@ import './analysis-services.mjs';
         for (const tab of Object.values(app.batchDataGrid.tabs)) tab.view?.setTheme(theme);
       };
       workspace.unsubscribers.push(workspace.manager.ThemeChanged.add(updateTheme)); updateTheme();
-      const dispose = workspace.dispose.bind(workspace);
-      workspace.dispose = () => { registry.dispose(); app.batchDataGrid.dispose();
+      workspace.onDispose(() => { registry.dispose(); app.batchDataGrid.dispose();
         app.renderingOverlayController?.propertyGrid?.gridView?.dispose();
-        for (const id of ['objectSizeList', 'hexContent']) byId(id)?._dataGrid?.dispose(); dispose(); };
+        for (const id of ['objectSizeList', 'hexContent']) byId(id)?._dataGrid?.dispose(); });
     }
   }
   const installLegacy = installApp;

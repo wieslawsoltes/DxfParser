@@ -8,7 +8,7 @@ export interface ReportRow<K = RowKey> {
 export interface ReportColumn { title: string; width?: number; [option: string]: unknown; }
 export interface ReportOptions<K = RowKey> {
     title?: string; columns?: (string | ReportColumn)[]; rows?: ReportRow<K>[];
-    height?: number; showDetails?: boolean; emptyMessage?: string;
+    height?: number; showDetails?: boolean; docking?: false; emptyMessage?: string;
     visualization?: false | Record<string, unknown>;
     onSelect?: (row: ReportRow<K> | null) => void;
     onFilterChange?: () => void;
@@ -30,6 +30,8 @@ export interface AnalysisHost {
     treeDataGridWeb: object;
     /** Activate/validate a source ID before a source-bound action; throw to reject a closed source. */
     activateSource?: (sourceId: string) => void;
+    createLayout?: (options: AnalysisLayoutOptions) => AnalysisLayout;
+    onExpand?: (view: AnalysisView) => unknown;
 }
 export interface RecordView<K = RowKey> {
     readonly host: HTMLElement; readonly container: HTMLElement; readonly disposed: boolean;
@@ -39,6 +41,8 @@ export interface RecordView<K = RowKey> {
     refresh(): void; dispose(): void;
 }
 export interface AnalysisView<K = RowKey> extends RecordView<K> {
+    readonly docking?: AnalysisLayout;
+    toggleDetails(value?: boolean): void;
     refreshLayout(): void;
     readonly search: HTMLInputElement; readonly sort: HTMLSelectElement;
     setMode(mode: 'records' | 'spreadsheet'): void; selectKey(key: K): void;
@@ -70,3 +74,23 @@ export interface AnalysisUI {
     labelOf(control: HTMLElement): string;
 }
 export function createAnalysisUI(host: AnalysisHost): Readonly<AnalysisUI>;
+
+export type AnalysisPreset = 'auto' | 'balanced' | 'stacked' | 'tabs';
+export type AnalysisPane = 'records' | 'visual' | 'details';
+export function analysisArrangement(width: number, height: number, preset?: AnalysisPreset): Exclude<AnalysisPreset, 'auto'>;
+export interface AnalysisLayoutOptions {
+    container: HTMLElement; records: HTMLElement; details: HTMLElement; visual?: HTMLElement;
+    title?: string; onChange?: () => void; onResize?: (pane: AnalysisPane) => void;
+    storage?: Pick<Storage, 'getItem' | 'setItem'> | null; storageKey?: string | null;
+}
+export interface AnalysisLayout {
+    readonly host: HTMLElement; readonly container: HTMLElement; readonly disposed: boolean;
+    readonly focused: AnalysisPane | null;
+    isOpen(pane: AnalysisPane): boolean; isVisible(pane: AnalysisPane): boolean;
+    visualMode(): 'data' | 'split' | 'visual';
+    show(pane: AnalysisPane): void; hide(pane: Exclude<AnalysisPane, 'records'>): void;
+    focus(pane: AnalysisPane): void; restoreFocus(): void; setPreset(preset: AnalysisPreset): void;
+    reset(): void; schedule(): void; saveState(): object | null; restoreState(state: object): void;
+    setTheme(theme: string): void; dispose(): void;
+}
+export function createAnalysisDocking(host: { window: Window & typeof globalThis; dockyard: object }): new (options: AnalysisLayoutOptions) => AnalysisLayout;

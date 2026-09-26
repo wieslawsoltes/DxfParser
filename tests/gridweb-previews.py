@@ -76,6 +76,7 @@ class GridPreviewTests(unittest.TestCase):
 
     def test_04_layer_checkbox_and_drawing_information_values(self):
         self.sample();self.page.evaluate("w.applyPreset('Review')");self.settle()
+        self.page.locator('#renderingOverlayLayerManager .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox',name='On',exact=True).uncheck();self.settle()
         self.assertJS("!document.querySelector('input[data-action=\"toggle-on\"]').checked")
         self.page.locator('#renderingOverlayLayerManager .dxf-grid-actions').get_by_role('checkbox',name='On',exact=True).check();self.settle()
@@ -105,6 +106,7 @@ class GridPreviewTests(unittest.TestCase):
         self.page.evaluate("""()=>{w.show('blocksOverlay');const container=document.getElementById('blocksOverlay').querySelector('.overlay-content');const list=document.createElement('div');list.className='block-overlay-list';list.innerHTML='<div class="block-card"><h3>Pump</h3><div class="block-card-line">Base point: 1,2,3</div><div class="block-card-line">Instances: 2</div><div class="block-card-warning">Review units</div><details><summary>Attributes</summary><ul><li>Tag: P-101</li><li>Power: 7.5 kW</li></ul></details><button>Jump to definition</button></div>';list.querySelector('button').onclick=()=>window.blockAction=true;container.append(list);}""")
         self.settle()
         self.assertJS("document.querySelector('[data-grid-title=\"Blocks & Inserts\"]').gridView.rows[0].values[1]===2")
+        self.page.locator('[data-grid-title="Blocks & Inserts"] > .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.get_by_role('button',name='Jump to definition',exact=True).click();self.assertJS('window.blockAction===true')
         self.page.evaluate("const v=document.querySelector('[data-grid-title=\"Blocks & Inserts\"]').gridView;v.showDetail('related')")
         self.settle();self.assertJS("document.querySelector('[data-grid-title=\"Attributes\"]')?.gridView.rows.length===2")
@@ -113,6 +115,7 @@ class GridPreviewTests(unittest.TestCase):
         self.page.evaluate("""()=>{w.show('batchProcessingOverlay');window.batchId=app.batchDataGrid.addTab('Query');window.file=new File(['0\\nEOF'],'drawing.dxf');for(let i=0;i<2500;i++)app.batchDataGrid.addRow(batchId,{file:'drawing.dxf',line:i+1,data:'Record '+i,fileObject:file});app.openFileTab=(f,line)=>window.opened={same:f===file,line};}""")
         self.page.wait_for_function("app.batchDataGrid.tabs[batchId].view.rows.length===2500")
         self.page.evaluate("app.batchDataGrid.tabs[batchId].view.selectIndex(9)")
+        self.page.locator('#batchProcessingOverlay .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.get_by_role('button',name='Open file at line',exact=True).click()
         self.assertJS("opened.same && opened.line===10 && app.batchDataGrid.getAllTabs()[batchId].rows[0].fileObject===file")
         self.page.evaluate("window.oldView=app.batchDataGrid.tabs[batchId].view;app.batchDataGrid.removeTab(batchId)");self.assertJS('oldView.disposed')
@@ -163,6 +166,7 @@ class GridPreviewTests(unittest.TestCase):
     def test_15_archives_route_office_entries_to_real_controls(self):
         self.assertTrue(self.page.evaluate("async()=>{window.zip=GridWeb.writeZip({'Equipment.xlsx':gridFixtures.excel(),'Review.docx':await gridFixtures.word()});return await app.officePreview.open(zip,'Package.zip');}"))
         self.assertJS("app.officePreview.stage.querySelector('tree-data-grid')?.Model instanceof TreeDataGridCore.HierarchicalTreeDataGridSource")
+        self.page.locator('#officeDocumentPreview .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.get_by_role('button',name='Preview',exact=True).click();self.page.wait_for_function('!!app.officePreview.book')
         self.assertJS("app.officePreview.book.Worksheets.Count===2")
         self.assertTrue(self.page.evaluate("async()=>{const entries=await GridWeb.readZip(zip);return await app.officePreview.open(entries.get('Review.docx'),'Review.docx');}"))

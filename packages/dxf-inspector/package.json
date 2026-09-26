@@ -1,6 +1,6 @@
 {
   "name": "@wieslawsoltes/dxf-inspector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DXF source-tree parsing, structural comparison, diagnostics and binary inspection utilities",
   "license": "MIT",
   "type": "module",

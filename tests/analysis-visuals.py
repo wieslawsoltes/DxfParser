@@ -36,11 +36,11 @@ class VisualTests(unittest.TestCase):
         self.settle();self.page.wait_for_function('!v.visuals.dirty && !v.visuals.frame')
         return self.page.locator('#'+container+' .analysis-visuals').first
     def kind(self,kind):
-        self.page.locator('[aria-label=Visualization]:visible').first.select_option(kind);self.settle()
+        self.page.locator('select[aria-label=Visualization]:visible').first.select_option(kind);self.settle()
     def bare(self,rows,columns=('Group','Count','Category')):
         self.page.evaluate('''({rows,columns})=>{
             const host=document.createElement('div');host.id='visual-test';host.style.cssText='position:fixed;inset:210px 25px 25px;z-index:10000;background:white';document.body.append(host);
-            window.v=new DxfAnalysis.AnalysisView(host,{title:'Visual test',columns,rows,height:600});v.visuals.setLayout('split');
+            window.v=new DxfAnalysis.AnalysisView(host,{title:'Visual test',columns,rows,height:600,docking:false});v.visuals.setLayout('split');
         }''',{'rows':rows,'columns':list(columns)})
         self.settle()
 
@@ -57,10 +57,11 @@ class VisualTests(unittest.TestCase):
         self.assertJS("v.matchingRows.length===1 && v.matchingRows[0].values[0]==='LINE' && v.visuals.chartData.length===diagram && v.rows.reduce((n,r)=>n+r.values[1],0)===total")
         self.page.locator('#statsOverlay').get_by_role('button',name='Spreadsheet',exact=True).click();self.settle()
         self.assertJS("v.spreadsheet.book.ActiveWorksheet.GetCell('A2').Value==='LINE' && v.spreadsheet.visibleRows.length===1")
+        self.page.locator('#statsOverlay .analysis-dock-host .ad-tab[data-tab-id=visual]').click();self.settle()
         visual.get_by_role('button',name='LINE:',exact=False).click();self.settle();self.assertJS('!v.visualFilter && v.matchingRows.length===v.allRows.length')
 
     def test_03_chart_data_keeps_exact_sources_and_returns_to_parent(self):
-        self.visual();self.page.evaluate('window.gridBefore=v.grid;window.k=v.selectedKey')
+        self.visual();self.page.evaluate('() => {window.gridBefore=v.grid;window.k=v.selectedKey;}')
         self.page.locator('#statsOverlay').get_by_role('button',name='Chart data',exact=True).click();self.settle()
         self.assertJS("v.drillView && !v.drillView.visuals && v.drillView.rows.length===v.rows.length && v.drillView.rows[0].values[1]===v.visuals.chartData[0].value")
         self.page.evaluate("v.drillView.rows[0].actions[0].run()");self.settle()
@@ -159,7 +160,7 @@ class VisualTests(unittest.TestCase):
     def test_18_saved_presentation_restores_chart_filter_and_native_table(self):
         self.visual();self.page.evaluate("v.visuals.filter(v.visuals.chartData[0]);v.pinSelection();v.visuals.setLayout('visual');window.state=v.saveState();window.oldGrid=v.grid;v.clearFilters();v.visuals.setLayout('data');v.restoreState(state)");self.settle()
         self.assertJS("v.grid===oldGrid && v.visualFilter && v.pinned && v.host.dataset.visualLayout==='visual' && v.matchingRows.length===1")
-        self.page.locator('#statsOverlay').get_by_role('button',name='Records',exact=True).click();self.settle();self.assertJS("v.host.dataset.visualLayout==='split' && !v.grid.hidden")
+        self.page.locator('#statsOverlay').get_by_role('button',name='Records',exact=True).click();self.settle();self.assertJS("v.docking.isVisible('records') && !v.docking.focused && v.mode==='records' && !v.grid.hidden")
 
     def test_19_disposal_releases_visuals_and_nested_grids(self):
         self.visual();self.page.evaluate('window.visual=v.visuals;v.visuals.openData();window.child=v.drillView;v.dispose();v.dispose()')
@@ -211,7 +212,7 @@ class VisualTests(unittest.TestCase):
         self.assertJS("v.visuals.chartData.length===1 && v.visuals.chartData[0].value===15 && !v.visuals.dirty")
 
     def test_27_focus_visual_expands_bar_budget_without_losing_table(self):
-        self.visual();self.page.evaluate('window.gridBefore=v.grid');self.assertJS("v.visuals.body.querySelectorAll('.av-bar').length===6")
+        self.visual();self.page.evaluate('() => {window.gridBefore=v.grid;}');self.assertJS("v.visuals.body.querySelectorAll('.av-bar').length===6")
         self.page.locator('#statsOverlay').get_by_role('button',name='Focus visual',exact=True).click();self.settle()
         self.assertJS("v.visuals.body.querySelectorAll('.av-bar').length===14 && v.grid===gridBefore")
         self.page.locator('#statsOverlay').get_by_role('button',name='Records',exact=True).click();self.settle()
@@ -221,7 +222,10 @@ class VisualTests(unittest.TestCase):
         self.visual();self.page.locator('#statsOverlay .av-bar').first.focus();self.page.keyboard.press('Enter');self.settle()
         self.assertJS("v.visualFilter && document.activeElement.matches('.av-bar')")
         self.page.keyboard.press('Enter');self.settle();self.assertJS('!v.visualFilter')
-        self.page.locator('#statsOverlay [aria-label="Resize visualization"]').focus();self.page.keyboard.press('ArrowDown');self.assertJS('v.visuals.height>210')
+        self.page.locator('#statsOverlay .analysis-layout-toolbar select').select_option('stacked');self.settle()
+        self.page.evaluate('() => {window.visualHeight=v.visuals.host.clientHeight;}')
+        self.page.locator('#statsOverlay .analysis-dock-host .ad-splitter[aria-orientation=horizontal]').focus();self.page.keyboard.press('ArrowDown');self.settle()
+        self.assertJS('v.visuals.host.clientHeight>visualHeight')
 
     def test_29_visual_errors_do_not_hide_or_corrupt_records(self):
         self.bare([{'key':1,'values':['Overflow',1e308,'A']},{'key':2,'values':['Overflow',1e308,'A']}]);self.page.evaluate('v.visuals.state.measure=1;v.visuals.schedule()');self.settle()
@@ -235,6 +239,7 @@ class VisualTests(unittest.TestCase):
     def test_31_closed_source_chart_data_can_filter_snapshot_records(self):
         self.visual();self.page.evaluate("window.source=app.documentWorkspace.active;w.manager.Find('statsOverlay').Dock();w.manager.Find(source.id).Close()")
         self.settle();self.page.locator('#statsOverlay').get_by_role('button',name='Chart data',exact=True).click();self.settle()
+        self.page.locator('#statsOverlay .analysis-drill .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.locator('#statsOverlay .analysis-drill .analysis-details > .dxf-grid-actions').get_by_role('button',name='Inspect records',exact=True).click();self.settle()
         self.assertJS('!v.drillView && v.visualFilter && v.matchingRows.length===1 && !app.documentWorkspace.active')
 
@@ -245,7 +250,7 @@ class VisualTests(unittest.TestCase):
         self.assertJS("[...document.querySelectorAll('#renderingOverlayInfoPanel .dxf-analysis-view,#renderingOverlayLayersPanel .dxf-analysis-view,#renderingOverlayBlocksPanel .dxf-analysis-view')].every(h=>h.analysisView.visuals && h.analysisView.grid.Model instanceof TreeDataGridCore.HierarchicalTreeDataGridSource)")
 
     def test_33_new_source_resets_pinned_values_and_visual_key_filter(self):
-        self.visual();self.page.evaluate('v.pinSelection();v.visuals.filter(v.visuals.chartData[0]);window.firstSource=app.documentWorkspace.active')
+        self.visual();self.page.evaluate('() => {v.pinSelection();v.visuals.filter(v.visuals.chartData[0]);window.firstSource=app.documentWorkspace.active;}')
         self.fixture('Right','other.dxf');self.page.evaluate("app.updateStats()");self.settle()
         self.assertJS("!v.pinned && !v.visualFilter && w.require('statsOverlay').sourceTabId!==firstSource.tab.id && v.matchingRows.length===v.allRows.length")
 
