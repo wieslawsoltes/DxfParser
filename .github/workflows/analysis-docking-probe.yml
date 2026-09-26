@@ -1,0 +1,31 @@
+name: Analysis docking probe
+on:
+  push:
+    branches: [work/analysis-docking-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          pip install -r tests/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - run: |
+          mkdir -p test-results/probe
+          timeout 90s python -u tests/analysis-docking.py -f 2>&1 | tee test-results/probe/standalone.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analysis-docking-probe
+          path: test-results/
