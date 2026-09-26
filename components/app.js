@@ -6324,7 +6324,9 @@ EOF`;
 
         const now = new Date();
         const tabTitle = "Search " + now.toLocaleTimeString();
-        const tabId = this.batchDataGrid.addTab(tabTitle);
+        let tabId;
+        try { tabId = this.batchDataGrid.addTab(tabTitle); }
+        catch (error) { alert(error.message); return; }
         const filesArray = Array.from(files);
         const progressBar = document.getElementById("batchProgress");
         progressBar.style.display = "block";
@@ -6346,6 +6348,7 @@ EOF`;
           if (!file.name.toLowerCase().endsWith(".dxf")) return;
           try {
             const parseResult = await this.parseFileStream(file);
+            if (this.batchDataGrid.disposed || !this.batchDataGrid.tabs[tabId]) return;
             const dxfObjects = parseResult && Array.isArray(parseResult.objects) ? parseResult.objects : [];
             let matches = [];
             if (queryFn) {
@@ -6380,6 +6383,8 @@ EOF`;
 
         const processAllFiles = async () => {
           for (let i = 0; i < filesArray.length; i++) {
+            const result = this.batchDataGrid.tabs[tabId];
+            if (this.batchDataGrid.disposed || !result || result.rows.length >= this.batchDataGrid.documents.maxRows) break;
             await processFile(filesArray[i]);
             progressBar.value = ((i + 1) / filesArray.length) * 100;
           }
@@ -6711,9 +6716,9 @@ EOF`;
        * A collapsed marker is rendered that calls expandDiffView() when clicked.
        */
       computeLineDiff(oldText, newText, context = 3, full = false) {
-        // Save texts globally so we can re‑render when the user expands.
-        gOldText = oldText;
-        gNewText = newText;
+        // Keep comparison source state on its application owner.
+        this.lineDiffOldText = oldText;
+        this.lineDiffNewText = newText;
 
         const oldLines = oldText.split('\n');
         const newLines = newText.split('\n');

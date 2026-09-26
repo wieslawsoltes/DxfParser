@@ -27,7 +27,7 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
     };
 
     return class AnalysisDocking {
-        constructor({ container, records, details, visual, title = 'Analysis', onChange, onResize,
+        constructor({ container, records, details, visual, title = 'Analysis', onChange, onResize, onError,
             storage = null, storageKey = null } = {}) {
             const panels = [['records', 'Records', records], ['visual', 'Visualization', visual], ['details', 'Details', details]]
                 .filter(([, , node]) => node != null);
@@ -39,10 +39,10 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
                 throw new TypeError('Analysis panels must own distinct, non-nested content.');
             if (storage != null && (typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function'))
                 throw new TypeError('Analysis storage must implement getItem and setItem.');
-            for (const callback of [onChange, onResize]) if (callback != null && typeof callback !== 'function')
+            for (const callback of [onChange, onResize, onError]) if (callback != null && typeof callback !== 'function')
                 throw new TypeError('Analysis layout callbacks must be functions.');
             this.container = container; this.panels = new Map(panels.map(([id, label, node]) => [id, { label, node }]));
-            this.onChange = onChange; this.onResize = onResize; this.storage = storage; this.storageKey = storageKey;
+            this.onChange = onChange; this.onResize = onResize; this.onError = onError; this.storage = storage; this.storageKey = storageKey;
             this.abort = new win.AbortController(); this.disposed = false; this.preset = 'auto'; this.custom = false;
             this.focused = null; this.unfocused = null; this.frame = 0; this.timer = 0; this.suppress = 0;
             this.sizes = new Map(); this.visibility = new Map();
@@ -94,6 +94,17 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
         makeButton(label, action) {
             const node = element('button', '', label); node.type = 'button';
             node.addEventListener('click', action, { signal: this.abort.signal }); this.toolbar.append(node); return node;
+        }
+        notify(callback, ...args) {
+            if (this.disposed) return;
+            try { callback?.(...args); }
+            catch (error) {
+                if (this.disposed) return;
+                // Report a consumer failure without aborting other pane updates.
+                this.hint.textContent = String(error?.message || error);
+                this.hint.setAttribute('role', 'alert');
+                try { this.onError?.(error); } catch (_) { /* Error observers do not own layout lifetime. */ }
+            }
         }
         make(id) {
             const { label, node } = this.panels.get(id);
@@ -196,10 +207,11 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
             for (const [id, { node }] of this.panels) {
                 const rect = node.getBoundingClientRect(), visible = this.isOpen(id) && rect.width > 0 && rect.height > 0;
                 const key = visible ? `${rect.width}:${rect.height}` : 'hidden';
-                if (this.sizes.get(id) !== key) { this.sizes.set(id, key); if (visible) this.onResize?.(id); }
+                if (this.sizes.get(id) !== key) { this.sizes.set(id, key); if (visible) this.notify(this.onResize, id); }
+                if (this.disposed) return;
                 this.visibility.set(id, visible);
             }
-            this.onChange?.();
+            this.notify(this.onChange);
         }
         saveState() {
             if (this.disposed) return null;
@@ -262,7 +274,7 @@ export function createAnalysisDocking({ window: win, dockyard: D } = {}) {
             this.manager.Dispose(); this.host.remove(); this.toolbar.remove();
             for (const { node } of this.panels.values()) this.container.append(node);
             this.parking.remove(); this.panels.clear(); this.sizes.clear(); this.visibility.clear();
-            this.onChange = this.onResize = this.storage = this.unfocused = null;
+            this.onChange = this.onResize = this.onError = this.storage = this.unfocused = null;
         }
     };
 }

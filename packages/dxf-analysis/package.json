@@ -1,6 +1,6 @@
 {
   "name": "@wieslawsoltes/dxf-analysis",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Interactive record tables, linked analytical visualizations and bounded aggregation models",
   "license": "MIT",
   "type": "module",

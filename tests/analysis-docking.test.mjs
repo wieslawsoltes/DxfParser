@@ -90,3 +90,27 @@ test('analysis restore rejects foreign, duplicate and missing panels without rep
         assert.equal(value.manager.Layout,original);
     } finally {value.manager.Dispose();}
 });
+
+
+test('analysis pane callbacks report errors without interrupting subsequent notifications', () => {
+    const value=layoutHarness(), seen=[];
+    value.hint={textContent:'',setAttribute(name,text){seen.push([name,text]);}};
+    value.onError=error=>{seen.push(error.message);throw new Error('observer failed');};
+    try {
+        assert.doesNotThrow(()=>value.notify(()=>{throw new Error('resize failed');}));
+        value.notify(id=>seen.push(id),'visual');
+        assert.equal(value.hint.textContent,'resize failed');
+        assert.deepEqual(seen,[['role','alert'],'resize failed','visual']);
+    } finally {value.manager.Dispose();}
+});
+
+test('disposing from an analysis callback suppresses late notifications and error reporting', () => {
+    const value=layoutHarness();let errors=0;
+    value.hint={setAttribute(){throw new Error('disposed UI accessed');}};
+    value.onError=()=>errors++;
+    try {
+        assert.doesNotThrow(()=>value.notify(()=>{value.disposed=true;throw new Error('late');}));
+        value.notify(()=>{throw new Error('must not run');});
+        assert.equal(errors,0);
+    } finally {value.manager.Dispose();}
+});

@@ -1,0 +1,24 @@
+/* Result-document hosting. Query forms are host-owned; record panes retain their
+   existing analysis UI and resize to each independently docked document. */
+.dxf-report-workspace { display:flex; flex-direction:column; width:100%; height:100%; min-width:0; min-height:0; flex:1; font:12px/1.4 system-ui,sans-serif; }
+.report-workspace-toolbar { display:flex; align-items:center; flex:none; gap:5px; padding:4px 6px; min-width:0; overflow-x:auto; background:var(--ad-chrome,#f4f7fa); color:var(--ad-text,#203040); border-bottom:1px solid var(--ad-border,#ccd7e1); }
+.report-workspace-toolbar > * { flex-shrink:0; }
+.report-workspace-toolbar button, .report-workspace-toolbar select { font:inherit; min-height:27px; padding:3px 7px; border:1px solid var(--ad-border,#ccd7e1); border-radius:3px; background:var(--ad-panel,#fff); color:inherit; }
+.report-workspace-toolbar :focus-visible { outline:2px solid var(--ad-accent,#1670ac); outline-offset:-2px; }
+.report-workspace-select { width:clamp(110px,18vw,240px); }
+.report-workspace-toolbar button:disabled { opacity:.5; }
+.report-workspace-status { margin-left:auto; white-space:nowrap; }
+.report-workspace-status[data-error=true] { color:var(--analysis-error,#b42318); }
+.report-workspace-host { position:relative; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; }
+.report-workspace-document { display:flex; flex-direction:column; width:100%; height:100%; min-height:0; min-width:0; overflow:hidden; }
+.report-workspace-document > .dxf-analysis-view { flex:1; height:100%; min-height:0; margin:0; border:0; border-radius:0; }
+.report-workspace-empty { position:absolute; right:16px; bottom:14px; max-width:calc(100% - 32px); padding:10px 14px; pointer-events:none; background:var(--ad-panel,#fff); color:var(--ad-muted,#526878); border:1px solid var(--ad-border,#ccd7e1); border-radius:5px; }
+.dxf-report-workspace [hidden] { display:none !important; }
+.report-workspace-host .ad-content { overflow:hidden; }
+.report-workspace-host .ad-tab { min-height:28px; }
+.report-workspace-host .ad-splitter:focus-visible { outline:2px solid var(--ad-accent,#1670ac); outline-offset:-2px; }
+
+.report-workspace-message { flex:none; max-height:64px; overflow:auto; padding:6px 10px; overflow-wrap:anywhere; color:var(--analysis-error,#b42318); background:var(--ad-panel,#fff); border-bottom:1px solid var(--ad-border,#ccd7e1); }
+
+.dxf-report-workspace[data-theme=dark] { --ad-chrome:#29323b; --ad-panel:#202830; --ad-text:#dde7f0; --ad-muted:#a2b3c2; --ad-border:#44515e; }
+.dxf-report-workspace[data-theme=contrast] { --ad-chrome:#000; --ad-panel:#000; --ad-text:#fff; --ad-muted:#fff; --ad-border:#fff; --ad-accent:#ffef00; }

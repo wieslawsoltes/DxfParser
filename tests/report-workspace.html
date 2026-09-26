@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Standalone report documents</title>
+<link rel="stylesheet" href="../vendor/dockyard/avalondock.css">
+<link rel="stylesheet" href="../packages/dxf-analysis/styles.css">
+<style>
+body{font:14px system-ui;margin:16px;background:#eef2f6;color:#203040}h1{font-size:22px}
+#primary{width:1280px;max-width:100%;height:700px;display:flex}#secondary{width:420px;height:420px;display:flex;margin-top:16px}
+.query{box-sizing:border-box;width:100%;height:100%;padding:12px;display:flex;flex-direction:column;gap:12px;overflow:auto;background:var(--ad-panel,#fff)}
+.query label{display:flex;flex-direction:column;gap:5px}.query input{min-width:0;max-width:100%;padding:5px}
+</style>
+<script src="../vendor/dockyard/avalondock.js"></script>
+<script src="../vendor/gridweb/gridweb.global.js"></script>
+<script src="../vendor/treedatagridweb/treedatagrid.global.js"></script>
+<script type="module" src="report-workspace-demo.mjs"></script>
+</head><body><h1>Analysis result documents</h1><p>Independent queries, records, charts and details. Split or float result tabs without recreating their controls.</p>
+<div id="primary"></div><div id="secondary"></div>
+<section id="query" class="query"><strong>Equipment query</strong><label>Layer<input value="PIPES"></label><label>Object type<input value="INSERT"></label><button type="button">Run query</button></section>
+<section id="other-query" class="query"><strong>Independent query</strong><label>Source<input value="revision-b.dxf"></label></section>
+</body></html>

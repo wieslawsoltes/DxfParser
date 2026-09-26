@@ -113,7 +113,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         presentation.Columns.Add(key, { create: row => this.cell(row, i) });
         const coreColumn = new C.TemplateColumn(column.title, key,
           column.width || (i === 0 ? 220 : /description|text|value|details/i.test(column.title) ? '2*' : 140), {
-            MinWidth: new C.GridLength(i === 0 ? 130 : 65), CompareAscending: valueCompare,
+            MinWidth: new C.GridLength(Number.isFinite(column.minWidth) ? Math.max(32, column.minWidth) : (i === 0 ? 130 : 65)), CompareAscending: valueCompare,
             CompareDescending: (a, b) => -valueCompare(a, b)
           }, 'analysis-column-' + i);
         this.treeModel.Columns.Add(i === 0 ? new C.HierarchicalExpanderColumn(coreColumn, row => row.children || [],
@@ -191,6 +191,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
         this.docking = env.createLayout({ container: this.main, records: this.stage, details: this.details,
           visual: this.visuals?.host, title: this.title,
           onResize: id => { if (id === 'records') this.refreshLayout(); if (id === 'visual') this.visuals?.schedule(); },
+          onError: error => { if (!this.disposed) { this.count.textContent = String(error?.message || error); this.count.dataset.error = 'true'; } },
           onChange: () => {
             if (!this.docking || this.disposed) return;
             this.host.classList.toggle('analysis-details-hidden', !this.docking.isOpen('details'));

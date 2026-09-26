@@ -37,7 +37,7 @@ for (const name of ${JSON.stringify(names)}) {
     const specifier = '@wieslawsoltes/' + name;
     const esm = await import(specifier), cjs = require(specifier);
     assert.equal(esm, cjs);
-    assert.equal(require(specifier + '/package.json').version, ['dxf-analysis', 'dxf-inspector'].includes(name) ? '0.2.0' : '0.1.0');
+    assert.equal(require(specifier + '/package.json').version, name === 'dxf-analysis' ? '0.3.0' : name === 'dxf-inspector' ? '0.2.0' : '0.1.0');
 }
 const I = await import('@wieslawsoltes/dxf-inspector');
 const source = ${JSON.stringify(['0','SECTION','2','ENTITIES','0','CIRCLE','5','A','10','0','20','0','40','2','0','ENDSEC','0','EOF',''].join('\n'))};
@@ -58,7 +58,7 @@ console.log('All installed component packages: isolated ESM/CJS identity, public
     process.stdout.write(run(process.execPath, ['consumer.mjs']));
     fs.writeFileSync(path.join(temp, 'consumer.mts'), `
 import { DxfParser, TreeDiffEngine, DXFDiagnosticsEngine, isHandleCode, inspectTree, referenceIndex, mtextPlain } from '@wieslawsoltes/dxf-inspector';
-import { createAnalysisUI, createAnalysisDocking, analysisArrangement, type ReportRow } from '@wieslawsoltes/dxf-analysis';
+import { createAnalysisUI, createAnalysisDocking, analysisArrangement, createReportWorkspace, ReportBuffer, type ReportRow } from '@wieslawsoltes/dxf-analysis';
 import { aggregate } from '@wieslawsoltes/dxf-analysis/models';
 import { createTreeDataGrid } from '@wieslawsoltes/dxf-tree-view';
 import { createDrawingViewTools, type NavigationHost } from '@wieslawsoltes/dxf-drawing-tools';
@@ -79,6 +79,14 @@ const mode: 'balanced' | 'stacked' | 'tabs' = analysisArrangement(400,600);
 analysisArrangement(400,600,'invalid');
 const view = new ui.AnalysisView<number>(document.body, { rows });
 view.selectKey(key); view.setTheme('dark'); view.dispose();
+const Results = createReportWorkspace<number>({window, dockyard, createView: (container, options) => new ui.AnalysisView<number>(container, options)});
+const reports = new Results({container:document.createElement('div'),maxDocuments:8});
+const result=reports.add({title:'Query',columns:['Type','Count'],rows});
+reports.append(result.id,{key:2,values:['Pump',3]});reports.arrange('horizontal');reports.dispose();
+// @ts-expect-error Result arrangements are finite.
+reports.arrange('unknown');
+const buffer = new ReportBuffer<ReportRow<number>>({publish: rows => void rows, schedule: callback => setTimeout(callback,0),cancel: token => clearTimeout(token as number)});
+buffer.append({key:3,values:['Valve']});buffer.dispose();
 const SourceView = createTreeDataGrid({ window, isHandleCode });
 const sourceView = new SourceView(document.body, document.createElement('div'));
 sourceView.setData(tree); sourceView.selectedRowId = id; sourceView.dispose();

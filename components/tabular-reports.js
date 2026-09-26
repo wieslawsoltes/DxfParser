@@ -105,7 +105,7 @@ import './analysis-services.mjs';
       const updateTheme = () => {
         const theme = String(workspace.manager.Theme?.Name || workspace.manager.Theme || 'light').toLowerCase();
         registry.setTheme(theme); app.renderingOverlayController?.propertyGrid?.gridView?.setTheme(theme);
-        for (const tab of Object.values(app.batchDataGrid.tabs)) tab.view?.setTheme(theme);
+        app.batchDataGrid.setTheme(theme);
       };
       workspace.unsubscribers.push(workspace.manager.ThemeChanged.add(updateTheme)); updateTheme();
       workspace.onDispose(() => { registry.dispose(); app.batchDataGrid.dispose();

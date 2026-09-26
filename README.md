@@ -97,6 +97,17 @@ cameras, and navigation mode within browser-storage limits. External resource
 bytes, selections, measurements, and comparison sessions are not restored by view
 metadata; save comparison snapshots explicitly.
 
+### Batch analysis
+
+**Analyze → Batch Processing** provides a resizable query pane and independent
+result documents. Drag result tabs to split, float or redock them, use **Result
+layout** to compare queries side by side, and **Focus results** to reclaim query
+space. Narrow hosts use tabs instead of squeezing the form and results together.
+Every result retains its own records, charts, details, filtering and spreadsheet
+presentation. Appends are frame-coalesced; closing a result cancels pending UI work
+without affecting other results. Defaults are 32 retained results and 250,000 rows
+per result. Existing file-at-line actions and Excel export remain available.
+
 ## Rendering boundaries
 
 The renderer supports common lines, curves, polylines, blocks, meshes, hatches,

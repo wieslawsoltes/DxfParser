@@ -96,3 +96,18 @@
 .dxf-dock-host .dxf-dock-render-tool :is(.layer-name-text,.layer-name-meta,.layer-manager-table label) { color:var(--ad-text); }
 
 .dxf-dock-host .dxf-dock-view-controls .rendering-style-selector label { color:var(--ad-text); }
+
+/* Batch queries and results share a native workspace, not fixed-height stacked
+   form/results sections. The form scrolls independently of every result grid. */
+.dxf-dock-host #batchProcessingOverlay.analysis-batch-workspace > .overlay-content { overflow:hidden !important; gap:4px; }
+#batchProcessingOverlay.analysis-batch-workspace > .overlay-content > h3,
+#batchProcessingOverlay.analysis-batch-workspace > .overlay-content > hr { display:none; }
+#batchProcessingOverlay.analysis-batch-workspace #batchResultsTabs { min-height:0; min-width:0; }
+#batchProcessingOverlay.analysis-batch-workspace #batchResultsTabHeaders { display:none !important; }
+#batchProcessingOverlay.analysis-batch-workspace #batchResultsTabContents { display:flex; min-height:0; min-width:0; overflow:hidden !important; }
+#batchProcessingOverlay .analysis-batch-query { display:flex !important; flex-direction:column; gap:10px !important; height:100%; width:100%; min-height:0; min-width:0; box-sizing:border-box; padding:10px; overflow:auto; background:var(--ad-panel); color:var(--ad-text); }
+#batchProcessingOverlay .analysis-batch-query label { display:block; min-width:0; }
+#batchProcessingOverlay .analysis-batch-query input:not([type=radio]),
+#batchProcessingOverlay .analysis-batch-query select { max-width:100%; width:100%; box-sizing:border-box; }
+#batchProcessingOverlay .analysis-batch-query input[type=radio] { width:auto; }
+#batchProcessingOverlay.analysis-batch-workspace > .overlay-content > h2 { font-size:15px; padding:4px 2px; }
