@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, 'test-results/component-packages');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dxf-component-consumer-'));
-const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view'];
+const names = ['dxf-inspector', 'dxf-analysis', 'dxf-tree-view', 'dxf-drawing-tools', 'dxf-workspace', 'dxf-office-preview', 'dxf-rendering-view', 'dxf-state'];
 const run = (command, args, cwd = temp) => execFileSync(command, args, {
     cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000
 });
@@ -113,14 +113,28 @@ const properties = new Properties(document.body);properties.setSections([{title:
 properties.dispose();surface.dispose();store.dispose();
 // @ts-expect-error Backend names are finite.
 new rendering.RenderingSurfaceManager({backend:'svg'});
-void [id, diff, diagnosis];
+import { StateManager, StateCodec, type SourceTab, type SaveTabResult } from '@wieslawsoltes/dxf-state';
+const state = new StateManager({storage:null,limits:{maxTabs:4}});
+const sourceTab: SourceTab = {id:'source',name:'drawing.dxf',originalTreeData:tree};
+const saveResult: SaveTabResult = state.saveTabState(sourceTab);
+const snapshot = state.buildExportSnapshot([sourceTab],[],sourceTab.id,null);
+const codec = new StateCodec();
+const restoredId: string | number = codec.restoreSnapshot(snapshot).leftTabs[0].id;
+state.dispose();
+// @ts-expect-error Storage is explicit and must implement the public contract.
+new StateManager({storage:{setItem(){}}});
+// @ts-expect-error Codec budgets are numbers, not strings.
+new StateCodec({maxTabs:'many'});
+void [id, diff, diagnosis, saveResult, restoredId];
 `);
     fs.writeFileSync(path.join(temp, 'consumer.cts'), `import inspector = require('@wieslawsoltes/dxf-inspector');
 const parser = new inspector.DxfParser();
 const tree = parser.parse('');
 import rendering = require('@wieslawsoltes/dxf-rendering-view');
 const factory: typeof rendering.createRenderingServices = rendering.createRenderingServices;
-void [tree, factory];
+import state = require('@wieslawsoltes/dxf-state');
+const codec = new state.StateCodec({maxTreeNodes:8});
+void [tree, factory, codec];
 `);
     process.stdout.write(run(process.env.TSC || 'tsc', ['--noEmit', '--strict', '--module', 'nodenext', '--moduleResolution', 'nodenext', '--target', 'es2022', '--lib', 'es2022,dom', 'consumer.mts', 'consumer.cts']));
     fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify({ packages: Object.fromEntries(names.map(name => [name, JSON.parse(fs.readFileSync(path.join(root, 'packages', name, 'package.json'), 'utf8')).version])), node: process.version, offline: true, cjsEsmIdentity: true, declarations: true }, null, 2) + '\n');

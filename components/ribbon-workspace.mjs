@@ -77,8 +77,7 @@ class RibbonWorkspace {
       const key = event.key.toLowerCase();
       if (key === 'g') { event.preventDefault(); this.ribbon.selectTab('home'); requestAnimationFrame(() => byId('handleSearchInput')?.focus()); }
     }, { signal: this.abort.signal });
-    const dispose = workspace.dispose.bind(workspace);
-    workspace.dispose = () => { this.dispose(); dispose(); };
+    this.detachDispose = workspace.onDispose(() => this.dispose());
     this.refresh();
   }
 
@@ -401,7 +400,7 @@ class RibbonWorkspace {
   }
   dispose() {
     if (this.disposed) return;
-    this.disposed = true; this.abort.abort(); this.observer.disconnect();
+    this.disposed = true; this.detachDispose?.(); this.abort.abort(); this.observer.disconnect();
     if (this.navigation) this.workspace.parking.append(this.navigation);
     this.ribbon.remove();
     const model = this.ribbon.model;

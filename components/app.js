@@ -2,7 +2,7 @@
       
       constructor() {
         // Initialize state manager
-        this.stateManager = new StateManager();
+        this.stateManager = DxfState.createAppStateManager(this);
         
         // Define column widths – these will be passed into the TreeDataGrid constructor.
         this.columnWidths = {
@@ -115,24 +115,27 @@
           this.dockingWorkspace.syncPresentation(false);
           this.dockingWorkspace.scheduleResize();
           this.ribbonWorkspace = window.DxfRibbon.mountParser(this, this.dockingWorkspace);
+          this.dockingWorkspace.onDispose(() => this.disposeStateManagement());
         }
       }
       
-      // Initialize state management and restore saved state
+      // Bind autosave and file reads to the owning workspace lifetime.
       initializeStateManagement() {
-        // Synchronous startup restoration runs after controllers and document registry are mounted.
-        
-        // Auto-save state periodically
-        setInterval(() => {
-          this.saveCurrentState();
-        }, 5000); // Save every 5 seconds
-        
-        // Save state before page unload
-        window.addEventListener('beforeunload', () => {
-          this.saveCurrentState();
-        });
+        this._stateAbort = new AbortController();
+        this._stateLoadGeneration = 0;
+        this._stateSaveTimer = setInterval(() => this.saveCurrentState(), 5000);
+        window.addEventListener('beforeunload', () => this.saveCurrentState(), { signal: this._stateAbort.signal });
       }
-      
+
+      disposeStateManagement() {
+        if (this._stateAbort.signal.aborted) return;
+        clearInterval(this._stateSaveTimer);
+        this._stateSaveTimer = null;
+        this._stateLoadGeneration++;
+        this._stateAbort.abort();
+        this.stateManager.dispose();
+      }
+
       // Save current state to localStorage
       saveCurrentState() {
         if (!this.documentWorkspace?.disposed) {
@@ -239,8 +242,8 @@
           // Update the app with restored tabs
           this.tabs = restoredTabs;
           this.tabsRight = restoredTabsRight;
-          this.activeTabId = appState.activeTabIdLeft || appState.activeTabId || (this.tabs[0] && this.tabs[0].id) || null;
-          this.activeTabIdRight = appState.activeTabIdRight || (this.tabsRight[0] && this.tabsRight[0].id) || null;
+          this.activeTabId = appState.activeTabIdLeft ?? appState.activeTabId ?? this.tabs[0]?.id ?? null;
+          this.activeTabIdRight = appState.activeTabIdRight ?? this.tabsRight[0]?.id ?? null;
           
           // Ensure we have a valid active tab
           // Update UI
@@ -4071,22 +4074,22 @@ EOF`;
 
   initStateFileIO() {
     const input = document.getElementById('appStateFileInput');
-    if (input) {
-      input.addEventListener('change', async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        try {
-          const text = await file.text();
-          const snapshot = JSON.parse(text);
-          this.handleApplyStateSnapshot(snapshot);
-        } catch (err) {
-          alert('Failed to load state file.');
-          console.error(err);
-        } finally {
-          e.target.value = '';
-        }
-      });
-    }
+    input?.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.value = '';
+      if (!file) return;
+      const generation = ++this._stateLoadGeneration;
+      const current = () => !this._stateAbort.signal.aborted && generation === this._stateLoadGeneration;
+      try {
+        if (file.size > this.stateManager.codec.limits.maxBytes) throw new RangeError('State file exceeds the configured byte limit.');
+        const text = await file.text();
+        if (current()) this.handleApplyStateSnapshot(text);
+      } catch (error) {
+        if (!current()) return;
+        alert('Failed to load state file.');
+        console.error(error);
+      }
+    }, { signal: this._stateAbort.signal });
   }
 
   handleSaveStateToFile() {
@@ -4099,7 +4102,7 @@ EOF`;
         this.activeTabIdRight,
         this.columnWidths
       );
-      const blob = new Blob([JSON.stringify(snapshot)], { type: 'application/json' });
+      const blob = new Blob([this.stateManager.codec.stringify(snapshot)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -4122,10 +4125,15 @@ EOF`;
 
   handleApplyStateSnapshot(snapshot) {
     try {
+      if (this._stateAbort.signal.aborted) return false;
+      this._stateLoadGeneration++;
       const restored = this.stateManager.restoreFromSnapshot(snapshot);
-      if (!restored) { alert('Invalid state file.'); return; }
+      if (!restored) { alert('Invalid state file.'); return false; }
 
-      // Clear existing UI first
+      // Validation and copying completed before releasing any current source.
+      this.documentWorkspace?.releaseSourcesForReplacement();
+
+      // Replace the source collections only after validation.
       this.tabs = [];
       this.activeTabId = null;
       this.tabsRight = [];
@@ -4137,6 +4145,8 @@ EOF`;
         name: t.name,
         originalTreeData: t.originalTreeData,
         currentTreeData: t.originalTreeData,
+        isModified: t.isModified,
+        columnWidths: t.columnWidths,
         codeSearchTerms: t.codeSearchTerms || [],
         dataSearchTerms: t.dataSearchTerms || [],
         currentSortField: t.currentSortField || 'line',
@@ -4157,8 +4167,8 @@ EOF`;
       if (restored.app.columnWidths) {
         this.columnWidths = { ...this.columnWidths, ...restored.app.columnWidths };
       }
-      this.activeTabId = restored.app.activeTabIdLeft || (this.tabs[0] && this.tabs[0].id) || null;
-      this.activeTabIdRight = restored.app.activeTabIdRight || (this.tabsRight[0] && this.tabsRight[0].id) || null;
+      this.activeTabId = restored.app.activeTabIdLeft ?? this.tabs[0]?.id ?? null;
+      this.activeTabIdRight = restored.app.activeTabIdRight ?? this.tabsRight[0]?.id ?? null;
 
       try { localStorage.setItem('sidebarCollapsed', String(!!restored.app.sidebarCollapsed)); } catch(e) {}
       try { localStorage.setItem('rightPanelHidden', String(!!restored.app.rightPanelHidden)); } catch(e) {}
@@ -4219,8 +4229,9 @@ EOF`;
       if (this.myTreeGrid) this.myTreeGrid.updateVisibleNodes();
       if (this.myTreeGridRight) this.myTreeGridRight.updateVisibleNodes();
 
-      // Persist to localStorage for normal auto-restore too
-      this.saveCurrentState();
+      // Persist source records as well as the manifest for normal auto-restore.
+      this.stateManager.saveAppState(this.tabs, this.tabsRight, this.activeTabId, this.activeTabIdRight, this.columnWidths);
+      return true;
     } catch (e) {
       console.error('Failed to apply state snapshot', e);
       alert('Failed to apply state file.');

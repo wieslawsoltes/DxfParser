@@ -43,8 +43,7 @@ import './docking-services.mjs';
       );
       this.installReportContexts();
       this.installMutationTracking();
-      const previousDispose = workspace.dispose.bind(workspace);
-      workspace.dispose = () => { this.dispose(); previousDispose(); };
+      this.detachDispose = workspace.onDispose(() => this.dispose());
       global.addEventListener('beforeunload', event => {
         if ([...this.records.values()].some(r => r.tab.isModified)) { event.preventDefault(); event.returnValue = ''; }
       }, { signal: this.abort.signal });
@@ -247,6 +246,21 @@ import './docking-services.mjs';
       queueMicrotask(() => { if (!this.disposed) this.manager.ClearHistory(); });
     }
 
+    /** Retire old identities before a validated snapshot can reuse their IDs. */
+    releaseSourcesForReplacement() {
+      this.syncing = true;
+      try {
+        this.app.clearSideBySideDiff();
+        for (const record of [...this.records.values()]) {
+          this.app.drawingViews?.release(record.tab.id);
+          this.app.renderingDataController?.releaseDocument(record.tab.id);
+          this.app.stateManager.removeTabState(record.tab.id);
+          this.release(record);
+        }
+        this.manager.ClearHistory();
+      } finally { this.syncing = false; }
+    }
+
     release(record) {
       if (this.active === record) this.active = null;
       record.abort.abort(); record.grid.dispose();
@@ -401,7 +415,7 @@ import './docking-services.mjs';
 
     dispose() {
       if (this.disposed) return;
-      this.disposed = true; this.abort.abort(); this.app.contextMenuLifetime?.abort();
+      this.disposed = true; this.detachDispose?.(); this.abort.abort(); this.app.contextMenuLifetime?.abort();
       for (const record of this.records.values()) { record.abort.abort(); record.grid.dispose(); }
       for (const [name, method] of this.originalMethods) this.app[name] = method;
       this.records.clear();
