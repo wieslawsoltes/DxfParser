@@ -1,0 +1,56 @@
+name: Qualify dockable analysis
+on:
+  push:
+    branches: [work/analysis-docking-refactor]
+permissions:
+  contents: write
+concurrency:
+  group: qualify-analysis-docking
+  cancel-in-progress: true
+jobs:
+  source:
+    name: Materialize verified analysis refactor
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified refactor
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f scripts/analysis-docking.01.xzpart; then
+            cat scripts/analysis-docking.0{1,2}.xzpart | xz -dc > /tmp/analysis-docking.patch
+            echo 'f8740ae80d4c3991dfd97f359101a9c72fdffc46ad479303db921dcdddb3dc37  /tmp/analysis-docking.patch' | sha256sum -c -
+            git apply --check /tmp/analysis-docking.patch
+            git apply /tmp/analysis-docking.patch
+            rm scripts/analysis-docking.0{1,2}.xzpart
+          fi
+          if test -f scripts/analysis-docking-fix.patch; then
+            git apply --check scripts/analysis-docking-fix.patch
+            git apply scripts/analysis-docking-fix.patch
+            rm scripts/analysis-docking-fix.patch
+          fi
+          git add components packages scripts tests README.md
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'refactor(analysis): add dockable report layouts and reusable source indexes'
+            git push origin HEAD:work/analysis-docking-refactor
+          fi
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git archive HEAD --format=tar.gz -o /tmp/analysis-docking-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: analysis-docking-source
+          path: /tmp/analysis-docking-source.tar.gz
+          retention-days: 7
+  validate:
+    name: Validate dockable analysis and packages
+    needs: source
+    uses: ./.github/workflows/ci.yml
+    with:
+      revision: ${{ needs.source.outputs.revision }}
+    permissions:
+      contents: read
