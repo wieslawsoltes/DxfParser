@@ -366,7 +366,12 @@ import './docking-services.mjs';
       definition.node.dataset.sourceName = tab?.name || '';
       let caption = definition.node.querySelector(':scope > .dxf-report-source');
       if (!caption) { caption = element('div', 'dxf-report-source'); definition.node.prepend(caption); }
-      caption.textContent = tab ? `Source: ${tab.name}` : 'No drawing selected';
+      let sourceLabel = caption.querySelector('.dxf-report-source-label');
+      if (!sourceLabel) { sourceLabel = element('span', 'dxf-report-source-label'); caption.replaceChildren(sourceLabel); }
+      sourceLabel.textContent = tab ? `Source: ${tab.name}` : 'No drawing selected';
+      sourceLabel.title = sourceLabel.textContent;
+      const back = definition.node.querySelector('.backToTreeBtn');
+      if (back && !caption.contains(back)) caption.append(back);
     }
 
     installReportContexts() {

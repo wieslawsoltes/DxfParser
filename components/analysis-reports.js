@@ -97,9 +97,11 @@ import './analysis-services.mjs';
       let entry = this.views.get(containerId);
       if (!entry || !entry.view.host.isConnected) {
         entry?.view.dispose(); container.replaceChildren();
-        const kpis = el('div', 'analysis-kpis'), note = el('p', 'analysis-report-note'); container.append(kpis, note);
+        const overview = el('div', 'analysis-report-overview'), kpis = el('div', 'analysis-kpis'), note = el('p', 'analysis-report-note');
+        const context = el('details', 'analysis-report-context'); context.append(el('summary', '', 'About this report'), note);
+        overview.append(kpis, context); container.append(overview);
         const view = new AnalysisView(container, options);
-        entry = { view, kpis, note }; this.views.set(containerId, entry);
+        entry = { view, kpis, note, context }; this.views.set(containerId, entry);
         if (options.details === false) view.toggleDetails(false);
       } else {
         // New invocations may bind another source or use a new callback closure.
@@ -112,7 +114,7 @@ import './analysis-services.mjs';
       entry.sourceTabId = root.dataset.sourceTabId;
       entry.kpis.replaceChildren();
       for (const [label, value] of options.kpis || []) { const card = el('div', 'analysis-kpi'); card.append(el('strong', '', typeof value === 'number' ? value.toLocaleString() : value), el('span', '', label)); entry.kpis.append(card); }
-      entry.note.textContent = options.note || ''; entry.note.hidden = !options.note;
+      entry.note.textContent = options.note || ''; entry.note.hidden = !options.note; entry.context.hidden = !options.note;
       container._dataGrid = entry.view;
       entry.view.setTheme(this.app.tabularReports?.theme || 'light');
       return entry.view;

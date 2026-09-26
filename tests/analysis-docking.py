@@ -47,7 +47,9 @@ class DockingAnalysisTests(unittest.TestCase):
         self.page.evaluate("() => {d.setPreset('stacked');window.original=v.grid;}");self.settle()
         self.page.evaluate("() => {d.focus('visual');}");self.settle()
         self.assertJS("d.focused==='visual' && d.isVisible('visual') && !d.isVisible('records') && v.visuals.host.clientHeight>400")
+        self.page.locator('#primary .analysis-layout-menu > button').first.click();self.settle()
         self.page.locator('#primary').get_by_role('button',name='Restore panes',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("!d.focused && d.isVisible('records') && d.isVisible('details') && v.grid===original")
     def test_dock_05_state_roundtrip_keeps_nodes_and_rejects_foreign_or_missing_panels(self):
         self.page.evaluate("() => {d.setPreset('stacked');window.state=d.saveState();window.grid=v.grid;d.setPreset('tabs');d.restoreState(state);}");self.settle()
@@ -59,7 +61,9 @@ class DockingAnalysisTests(unittest.TestCase):
         self.page.evaluate('window.width=v.details.clientWidth')
         self.page.locator('#primary .analysis-dock-host .ad-splitter').last.focus();self.page.keyboard.press('ArrowLeft');self.settle()
         self.assertJS('v.details.clientWidth>width && d.custom')
+        self.page.locator('#primary .analysis-layout-menu > button').first.click();self.settle()
         self.page.locator('#primary').get_by_role('button',name='Undo layout',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS('Math.abs(v.details.clientWidth-width)<3')
     def test_dock_07_spreadsheet_and_chart_filters_stay_linked(self):
         self.page.locator('#primary .analysis-modes').get_by_role('button',name='Spreadsheet',exact=True).click();self.settle()
@@ -95,7 +99,9 @@ class DockingAnalysisTests(unittest.TestCase):
     def test_dock_13_native_tab_gesture_floats_and_reset_restores_panes(self):
         self.page.locator('#primary .analysis-dock-host .ad-tab[data-tab-id="details"]').dblclick();self.settle()
         self.assertJS("d.manager.Find('details').IsFloating && d.isVisible('details') && d.custom")
+        self.page.locator('#primary .analysis-layout-menu > button').first.click();self.settle()
         self.page.locator('#primary .analysis-layout-toolbar').get_by_role('button',name='Reset layout',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("!d.manager.Find('details').IsFloating && d.isVisible('records') && !d.custom")
     def test_dock_14_reload_restores_only_layout_metadata(self):
         self.page.evaluate("() => {d.setPreset('stacked');d.hide('visual');d.flush();}");self.settle()
@@ -107,7 +113,9 @@ class DockingAnalysisTests(unittest.TestCase):
         self.assertJS('v.visuals.diagram.viewBox.baseVal.width < 400 && v.visuals.diagram.getScreenCTM().a >= .98')
         self.page.evaluate("() => {d.focus('visual');}");self.settle()
         self.assertJS('v.visuals.diagram.viewBox.baseVal.width > 1000 && v.visuals.diagram.getScreenCTM().a >= .98')
+        self.page.locator('#primary .analysis-layout-menu > button').first.click();self.settle()
         self.page.locator('#primary').get_by_role('button',name='Restore panes',exact=True).click();self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS('v.visuals.diagram.viewBox.baseVal.width < 400 && v.visuals.diagram.getScreenCTM().a >= .98')
 
     def test_dock_16_visual_tab_focus_can_expand_and_restore_in_compact_mode(self):

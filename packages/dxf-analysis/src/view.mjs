@@ -1,3 +1,5 @@
+import { createControlMenu } from './control-menu.mjs';
+
 export function createAnalysisServices(env) {
 const { window, document, GridWeb, AbortController, Event, MutationObserver, ResizeObserver,
     navigator, Blob, URL, requestAnimationFrame, cancelAnimationFrame, getComputedStyle,
@@ -83,7 +85,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.sort = el('select'); this.sort.setAttribute('aria-label', `Sort ${this.title}`);
       this.option(this.sort, '-1', 'Original order'); this.columns.forEach((c, i) => this.option(this.sort, i, c.title));
       this.order = button('↑', () => { this.direction *= -1; this.applySort(); }, null, 'Reverse sort order');
-      this.reset = button('Reset filters', () => this.clearFilters());
+      this.reset = button('Reset filters', () => this.clearFilters()); this.reset.className = 'analysis-filter-reset'; this.reset.title = 'Reset filters';
       this.bar.append(this.search, this.scope, this.sort, this.order, this.reset);
       this.columnMenu = el('details', 'analysis-column-menu'); this.columnMenu.append(el('summary', '', 'Columns'));
       this.columnOptions = el('div'); this.columnMenu.append(this.columnOptions); this.bar.append(this.columnMenu);
@@ -101,7 +103,11 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.splitter.setAttribute('aria-orientation', 'vertical');
       this.details = el('aside', 'dxf-grid-details analysis-details'); this.details.setAttribute('aria-label', 'Selected row');
       this.main.append(this.stage, this.splitter, this.details);
-      this.host.append(this.heading, this.bar, this.facets, this.main); container.append(this.host);
+      this.filterMenu = createControlMenu(window, { label: `Filter and sort ${this.title}`, text: 'Filters', className: 'analysis-filter-menu' });
+      const searchOptions = el('div', 'analysis-search-options'); searchOptions.append(this.scope, this.sort, this.order);
+      this.filterMenu.content.append(searchOptions, this.facets, this.columnMenu);
+      this.bar.insertBefore(this.filterMenu.root, this.reset);
+      this.host.append(this.heading, this.bar, this.main); container.append(this.host);
       this.treeModel = new C.HierarchicalTreeDataGridSource([]);
       const presentation = new W.TreeDataGridPresentationOptions();
       this.columns.forEach((column, i) => {
@@ -199,6 +205,9 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             this.visuals?.layout();
           }
         });
+        this.layoutMenu = createControlMenu(window, { label: `${this.title} layout options`, text: 'Layout', className: 'analysis-layout-menu' });
+        this.layoutMenu.content.append(this.docking.toolbar);
+        this.heading.append(this.layoutMenu.root);
         this.splitter.remove(); this.visuals?.grip.remove(); this.visuals?.layout();
         if (options.showDetails === false) this.toggleDetails(false);
       }
@@ -273,6 +282,11 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.reset.hidden = !this.filtering;
       this.count.removeAttribute('data-error');
       this.count.textContent = `${this.filteredRows.length.toLocaleString()} / ${this.allRows.length.toLocaleString()} records`;
+      if (this.filterMenu) {
+        const active = this.facetValues.size + Number(!!query) + Number(!!this.visualFilter);
+        this.filterMenu.trigger.textContent = active ? `Filters (${active})` : 'Filters';
+        this.filterMenu.trigger.dataset.active = String(active > 0);
+      }
       this.selectRow(matchRow, false); this.refreshSpreadsheet(); this.options.onFilterChange?.(this); this.visuals?.schedule(); this.visuals?.renderFilter();
     }
     setVisualFilter(filter) {
@@ -580,7 +594,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
       this.docking?.setTheme(theme); this.spreadsheet?.setTheme(theme); this.relatedView?.setTheme(theme); this.drillView?.setTheme(theme); this.visuals?.schedule();
     }
     dispose() {
-      if (this.disposed) return; this.disposed = true; clearTimeout(this.searchTimer); this.abort.abort();
+      if (this.disposed) return; this.disposed = true; this.filterMenu?.dispose(); this.layoutMenu?.dispose(); clearTimeout(this.searchTimer); this.abort.abort();
       this.resizeObserver.disconnect(); this.docking?.dispose(); this.visuals?.dispose(); this.closeDrill(); this.relatedView?.dispose(); this.spreadsheet?.dispose(); this.off.forEach(off => off());
       this.grid.Dispose(); this.treeModel.Dispose(); this.rows = this.allRows = this.visibleRows = this.filteredRows = this.filteredTree = this.contextRows = this.matchingRows = []; this.related = []; this.selectedRow = this.pinned = this.visualFilter = null; this.byKey.clear(); this.details.replaceChildren(); this.host.remove();
     }

@@ -37,7 +37,7 @@ for (const name of ${JSON.stringify(names)}) {
     const specifier = '@wieslawsoltes/' + name;
     const esm = await import(specifier), cjs = require(specifier);
     assert.equal(esm, cjs);
-    assert.equal(require(specifier + '/package.json').version, ['dxf-analysis','dxf-inspector'].includes(name) ? '0.3.0' : name === 'dxf-rendering-view' ? '0.2.0' : '0.1.0');
+    assert.equal(require(specifier + '/package.json').version, name === 'dxf-analysis' ? '0.3.1' : name === 'dxf-inspector' ? '0.3.0' : name === 'dxf-rendering-view' ? '0.2.0' : '0.1.0');
 }
 const commands = await import('@wieslawsoltes/dxf-command-line');
 assert.deepEqual(commands.parseCommand('layout "Sheet A"').args, ['Sheet A']);

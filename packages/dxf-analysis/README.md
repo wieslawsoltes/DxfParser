@@ -178,3 +178,20 @@ included. Tests and app adapters are not shipped.
 ## License
 
 [MIT](LICENSE). Host-supplied libraries retain their own licenses.
+
+## Compact report controls
+
+Reports use two non-wrapping header rows: presentation shortcuts above search,
+filter status, reset, copy and CSV. **Filters** opens retained column-search, sort,
+facet, hierarchy and column-visibility controls. **Layout** contains adaptive
+layout presets, reset, history and pane restoration. **Chart options** contains
+grouping, measures, populations, matrix axes, chart-data inspection and SVG export.
+The visualization selector and focus action stay beside the chart. Opening menus
+does not resize, rebuild, or reset the report model or spreadsheet.
+
+Secondary controls use native auto popovers above docking overflow clips, with
+viewport-bounded scrolling, keyboard access, Escape and outside-click dismissal.
+Older browsers receive bounded inline disclosures. Menus and resize listeners are
+owned by their views and disposed with them. Error status remains visible in short
+layouts; touch controls use larger targets. The application displays KPI values in
+one row and exposes explanatory scope notes under **About this report**.

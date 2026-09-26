@@ -1,3 +1,5 @@
+import { createControlMenu } from './control-menu.mjs';
+
 export function createAnalysisVisuals(env) {
 const { window, document, GridWeb, AbortController, Event, MutationObserver, ResizeObserver,
     navigator, Blob, URL, XMLSerializer, requestAnimationFrame, cancelAnimationFrame, getComputedStyle,
@@ -65,7 +67,10 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             this.body = el('div', 'analysis-visual-body');
             this.footer = el('div', 'analysis-visual-footer');
             this.footer.setAttribute('role', 'status');
-            this.host.append(this.tools, this.caption, this.body, this.footer);
+            this.optionsMenu = createControlMenu(window, { label: `${view.title} chart options`, text: 'Chart options', className: 'analysis-chart-menu' });
+            for (const control of [...this.tools.children]) if (control !== this.kind && control !== this.focus) this.optionsMenu.content.append(control);
+            this.optionsMenu.content.append(this.caption); this.tools.append(this.optionsMenu.root);
+            this.host.append(this.tools, this.body, this.footer);
             this.grip = el('div', 'analysis-visual-grip');
             this.grip.tabIndex = 0;
             this.grip.setAttribute('role', 'separator');
@@ -83,7 +88,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             view.stage.prepend(this.host, this.grip);
             this.filterBar = el('div', 'analysis-visual-filter');
             this.filterBar.hidden = true;
-            view.facets.after(this.filterBar);
+            view.bar.after(this.filterBar);
             this.observer = new ResizeObserver(() => this.layout());
             this.observer.observe(view.host);
             this.layout();
@@ -390,6 +395,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             this.footer.textContent = `Current page/filter: ${fmt(b.total)} bytes · ${fmt(b.printable)} printable ASCII · entropy ${b.entropy.toFixed(3)} bits/byte${b.invalid ? ' · ' + b.invalid + ' invalid rows excluded' : ''}. Click a range to inspect rows containing those bytes.`;
         }
         openData() {
+            this.optionsMenu?.hide();
             if (this.disposed)
                 return;
             if (this.dirty)
@@ -439,7 +445,7 @@ const { window, document, GridWeb, AbortController, Event, MutationObserver, Res
             this.schedule();
         }
         dispose() { if (this.disposed)
-            return; this.disposed = true; cancelAnimationFrame(this.frame); this.observer.disconnect(); this.host.remove(); this.grip.remove(); this.filterBar.remove(); this.toggle.remove(); this.chartData = []; this.chartRows = []; this.relationRows = []; this.diagram = null; this.body.replaceChildren(); this.footer.replaceChildren(); this.tools.replaceChildren(); this.view = null; this.drag = null; }
+            return; this.disposed = true; this.optionsMenu?.dispose(); cancelAnimationFrame(this.frame); this.observer.disconnect(); this.host.remove(); this.grip.remove(); this.filterBar.remove(); this.toggle.remove(); this.chartData = []; this.chartRows = []; this.relationRows = []; this.diagram = null; this.body.replaceChildren(); this.footer.replaceChildren(); this.tools.replaceChildren(); this.view = null; this.drag = null; }
     }
     AnalysisVisuals.sequence = 0;
     return AnalysisVisuals;

@@ -62,6 +62,7 @@ class VisualTests(unittest.TestCase):
 
     def test_03_chart_data_keeps_exact_sources_and_returns_to_parent(self):
         self.visual();self.page.evaluate('() => {window.gridBefore=v.grid;window.k=v.selectedKey;}')
+        self.page.locator('#statsOverlay .analysis-chart-menu > button').first.click();self.settle()
         self.page.locator('#statsOverlay').get_by_role('button',name='Chart data',exact=True).click();self.settle()
         self.assertJS("v.drillView && !v.drillView.visuals && v.drillView.rows.length===v.rows.length && v.drillView.rows[0].values[1]===v.visuals.chartData[0].value")
         self.page.evaluate("v.drillView.rows[0].actions[0].run()");self.settle()
@@ -69,7 +70,9 @@ class VisualTests(unittest.TestCase):
 
     def test_04_facets_search_and_visual_filters_compose(self):
         self.visual('showTextsOverlayBtn','overlayTextsContent','distribution')
+        self.page.locator('#textsOverlay .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('#textsOverlay').get_by_role('combobox',name='Type filter',exact=True).select_option('TEXT');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.page.evaluate('window.contextCount=v.contextRows.length;v.visuals.filter(v.visuals.chartData[0])');self.settle()
         self.assertJS("v.matchingRows.every(r=>r.values[1]==='TEXT') && v.contextRows.length===contextCount && v.visuals.chartData.reduce((n,b)=>n+b.count,0)===contextCount")
         self.page.locator('#textsOverlay').get_by_role('button',name='Reset filters',exact=True).click();self.settle()
@@ -100,7 +103,9 @@ class VisualTests(unittest.TestCase):
     def test_08_fonts_count_roots_once_and_allow_leaf_population(self):
         self.visual('showFontsOverlayBtn','overlayFontsContent')
         self.assertJS("v.visuals.state.scope==='roots' && v.visuals.chartData.reduce((n,b)=>n+b.value,0)===v.rows.reduce((n,r)=>n+r.values[3],0)")
+        self.page.locator('#fontsOverlay .analysis-chart-menu > button').first.click();self.settle()
         self.page.locator('#fontsOverlay').get_by_role('combobox',name='Visual population',exact=True).select_option('leaves');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS('v.visuals.population().every(r=>!r.children?.length)')
 
     def test_09_reference_graph_retains_duplicate_candidates_and_missing_targets(self):
@@ -138,7 +143,9 @@ class VisualTests(unittest.TestCase):
     def test_14_line_type_cards_reorder_with_table_sort(self):
         self.visual('showLineTypesOverlayBtn','overlayLineTypesContent')
         self.assertGreater(self.page.locator('#lineTypesOverlay .analysis-preview-card svg').count(),0)
+        self.page.locator('#lineTypesOverlay .analysis-filter-menu > button').first.click();self.settle()
         self.page.locator('#lineTypesOverlay').get_by_role('combobox',name='Sort Line Types',exact=True).select_option('2');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS('v.visuals.chartRows[0].values[2]===Math.min(...v.contextRows.map(r=>r.values[2]))')
 
     def test_15_hex_visual_counts_current_page_bytes(self):
@@ -150,7 +157,9 @@ class VisualTests(unittest.TestCase):
     def test_16_frequency_populations_do_not_mix_denominators(self):
         self.visual('showCloudOverlayBtn','overlayObjectCloud')
         self.assertJS('new Set(v.visuals.population().map(r=>r.values[1])).size===1')
+        self.page.locator('#cloudOverlay .analysis-chart-menu > button').first.click();self.settle()
         self.page.locator('#cloudOverlay').get_by_role('combobox',name='Frequency population',exact=True).select_option('Group code');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.assertJS("v.visuals.population().every(r=>r.values[1]==='Group code') && v.visuals.chartData.reduce((n,b)=>n+b.value,0)===v.contextRows.filter(r=>r.values[1]==='Group code').reduce((n,r)=>n+r.values[2],0)")
 
     def test_17_pinned_comparison_is_value_snapshot_not_live_row(self):
@@ -168,7 +177,9 @@ class VisualTests(unittest.TestCase):
 
     def test_20_svg_export_is_self_contained_safe_and_theme_resolved(self):
         self.bare([{'key':'x','values':['<script>alert(1)</script>',3,'A']}]);self.page.evaluate("v.setTheme('dark')");self.settle()
+        self.page.locator('#visual-test .analysis-chart-menu > button').first.click();self.settle()
         with self.page.expect_download() as pending:self.page.locator('#visual-test').get_by_role('button',name='Save SVG',exact=True).click()
+        self.page.keyboard.press('Escape');self.settle()
         path=ARTIFACTS/'safe-dark.svg';pending.value.save_as(path);text=path.read_text();root=ET.fromstring(text)
         self.assertIn('&lt;script&gt;',text);self.assertNotIn('<script>',text);self.assertNotIn('onclick=',text);self.assertNotIn('var(',text)
         self.assertEqual('{http://www.w3.org/2000/svg}svg',root.tag)
@@ -178,6 +189,7 @@ class VisualTests(unittest.TestCase):
         self.visual('showTextsOverlayBtn','overlayTextsContent');self.page.evaluate("window.source=app.documentWorkspace.active;w.manager.Find('textsOverlay').Dock();w.manager.Find(source.id).Close()");self.settle()
         self.page.evaluate("v.runAction(()=>v.selectedRow.actions.find(a=>a.label==='Show in Tree').run())");self.settle()
         self.assertJS("v.count.textContent.includes('source drawing is closed') && v.rows.length>0 && w.isOpen('textsOverlay')")
+        self.page.locator('#textsOverlay .analysis-chart-menu > button').first.click();self.settle()
         self.page.locator('#textsOverlay').get_by_role('button',name='Chart data',exact=True).click();self.settle();self.assertJS('v.drillView.rows.length>0')
 
     def test_22_locate_in_native_drawing_uses_bound_source_not_active_file(self):
@@ -222,7 +234,9 @@ class VisualTests(unittest.TestCase):
         self.visual();self.page.locator('#statsOverlay .av-bar').first.focus();self.page.keyboard.press('Enter');self.settle()
         self.assertJS("v.visualFilter && document.activeElement.matches('.av-bar')")
         self.page.keyboard.press('Enter');self.settle();self.assertJS('!v.visualFilter')
+        self.page.locator('#statsOverlay .analysis-layout-menu > button').first.click();self.settle()
         self.page.locator('#statsOverlay .analysis-layout-toolbar select').select_option('stacked');self.settle()
+        self.page.keyboard.press('Escape');self.settle()
         self.page.evaluate('() => {window.visualHeight=v.visuals.host.clientHeight;}')
         self.page.locator('#statsOverlay .analysis-dock-host .ad-splitter[aria-orientation=horizontal]').focus();self.page.keyboard.press('ArrowDown');self.settle()
         self.assertJS('v.visuals.host.clientHeight>visualHeight')
@@ -238,6 +252,7 @@ class VisualTests(unittest.TestCase):
 
     def test_31_closed_source_chart_data_can_filter_snapshot_records(self):
         self.visual();self.page.evaluate("window.source=app.documentWorkspace.active;w.manager.Find('statsOverlay').Dock();w.manager.Find(source.id).Close()")
+        self.page.locator('#statsOverlay .analysis-chart-menu > button').first.click();self.settle()
         self.settle();self.page.locator('#statsOverlay').get_by_role('button',name='Chart data',exact=True).click();self.settle()
         self.page.locator('#statsOverlay .analysis-drill .analysis-heading').get_by_role('button',name='Details',exact=True).click();self.settle()
         self.page.locator('#statsOverlay .analysis-drill .analysis-details > .dxf-grid-actions').get_by_role('button',name='Inspect records',exact=True).click();self.settle()
