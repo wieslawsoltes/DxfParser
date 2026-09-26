@@ -182,3 +182,22 @@ test('constructor rejects invalid storage contracts and overlapping or empty key
     assert.throws(()=>new StateManager({storage:{}}),/Storage/);
     for(const options of [{tabStatePrefix:''},{storageKey:''},{storageKey:'tab.a',tabStatePrefix:'tab.'},{getUiState:0},{maxAge:-1}]) assert.throws(()=>new StateManager(options));
 });
+
+
+test('file snapshots require source trees while storage can retain metadata-only records', () => {
+    const codec=new StateCodec(), value=snapshot();
+    value.leftTabs[0].originalTreeData=null;
+    assert.throws(()=>codec.restoreSnapshot(value),/source tree/);
+    assert.equal(codec.parseTab(JSON.stringify(value.leftTabs[0]),0).originalTreeData,null);
+    value.leftTabs[0].originalTreeData=[];
+    assert.deepEqual(codec.restoreSnapshot(value).leftTabs[0].originalTreeData,[]);
+});
+
+test('manifest encoding completes before source writes start', () => {
+    const storage=new Storage(), manager=new StateManager({storage,limits:{maxBytes:500}});
+    const sources=Array.from({length:120},(_,id)=>({id,name:'',originalTreeData:[]}));
+    // Each source fits independently; the complete manifest exceeds the byte budget.
+    assert.ok(manager.encodeTab(sources[0]).text.length<500);
+    assert.equal(manager.saveAppState(sources,[],0,null,null),false);
+    assert.equal(storage.length,0);
+});

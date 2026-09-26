@@ -53,7 +53,9 @@ class DockingTests(unittest.TestCase):
         self.context.set_default_timeout(7000)
         self.page = self.context.new_page()
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
-        self.page.on('dialog', lambda dialog: dialog.dismiss())
+        self.page.on('dialog', lambda dialog: dialog.accept()
+                     if dialog.type == 'beforeunload' and getattr(self, 'confirm_navigation', False)
+                     else dialog.dismiss())
 
     def tearDown(self):
         self.page.screenshot(path=str(ARTIFACTS / f'{self._testMethodName}.png'))

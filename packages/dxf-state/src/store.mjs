@@ -38,10 +38,11 @@ export class StateManager {
         // not a multi-key transaction; individual failures remain observable.
         try {
             const manifest = this.codec.buildManifest(left, right, activeLeft, activeRight, widths, this.getUiState(), this.now());
+            const manifestText = this.codec.stringify(manifest);
             const tabs = [...left, ...right].map(tab => this.encodeTab(tab));
             let complete = true;
             for (const tab of tabs) if (this.writeTab(tab) !== 'saved') complete = false;
-            this.storage.setItem(this.storageKey, this.codec.stringify(manifest));
+            this.storage.setItem(this.storageKey, manifestText);
             return complete;
         } catch (error) { this.report(error, 'save-state'); return false; }
     }

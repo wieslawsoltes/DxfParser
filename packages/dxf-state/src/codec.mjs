@@ -215,7 +215,12 @@ export class StateCodec {
         const left = input.leftTabs ?? [], right = input.rightTabs ?? [];
         if (!Array.isArray(left) || !Array.isArray(right)) throw new TypeError('Snapshot tabs must be arrays.');
         tabIds(left.map(tab => tab?.id), right.map(tab => tab?.id), this.limits);
-        const leftTabs = left.map(tab => normalizeTab(tab, this.limits)), rightTabs = right.map(tab => normalizeTab(tab, this.limits));
+        const normalizeSource = tab => {
+            const source = normalizeTab(tab, this.limits);
+            if (source.originalTreeData === null) throw new TypeError('Snapshot sources must contain a source tree.');
+            return source;
+        };
+        const leftTabs = left.map(normalizeSource), rightTabs = right.map(normalizeSource);
         const result = { app: appState(input.app ?? {}, leftTabs.map(tab => tab.id), rightTabs.map(tab => tab.id)), leftTabs, rightTabs };
         checkText(JSON.stringify(result), this.limits);
         return result;

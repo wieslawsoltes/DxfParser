@@ -31,7 +31,9 @@ const detachedSnapshot = codec.restoreSnapshot(text);
 ```
 
 The codec reads the existing version-1 DxfParser file format and legacy unversioned
-storage manifests with `tabIds`/`activeTabId`. Default keys remain
+storage manifests with `tabIds`/`activeTabId`. File snapshots require a source tree
+for every tab (an empty tree is valid); metadata-only storage fallbacks cannot
+replace open sources through snapshot import. Default keys remain
 `dxf_parser_state` and `dxf_tab_`. Layouts, images, fonts and comparison sessions
 belong to their own components; they are not part of these source snapshots.
 

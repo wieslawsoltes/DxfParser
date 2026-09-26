@@ -60,8 +60,9 @@ class StatePersistenceTests(h.DockingTests):
         self.page.evaluate('''() => {
             window.rejected=app.handleApplyStateSnapshot({...stateSnapshot,version:999});
             window.duplicateRejected=app.handleApplyStateSnapshot({...stateSnapshot,rightTabs:[stateSnapshot.leftTabs[0]]});
+            window.missingTreeRejected=app.handleApplyStateSnapshot({...stateSnapshot,leftTabs:[{...stateSnapshot.leftTabs[0],originalTreeData:null}]});
         }''')
-        self.assertJS('rejected===false && duplicateRejected===false && app.tabs[0]===sourceTab && dw.records.size===1')
+        self.assertJS('rejected===false && duplicateRejected===false && missingTreeRejected===false && app.tabs[0]===sourceTab && dw.records.size===1')
     def test_state_04_file_import_is_copy_isolated_and_survives_reload(self):
         self.state()
         value=self.page.evaluate('stateSnapshot')
@@ -69,6 +70,8 @@ class StatePersistenceTests(h.DockingTests):
         value['leftTabs'][0]['name']='restored-state.dxf'
         self.upload(value)
         self.page.wait_for_function('app.tabs[0]?.name==="restored-state.dxf"')
+        # Keep the modified flag and explicitly accept the real unsaved-source prompt.
+        self.confirm_navigation=True
         self.page.reload(wait_until='domcontentloaded')
         self.page.wait_for_function('window.app?.tabs[0]?.name==="restored-state.dxf"')
         self.assertJS('app.tabs[0].isModified && app.tabs[0].originalTreeData.length>0')
